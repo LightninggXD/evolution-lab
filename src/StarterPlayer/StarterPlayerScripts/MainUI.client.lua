@@ -1,0 +1,5134 @@
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local GameConfig = require(RS.Modules.GameConfig)
+local PetModel = require(RS.Modules.PetModel)
+local Remotes = RS.Remotes
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local currentData = nil
+
+-- ================= helpers =================
+local function formatNumber(n)
+	n = math.floor(n)
+	if n < 1000 then return tostring(n) end
+	local suffixes = {"K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp"}
+	local mag = 0
+	while n >= 1000 and mag < #suffixes do
+		n = n / 1000
+		mag += 1
+	end
+	return string.format("%.2f%s", n, suffixes[mag])
+end
+
+local function corner(parent, radius)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = radius or UDim.new(0, 12)
+	c.Parent = parent
+	return c
+end
+
+local function stroke(parent, thickness, color)
+	local s = Instance.new("UIStroke")
+	s.Thickness = thickness or 2
+	s.Color = color or Color3.fromRGB(255,255,255)
+	s.Transparency = 0.4
+	s.Parent = parent
+	return s
+end
+
+local function gradient(parent, colorSequence, rotation)
+	local g = Instance.new("UIGradient")
+	g.Color = colorSequence
+	g.Rotation = rotation or 90
+	g.Parent = parent
+	return g
+end
+
+-- ================= shared design system (ReplicatedStorage.Modules.UITheme) =================
+local UITheme = require(RS.Modules.UITheme)
+
+local OUTLINE_COLOR = UITheme.Color.Outline
+local DISPLAY_FONT = UITheme.Font.Display
+-- LIGHT, AND THE ONE PLACE IT HAS TO CHANGE. Every panel in the game reads this one value --
+-- Daily, Zones, Journal, Rebirth, Pets, Fusion, Inventory, Character, Shop, Season -- so the whole
+-- UI moves together or not at all. It started at rgb(48,42,72), which was near enough to black
+-- that the panels read as a debug overlay dropped on a bright cartoon world; rgb(92,86,128) was a
+-- step and still read dark.
+--
+-- THE WHITE TEXT SURVIVES ON A LIGHT SHELL BECAUSE OF THE OUTLINE, not because of the fill. Every
+-- display label in the kit is white with a 4px near-black stroke (Color.Outline, rgb(26,18,36)),
+-- and that stroke is what carries it -- which is exactly how the reference games put white text on
+-- cream panels. The gradient helps too: GradientFor lifts the top stop to rgb(244,243,251) and
+-- drops the bottom to rgb(163,160,176), so the panel has a lit top and a shaded foot rather than
+-- one flat wash.
+local PANEL_SHELL = Color3.fromRGB(226, 222, 245)
+
+-- Roblox's own TextLabel default. A label still carrying it never picked a colour -- see themeLabel.
+
+-- Pet rows sit one step lighter than the panel shell. The tier colour goes on a stripe rather
+-- than the whole card because every PetTierColor is pale (luminance 0.61-0.86 -- Normal is
+-- rgb(220,220,220)), and a pale card cannot carry the white outlined display text.
+-- Moves WITH the shell above -- and now moves the OTHER WAY. It was "one step lighter" while the
+-- panel was dark; on a light panel a lighter row is invisible against it, so the relationship
+-- inverts and the row becomes one step darker. Still well above the outline, so the white row text
+-- keeps its contrast.
+local PET_ROW_SHELL = Color3.fromRGB(178, 172, 208)
+
+local function shade(c, amt)
+	return UITheme.Shade(c, amt)
+end
+
+local function gradientForColor(baseColor)
+	return UITheme.GradientFor(baseColor)
+end
+
+-- Bright rim painted on whatever is actionable right now -- the one "come here" signal, shared
+-- by the Daily board and the Stage Mastery list. Declared up here with the other constants
+-- because both readers are functions defined further down, and a `local` introduced after them
+-- would resolve to a nil global inside those closures rather than to this value.
+local READY_RIM = shade(UITheme.Color.Green, 0.5)
+
+-- Every readable label: display font + thick dark outline + autosized (never a fixed 11-13px).
+local function themeLabel(label, maxSize, color)
+	if not (label:IsA("TextLabel") or label:IsA("TextButton") or label:IsA("TextBox")) then
+		return label
+	end
+	if label:GetAttribute("Themed") then
+		return label
+	end
+	label:SetAttribute("Themed", true)
+	label.Font = DISPLAY_FONT
+	label.TextStrokeTransparency = 1
+	if color then
+		label.TextColor3 = color
+	else
+		-- A label that never picked a colour still carries Roblox's near-black default, and
+		-- OutlineText below wraps it in a dark stroke -- dark on dark, which is how every panel
+		-- title, the pet/zone row names and the toast message ended up unreadable.
+		--
+		-- This used to test `label.TextColor3 == ROBLOX_DEFAULT_TEXT` and that comparison is
+		-- ALWAYS false: the engine's default is a different float from the one Color3.fromRGB
+		-- computes for the same 27,42,53, so the branch never ran and the bug was never actually
+		-- fixed. Luminance is the honest test, and every colour this UI sets on purpose is bright.
+		local c = label.TextColor3
+		if 0.299 * c.R + 0.587 * c.G + 0.114 * c.B < 0.35 then
+			label.TextColor3 = UITheme.Color.White
+		end
+	end
+	if not label:FindFirstChildOfClass("UIStroke") then
+		UITheme.OutlineText(label, 4) -- matches UITheme's own default; see the note there
+	end
+	if not label:FindFirstChildOfClass("UITextSizeConstraint") then
+		local maxT = maxSize
+		if not maxT then
+			local h = label.Size.Y.Offset
+			if h <= 0 then h = 26 end
+			maxT = math.clamp(math.floor(h * 0.85), 14, 30)
+		end
+		UITheme.AutoSize(label, math.min(14, maxT), maxT)
+	end
+	return label
+end
+
+--[[
+	HARD INVARIANT (this is the bug that started the redesign): the gloss sheen must never
+	paint over content. Content children of a themed surface are pushed to Shell+3, strictly
+	above the gloss at Shell+1. Nested surfaces keep their own relative stacking via `delta`.
+]]
+local function liftChildren(inst)
+	local baseZ = inst.ZIndex
+	local function lift(child)
+		if not child:IsA("GuiObject") then return end
+		if child.Name == "Gloss" or child.Name == "Shadow" then return end
+		local target = baseZ + UITheme.Z.Content
+		if child.ZIndex >= target then return end
+		local delta = target - child.ZIndex
+		child.ZIndex = target
+		for _, d in ipairs(child:GetDescendants()) do
+			if d:IsA("GuiObject") then
+				d.ZIndex = d.ZIndex + delta
+			end
+		end
+	end
+	for _, child in ipairs(inst:GetChildren()) do
+		lift(child)
+	end
+	inst.ChildAdded:Connect(lift)
+end
+
+--[[
+	Chunky glossy surface applied to an EXISTING instance (the ~30 legacy call sites).
+	Thick dark outline + moulded vertical gradient + hard bottom lip (drop shadow that is
+	safe inside UIListLayout/UIGridLayout parents) + a FAINT sheen that can never cover text.
+	Returns the UIStroke, same as the old helper.
+]]
+local function styleCard(inst, baseColor, radius, thickness)
+	baseColor = baseColor or UITheme.Color.Blue
+	local cornerRadius = (typeof(radius) == "UDim") and radius or UDim.new(0, radius or 16)
+
+	inst.BackgroundColor3 = baseColor
+	inst.BackgroundTransparency = 0
+	inst.BorderSizePixel = 0
+	inst:SetAttribute("BaseColor", baseColor)
+	corner(inst, cornerRadius)
+
+	-- 5 to match UITheme.applyShell. These two functions build the SAME object by two routes --
+	-- anything constructed here has to look identical to anything constructed there, or the HUD ends
+	-- up with two button styles on one screen.
+	local strokeInst = Instance.new("UIStroke")
+	strokeInst.Thickness = thickness or 5
+	strokeInst.Color = OUTLINE_COLOR
+	strokeInst.Transparency = 0
+	strokeInst.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	strokeInst.LineJoinMode = Enum.LineJoinMode.Round
+	strokeInst.Parent = inst
+
+	local grad = Instance.new("UIGradient")
+	grad.Name = "Gradient"
+	grad.Rotation = 90
+	grad.Color = UITheme.GradientFor(baseColor)
+	grad.Parent = inst
+
+	local lip = Instance.new("Frame")
+	lip.Name = "Shadow"
+	-- one step below the gradient's bottom stop, not a black bar -- mirrors UITheme.addShadow
+	lip.BackgroundColor3 = UITheme.Shade(baseColor, -0.38)
+	lip.BorderSizePixel = 0
+	lip.AnchorPoint = Vector2.new(0.5, 1)
+	lip.Position = UDim2.new(0.5, 0, 1, 0)
+	lip.Size = UDim2.new(1, 0, 0, 6)
+	lip.ZIndex = inst.ZIndex
+	lip:SetAttribute("IsLip", true)
+	corner(lip, cornerRadius)
+	lip.Parent = inst
+
+	local gloss = Instance.new("Frame")
+	gloss.Name = "Gloss"
+	gloss.BackgroundColor3 = UITheme.Color.White
+	gloss.BackgroundTransparency = 0.72 -- invariant: >= 0.72 (mirrors UITheme.addGloss)
+	gloss.BorderSizePixel = 0
+	gloss.Size = UDim2.new(0.88, 0, 0.4, 0)
+	gloss.Position = UDim2.new(0.06, 0, 0.06, 0)
+	gloss.ZIndex = inst.ZIndex + UITheme.Z.Gloss
+	corner(gloss, UDim.new(1, 0))
+	local glossGrad = gradient(gloss, ColorSequence.new(UITheme.Color.White), 90)
+	glossGrad.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.55),
+		NumberSequenceKeypoint.new(0.7, 0.92),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	gloss.Parent = inst
+
+	liftChildren(inst)
+	return strokeInst
+end
+
+local function styleButton(btn, baseColor, radius, thickness)
+	btn.AutoButtonColor = false
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.TextStrokeTransparency = 1
+	local strokeInst = styleCard(btn, baseColor, radius, thickness)
+
+	if btn:IsA("TextButton") then
+		-- A TextButton's own text draws at the button's ZIndex, i.e. UNDER the gloss. Mirror it
+		-- into a child label above the gloss so `btn.Text = ...` keeps working at every call site.
+		local proxy = Instance.new("TextLabel")
+		proxy.Name = "Label"
+		proxy.BackgroundTransparency = 1
+		proxy.Size = UDim2.new(1, -14, 1, -10)
+		proxy.Position = UDim2.new(0.5, 0, 0.5, 0)
+		proxy.AnchorPoint = Vector2.new(0.5, 0.5)
+		proxy.TextColor3 = btn.TextColor3
+		proxy.TextWrapped = true
+		proxy.Text = btn.Text
+		proxy.ZIndex = btn.ZIndex + UITheme.Z.Content
+		proxy.Parent = btn
+		themeLabel(proxy, 24)
+		btn.TextTransparency = 1
+		btn:GetPropertyChangedSignal("Text"):Connect(function()
+			proxy.Text = btn.Text
+		end)
+		btn:GetPropertyChangedSignal("TextColor3"):Connect(function()
+			proxy.TextColor3 = btn.TextColor3
+		end)
+
+		-- PRESS FEEDBACK THAT SURVIVES A LAYOUT.
+		--
+		-- The sink was `btn.Position = resting + 3px`, and a UIListLayout or UIGridLayout parent
+		-- rewrites Position on every layout pass -- so it was reverted before it could be seen. Every
+		-- button inside a list was silently dead on click: the bottom-right quick row, the Pets
+		-- action row, the Pets/Potions tabs, the Season track. AutoButtonColor is off too, so there
+		-- was no fallback tint either -- half the game's buttons simply did not respond.
+		--
+		-- A UIScale is not a layout property, so nothing overwrites it. Squashing to 0.96 reads as
+		-- the same push as a 3px sink and works identically in a list, in a grid and free-positioned.
+		local lip = btn:FindFirstChild("Shadow")
+		local squash = btn:FindFirstChildOfClass("UIScale")
+		if not squash then
+			squash = Instance.new("UIScale")
+			squash.Parent = btn
+		end
+		local pressed = false
+		btn.MouseButton1Down:Connect(function()
+			if pressed then return end
+			pressed = true
+			squash.Scale = 0.96
+			if lip then lip.Size = UDim2.new(1, 0, 0, 3) end
+		end)
+		local function release()
+			if not pressed then return end
+			pressed = false
+			squash.Scale = 1
+			if lip then lip.Size = UDim2.new(1, 0, 0, 6) end
+		end
+		btn.MouseButton1Up:Connect(release)
+		btn.MouseLeave:Connect(release)
+	end
+
+	return strokeInst
+end
+
+-- Re-tint an already-styled button/card at runtime (keeps the gradient in sync with color swaps).
+local function setButtonColor(btn, baseColor)
+	UITheme.SetColor(btn, baseColor)
+end
+
+-- ================= root gui =================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "EvolutionLabUI"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = playerGui
+
+-- ===== Top bar: Stage + DNA =====
+local topBar = Instance.new("Frame")
+topBar.Name = "TopBar"
+topBar.Size = UDim2.new(1, 0, 0, 90)
+topBar.Position = UDim2.new(0, 0, 0, 0)
+topBar.BackgroundTransparency = 1
+topBar.Parent = screenGui
+
+local stageCard = UITheme.Card(topBar, {
+	name = "StageCard",
+	text = "🧬 Cell",
+	color = UITheme.Color.Purple,
+	size = UDim2.new(0, 240, 0, 52),
+	-- y=42 clears the Roblox topbar (menu/chat icons own the top ~36px on the left).
+	position = UDim2.new(0, 20, 0, 42),
+	radius = 16,
+	maxTextSize = 28,
+})
+local stageLabel = stageCard.Label
+
+local dnaCard = UITheme.Card(topBar, {
+	name = "DNACard",
+	text = "🧬 0 DNA",
+	color = UITheme.Color.Blue,
+	size = UDim2.new(0, 300, 0, 74),
+	position = UDim2.new(1, -20, 0, 12),
+	anchorPoint = Vector2.new(1, 0),
+	radius = 18,
+	maxTextSize = 36,
+})
+local dnaLabel = dnaCard.Label
+
+-- ===== Center hint: how to get DNA now =====
+-- It teaches the one thing a player who has just landed does not know, and then it goes. It used
+-- to be permanent: nothing in the file ever hid it, so a Star Weaver sitting on 59 billion DNA was
+-- still being told where DNA comes from -- and at y=22 under an IgnoreGuiInset ScreenGui it was
+-- half-tucked behind the Roblox topbar while it said so. Hidden on the first DNA the player earns
+-- (see refreshUI), or after ninety seconds if they somehow have not earned any.
+UITheme.Label(screenGui, {
+	name = "ClickHint",
+	text = "🧬 Use the DNA Machine or fight creatures to collect DNA!",
+	size = UDim2.new(0, 560, 0, 32),
+	position = UDim2.new(0.5, 0, 0, 52),
+	anchorPoint = Vector2.new(0.5, 0),
+	maxTextSize = 22,
+	zIndex = UITheme.Z.Content,
+})
+task.delay(90, function()
+	local hint = screenGui:FindFirstChild("ClickHint")
+	if hint then hint.Visible = false end
+end)
+
+-- ===== Bottom-centre: star + stage name, evolve progress bar, evolve button =====
+local evolveFrame = Instance.new("Frame")
+evolveFrame.Name = "EvolveFrame"
+evolveFrame.Size = UDim2.new(0, 470, 0, 136)
+evolveFrame.Position = UDim2.new(0.5, 0, 1, -22)
+evolveFrame.AnchorPoint = Vector2.new(0.5, 1)
+evolveFrame.BackgroundTransparency = 1
+evolveFrame.Parent = screenGui
+
+local evolveStageLabel = UITheme.Label(evolveFrame, {
+	name = "StageProgressLabel",
+	text = "⭐ Cell",
+	size = UDim2.new(1, 0, 0, 30),
+	position = UDim2.new(0.5, 0, 0, 0),
+	anchorPoint = Vector2.new(0.5, 0),
+	maxTextSize = 26,
+	zIndex = 10,
+})
+
+local progressBarBg, progressBarFill, evolveProgressLabel = UITheme.ProgressBar(evolveFrame, {
+	name = "EvolveBar",
+	size = UDim2.new(1, 0, 0, 34),
+	position = UDim2.new(0.5, 0, 0, 34),
+	anchorPoint = Vector2.new(0.5, 0),
+	color = UITheme.Color.Green,
+	text = "0 / 50 DNA",
+	maxTextSize = 22,
+	zIndex = 4,
+})
+
+local evolveButton = UITheme.Button(evolveFrame, {
+	name = "EvolveButton",
+	text = "EVOLVE",
+	color = UITheme.Color.Purple,
+	size = UDim2.new(1, -70, 0, 50),
+	position = UDim2.new(0.5, 0, 0, 82),
+	anchorPoint = Vector2.new(0.5, 0),
+	radius = UDim.new(1, 0),
+	maxTextSize = 26,
+})
+
+-- refreshUI writes `evolveButton.Text`; mirror it onto the themed child label (which lives
+-- above the gloss) so the existing call sites keep working unchanged.
+local evolveButtonLabel = evolveButton.Label
+evolveButton:GetPropertyChangedSignal("Text"):Connect(function()
+	evolveButtonLabel.Text = evolveButton.Text
+end)
+evolveButton.Text = "EVOLVE (0 / 50 DNA)"
+
+-- ===== Bottom-left: currency stack (no panel, just big outlined numbers) =====
+local currencyStack = Instance.new("Frame")
+currencyStack.Name = "CurrencyStack"
+currencyStack.Size = UDim2.new(0, 250, 0, 140)
+currencyStack.Position = UDim2.new(0, 20, 1, -22)
+currencyStack.AnchorPoint = Vector2.new(0, 1)
+currencyStack.BackgroundTransparency = 1
+currencyStack.ZIndex = UITheme.Z.Content
+currencyStack.Parent = screenGui
+
+local currencyLayout = Instance.new("UIListLayout")
+currencyLayout.SortOrder = Enum.SortOrder.LayoutOrder
+currencyLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+currencyLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+currencyLayout.Padding = UDim.new(0, 2)
+currencyLayout.Parent = currencyStack
+
+local dnaPill = UITheme.Pill(currencyStack, {
+	name = "DNAPill", icon = "🧬", text = "0", layoutOrder = 1,
+	size = UDim2.new(1, 0, 0, 46), maxTextSize = 34,
+})
+local diamondPill = UITheme.Pill(currencyStack, {
+	name = "DiamondPill", icon = "💎", text = "0", layoutOrder = 2,
+	size = UDim2.new(1, 0, 0, 40), maxTextSize = 30,
+})
+local shardPill = UITheme.Pill(currencyStack, {
+	name = "ShardPill", icon = "🌟", text = "0", layoutOrder = 3,
+	size = UDim2.new(1, 0, 0, 40), maxTextSize = 30,
+})
+-- (the three pills' .Value labels used to be cached here and were never read again -- see the note
+-- on the Season XP bar: this chunk is at Luau's 200-register limit and every unused local counts)
+
+-- ===== Upgrades panel (centre screen, opened by the Shop tile) =====
+local shopFrame = Instance.new("Frame")
+shopFrame.Name = "ShopFrame"
+shopFrame.Size = UDim2.new(0, 900, 0, 352)
+shopFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+shopFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+shopFrame.ZIndex = 20
+shopFrame.Visible = false
+shopFrame.Parent = screenGui
+styleCard(shopFrame, PANEL_SHELL, UDim.new(0, 22), 5)
+
+UITheme.Label(shopFrame, {
+	name = "ShopTitle",
+	text = "🛒 Upgrades",
+	size = UDim2.new(0, 420, 0, 42),
+	position = UDim2.new(0, 24, 0, 10),
+	xAlign = "Left",
+	maxTextSize = 34,
+	zIndex = shopFrame.ZIndex + UITheme.Z.Content,
+})
+
+local shopCloseButton = UITheme.Button(shopFrame, {
+	name = "ShopClose",
+	text = "X",
+	color = UITheme.Color.Red,
+	size = UDim2.new(0, 44, 0, 44),
+	position = UDim2.new(1, -16, 0, 10),
+	anchorPoint = Vector2.new(1, 0),
+	radius = 12,
+	maxTextSize = 30,
+	zIndex = shopFrame.ZIndex + UITheme.Z.Badge,
+})
+shopCloseButton.MouseButton1Click:Connect(function()
+	shopFrame.Visible = false
+end)
+
+local upgradeRow = Instance.new("Frame")
+upgradeRow.Name = "UpgradeRow"
+upgradeRow.Size = UDim2.new(1, -32, 0, 140)
+upgradeRow.Position = UDim2.new(0, 16, 0, 58)
+upgradeRow.BackgroundTransparency = 1
+upgradeRow.Parent = shopFrame
+
+local shopLayout = Instance.new("UIListLayout")
+shopLayout.FillDirection = Enum.FillDirection.Horizontal
+shopLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+shopLayout.Padding = UDim.new(0, 12)
+shopLayout.SortOrder = Enum.SortOrder.LayoutOrder
+shopLayout.Parent = upgradeRow
+
+-- Mutation Chance came off the shop row. Only this list changed: `GameConfig.Upgrades.Mutation`
+-- and `DNAService.GetMutationChancePerRoll` are both left alone on purpose. Anyone who already
+-- bought levels keeps them, and the base rate does not depend on the upgrade -- the formula is
+-- `clamp(2 + level * 1.5, 0, 60)` percent on a roll every ten seconds, so mutations carry on at 2%
+-- with nothing bought. Deleting the config entry instead would have zeroed a stat that is still
+-- read on the server and silently changed the income of every existing save.
+-- Auto Collect came off too, and for the reason the owner gave: there is nothing on the ground to
+-- collect, so the tile was selling a mechanic the game does not have. Same treatment as Mutation --
+-- only this list changed. `DNAService.GetAutoCollectAmount` returns 0 at level 0, so a save that
+-- never bought it is unaffected, and one that did keeps its passive income.
+local upgradeOrder = { "Speed", "Income", "Luck" }
+local upgradeButtons = {}
+
+for i, key in ipairs(upgradeOrder) do
+	local def = GameConfig.Upgrades[key]
+	local btn = Instance.new("TextButton")
+	btn.Name = key .. "Button"
+	btn.LayoutOrder = i
+	btn.Size = UDim2.new(0, 164, 1, 0)
+	btn.Text = ""
+	btn.Parent = upgradeRow
+	styleButton(btn, UITheme.Color.Gold, UDim.new(0, 16))
+
+	-- ICON, NAME, LEVEL BADGE, COST PILL -- four pieces of furniture instead of three stacked
+	-- sentences. The tile used to read "\u{1F680} Speed" / "Level 1" / "Cost: 28": three centred lines of
+	-- roughly the same weight, which is a spreadsheet row rather than a button. The level is a state
+	-- you glance at, so it becomes a badge in the corner; the cost is the thing you actually decide
+	-- on, so it becomes a pill carrying its own currency mark; and the icon gets the room the two
+	-- freed sentences leave behind.
+	--
+	-- The chip colour is Shade(Outline, 0.22) inline rather than a named constant, because this file
+	-- is at Luau's 200-local ceiling and one more top-level name is not worth a readability win.
+	local iconLabel = Instance.new("TextLabel")
+	iconLabel.Name = "Icon"
+	iconLabel.Size = UDim2.new(1, -12, 0, 44)
+	iconLabel.Position = UDim2.new(0.5, 0, 0, 8)
+	iconLabel.AnchorPoint = Vector2.new(0.5, 0)
+	iconLabel.BackgroundTransparency = 1
+	iconLabel.Text = def.emoji
+	iconLabel.ZIndex = btn.ZIndex + UITheme.Z.Content
+	iconLabel.Parent = btn
+	themeLabel(iconLabel, 40, Color3.fromRGB(255, 255, 255))
+
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Size = UDim2.new(1, -12, 0, 30)
+	titleLabel.Position = UDim2.new(0.5, 0, 0, 54)
+	titleLabel.AnchorPoint = Vector2.new(0.5, 0)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.TextWrapped = true
+	titleLabel.Text = def.displayName
+	titleLabel.ZIndex = btn.ZIndex + UITheme.Z.Content
+	titleLabel.Parent = btn
+	themeLabel(titleLabel, 22, Color3.fromRGB(255, 255, 255))
+
+	local levelBadge = Instance.new("Frame")
+	levelBadge.Name = "LevelBadge"
+	levelBadge.Size = UDim2.new(0, 58, 0, 26)
+	levelBadge.Position = UDim2.new(1, -6, 0, 6)
+	levelBadge.AnchorPoint = Vector2.new(1, 0)
+	-- Z.Badge, so it clears the gloss the shell draws over its own children
+	levelBadge.ZIndex = btn.ZIndex + UITheme.Z.Badge
+	levelBadge.Parent = btn
+	styleCard(levelBadge, UITheme.Shade(UITheme.Color.Outline, 0.22), UDim.new(1, 0), 2.5)
+
+	local levelLabel = Instance.new("TextLabel")
+	levelLabel.Name = "LevelLabel"
+	levelLabel.Size = UDim2.new(1, -8, 1, -6)
+	levelLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+	levelLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+	levelLabel.BackgroundTransparency = 1
+	levelLabel.Text = "Lv 0"
+	levelLabel.ZIndex = levelBadge.ZIndex + UITheme.Z.Content
+	levelLabel.Parent = levelBadge
+	themeLabel(levelLabel, 18, Color3.fromRGB(255, 255, 255))
+
+	local costPill = Instance.new("Frame")
+	costPill.Name = "CostPill"
+	costPill.Size = UDim2.new(1, -20, 0, 32)
+	costPill.Position = UDim2.new(0.5, 0, 1, -8)
+	costPill.AnchorPoint = Vector2.new(0.5, 1)
+	costPill.ZIndex = btn.ZIndex + UITheme.Z.Badge
+	costPill.Parent = btn
+	styleCard(costPill, UITheme.Shade(UITheme.Color.Outline, 0.22), UDim.new(1, 0), 2.5)
+
+	local costLabel = Instance.new("TextLabel")
+	costLabel.Name = "CostLabel"
+	costLabel.Size = UDim2.new(1, -10, 1, -6)
+	costLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+	costLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+	costLabel.BackgroundTransparency = 1
+	costLabel.Text = "\u{1F9EC} " .. def.baseCost
+	costLabel.ZIndex = costPill.ZIndex + UITheme.Z.Content
+	costLabel.Parent = costPill
+	themeLabel(costLabel, 22, UITheme.Color.Cream)
+
+	btn.MouseButton1Click:Connect(function()
+		Remotes.BuyUpgrade:FireServer(key)
+	end)
+
+	upgradeButtons[key] = { button = btn, levelLabel = levelLabel, costLabel = costLabel, badge = levelBadge }
+end
+
+-- ===== Diamond Upgrades row (bought with premium Diamonds, not DNA) =====
+local diamondRow = Instance.new("Frame")
+diamondRow.Name = "DiamondRow"
+diamondRow.Size = UDim2.new(1, -32, 0, 130)
+diamondRow.Position = UDim2.new(0, 16, 0, 206)
+diamondRow.BackgroundTransparency = 1
+diamondRow.Parent = shopFrame
+
+local diamondLayout = Instance.new("UIListLayout")
+diamondLayout.FillDirection = Enum.FillDirection.Horizontal
+diamondLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+diamondLayout.Padding = UDim.new(0, 12)
+diamondLayout.SortOrder = Enum.SortOrder.LayoutOrder
+diamondLayout.Parent = diamondRow
+
+local diamondUpgradeOrder = { "MegaIncome", "MegaLuck", "PetSlot" }
+local diamondUpgradeButtons = {}
+
+for i, key in ipairs(diamondUpgradeOrder) do
+	local def = GameConfig.DiamondUpgrades[key]
+	local btn = Instance.new("TextButton")
+	btn.Name = key .. "DiamondButton"
+	btn.LayoutOrder = i
+	btn.Size = UDim2.new(0, 200, 1, 0)
+	btn.Text = ""
+	btn.Parent = diamondRow
+	styleButton(btn, UITheme.Color.SkyBlue, UDim.new(0, 16))
+
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Size = UDim2.new(1, -12, 0, 28)
+	titleLabel.Position = UDim2.new(0, 6, 0, 6)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Text = def.emoji .. " " .. def.displayName
+	titleLabel.Parent = btn
+	themeLabel(titleLabel, 22, Color3.fromRGB(255, 255, 255))
+
+	local descLabel = Instance.new("TextLabel")
+	descLabel.Size = UDim2.new(1, -12, 0, 34)
+	descLabel.Position = UDim2.new(0, 6, 0, 34)
+	descLabel.BackgroundTransparency = 1
+	descLabel.TextWrapped = true
+	descLabel.Text = def.description
+	descLabel.Parent = btn
+	themeLabel(descLabel, 15, UITheme.Color.Cream)
+
+	local levelLabel = Instance.new("TextLabel")
+	levelLabel.Name = "LevelLabel"
+	levelLabel.Size = UDim2.new(1, -12, 0, 24)
+	levelLabel.Position = UDim2.new(0, 6, 1, -56)
+	levelLabel.BackgroundTransparency = 1
+	levelLabel.Text = "Level 0"
+	levelLabel.Parent = btn
+	themeLabel(levelLabel, 19, Color3.fromRGB(255, 255, 255))
+
+	local costLabel = Instance.new("TextLabel")
+	costLabel.Name = "CostLabel"
+	costLabel.Size = UDim2.new(1, -12, 0, 30)
+	costLabel.Position = UDim2.new(0, 6, 1, -38)
+	costLabel.BackgroundTransparency = 1
+	costLabel.Text = "💎 " .. def.baseCost
+	costLabel.Parent = btn
+	themeLabel(costLabel, 24, UITheme.Color.Cream)
+
+	btn.MouseButton1Click:Connect(function()
+		Remotes.BuyDiamondUpgrade:FireServer(key)
+	end)
+
+	diamondUpgradeButtons[key] = { button = btn, levelLabel = levelLabel, costLabel = costLabel }
+end
+
+-- ================= HUD tile columns =================
+-- Two columns of chunky IconTiles (caption INSIDE the tile) plus a bottom-right quick row.
+-- Only one floating panel is shown at a time -- opening one closes the others.
+local togglePanels = {}
+local function registerPanel(panel)
+	-- Floating panels live at screen centre now; the tile columns own the screen edges.
+	panel.AnchorPoint = Vector2.new(0.5, 0.5)
+	panel.Position = UDim2.new(0.5, 0, 0.5, 0)
+	table.insert(togglePanels, panel)
+
+	-- EVERY PANEL IN THIS FILE IS SIZED IN PIXELS, AND SEVERAL ARE BIGGER THAN A PHONE.
+	--
+	-- The Journal is 968 x 548; a Roblox phone viewport is roughly 848 x 420. Centre-anchored, a
+	-- panel that does not fit clips on all four sides at once -- including the close button in its
+	-- corner and, for the panels that draw their title or tab strip ABOVE themselves, the only
+	-- route to the other tab. There was no UIScale anywhere in the game and no branch on viewport
+	-- size, so on a phone the game's menus were simply not reachable.
+	--
+	-- One UIScale per panel rather than one over the whole HUD: a UIScale scales about its object's
+	-- AnchorPoint, and these are all centre-anchored, so each one shrinks about the middle of the
+	-- screen and stays centred. Scaling the whole HUD instead would drag the corner tiles inward
+	-- and leave a wide dead margin round the edge of the screen.
+	--
+	-- Measured off the AUTHORED size (Size.*.Offset), never off AbsoluteSize -- AbsoluteSize is the
+	-- result of this scale, so reading it here is a feedback loop that walks the panel to nothing.
+	local w, h = panel.Size.X.Offset, panel.Size.Y.Offset
+	if w <= 0 or h <= 0 then return end
+
+	local scale = Instance.new("UIScale")
+	scale.Parent = panel
+
+	local cam = workspace.CurrentCamera
+	local function fit()
+		if not cam then return end
+		local v = cam.ViewportSize
+		-- 32 of side margin, and 108 vertically: the titles and tab strips several panels hang
+		-- above themselves live in that band, and a panel scaled to the exact viewport height puts
+		-- them off the top.
+		local fitted = math.clamp(math.min((v.X - 32) / w, (v.Y - 108) / h), 0.35, 1)
+		-- PUBLISHED, because the open/close animation below has to know what "fully open" means for
+		-- THIS panel. It is not 1: an 968-wide Journal on a phone is fitted to well under half size,
+		-- and a pop that animated to 1.0 would quietly undo the fit and clip the panel off both
+		-- edges. Every tween down there is a fraction of this number.
+		panel:SetAttribute("FitScale", fitted)
+		scale.Scale = fitted
+	end
+	cam:GetPropertyChangedSignal("ViewportSize"):Connect(fit)
+	fit()
+end
+
+-- ===== HOW A PANEL OPENS, IN THE ONE PLACE EVERY PANEL ALREADY PASSES THROUGH =====
+--
+-- Panels appeared by having `.Visible` set to true. That is a jump cut, and it was the same jump
+-- cut in all fourteen of them because there was no shared open path -- TweenService is required at
+-- the top of this file and used for a notification fade and a purchase celebration, and nothing
+-- else. So rather than animate one board on its own, this goes into `closeAllPanels`, `toggleOnly`
+-- and `panelClose`: the three chokepoints every panel in the file is already routed through. All
+-- of them get the motion at once and a panel added later gets it without knowing this exists.
+--
+-- IT TWEENS THE UISCALE registerPanel ALREADY ATTACHED, and it multiplies the fitted value rather
+-- than replacing it -- see the note on FitScale above for what replacing it would cost on a phone.
+--
+-- ONE LIVE TWEEN PER PANEL. Opening a panel while its own close tween is still running otherwise
+-- leaves two tweens writing Scale in the same frame and the panel settles wherever the loser
+-- stopped. `live` is keyed by panel and lives inside the block so it costs no top-level register;
+-- only the function escapes, which is the shape the Season Pass and Fusion panels already use.
+local animatePanel
+do
+	local live = {}
+	local OPEN = TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	local SHUT = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+
+	function animatePanel(panel, open)
+		local running = live[panel]
+		if running then
+			running:Cancel()
+			live[panel] = nil
+		end
+
+		local scale = panel:FindFirstChildOfClass("UIScale")
+		-- a panel that never went through registerPanel has no UIScale and no fitted size; it still
+		-- has to open, just without the motion
+		if not scale then
+			panel.Visible = open
+			return
+		end
+		local fit = panel:GetAttribute("FitScale") or 1
+
+		if open then
+			panel.Visible = true
+			scale.Scale = fit * 0.86
+			local tween = TweenService:Create(scale, OPEN, { Scale = fit })
+			live[panel] = tween
+			tween.Completed:Connect(function()
+				live[panel] = nil
+			end)
+			tween:Play()
+		else
+			if not panel.Visible then return end
+			local tween = TweenService:Create(scale, SHUT, { Scale = fit * 0.9 })
+			live[panel] = tween
+			tween.Completed:Connect(function(state)
+				live[panel] = nil
+				-- Cancelled means something reopened this panel mid-close and is now driving the
+				-- scale itself. Hiding it here would blank a panel the player just asked for.
+				if state == Enum.PlaybackState.Completed then
+					panel.Visible = false
+					scale.Scale = fit
+				end
+			end)
+			tween:Play()
+		end
+	end
+end
+
+local function closeAllPanels()
+	for _, p in ipairs(togglePanels) do
+		animatePanel(p, false)
+	end
+end
+local function toggleOnly(panel)
+	local wasVisible = panel.Visible
+	-- closeAllPanels has already played this panel's close tween if it was the open one, so the
+	-- reopen is guarded rather than unconditional -- without the guard a second click would cancel
+	-- its own close half-way and leave the panel sitting at 0.9 scale, visible and slightly small.
+	closeAllPanels()
+	if not wasVisible then
+		animatePanel(panel, true)
+	end
+end
+
+-- A teleport is not a good time to still have a menu open. Pressing Go in the Zones list starts a
+-- transition that covers the screen for a second and a bit, and the list was still sitting there
+-- when the cover wiped -- open over a zone the player had already left, its Go buttons still live.
+--
+-- The signal is the transition remote rather than the Go button, so walking into a portal gate,
+-- taking the Colosseum gate or being sent home from the arena all clear the screen the same way.
+-- Spawned, because ZoneService creates that remote at run time and this must not block the HUD
+-- being built if it is slow to arrive.
+task.spawn(function()
+	local transition = Remotes:WaitForChild("ZoneTransition", 30)
+	if not transition then
+		return
+	end
+	transition.OnClientEvent:Connect(function(payload)
+		if typeof(payload) == "table" and payload.phase == "start" then
+			closeAllPanels()
+		end
+	end)
+end)
+
+local TILE_SIZE = UDim2.new(0, 82, 0, 82)
+local TILE_PITCH = 96 -- 14px of clean air between tiles; captions live inside them now
+local TILE_START_Y = 100 -- clears the topbar inset and the stage card above it
+
+-- The RIGHT cluster hangs off the BOTTOM of the screen instead of the top: the Roblox
+-- player list owns the top-right corner and grows with the player count, so a tile parked
+-- under it there gets drawn over (that is what buried "Zones").
+-- Four, not five: the Mastery tile came off this column. Stage Mastery is bought at the Upgrade
+-- Emporium's diamond counter in zone 8 now, which is also where the Robux shop is sold from --
+-- a permanent upgrade you walk to is a destination, where a button that is always on screen is
+-- chrome. The PANEL is untouched; only its entry point moved.
+-- Five since the Season Pass tile joined the column.
+--
+-- SEVEN, AND TWO WIDE. Gifts and Auto folded in from the old QuickRow, and at that point a single
+-- stack of seven 82px tiles was 686px of screen edge -- taller than a 720p viewport can give it,
+-- so the responsive pass was shrinking every tile toward its 40px floor to make them fit and the
+-- captions were pinning at their minimum size. Two columns halve the height it needs, which is
+-- what lets the tiles stay full size and the words stay readable. Order runs left-to-right then
+-- upward, so 7 sits alone in the bottom-left.
+local RIGHT_COUNT = 7
+local RIGHT_COLS = 2
+local RIGHT_BOTTOM_Y = 46
+local PANEL_ANCHOR = UDim2.new(0.5, 0, 0.5, 0)
+
+local function columnTile(side, order, emoji, caption, color, badge, badgeColor)
+	local opts = {
+		name = caption .. "Button",
+		icon = emoji,
+		caption = caption,
+		color = color,
+		size = TILE_SIZE,
+		radius = 20,
+		badge = badge,
+		badgeColor = badgeColor,
+	}
+	if side == "L" then
+		opts.position = UDim2.new(0, 20, 0, TILE_START_Y + (order - 1) * TILE_PITCH)
+		opts.anchorPoint = Vector2.new(0, 0)
+	else
+		-- The authored position, for the one frame before the layout pass at the bottom of the file
+		-- runs. Same grid arithmetic it uses, kept here so the cluster never flashes as a stack.
+		-- AnchorPoint is (1,1), i.e. the tile's bottom-RIGHT corner, so column 0 of the pair steps
+		-- LEFT by one pitch and the last row sits hard against RIGHT_BOTTOM_Y.
+		local col = (order - 1) % RIGHT_COLS
+		local row = math.floor((order - 1) / RIGHT_COLS)
+		local rows = math.ceil(RIGHT_COUNT / RIGHT_COLS)
+		opts.position = UDim2.new(
+			1, -20 - (RIGHT_COLS - 1 - col) * TILE_PITCH,
+			1, -(RIGHT_BOTTOM_Y + (rows - 1 - row) * TILE_PITCH))
+		opts.anchorPoint = Vector2.new(1, 1)
+	end
+	local tile = UITheme.IconTile(screenGui, opts)
+	-- Stamped rather than collected into a table, because this file is at Luau's 200-local ceiling
+	-- and a registry would cost one of the last registers. The responsive pass at the bottom of
+	-- the file finds the columns by these two attributes.
+	tile:SetAttribute("ColumnSide", side)
+	tile:SetAttribute("ColumnOrder", order)
+	return tile
+end
+
+-- LEFT column
+-- THE INVENTORY TILE IS GONE, and so is the Potion quick tile in the bottom row. The panel itself
+-- is left standing and still refreshes -- every call site is unchanged -- it simply has nothing
+-- opening it any more. Removing the tile rather than the panel is deliberate: the potion counters
+-- it draws are read by the shop and the reward flow, and unpicking those to delete a screen nobody
+-- can reach any more would be a much larger change than the one that was asked for.
+-- The three tiles below it moved up a slot; leaving Shop at order 2 would have left a hole at the
+-- top of the column, which reads as a missing button rather than as a removed one.
+-- No badge on Shop: every upgrade in it costs DNA or Diamonds, so "FREE!" was a lie.
+local shopToggleButton = columnTile("L", 1, "🛒", "Shop", UITheme.Color.Sunny)
+-- ONE BUTTON, TWO SCREENS. Removing the Inventory and Potion tiles left the potions with nothing
+-- opening them at all -- and potions are a consumable the player pays for, so that was a regression
+-- rather than a simplification. Instead of putting a fourth tile back, the two panels that already
+-- existed became the two TABS of this one: it opens Pets, and Potions is one click away.
+local inventoryButton  = columnTile("L", 2, "\u{1F392}", "Inventory", UITheme.Color.Bubblegum)
+local rebirthButton    = columnTile("L", 3, "♻️", "Rebirth", UITheme.Color.Lavender)
+
+-- RIGHT CLUSTER (right-aligned), two tiles wide and filling upward from the bottom-right corner --
+-- see RIGHT_COUNT and the layout pass at the end of the file. Order runs left-to-right then up:
+-- 1,2 are the top row, 6,7 the bottom, and 7 alone in the bottom-left with nothing beside it.
+-- A new tile takes order 1 and pushes nothing off the screen edge.
+local journalButton = columnTile("R", 1, "\u{1F4D2}", "Journal", UITheme.Color.Lavender)
+local zonesButton  = columnTile("R", 2, "\u{1F5FA}\u{FE0F}", "Zones", UITheme.Color.Aqua)
+local rewardButton = columnTile("R", 3, "\u{1F381}", "Daily", UITheme.Color.Peach, "NEW!", UITheme.Color.Coral)
+-- The "NEW!" flag is a claimable-today signal, not decoration: updateRewardPanel hides it
+-- the moment the day is claimed and shows it again when the next day unlocks.
+local rewardBadge = rewardButton:FindFirstChild("Badge")
+local robuxButton  = columnTile("R", 4, "\u{1F6CD}\u{FE0F}", "Robux", UITheme.Color.Mint)
+
+-- The Mastery tile used to sit at order 2 here. Its badge -- shown while at least one Mastery was
+-- both reached and affordable -- went with it; `masteryBadge` stays declared and nil so the
+-- refresh that sets it (which is already nil-guarded) needs no change.
+local masteryBadge = nil
+
+-- GIFTS AND AUTO ARE PART OF THE CLUSTER NOW, not a separate strip.
+--
+-- They used to be their own 260x68 Frame with its own UIListLayout pinned at (1, -20, 1, -42), and
+-- being outside the column registry had three consequences that all showed: they never took part
+-- in the responsive pass, so they stayed 68px while the tiles above them shrank to fit the screen;
+-- they used a 10px list padding against the column's 14, so nothing lined up; and the column above
+-- had to reserve 122px of dead space at the bottom to clear them.
+--
+-- As ordinary columnTiles at orders 6 and 7 they inherit the grid, the gap, the sizing and the
+-- ColumnSide/ColumnOrder registry the layout pass reads -- one system instead of two. The whole
+-- QuickRow frame, its layout and its builder are gone, which also gives three top-level registers
+-- back to a file that has about sixteen to spare.
+local playtimeButton = columnTile("R", 6, "⏰", "Gifts", UITheme.Color.Peach)
+
+-- AUTO-ATTACK toggle. The state itself lives on the player as an attribute, not in either script:
+-- CombatClient does the fighting and also toggles it off the T key, this tile draws it, and the
+-- attribute is the single place both of them read. Either side can flip it and the other follows.
+-- Caption starts as "Auto" and refreshAutoTile immediately rewrites it to Auto ON / Auto OFF.
+local autoAttackButton = columnTile("R", 7, "\u{2694}\u{FE0F}", "Auto", UITheme.Color.Locked)
+
+local function refreshAutoTile()
+	local on = player:GetAttribute("AutoAttack") == true
+	-- colour AND caption, not just one: a tile that only changes hue is a guess, and this is a
+	-- setting a player has to be able to check at a glance mid-fight
+	UITheme.SetColor(autoAttackButton, on and UITheme.Color.Green or UITheme.Color.Locked)
+	local body = autoAttackButton:FindFirstChild("Body")
+	local caption = body and body:FindFirstChild("Caption")
+	if caption then
+		caption.Text = on and "Auto ON" or "Auto OFF"
+	end
+end
+
+autoAttackButton.MouseButton1Click:Connect(function()
+	player:SetAttribute("AutoAttack", player:GetAttribute("AutoAttack") ~= true)
+end)
+player:GetAttributeChangedSignal("AutoAttack"):Connect(refreshAutoTile)
+refreshAutoTile()
+
+registerPanel(shopFrame)
+shopToggleButton.MouseButton1Click:Connect(function()
+	toggleOnly(shopFrame)
+end)
+
+-- shared: red X close button in the top-right of a floating panel
+local function panelClose(panel)
+	local btn = UITheme.Button(panel, {
+		name = "Close",
+		text = "X",
+		color = UITheme.Color.Red,
+		size = UDim2.new(0, 42, 0, 42),
+		position = UDim2.new(1, -14, 0, 10),
+		anchorPoint = Vector2.new(1, 0),
+		radius = 12,
+		maxTextSize = 28,
+		zIndex = panel.ZIndex + UITheme.Z.Badge,
+	})
+	btn.MouseButton1Click:Connect(function()
+		animatePanel(panel, false)
+	end)
+	return btn
+end
+
+-- ===== Zones panel =====
+local zonesPanel = Instance.new("Frame")
+zonesPanel.Name = "ZonesPanel"
+zonesPanel.Size = UDim2.new(0, 430, 0, 480)
+zonesPanel.Position = PANEL_ANCHOR
+zonesPanel.ZIndex = 20
+zonesPanel.Visible = false
+zonesPanel.Parent = screenGui
+styleCard(zonesPanel, PANEL_SHELL, UDim.new(0, 22), 5)
+registerPanel(zonesPanel)
+panelClose(zonesPanel)
+
+local zonesPanelTitle = Instance.new("TextLabel")
+zonesPanelTitle.Size = UDim2.new(1, -80, 0, 40)
+zonesPanelTitle.Position = UDim2.new(0, 18, 0, 10)
+zonesPanelTitle.BackgroundTransparency = 1
+zonesPanelTitle.TextXAlignment = Enum.TextXAlignment.Left
+zonesPanelTitle.Text = "🗺️ Zones"
+zonesPanelTitle.Parent = zonesPanel
+themeLabel(zonesPanelTitle, 32)
+
+local zonesScroll = Instance.new("ScrollingFrame")
+zonesScroll.Name = "ZonesScroll"
+zonesScroll.Size = UDim2.new(1, -28, 1, -70)
+zonesScroll.Position = UDim2.new(0, 14, 0, 58)
+zonesScroll.BackgroundTransparency = 1
+zonesScroll.BorderSizePixel = 0
+zonesScroll.ScrollBarThickness = 6
+zonesScroll.CanvasSize = UDim2.new(0, 0, 0, #GameConfig.Zones * 74)
+zonesScroll.Parent = zonesPanel
+
+local zonesListLayout = Instance.new("UIListLayout")
+zonesListLayout.Padding = UDim.new(0, 6)
+zonesListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+zonesListLayout.Parent = zonesScroll
+
+local zoneRows = {}
+
+for i, zone in ipairs(GameConfig.Zones) do
+	local row = Instance.new("Frame")
+	row.Name = zone.key
+	row.LayoutOrder = i
+	row.Size = UDim2.new(1, 0, 0, 68)
+	row.Parent = zonesScroll
+	styleCard(row, zone.accentColor, UDim.new(0, 14), 4)
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Size = UDim2.new(0.62, 0, 0, 30)
+	nameLabel.Position = UDim2.new(0, 12, 0, 6)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.Text = zone.emoji .. " " .. zone.name
+	nameLabel.Parent = row
+	themeLabel(nameLabel, 24)
+
+	local statusLabel = Instance.new("TextLabel")
+	statusLabel.Name = "StatusLabel"
+	statusLabel.Size = UDim2.new(0.62, 0, 0, 22)
+	statusLabel.Position = UDim2.new(0, 12, 1, -30)
+	statusLabel.BackgroundTransparency = 1
+	statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+	statusLabel.Text = "Locked"
+	statusLabel.Parent = row
+	themeLabel(statusLabel, 17, UITheme.Color.Cream)
+
+	local goButton = Instance.new("TextButton")
+	goButton.Name = "GoButton"
+	goButton.Size = UDim2.new(0, 96, 0, 46)
+	goButton.Position = UDim2.new(1, -108, 0.5, -23)
+	goButton.Text = "🔒"
+	goButton.Parent = row
+	styleButton(goButton, UITheme.Color.Locked, UDim.new(1, 0))
+
+	goButton.MouseButton1Click:Connect(function()
+		Remotes.TeleportToZone:FireServer(zone.key)
+	end)
+
+	zoneRows[zone.key] = { statusLabel = statusLabel, goButton = goButton }
+	zonesScroll.CanvasSize = UDim2.new(0, 0, 0, i * 74)
+end
+
+zonesButton.MouseButton1Click:Connect(function()
+	toggleOnly(zonesPanel)
+end)
+
+-- ===== Stage Mastery panel =====
+-- One permanent Diamond purchase per evolution stage. Laid out as a checklist rather than a
+-- shelf of upgrades: every row is worth the same, only the price differs, so what the player is
+-- reading is "which ones do I still owe" -- see the STAGE MASTERY block in GameConfig.
+local masteryPanel = Instance.new("Frame")
+masteryPanel.Name = "MasteryPanel"
+masteryPanel.Size = UDim2.new(0, 460, 0, 510)
+masteryPanel.Position = PANEL_ANCHOR
+masteryPanel.ZIndex = 20
+masteryPanel.Visible = false
+masteryPanel.Parent = screenGui
+styleCard(masteryPanel, PANEL_SHELL, UDim.new(0, 22), 5)
+registerPanel(masteryPanel)
+panelClose(masteryPanel)
+
+local masteryTitle = Instance.new("TextLabel")
+masteryTitle.Name = "TitleLabel"
+masteryTitle.Size = UDim2.new(1, -80, 0, 40)
+masteryTitle.Position = UDim2.new(0, 18, 0, 10)
+masteryTitle.BackgroundTransparency = 1
+masteryTitle.TextXAlignment = Enum.TextXAlignment.Left
+masteryTitle.Text = "⭐ Stage Mastery"
+masteryTitle.Parent = masteryPanel
+themeLabel(masteryTitle, 32)
+
+-- running total, so the player can see what the whole collection is currently worth without
+-- adding up twenty rows themselves
+local masterySummaryCard = Instance.new("Frame")
+masterySummaryCard.Name = "SummaryCard"
+masterySummaryCard.Size = UDim2.new(1, -36, 0, 40)
+masterySummaryCard.Position = UDim2.new(0, 18, 0, 54)
+masterySummaryCard.Parent = masteryPanel
+styleCard(masterySummaryCard, UITheme.Color.Gold, UDim.new(0, 12), 3)
+
+local masterySummaryLabel = Instance.new("TextLabel")
+masterySummaryLabel.Name = "SummaryLabel"
+masterySummaryLabel.Size = UDim2.new(1, -24, 1, -8)
+masterySummaryLabel.Position = UDim2.new(0, 12, 0, 2)
+masterySummaryLabel.BackgroundTransparency = 1
+masterySummaryLabel.TextXAlignment = Enum.TextXAlignment.Left
+masterySummaryLabel.Text = "0 / " .. #GameConfig.Stages .. " mastered"
+masterySummaryLabel.Parent = masterySummaryCard
+themeLabel(masterySummaryLabel, 20)
+
+local masteryScroll = Instance.new("ScrollingFrame")
+masteryScroll.Name = "MasteryScroll"
+masteryScroll.Size = UDim2.new(1, -28, 1, -114)
+masteryScroll.Position = UDim2.new(0, 14, 0, 102)
+masteryScroll.BackgroundTransparency = 1
+masteryScroll.BorderSizePixel = 0
+masteryScroll.ScrollBarThickness = 6
+masteryScroll.CanvasSize = UDim2.new(0, 0, 0, #GameConfig.Stages * 74)
+masteryScroll.Parent = masteryPanel
+
+local masteryListLayout = Instance.new("UIListLayout")
+masteryListLayout.Padding = UDim.new(0, 6)
+masteryListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+masteryListLayout.Parent = masteryScroll
+
+local masteryRows = {}
+
+for i, stage in ipairs(GameConfig.Stages) do
+	local row = Instance.new("Frame")
+	row.Name = "Stage" .. i
+	row.LayoutOrder = i
+	row.Size = UDim2.new(1, 0, 0, 68)
+	row.Parent = masteryScroll
+	local rowStroke = styleCard(row, stage.color, UDim.new(0, 14), 4)
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Size = UDim2.new(0.66, 0, 0, 28)
+	nameLabel.Position = UDim2.new(0, 12, 0, 6)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.Text = stage.emoji .. " " .. stage.name
+	nameLabel.Parent = row
+	themeLabel(nameLabel, 23)
+
+	local statusLabel = Instance.new("TextLabel")
+	statusLabel.Name = "StatusLabel"
+	statusLabel.Size = UDim2.new(0.66, 0, 0, 24)
+	statusLabel.Position = UDim2.new(0, 12, 1, -30)
+	statusLabel.BackgroundTransparency = 1
+	statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+	statusLabel.Text = "Locked"
+	statusLabel.Parent = row
+	themeLabel(statusLabel, 17, UITheme.Color.Cream)
+
+	local buyButton = Instance.new("TextButton")
+	buyButton.Name = "BuyButton"
+	buyButton.Size = UDim2.new(0, 108, 0, 46)
+	buyButton.Position = UDim2.new(1, -120, 0.5, -23)
+	buyButton.Text = "🔒"
+	buyButton.Parent = row
+	styleButton(buyButton, UITheme.Color.Locked, UDim.new(1, 0))
+
+	buyButton.MouseButton1Click:Connect(function()
+		Remotes.BuyStageMastery:FireServer(i)
+	end)
+
+	masteryRows[i] = { row = row, statusLabel = statusLabel, buyButton = buyButton, stroke = rowStroke }
+	masteryScroll.CanvasSize = UDim2.new(0, 0, 0, i * 74)
+end
+
+-- The Mastery panel is opened from the Upgrade Emporium's diamond counter -- see the
+-- ProximityPrompt handler at the bottom of this script. Nothing on the HUD opens it any more.
+
+local function refreshMasteryPanel()
+	if not currentData then return end
+	local data = currentData
+	local cfg = GameConfig.StageMastery
+	local bonus = GameConfig.GetStageMasteryBonus(data)
+	local diamonds = data.Diamonds or 0
+	local reached = data.StageIndex or 1
+	local effect = string.format("+%d%% Power · +%.1f Speed · +%d%% HP", cfg.damagePct, cfg.walkSpeed, cfg.healthPct)
+
+	masterySummaryLabel.Text = string.format("%d/%d mastered — +%d%% Power, +%.1f Speed, +%d%% HP",
+		bonus.owned, #GameConfig.Stages,
+		math.floor((bonus.damageMult - 1) * 100 + 0.5), bonus.walkSpeed,
+		math.floor((bonus.healthMult - 1) * 100 + 0.5))
+
+	local anyAffordable = false
+
+	for i, stage in ipairs(GameConfig.Stages) do
+		local refs = masteryRows[i]
+		if refs then
+			local owned = GameConfig.HasStageMastery(data, i)
+			local cost = GameConfig.GetStageMasteryCost(i)
+
+			if owned then
+				refs.statusLabel.Text = "✓ Mastered"
+				refs.buyButton.Text = "✓"
+				setButtonColor(refs.buyButton, UITheme.Color.Green)
+				refs.stroke.Color = OUTLINE_COLOR
+				setButtonColor(refs.row, UITheme.Color.Locked)
+			elseif i > reached then
+				refs.statusLabel.Text = "Reach " .. stage.name .. " to unlock"
+				refs.buyButton.Text = "🔒"
+				setButtonColor(refs.buyButton, UITheme.Color.Locked)
+				refs.stroke.Color = OUTLINE_COLOR
+				setButtonColor(refs.row, UITheme.Color.Locked)
+			else
+				local affordable = diamonds >= cost
+				anyAffordable = anyAffordable or affordable
+				refs.statusLabel.Text = effect
+				refs.buyButton.Text = "💎 " .. cost
+				-- grey, not red: an unaffordable row is "not yet", and a wall of red buttons on a
+				-- fresh save reads as twenty things being broken
+				setButtonColor(refs.buyButton, affordable and UITheme.Color.Green or UITheme.Color.Locked)
+				-- the bright rim is the same "you can act on this now" cue the Daily board uses
+				refs.stroke.Color = affordable and READY_RIM or OUTLINE_COLOR
+				setButtonColor(refs.row, stage.color)
+			end
+		end
+	end
+
+	if masteryBadge then
+		masteryBadge.Visible = anyAffordable
+	end
+end
+
+-- ===== Pets panel =====
+--
+-- BUILT AGAINST A REFERENCE SCREENSHOT, not against the rest of this HUD. The player asked for the
+-- pet inventory to look like the one in Duck Evolution, and that panel is a WHITE board with a
+-- cyan rim, a grid of grey cards, and each pet's art hanging off the top-left corner of its own
+-- card with a green tick on it when equipped. Every other panel in this file is dark; this one is
+-- deliberately not, so its labels pass explicit dark colours to themeLabel (which otherwise
+-- force-brightens anything dark, on the assumption of a dark shell -- see the luminance test there).
+--
+-- The palette is written out at each use rather than hoisted into constants: this chunk is at
+-- Luau's 200-register ceiling and five more top-level locals is exactly the kind of thing that has
+-- already broken the whole script once.
+--   white board 252,252,255 | cyan rim 64,196,255 | card 226,228,236 | inset 240,242,248
+--   name text 122,126,140   | stat text 88,92,104 | tick/number green 62,196,86
+local petsPanel = Instance.new("Frame")
+petsPanel.Name = "PetsPanel"
+-- landscape, like the reference -- a grid of cards needs width, and the old 490 fitted two
+petsPanel.Size = UDim2.new(0, 772, 0, 524)
+petsPanel.Position = PANEL_ANCHOR
+petsPanel.ZIndex = 20
+petsPanel.Visible = false
+petsPanel.Parent = screenGui
+styleCard(petsPanel, Color3.fromRGB(252, 252, 255), UDim.new(0, 20), 6)
+registerPanel(petsPanel)
+panelClose(petsPanel)
+-- styleCard paints the standard dark outline on everything; the reference rim is a bright cyan.
+-- Reached through the children rather than through a local for the register reason above.
+for _, s in ipairs(petsPanel:GetChildren()) do
+	if s:IsA("UIStroke") then s.Color = Color3.fromRGB(64, 196, 255) end
+end
+
+-- The title sits ON the top-left corner, half outside the board, the way the reference does it.
+-- Nothing clips here, so a negative Y simply draws over the world behind the panel.
+local petsPanelTitle = Instance.new("TextLabel")
+petsPanelTitle.Name = "TitleLabel"
+petsPanelTitle.Size = UDim2.new(0, 420, 0, 54)
+petsPanelTitle.Position = UDim2.new(0, 16, 0, -30)
+petsPanelTitle.BackgroundTransparency = 1
+petsPanelTitle.TextXAlignment = Enum.TextXAlignment.Left
+petsPanelTitle.ZIndex = petsPanel.ZIndex + UITheme.Z.Badge
+petsPanelTitle.Text = "🐾 Pets!"
+petsPanelTitle.Parent = petsPanel
+themeLabel(petsPanelTitle, 44)
+
+-- Bulk actions. A collection this size is not managed one row at a time: by the time a player is
+-- three zones in they own dozens of pets, and "which three are my best" is a question the game
+-- should answer, not something to solve by scrolling and comparing numbers by eye.
+-- Fusion is NOT one of them: it has exactly one door, the Pet Fusion Lab counter in the world (see
+-- the ShopPanel handler at the bottom of this script). A shortcut here made the lab pointless.
+--
+-- WHY THIS BLOCK IS WRAPPED IN `do ... end`, AND WHY WHAT ESCAPES IT GOES IN ONE TABLE:
+-- this file's top level is a single Luau function, and Luau gives a function 200 registers. It
+-- sits at ~190 named top-level locals. Seven more -- a frame, a layout, a builder fn, three
+-- buttons and a forward declaration -- pushed it over, and the WHOLE SCRIPT stopped compiling:
+-- not a broken panel, no HUD at all, every side button gone at once. Locals declared inside a
+-- `do` block release their registers at `end`, so a block costs nothing lasting. Anything that
+-- must outlive it goes in `hudRefs` -- one register no matter how many entries it holds. New UI
+-- follows this shape, or lives in its own module.
+local hudRefs = {}
+
+-- ===== Bottom-left: ACTIVE POTION TIMERS =====================================================
+-- Nothing in the game said how long a boost had left. You drank a bottle, it disappeared into the
+-- save, and some minutes later the multiplier quietly stopped -- so the counter is the only place
+-- the effect is visible at all once the toast has gone.
+--
+-- One row per potion KIND, not per bottle. A kind is the unit a boost is tracked in: drinking a
+-- second bottle of the same kind EXTENDS the timer instead of stacking a second effect (see
+-- PotionService.applyBoost), so three rows is the true maximum and they can all be built once and
+-- shown or hidden rather than created per potion.
+--
+-- BUILT INSIDE AN IMMEDIATELY-CALLED FUNCTION, for the register reason set out above.
+;(function()
+	local stack = Instance.new("Frame")
+	stack.Name = "PotionTimers"
+	stack.Size = UDim2.new(0, 250, 0, 162)
+	-- directly above the currency stack, which is 140 tall sitting 22 off the bottom
+	stack.Position = UDim2.new(0, 20, 1, -170)
+	stack.AnchorPoint = Vector2.new(0, 1)
+	stack.BackgroundTransparency = 1
+	stack.Visible = false
+	stack.ZIndex = UITheme.Z.Content
+	stack.Parent = screenGui
+
+	local layout = Instance.new("UIListLayout")
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	layout.Padding = UDim.new(0, 6)
+	layout.Parent = stack
+
+	local KINDS = { "dna", "xp", "luck" }
+	local LABEL = { dna = "DNA", xp = "XP" }
+	local rows = {}
+
+	for order, kind in ipairs(KINDS) do
+		-- colour and emoji are properties of the KIND, so any bottle of that kind carries the
+		-- right ones -- no separate table to keep in step with GameConfig.Potions
+		local sample
+		for _, p in ipairs(GameConfig.Potions) do
+			if p.kind == kind then
+				sample = p
+				break
+			end
+		end
+
+		local card = Instance.new("Frame")
+		card.Name = kind .. "Timer"
+		card.Size = UDim2.new(0, 244, 0, 48)
+		card.LayoutOrder = order
+		card.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
+		card.Visible = false
+		card.ZIndex = UITheme.Z.Content + 1
+		card.Parent = stack
+		styleCard(card, sample.color, UDim.new(0, 12), 3)
+
+		local bottle = Instance.new("TextLabel")
+		bottle.Name = "Bottle"
+		bottle.Size = UDim2.new(0, 36, 0, 36)
+		bottle.Position = UDim2.new(0, 6, 0, 6)
+		bottle.BackgroundColor3 = sample.color
+		bottle.Text = sample.emoji
+		bottle.ZIndex = card.ZIndex + 1
+		bottle.Parent = card
+		corner(bottle, UDim.new(0.5, 0))
+		themeLabel(bottle, 20)
+
+		local effect = Instance.new("TextLabel")
+		effect.Name = "Effect"
+		effect.Size = UDim2.new(1, -122, 0, 20)
+		effect.Position = UDim2.new(0, 50, 0, 4)
+		effect.BackgroundTransparency = 1
+		effect.TextXAlignment = Enum.TextXAlignment.Left
+		effect.ZIndex = card.ZIndex + 1
+		effect.Parent = card
+		themeLabel(effect, 17)
+
+		local clock = Instance.new("TextLabel")
+		clock.Name = "Clock"
+		clock.Size = UDim2.new(0, 66, 0, 20)
+		clock.Position = UDim2.new(1, -72, 0, 4)
+		clock.BackgroundTransparency = 1
+		clock.TextXAlignment = Enum.TextXAlignment.Right
+		clock.ZIndex = card.ZIndex + 1
+		clock.Parent = card
+		themeLabel(clock, 17)
+
+		local track = Instance.new("Frame")
+		track.Name = "Track"
+		track.Size = UDim2.new(1, -62, 0, 8)
+		track.Position = UDim2.new(0, 50, 1, -15)
+		track.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
+		track.BorderSizePixel = 0
+		track.ZIndex = card.ZIndex + 1
+		track.Parent = card
+		corner(track, UDim.new(0.5, 0))
+
+		local fill = Instance.new("Frame")
+		fill.Name = "Fill"
+		fill.Size = UDim2.new(1, 0, 1, 0)
+		fill.BackgroundColor3 = sample.color
+		fill.BorderSizePixel = 0
+		fill.ZIndex = track.ZIndex + 1
+		fill.Parent = track
+		corner(fill, UDim.new(0.5, 0))
+
+		rows[kind] = { card = card, effect = effect, clock = clock, fill = fill }
+	end
+
+	-- x2 stays "x2"; x1.5 becomes "x1.5" rather than taking the thread down. See the note below.
+	local function formatMult(m)
+		m = tonumber(m) or 1
+		if math.abs(m - math.floor(m + 0.5)) < 0.001 then
+			return tostring(math.floor(m + 0.5))
+		end
+		return ("%.1f"):format(m)
+	end
+
+	-- Its OWN loop, not a hook on DataUpdate: the number has to fall every second, and data only
+	-- arrives when something in the game happens -- a player standing still would watch a frozen
+	-- clock. Four times a second keeps the seconds honest without redrawing every frame.
+	task.spawn(function()
+		while true do
+			local boosts = currentData and currentData.PotionBoosts
+			local now = os.time()
+			local any = false
+			for _, kind in ipairs(KINDS) do
+				local row = rows[kind]
+				local b = boosts and boosts[kind]
+				local left = b and ((b.untilTs or 0) - now) or 0
+				if left > 0 then
+					any = true
+					row.card.Visible = true
+					row.clock.Text = ("%d:%02d"):format(math.floor(left / 60), left % 60)
+					-- `totalSecs` is what the boost was worth when it was last topped up, which is
+					-- not the bottle's own duration -- a second bottle adds to the remainder. Fall
+					-- back to `left` so an old save written before that field existed draws a full
+					-- bar rather than dividing by nil.
+					local total = math.max(b.totalSecs or left, 1)
+					row.fill.Size = UDim2.new(math.clamp(left / total, 0, 1), 0, 1, 0)
+					-- %d, NOT ON A VALUE THAT MIGHT NOT BE A WHOLE NUMBER.
+					--
+					-- In Luau `("%d"):format(2.5)` does not round -- it raises "number has no integer
+					-- representation". This is the body of a `while true` inside a task.spawn with no
+					-- pcall around it, so one such multiplier would kill this thread permanently: every
+					-- potion timer in the session freezes at whatever it last showed, no error reaches
+					-- the player, and the bug looks like "my potion never ran out". A potion multiplier
+					-- is authored as 2 today and nothing stops the next one being 1.5.
+					row.effect.Text = b.mult and ("x%s %s"):format(formatMult(b.mult), LABEL[kind] or kind)
+						or (b.luckAdd and ("+%d%% Luck"):format(math.floor(b.luckAdd)) or "Boost")
+				else
+					row.card.Visible = false
+				end
+			end
+			stack.Visible = any
+			task.wait(0.25)
+		end
+	end)
+
+	hudRefs.potionTimers = rows
+end)()
+
+-- An IMMEDIATELY-CALLED FUNCTION, not a `do` block. The note above is half right: a block does
+-- release its registers at `end`, but Luau measures the PEAK, and the peak inside a block is every
+-- top-level local still in scope plus everything the block declares. A function body gets its own
+-- 200 and is the only thing that actually buys headroom -- see the Season Pass block, which had
+-- the same comment on it and still broke the script.
+;(function()
+	-- THE BAR SITS ON THE BOTTOM EDGE OF THE BOARD, half in and half out, the way the reference
+	-- does it: two wide buttons, then the two counters.
+	local actionRow = Instance.new("Frame")
+	actionRow.Name = "PetsActionRow"
+	actionRow.Size = UDim2.new(1, -28, 0, 52)
+	actionRow.Position = UDim2.new(0.5, 0, 1, -26)
+	actionRow.AnchorPoint = Vector2.new(0.5, 0.5)
+	actionRow.BackgroundTransparency = 1
+	actionRow.ZIndex = petsPanel.ZIndex + UITheme.Z.Badge
+	actionRow.Parent = petsPanel
+
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.VerticalAlignment = Enum.VerticalAlignment.Center
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Padding = UDim.new(0, 10)
+	layout.Parent = actionRow
+
+	local function actionButton(order, text, color, width)
+		local btn = Instance.new("TextButton")
+		btn.Name = "Action" .. order
+		btn.Size = UDim2.new(0, width or 178, 0, 46)
+		btn.LayoutOrder = order
+		btn.Text = text
+		btn.ZIndex = actionRow.ZIndex
+		btn.Parent = actionRow
+		styleButton(btn, color, UDim.new(1, 0))
+		return btn
+	end
+
+	local equipBestButton = actionButton(1, "Equip Best Pets", UITheme.Color.Green)
+	local unequipAllButton = actionButton(2, "Unequip All Pets", UITheme.Color.Red)
+
+	-- The two blue counter capsules. The reference puts a green [+] on each of them -- an upsell for
+	-- more slots -- and ours is not decoration: the equipped cap really is buyable, it is the PetSlot
+	-- Diamond upgrade in the Shop, so the [+] opens that. See GameConfig.GetMaxEquippedPets.
+	local function counterCapsule(order, emoji, onPlus)
+		local capsule = Instance.new("Frame")
+		capsule.Name = "Counter" .. order
+		capsule.Size = UDim2.new(0, 150, 0, 46)
+		capsule.LayoutOrder = order
+		capsule.ZIndex = actionRow.ZIndex
+		capsule.Parent = actionRow
+		styleCard(capsule, UITheme.Color.Blue, UDim.new(1, 0), 4)
+
+		local plus = Instance.new("TextButton")
+		plus.Name = "Plus"
+		plus.Size = UDim2.new(0, 34, 0, 34)
+		plus.Position = UDim2.new(0, 7, 0.5, 0)
+		plus.AnchorPoint = Vector2.new(0, 0.5)
+		plus.Text = "+"
+		plus.ZIndex = capsule.ZIndex + UITheme.Z.Content
+		plus.Parent = capsule
+		styleButton(plus, UITheme.Color.Green, UDim.new(0, 10), 3)
+		plus.MouseButton1Click:Connect(onPlus)
+
+		local count = Instance.new("TextLabel")
+		count.Name = "Count"
+		count.Size = UDim2.new(0, 62, 0, 34)
+		count.Position = UDim2.new(0, 46, 0.5, 0)
+		count.AnchorPoint = Vector2.new(0, 0.5)
+		count.BackgroundTransparency = 1
+		count.ZIndex = capsule.ZIndex + UITheme.Z.Content
+		count.Text = "0"
+		count.Parent = capsule
+		themeLabel(count, 24)
+
+		local icon = Instance.new("TextLabel")
+		icon.Name = "Icon"
+		icon.Size = UDim2.new(0, 34, 0, 34)
+		icon.Position = UDim2.new(1, -8, 0.5, 0)
+		icon.AnchorPoint = Vector2.new(1, 0.5)
+		icon.BackgroundTransparency = 1
+		icon.ZIndex = capsule.ZIndex + UITheme.Z.Content
+		icon.Text = emoji
+		icon.Parent = capsule
+		themeLabel(icon, 26)
+
+		return count
+	end
+
+	-- read back by refreshPetsPanel, which is the only thing that knows the numbers
+	hudRefs.petSlotCount = counterCapsule(3, "\u{1F43E}", function()
+		toggleOnly(shopFrame)
+	end)
+	hudRefs.petOwnedCount = counterCapsule(4, "\u{1F392}", function()
+		toggleOnly(shopFrame)
+	end)
+
+	-- These two remotes are newer than the authored Remotes folder, so they are fetched by name
+	-- rather than indexed -- PetService creates whichever is missing when the server starts.
+	task.spawn(function()
+		local equipBest = Remotes:WaitForChild("EquipBestPets", 30)
+		local unequipAll = Remotes:WaitForChild("UnequipAllPets", 30)
+		if equipBest then
+			equipBestButton.MouseButton1Click:Connect(function()
+				equipBest:FireServer()
+			end)
+		end
+		if unequipAll then
+			unequipAllButton.MouseButton1Click:Connect(function()
+				unequipAll:FireServer()
+			end)
+		end
+	end)
+end)()
+
+-- Owned pets scroll list
+-- themeLabel wraps every label in a thick dark outline, which is right on a dark panel and wrong
+-- on this white one -- the reference's card text is plain grey. Kills the outline after theming.
+local function flatText(label)
+	for _, s in ipairs(label:GetChildren()) do
+		if s:IsA("UIStroke") then s.Transparency = 1 end
+	end
+	return label
+end
+
+local petsScroll = Instance.new("ScrollingFrame")
+petsScroll.Name = "PetsScroll"
+-- clear of the title above and the action bar sitting on the bottom edge
+petsScroll.Size = UDim2.new(1, -44, 1, -128)
+petsScroll.Position = UDim2.new(0, 22, 0, 54)
+petsScroll.BackgroundTransparency = 1
+petsScroll.BorderSizePixel = 0
+petsScroll.ScrollBarThickness = 6
+petsScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+petsScroll.Parent = petsPanel
+
+-- A GRID, NOT A LIST. The reference lays pets out as cards left-to-right and this is the single
+-- biggest difference from the old panel: a full-width row per pet fits six on a screen, and a
+-- player three zones in owns dozens. The cell is taller and wider than the card inside it because
+-- the pet's art hangs off the card's top-left corner and has to have somewhere to hang.
+-- 3 columns: 3 * 232 + 2 * 10 = 716, inside the 728 the scroll has.
+do
+	local grid = Instance.new("UIGridLayout")
+	grid.CellSize = UDim2.new(0, 232, 0, 126)
+	grid.CellPadding = UDim2.new(0, 10, 0, 12)
+	grid.SortOrder = Enum.SortOrder.LayoutOrder
+	grid.Parent = petsScroll
+end
+
+-- Parented to the PANEL, not the scroll: inside a UIGridLayout it would be laid out as a cell and
+-- push the first pet out of place.
+local petsEmptyLabel = Instance.new("TextLabel")
+petsEmptyLabel.Name = "EmptyLabel"
+petsEmptyLabel.Size = UDim2.new(1, -60, 0, 60)
+petsEmptyLabel.Position = UDim2.new(0, 30, 0, 120)
+petsEmptyLabel.BackgroundTransparency = 1
+petsEmptyLabel.TextWrapped = true
+petsEmptyLabel.ZIndex = petsPanel.ZIndex + UITheme.Z.Content
+petsEmptyLabel.Text = "No pets yet — visit a Pet Shop in any zone to buy an egg!"
+petsEmptyLabel.Parent = petsPanel
+flatText(themeLabel(petsEmptyLabel, 24, Color3.fromRGB(150, 154, 168)))
+
+inventoryButton.MouseButton1Click:Connect(function()
+	toggleOnly(petsPanel)
+end)
+
+local function petDisplayInfo(petKey)
+	for _, p in ipairs(GameConfig.Pets) do
+		if p.key == petKey then return p end
+	end
+	return { name = petKey, emoji = "❓", rarity = "Common" }
+end
+
+-- Rarity and tier are two different axes and a pet row has to show both. RichText is the only
+-- way to give one label two colours, so the rarity word carries its own colour inline while
+-- themeLabel colours the rest of the line by tier.
+local function colorTag(text, c)
+	return string.format('<font color="#%02X%02X%02X">%s</font>',
+		math.round(c.R * 255), math.round(c.G * 255), math.round(c.B * 255), text)
+end
+
+-- Live rigs shown in the pet rows. A row shows the actual creature in a ViewportFrame rather
+-- than its emoji: the emoji is the same 🐾 shape for half the roster, and the whole point of 100
+-- species is that you can tell them apart. Kept in a list so one RenderStepped can turn them all.
+local petPreviewRigs = {}
+
+local function refreshPetsPanel()
+	if not currentData then return end
+	local data = currentData
+
+	petsPanelTitle.Text = string.format("🐾 Pets (%d/%d equipped)", #data.EquippedPetIds, GameConfig.MaxEquippedPets)
+
+	-- Clear old cells. Matched on NAME alone: a cell is a TextButton now (the whole card is the
+	-- equip button), and the old `IsA("Frame")` test silently stopped clearing anything -- every
+	-- refresh would have stacked another full copy of the collection into the grid.
+	for _, child in ipairs(petsScroll:GetChildren()) do
+		if child.Name == "PetRow" then
+			child:Destroy()
+		end
+	end
+	-- the rigs went with the rows they were parented to
+	table.clear(petPreviewRigs)
+
+	petsEmptyLabel.Visible = (#data.Pets == 0)
+
+	local equippedLookup = {}
+	for _, id in ipairs(data.EquippedPetIds) do equippedLookup[id] = true end
+
+	-- Strongest first. The old order was insertion order -- literally the order the pets happened
+	-- to hatch in -- so in a collection of two hundred the best one could be anywhere and the three
+	-- that were actually equipped were scattered down the scroll.
+	local ranked = GameConfig.SortedPetsByPower(data.Pets)
+
+	hudRefs.petSlotCount.Text = ("%d/%d"):format(#data.EquippedPetIds, GameConfig.GetMaxEquippedPets(data))
+	hudRefs.petOwnedCount.Text = tostring(#data.Pets)
+
+	for i, pet in ipairs(ranked) do
+		local info = petDisplayInfo(pet.key)
+		local rarity = GameConfig.GetRarity(info.rarity)
+		local isEquipped = equippedLookup[pet.id] == true
+		local bonus = GameConfig.GetPetBonus(pet.tier, info.rarity)
+		-- The reference prints a flat "+75". Ours are multipliers (a x2.6 pet really does multiply),
+		-- so the same shape is reached by showing the multiplier as the percentage it adds -- x2.6
+		-- reads as +160%. Same sign, same feel, and it is not a lie about what the pet does.
+		local damageText = ("+%d%%"):format(math.floor((bonus.damageMult - 1) * 100 + 0.5))
+
+		-- THE CELL IS THE BUTTON. In the reference you equip by clicking the pet, not by hunting for
+		-- an Equip button on its row -- and the pet's art hangs off the top-left of its card, outside
+		-- it, which only works if the clickable thing is the whole cell rather than the card.
+		-- ViewportFrames and Frames are inactive by default, so clicks on the art land here too.
+		local cell = Instance.new("TextButton")
+		cell.Name = "PetRow"
+		cell.LayoutOrder = i
+		cell.Text = ""
+		cell.AutoButtonColor = false
+		cell.BackgroundTransparency = 1
+		cell.Size = UDim2.new(0, 232, 0, 126)
+		cell.ZIndex = petsScroll.ZIndex + UITheme.Z.Content
+		cell.Parent = petsScroll
+		cell.MouseButton1Click:Connect(function()
+			if isEquipped then
+				Remotes.UnequipPet:FireServer(pet.id)
+			else
+				Remotes.EquipPet:FireServer(pet.id)
+			end
+		end)
+
+		-- the grey card, offset right and down to leave the art its corner
+		local card = Instance.new("Frame")
+		card.Name = "Card"
+		card.Size = UDim2.new(0, 180, 0, 92)
+		card.Position = UDim2.new(0, 52, 0, 32)
+		card.ZIndex = cell.ZIndex
+		card.Parent = cell
+		-- rarity rides the rim: it is the one thing the reference has no equivalent for, and a
+		-- coloured edge says it without spending a line of the card on the word
+		styleCard(card, Color3.fromRGB(226, 228, 236), UDim.new(0, 14), 3).Color =
+			isEquipped and Color3.fromRGB(62, 196, 86) or rarity.color
+
+		local nameLabel = Instance.new("TextLabel")
+		nameLabel.Name = "PetName"
+		nameLabel.Size = UDim2.new(1, -20, 0, 26)
+		nameLabel.Position = UDim2.new(0, 10, 0, 5)
+		nameLabel.BackgroundTransparency = 1
+		nameLabel.ZIndex = card.ZIndex + UITheme.Z.Content
+		nameLabel.Text = info.name
+		nameLabel.Parent = card
+		flatText(themeLabel(nameLabel, 24, Color3.fromRGB(122, 126, 140)))
+
+		local subLabel = Instance.new("TextLabel")
+		subLabel.Name = "SubLabel"
+		subLabel.Size = UDim2.new(1, -20, 0, 18)
+		subLabel.Position = UDim2.new(0, 10, 0, 31)
+		subLabel.BackgroundTransparency = 1
+		subLabel.RichText = true
+		subLabel.ZIndex = card.ZIndex + UITheme.Z.Content
+		subLabel.Text = colorTag(rarity.name, shade(rarity.color, -0.35)) .. " · " .. pet.tier
+		subLabel.Parent = card
+		flatText(themeLabel(subLabel, 16, Color3.fromRGB(150, 154, 168)))
+
+		-- the inset stat bar, the one line the reference's card actually carries
+		local statBar = Instance.new("Frame")
+		statBar.Name = "StatBar"
+		statBar.Size = UDim2.new(1, -20, 0, 34)
+		statBar.Position = UDim2.new(0, 10, 0, 51)
+		statBar.BackgroundColor3 = Color3.fromRGB(240, 242, 248)
+		statBar.BorderSizePixel = 0
+		statBar.ZIndex = card.ZIndex + UITheme.Z.Content
+		statBar.Parent = card
+		corner(statBar, UDim.new(0, 10))
+
+		local statLabel = Instance.new("TextLabel")
+		statLabel.Name = "StatLabel"
+		statLabel.Size = UDim2.new(1, -12, 1, -6)
+		statLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+		statLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+		statLabel.BackgroundTransparency = 1
+		statLabel.ZIndex = statBar.ZIndex + UITheme.Z.Content
+		statLabel.Text = ("\u{1F5E1}\u{FE0F} Damage: %s"):format(damageText)
+		statLabel.Parent = statBar
+		flatText(themeLabel(statLabel, 18, Color3.fromRGB(88, 92, 104)))
+
+		-- the pet itself, hanging off the card's top-left corner with nothing behind it. The rig is
+		-- the same PetModel build that walks around the world, so what you see here is what you get.
+		local preview = Instance.new("ViewportFrame")
+		preview.Name = "Preview"
+		preview.Size = UDim2.new(0, 96, 0, 96)
+		preview.Position = UDim2.new(0, 0, 0, 0)
+		preview.BackgroundTransparency = 1
+		preview.BorderSizePixel = 0
+		preview.Ambient = Color3.fromRGB(196, 196, 212)
+		preview.LightColor = Color3.fromRGB(255, 255, 255)
+		preview.LightDirection = Vector3.new(-0.4, -1, -0.55)
+		preview.ZIndex = card.ZIndex + UITheme.Z.Badge
+		preview.Parent = cell
+
+		local def = GameConfig.GetPetDef(pet.key)
+		if def then
+			local rig, rigRoot, rigPieces = PetModel.Build(def, pet.tier, {
+				scale = 1,
+				nameplate = false,
+				outline = false,
+				sparkle = false,
+			})
+			PetModel.Place(rigRoot, rigPieces, CFrame.new())
+			rig.Parent = preview
+
+			local cam = Instance.new("Camera")
+			-- a touch off-axis, so the rig reads as three-dimensional instead of as a mugshot
+			cam.FieldOfView = 45
+			cam.CFrame = CFrame.new(Vector3.new(3.2, 2.8, -7.4), Vector3.new(0, 1.0, 0))
+			cam.Parent = preview
+			preview.CurrentCamera = cam
+
+			table.insert(petPreviewRigs, { root = rigRoot, pieces = rigPieces, phase = i * 0.7 })
+		end
+
+		-- the green tick, ON the pet, exactly where the reference puts it
+		if isEquipped then
+			local tick = Instance.new("TextLabel")
+			tick.Name = "EquippedTick"
+			tick.Size = UDim2.new(0, 46, 0, 46)
+			tick.Position = UDim2.new(0, 26, 0, 22)
+			tick.BackgroundTransparency = 1
+			tick.ZIndex = preview.ZIndex + 2
+			tick.Text = "\u{2714}"
+			tick.Parent = cell
+			themeLabel(tick, 44, Color3.fromRGB(62, 196, 86))
+		end
+
+		-- and the big green number under it: the same figure the stat bar spells out, at a glance
+		local valueLabel = Instance.new("TextLabel")
+		valueLabel.Name = "ValueLabel"
+		valueLabel.Size = UDim2.new(0, 88, 0, 28)
+		valueLabel.Position = UDim2.new(0, 4, 0, 72)
+		valueLabel.BackgroundTransparency = 1
+		valueLabel.ZIndex = preview.ZIndex + 2
+		valueLabel.Text = damageText
+		valueLabel.Parent = cell
+		themeLabel(valueLabel, 26, Color3.fromRGB(62, 196, 86))
+
+		-- No per-row Fuse button any more. Fusing is a decision about a GROUP of four identical
+		-- pets, not about the one row under the cursor, and a button that silently consumed three
+		-- other pets from elsewhere in the list was the least readable thing in this panel. It
+		-- lives in the Fusion panel now, which shows what goes in and what comes out.
+	end
+
+	-- three to a row, cell 126 tall on 12 of padding
+	petsScroll.CanvasSize = UDim2.new(0, 0, 0, math.ceil(#data.Pets / 3) * 138 + 12)
+end
+
+-- One turntable for every row, and only while the panel is actually open: a ViewportFrame costs
+-- nothing when nobody is looking at it, and a pet standing dead still in a box looks like a
+-- screenshot of a pet.
+RunService.RenderStepped:Connect(function()
+	if not petsPanel.Visible then return end
+	local t = os.clock()
+	for _, rig in ipairs(petPreviewRigs) do
+		if rig.root.Parent then
+			PetModel.Place(rig.root, rig.pieces,
+				CFrame.new(0, math.sin(t * 1.7 + rig.phase) * 0.07, 0)
+				* CFrame.Angles(0, math.sin(t * 0.55 + rig.phase) * 0.55, 0))
+		end
+	end
+end)
+
+-- ===== Pet Fusion panel =====
+-- Fusing is a decision about a GROUP -- four identical pets go in, one of the next tier comes out
+-- -- so this panel lists GROUPS, not pets. Each row is one species at one tier, and it states the
+-- whole trade before you commit: how many you own, how many it takes, and what the result is
+-- worth against what you are giving up.
+--
+-- Built inside an immediately-called function so its locals get a register file of their own --
+-- see the note on the Season Pass panel for why a `do` block is not enough. Handles via `hudRefs`.
+;(function()
+	local panel = Instance.new("Frame")
+	panel.Name = "FusionPanel"
+	panel.Size = UDim2.new(0, 500, 0, 520)
+	panel.Position = PANEL_ANCHOR
+	panel.ZIndex = 20
+	panel.Visible = false
+	panel.Parent = screenGui
+	styleCard(panel, PANEL_SHELL, UDim.new(0, 22), 5)
+	registerPanel(panel)
+	panelClose(panel)
+
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(1, -80, 0, 38)
+	title.Position = UDim2.new(0, 18, 0, 10)
+	title.BackgroundTransparency = 1
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Text = "\u{1F9EC} Pet Fusion"
+	title.Parent = panel
+	themeLabel(title, 28)
+
+	local hint = Instance.new("Frame")
+	hint.Size = UDim2.new(1, -28, 0, 44)
+	hint.Position = UDim2.new(0, 14, 0, 52)
+	hint.Parent = panel
+	styleCard(hint, UITheme.Color.Purple, UDim.new(0, 14), 4)
+
+	local hintLabel = Instance.new("TextLabel")
+	hintLabel.Size = UDim2.new(1, -20, 1, -8)
+	hintLabel.Position = UDim2.new(0, 10, 0, 2)
+	hintLabel.BackgroundTransparency = 1
+	hintLabel.TextWrapped = true
+	hintLabel.Text = ("Fuse %d of the same pet at the same tier into one of the next tier.")
+		:format(GameConfig.FuseRequirement)
+	hintLabel.Parent = hint
+	themeLabel(hintLabel, 18)
+
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Name = "FusionScroll"
+	scroll.Size = UDim2.new(1, -28, 1, -122)
+	scroll.Position = UDim2.new(0, 14, 0, 106)
+	scroll.BackgroundTransparency = 1
+	scroll.BorderSizePixel = 0
+	scroll.ScrollBarThickness = 6
+	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	scroll.Parent = panel
+
+	local listLayout = Instance.new("UIListLayout")
+	listLayout.Padding = UDim.new(0, 6)
+	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	listLayout.Parent = scroll
+
+	local emptyLabel = Instance.new("TextLabel")
+	emptyLabel.Name = "EmptyLabel"
+	emptyLabel.Size = UDim2.new(1, 0, 0, 66)
+	emptyLabel.BackgroundTransparency = 1
+	emptyLabel.TextWrapped = true
+	emptyLabel.LayoutOrder = 0
+	emptyLabel.Text = ("Nothing to fuse yet \u{2014} you need %d copies of one pet at the same tier.")
+		:format(GameConfig.FuseRequirement)
+	emptyLabel.Parent = scroll
+	themeLabel(emptyLabel, 20, UITheme.Color.Cream)
+
+	-- power runs 1 .. 64 across the whole roster, so one decimal below ten and none above it
+	local function powerText(p)
+		if p >= 10 then
+			return ("x%d"):format(math.floor(p + 0.5))
+		end
+		return ("x%.1f"):format(p)
+	end
+
+	local function refresh()
+		if not currentData then return end
+		local data = currentData
+
+		for _, child in ipairs(scroll:GetChildren()) do
+			if child:IsA("Frame") and child.Name == "FuseRow" then
+				child:Destroy()
+			end
+		end
+
+		-- one entry per species+tier, because that pairing is exactly what HandleFuse consumes
+		local groups, order = {}, {}
+		for _, pet in ipairs(data.Pets) do
+			local groupKey = pet.key .. "|" .. pet.tier
+			local g = groups[groupKey]
+			if not g then
+				g = { key = pet.key, tier = pet.tier, count = 0 }
+				groups[groupKey] = g
+				table.insert(order, g)
+			end
+			g.count += 1
+		end
+
+		-- Groups that CANNOT fuse are dropped, not greyed out. A maxed-tier pet or a lone copy is
+		-- not a choice the player has, and a hundred dead rows hide the four live ones.
+		local ready = {}
+		for _, g in ipairs(order) do
+			g.nextTier = GameConfig.GetNextTier(g.tier)
+			if g.nextTier and g.count >= GameConfig.FuseRequirement then
+				g.power = GameConfig.GetPetPower({ key = g.key, tier = g.tier })
+				g.nextPower = GameConfig.GetPetPower({ key = g.key, tier = g.nextTier })
+				table.insert(ready, g)
+			end
+		end
+		table.sort(ready, function(a, b)
+			if a.nextPower ~= b.nextPower then return a.nextPower > b.nextPower end
+			return a.key < b.key
+		end)
+
+		emptyLabel.Visible = (#ready == 0)
+
+		for i, g in ipairs(ready) do
+			local info = petDisplayInfo(g.key)
+			local rarity = GameConfig.GetRarity(info.rarity)
+
+			local row = Instance.new("Frame")
+			row.Name = "FuseRow"
+			row.LayoutOrder = i
+			row.Size = UDim2.new(1, 0, 0, 72)
+			row.Parent = scroll
+			styleCard(row, PET_ROW_SHELL, UDim.new(0, 14), 4)
+
+			local stripe = Instance.new("Frame")
+			stripe.Size = UDim2.new(0, 7, 1, -20)
+			stripe.Position = UDim2.new(0, 8, 0.5, 0)
+			stripe.AnchorPoint = Vector2.new(0, 0.5)
+			stripe.BackgroundColor3 = rarity.color
+			stripe.BorderSizePixel = 0
+			stripe.ZIndex = row.ZIndex + UITheme.Z.Content
+			stripe.Parent = row
+			corner(stripe, UDim.new(1, 0))
+
+			local nameLabel = Instance.new("TextLabel")
+			nameLabel.Size = UDim2.new(0, 250, 0, 28)
+			nameLabel.Position = UDim2.new(0, 26, 0, 8)
+			nameLabel.BackgroundTransparency = 1
+			nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+			nameLabel.RichText = true
+			nameLabel.Text = ("%s %s  %s"):format(info.emoji, info.name,
+				colorTag(("(%d/%d)"):format(g.count, GameConfig.FuseRequirement), READY_RIM))
+			nameLabel.Parent = row
+			themeLabel(nameLabel, 23)
+
+			-- THE ANSWER TO "how much stronger": both sides of the trade and the ratio between them,
+			-- on one line. Printing only the result would leave the player doing the division.
+			local gainLabel = Instance.new("TextLabel")
+			gainLabel.Size = UDim2.new(0, 260, 0, 24)
+			gainLabel.Position = UDim2.new(0, 26, 1, -32)
+			gainLabel.BackgroundTransparency = 1
+			gainLabel.TextXAlignment = Enum.TextXAlignment.Left
+			gainLabel.RichText = true
+			gainLabel.Text = ("%s %s  \u{2192}  %s %s"):format(
+				g.tier, powerText(g.power),
+				colorTag(g.nextTier, GameConfig.PetTierColor[g.nextTier] or UITheme.Color.White),
+				colorTag(powerText(g.nextPower) .. ((" (+%.0f%%)"):format((g.nextPower / g.power - 1) * 100)), READY_RIM))
+			gainLabel.Parent = row
+			themeLabel(gainLabel, 17, UITheme.Color.Cream)
+
+			-- THE WARNING THE RATIO ABOVE DOES NOT COVER.
+			--
+			-- "+92%" is true of the PET and can be false of the PLAYER. Equipped bonuses multiply
+			-- across three slots, so a player who owns four pets and fuses all four goes from three
+			-- equipped to one -- their actual damage falls even though every number on this row went
+			-- up. The server now re-equips the result, which recovers most of it, but a shallow
+			-- collection still ends the trade with emptier slots and the player deserves to know
+			-- before pressing rather than after.
+			if currentData and #currentData.Pets - GameConfig.FuseRequirement + 1
+				< #currentData.EquippedPetIds then
+				local warn_ = Instance.new("TextLabel")
+				warn_.Size = UDim2.new(0, 300, 0, 20)
+				warn_.Position = UDim2.new(0, 26, 1, -12)
+				warn_.BackgroundTransparency = 1
+				warn_.TextXAlignment = Enum.TextXAlignment.Left
+				warn_.Text = "\u{26A0}\u{FE0F} You'll have fewer pets equipped after this"
+				warn_.ZIndex = row.ZIndex + UITheme.Z.Content
+				warn_.Parent = row
+				themeLabel(warn_, 15, Color3.fromRGB(255, 186, 120))
+			end
+
+			local fuseBtn = Instance.new("TextButton")
+			fuseBtn.Name = "FuseButton"
+			fuseBtn.Size = UDim2.new(0, 108, 0, 46)
+			fuseBtn.Position = UDim2.new(1, -12, 0.5, -23)
+			fuseBtn.AnchorPoint = Vector2.new(1, 0)
+			fuseBtn.Text = ("FUSE %d"):format(GameConfig.FuseRequirement)
+			fuseBtn.Parent = row
+			styleButton(fuseBtn, UITheme.Color.Purple, UDim.new(1, 0))
+			fuseBtn.MouseButton1Click:Connect(function()
+				Remotes.FusePet:FireServer(g.key, g.tier)
+			end)
+		end
+
+		scroll.CanvasSize = UDim2.new(0, 0, 0, #ready * 78 + 40)
+	end
+
+	hudRefs.refreshFusionPanel = refresh
+	hudRefs.showFusionPanel = function()
+		toggleOnly(panel)
+		refresh()
+	end
+end)()
+
+local function refreshZonesPanel()
+	if not currentData then return end
+	local unlockedLookup = {}
+	for _, k in ipairs(currentData.UnlockedZones) do unlockedLookup[k] = true end
+	for _, zone in ipairs(GameConfig.Zones) do
+		local refs = zoneRows[zone.key]
+		if refs then
+			if unlockedLookup[zone.key] then
+				refs.statusLabel.Text = "Unlocked" .. (zone.incomeBonusPct > 0 and (" · +" .. zone.incomeBonusPct .. "% income") or "")
+				refs.goButton.Text = "Go"
+				setButtonColor(refs.goButton, Color3.fromRGB(60, 190, 100))
+			else
+				-- BOTH REASONS, and the one actually in the way first.
+			--
+			-- This row used to print the stage requirement alone. A zone also needs the PREVIOUS
+			-- zone's boss defeated (GameConfig.IsZoneUnlocked), so a Bacteria player would read
+			-- "Desert -- Requires: Bacteria" with "🧬 Bacteria" in the top bar and conclude the
+			-- panel was broken. ZoneService already answers the press with the right reason; the
+			-- list was the only thing lying about it.
+				local reqStage = GameConfig.Stages[zone.unlockStageIndex]
+				local stageOk = (currentData.StageIndex or 1) >= zone.unlockStageIndex
+				local bossKey = zone.requiresBossKey
+				local bossDone = true
+				if bossKey then
+					bossDone = false
+					for _, k in ipairs(currentData.DefeatedBosses or {}) do
+						if k == bossKey then
+							bossDone = true
+							break
+						end
+					end
+				end
+				if not stageOk then
+					refs.statusLabel.Text = "Requires: " .. (reqStage and reqStage.name or "?")
+				elseif not bossDone then
+					local prev = GameConfig.GetZoneByKey(bossKey)
+					refs.statusLabel.Text = "Beat the " .. ((prev and prev.name) or bossKey) .. " boss"
+				else
+					refs.statusLabel.Text = "Requires: " .. (reqStage and reqStage.name or "?")
+				end
+				refs.goButton.Text = "🔒"
+				setButtonColor(refs.goButton, Color3.fromRGB(80, 80, 90))
+			end
+		end
+	end
+end
+
+-- ===== Rebirth panel =====
+local rebirthPanel = Instance.new("Frame")
+rebirthPanel.Name = "RebirthPanel"
+rebirthPanel.Size = UDim2.new(0, 400, 0, 384)
+rebirthPanel.Position = PANEL_ANCHOR
+rebirthPanel.ZIndex = 20
+rebirthPanel.Visible = false
+rebirthPanel.Parent = screenGui
+styleCard(rebirthPanel, PANEL_SHELL, UDim.new(0, 22), 5)
+registerPanel(rebirthPanel)
+panelClose(rebirthPanel)
+
+local rebirthTitle = Instance.new("TextLabel")
+rebirthTitle.Name = "TitleLabel"
+rebirthTitle.Size = UDim2.new(1, -80, 0, 38)
+rebirthTitle.Position = UDim2.new(0, 18, 0, 10)
+rebirthTitle.BackgroundTransparency = 1
+rebirthTitle.TextXAlignment = Enum.TextXAlignment.Left
+rebirthTitle.Text = "♻️ Rebirth"
+rebirthTitle.Parent = rebirthPanel
+themeLabel(rebirthTitle, 28)
+
+-- the two readouts get real cards rather than bare text on the shell, so the panel has the
+-- same stacked-card rhythm as Zones/Pets instead of reading as a dialog box
+local rebirthInfoCard = Instance.new("Frame")
+rebirthInfoCard.Name = "InfoCard"
+rebirthInfoCard.Size = UDim2.new(1, -28, 0, 88)
+rebirthInfoCard.Position = UDim2.new(0, 14, 0, 56)
+rebirthInfoCard.Parent = rebirthPanel
+styleCard(rebirthInfoCard, UITheme.Color.Purple, UDim.new(0, 14), 4)
+
+local rebirthInfoLabel = Instance.new("TextLabel")
+rebirthInfoLabel.Name = "InfoLabel"
+rebirthInfoLabel.Size = UDim2.new(1, -24, 1, -16)
+rebirthInfoLabel.Position = UDim2.new(0, 12, 0, 8)
+rebirthInfoLabel.BackgroundTransparency = 1
+rebirthInfoLabel.TextXAlignment = Enum.TextXAlignment.Left
+rebirthInfoLabel.TextYAlignment = Enum.TextYAlignment.Top
+rebirthInfoLabel.TextWrapped = true
+rebirthInfoLabel.Text = "Rebirths: 0\nEvolution Shards: 0 (+0% income)"
+rebirthInfoLabel.Parent = rebirthInfoCard
+themeLabel(rebirthInfoLabel, 19, UITheme.Color.Cream)
+
+local rebirthReqCard = Instance.new("Frame")
+rebirthReqCard.Name = "ReqCard"
+rebirthReqCard.Size = UDim2.new(1, -28, 0, 132)
+rebirthReqCard.Position = UDim2.new(0, 14, 0, 154)
+rebirthReqCard.Parent = rebirthPanel
+styleCard(rebirthReqCard, UITheme.Color.Gold, UDim.new(0, 14), 4)
+
+local rebirthReqLabel = Instance.new("TextLabel")
+rebirthReqLabel.Name = "ReqLabel"
+rebirthReqLabel.Size = UDim2.new(1, -24, 1, -16)
+rebirthReqLabel.Position = UDim2.new(0, 12, 0, 8)
+rebirthReqLabel.BackgroundTransparency = 1
+rebirthReqLabel.TextXAlignment = Enum.TextXAlignment.Left
+rebirthReqLabel.TextYAlignment = Enum.TextYAlignment.Top
+rebirthReqLabel.TextWrapped = true
+rebirthReqLabel.Text = "Reach Universe God to rebirth."
+rebirthReqLabel.Parent = rebirthReqCard
+themeLabel(rebirthReqLabel, 18)
+
+local rebirthActionButton = Instance.new("TextButton")
+rebirthActionButton.Name = "ActionButton"
+rebirthActionButton.Size = UDim2.new(1, -28, 0, 58)
+rebirthActionButton.Position = UDim2.new(0, 14, 1, -72)
+rebirthActionButton.Text = "REBIRTH"
+rebirthActionButton.Parent = rebirthPanel
+styleButton(rebirthActionButton, UITheme.Color.Locked, UDim.new(1, 0))
+
+rebirthButton.MouseButton1Click:Connect(function()
+	toggleOnly(rebirthPanel)
+end)
+
+rebirthActionButton.MouseButton1Click:Connect(function()
+	Remotes.Rebirth:FireServer()
+end)
+
+local function refreshRebirthPanel()
+	if not currentData then return end
+	local data = currentData
+	local shardBonus = GameConfig.GetShardIncomeBonusPct(data.EvolutionShards)
+	local tierNow = GameConfig.GetRebirthTier(data.StageIndex)
+	rebirthInfoLabel.Text = string.format(
+		"Rebirths: %d\nEvolution Shards: %d (+%d%% income)\nRebirth Tier: %d / %d",
+		data.Rebirths, data.EvolutionShards, shardBonus, tierNow, GameConfig.MaxRebirthTier
+	)
+
+	local canRebirth = data.StageIndex >= GameConfig.RebirthRequirementStageIndex
+	local nextShards = GameConfig.GetRebirthShardReward(data.StageIndex, data.Rebirths)
+	if canRebirth then
+		local nextTierStage = math.min((tierNow + 1) * GameConfig.RebirthTierSize, #GameConfig.Stages)
+		local pushHint = ""
+		if tierNow < GameConfig.MaxRebirthTier then
+			local nextTierStageDef = GameConfig.Stages[nextTierStage]
+			local nextTierShards = GameConfig.GetRebirthShardReward(nextTierStage, data.Rebirths)
+			pushHint = string.format(" Push to %s %s (Stage %d) for +%d Shards instead!", nextTierStageDef.emoji, nextTierStageDef.name, nextTierStage, nextTierShards)
+		end
+		-- The button below is the shortcut; the statues are where the choice actually lives, because
+		-- there you pick WHICH tier to cash in at. Each stands in the zone that opens at its own
+		-- checkpoint stage -- see ServerScriptService.RebirthShrine.
+		rebirthReqLabel.Text = string.format("Ready! Rebirth now for +%d Shards.%s", nextShards, pushHint)
+		rebirthActionButton.Text = string.format("REBIRTH (+%d Shards)", nextShards)
+		setButtonColor(rebirthActionButton, UITheme.Color.Purple)
+	else
+		local reqStage = GameConfig.Stages[GameConfig.RebirthRequirementStageIndex]
+		rebirthReqLabel.Text = "Reach " .. reqStage.emoji .. " " .. reqStage.name .. " (Stage " .. GameConfig.RebirthRequirementStageIndex .. ") to unlock your first Rebirth. A Rebirth checkpoint exists every 5 stages."
+		rebirthActionButton.Text = "REBIRTH (LOCKED)"
+		setButtonColor(rebirthActionButton, UITheme.Color.Locked)
+	end
+end
+
+-- ===== shared bits for the two "claim a reward" boards (Daily + Playtime) =====
+-- Both boards are grids of chunky cards whose whole face is the hit area, with a green
+-- coin dropped on the corner once the reward is banked.
+
+-- claimed marker: sits on the Badge layer so it always clears the card's own gloss.
+local function claimTick(card, diameter, maxText)
+	local coin = Instance.new("Frame")
+	coin.Name = "Checkmark"
+	coin.Size = UDim2.new(0, diameter, 0, diameter)
+	coin.Position = UDim2.new(1, -8, 0, 8)
+	coin.AnchorPoint = Vector2.new(1, 0)
+	coin.ZIndex = card.ZIndex + UITheme.Z.Badge
+	coin.Visible = false
+	coin.Parent = card
+	styleCard(coin, UITheme.Color.Green, UDim.new(1, 0), 3)
+
+	local tick = Instance.new("TextLabel")
+	tick.Name = "Tick"
+	tick.Size = UDim2.new(1, -10, 1, -14)
+	tick.Position = UDim2.new(0.5, 0, 0.5, -3)
+	tick.AnchorPoint = Vector2.new(0.5, 0.5)
+	tick.BackgroundTransparency = 1
+	tick.Text = "✓"
+	tick.Parent = coin
+	themeLabel(tick, maxText or 22)
+
+	return coin
+end
+
+-- the card face is a Frame, so the click target is a transparent button laid over it.
+local function claimOverlay(card)
+	local btn = Instance.new("TextButton")
+	btn.Name = "ClaimButton"
+	btn.Size = UDim2.new(1, 0, 1, 0)
+	btn.BackgroundTransparency = 1
+	btn.AutoButtonColor = false
+	btn.Text = ""
+	btn.ZIndex = card.ZIndex + UITheme.Z.Overlay
+	btn.Parent = card
+	return btn
+end
+
+-- ===== Daily Reward panel (all 7 days at once + big Day 7 hero card) =====
+-- The one true modal in the HUD: a dimmed backdrop kills the rest of the screen so the
+-- 7-day board is the only thing reading. The dim is a sibling one ZIndex under the shell.
+local rewardDim = Instance.new("Frame")
+rewardDim.Name = "RewardDim"
+rewardDim.Size = UDim2.new(1, 0, 1, 0)
+rewardDim.Position = UDim2.new(0, 0, 0, 0)
+-- The kit's own shadow tint rather than pure black. Flat rgb(0,0,0) over a bright cartoon world
+-- reads as a screenshot someone dimmed in an image editor; the violet-black that everything else
+-- in the game is outlined and shadowed with reads as part of the same picture.
+rewardDim.BackgroundColor3 = UITheme.Color.Shadow
+rewardDim.BackgroundTransparency = 0.38
+rewardDim.BorderSizePixel = 0
+rewardDim.ZIndex = 19
+rewardDim.Visible = false
+rewardDim.Parent = screenGui
+
+local rewardPanel = Instance.new("Frame")
+rewardPanel.Name = "RewardPanel"
+rewardPanel.Size = UDim2.new(0, 700, 0, 480)
+rewardPanel.Position = PANEL_ANCHOR
+rewardPanel.ZIndex = 20
+rewardPanel.Visible = false
+rewardPanel.Parent = screenGui
+styleCard(rewardPanel, PANEL_SHELL, UDim.new(0, 22), 5)
+registerPanel(rewardPanel)
+panelClose(rewardPanel)
+
+-- toggleOnly still owns visibility; the backdrop only mirrors it -- and now fades rather than
+-- snapping, so the dim arrives with the panel's scale pop instead of a frame ahead of it.
+--
+-- The SHOW has to be ordered carefully: Visible goes true BEFORE the tween starts, or there is
+-- nothing on screen to fade; and the transparency is reset to fully clear first, or a re-open
+-- starts from wherever the last close left it. The HIDE is the mirror, and it leans on
+-- animatePanel keeping the panel Visible for the length of its own close tween -- 0.12s, which is
+-- what this is matched to. A backdrop that vanished instantly would leave the panel shrinking
+-- against the full-brightness world for the last two frames.
+rewardPanel:GetPropertyChangedSignal("Visible"):Connect(function()
+	if rewardPanel.Visible then
+		rewardDim.BackgroundTransparency = 1
+		rewardDim.Visible = true
+		TweenService:Create(rewardDim, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ BackgroundTransparency = 0.38 }):Play()
+	else
+		local fade = TweenService:Create(rewardDim, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+			{ BackgroundTransparency = 1 })
+		fade.Completed:Connect(function()
+			-- guarded: the player may have reopened the board inside those 0.12 seconds, and hiding
+			-- the backdrop then would leave the panel floating over an undimmed world
+			if not rewardPanel.Visible then
+				rewardDim.Visible = false
+			end
+		end)
+		fade:Play()
+	end
+end)
+
+local rewardTitle = Instance.new("TextLabel")
+rewardTitle.Name = "TitleLabel"
+rewardTitle.Size = UDim2.new(1, -90, 0, 44)
+rewardTitle.Position = UDim2.new(0, 22, 0, 12)
+rewardTitle.BackgroundTransparency = 1
+rewardTitle.TextXAlignment = Enum.TextXAlignment.Left
+rewardTitle.Text = "📅 Daily Rewards!"
+rewardTitle.Parent = rewardPanel
+themeLabel(rewardTitle, 36)
+
+local rewardStreakCard = Instance.new("Frame")
+rewardStreakCard.Name = "StreakCard"
+rewardStreakCard.Size = UDim2.new(0, 240, 0, 34)
+rewardStreakCard.Position = UDim2.new(0, 22, 0, 58)
+rewardStreakCard.Parent = rewardPanel
+styleCard(rewardStreakCard, UITheme.Color.Orange, UDim.new(1, 0), 3)
+
+local rewardStreakLabel = Instance.new("TextLabel")
+rewardStreakLabel.Name = "StreakLabel"
+rewardStreakLabel.Size = UDim2.new(1, -28, 0, 24)
+rewardStreakLabel.Position = UDim2.new(0, 14, 0, 3)
+rewardStreakLabel.BackgroundTransparency = 1
+rewardStreakLabel.TextXAlignment = Enum.TextXAlignment.Left
+rewardStreakLabel.Text = "🔥 Streak: 0 days"
+rewardStreakLabel.Parent = rewardStreakCard
+themeLabel(rewardStreakLabel, 22)
+
+local GRID_X, GRID_Y = 25, 100
+local CELL_W, CELL_H, CELL_GAP = 140, 152, 8
+local DAY7_W = 200
+
+local rewardCells = {} -- [dayIndex] = { frame, dayLabel, iconLabel, amountLabel, bonusLabel, checkmark, strokeInst, idleColor, isToday }
+
+-- one day of the board. `big` is the Day 7 hero column on the right: same anatomy, gold
+-- shell, everything scaled up so it reads as the prize you are streaking towards.
+local function buildDayCell(dayIndex, size, position, big)
+	local reward = GameConfig.DailyRewards[dayIndex]
+	local frame = Instance.new("Frame")
+	frame.Name = "Day" .. dayIndex
+	frame.Size = size
+	frame.Position = position
+	frame.Parent = rewardPanel
+	local idleColor = big and UITheme.Color.Gold or UITheme.Color.Blue
+	local strokeInst = styleCard(frame, idleColor, UDim.new(0, 16), big and 5 or 4)
+
+	local dayLabel = Instance.new("TextLabel")
+	dayLabel.Name = "DayLabel"
+	dayLabel.Size = UDim2.new(1, -14, 0, big and 40 or 28)
+	dayLabel.Position = UDim2.new(0, 7, 0, big and 12 or 8)
+	dayLabel.BackgroundTransparency = 1
+	dayLabel.Text = "Day " .. dayIndex
+	dayLabel.Parent = frame
+	themeLabel(dayLabel, big and 34 or 24)
+
+	local iconLabel = Instance.new("TextLabel")
+	iconLabel.Name = "IconLabel"
+	iconLabel.Size = UDim2.new(1, 0, 0, big and 138 or 58)
+	iconLabel.Position = UDim2.new(0, 0, 0, big and 62 or 38)
+	iconLabel.BackgroundTransparency = 1
+	local icon = "🧬"
+	if reward.potions and reward.shards then
+		icon = "🌟"
+	elseif reward.potions then
+		icon = "🧪"
+	elseif reward.shards or reward.diamonds then
+		icon = "💎"
+	end
+	iconLabel.Text = icon
+	iconLabel.Parent = frame
+	themeLabel(iconLabel, big and 84 or 46)
+
+	local amountLabel = Instance.new("TextLabel")
+	amountLabel.Name = "AmountLabel"
+	amountLabel.Size = UDim2.new(1, -12, 0, big and 34 or 24)
+	amountLabel.Position = UDim2.new(0, 6, 1, big and -84 or -56)
+	amountLabel.BackgroundTransparency = 1
+	amountLabel.TextWrapped = true
+	amountLabel.Text = formatNumber(reward.dna) .. " DNA"
+	amountLabel.Parent = frame
+	themeLabel(amountLabel, big and 28 or 21, UITheme.Color.Cream)
+
+	local bonusLabel = Instance.new("TextLabel")
+	bonusLabel.Name = "BonusLabel"
+	bonusLabel.Size = UDim2.new(1, -12, 0, big and 36 or 24)
+	bonusLabel.Position = UDim2.new(0, 6, 1, big and -46 or -30)
+	bonusLabel.BackgroundTransparency = 1
+	local bonusParts = {}
+	if reward.potions then table.insert(bonusParts, "🧪 x" .. reward.potions) end
+	if reward.shards then table.insert(bonusParts, "💎 x" .. reward.shards) end
+	if reward.diamonds then table.insert(bonusParts, "💎 x" .. reward.diamonds) end
+	bonusLabel.Text = table.concat(bonusParts, "  ")
+	bonusLabel.Visible = #bonusParts > 0
+	bonusLabel.Parent = frame
+	themeLabel(bonusLabel, big and 26 or 19)
+
+	local checkmark = claimTick(frame, big and 42 or 34, big and 26 or 22)
+
+	local claimButton = claimOverlay(frame)
+	claimButton.MouseButton1Click:Connect(function()
+		local cell = rewardCells[dayIndex]
+		if cell and cell.isToday then
+			Remotes.ClaimDailyReward:FireServer()
+		end
+	end)
+
+	rewardCells[dayIndex] = {
+		frame = frame, dayLabel = dayLabel, iconLabel = iconLabel,
+		amountLabel = amountLabel, bonusLabel = bonusLabel,
+		checkmark = checkmark, strokeInst = strokeInst,
+		idleColor = idleColor, isToday = false,
+	}
+end
+
+for d = 1, 6 do
+	local row = math.floor((d - 1) / 3)
+	local col = (d - 1) % 3
+	buildDayCell(
+		d,
+		UDim2.new(0, CELL_W, 0, CELL_H),
+		UDim2.new(0, GRID_X + col * (CELL_W + CELL_GAP), 0, GRID_Y + row * (CELL_H + CELL_GAP)),
+		false
+	)
+end
+buildDayCell(
+	7,
+	UDim2.new(0, DAY7_W, 0, CELL_H * 2 + CELL_GAP),
+	UDim2.new(0, GRID_X + 3 * (CELL_W + CELL_GAP) + 6, 0, GRID_Y),
+	true
+)
+
+local rewardBannerCard = Instance.new("Frame")
+rewardBannerCard.Name = "BannerCard"
+rewardBannerCard.Size = UDim2.new(1, -50, 0, 44)
+rewardBannerCard.Position = UDim2.new(0.5, 0, 1, -14)
+rewardBannerCard.AnchorPoint = Vector2.new(0.5, 1)
+rewardBannerCard.Parent = rewardPanel
+styleCard(rewardBannerCard, UITheme.Color.Purple, UDim.new(1, 0), 4)
+
+local rewardBannerLabel = Instance.new("TextLabel")
+rewardBannerLabel.Name = "BannerLabel"
+rewardBannerLabel.Size = UDim2.new(1, -28, 1, -16)
+rewardBannerLabel.Position = UDim2.new(0.5, 0, 0.5, -3)
+rewardBannerLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+rewardBannerLabel.BackgroundTransparency = 1
+rewardBannerLabel.Text = "Come back tomorrow for the next reward!"
+rewardBannerLabel.Parent = rewardBannerCard
+themeLabel(rewardBannerLabel, 24)
+
+rewardButton.MouseButton1Click:Connect(function()
+	toggleOnly(rewardPanel)
+end)
+
+local SECONDS_PER_DAY = 86400
+local function dayNumber(timestamp)
+	return math.floor((timestamp or 0) / SECONDS_PER_DAY)
+end
+
+local function refreshRewardPanel()
+	if not currentData then return end
+	local data = currentData
+	local today = dayNumber(os.time())
+	local lastDay = dayNumber(data.LastRewardClaim)
+	local canClaim = today > lastDay
+	local streak = data.RewardStreak or 0
+
+	rewardStreakLabel.Text = "🔥 Streak: " .. streak .. " day" .. (streak == 1 and "" or "s")
+
+	local upcomingStreak = streak
+	if canClaim then
+		upcomingStreak = (today == lastDay + 1) and (streak + 1) or 1
+	end
+	if upcomingStreak < 1 then upcomingStreak = 1 end
+	local rewardIndex = ((upcomingStreak - 1) % #GameConfig.DailyRewards) + 1
+
+	local claimedUpTo = canClaim and (rewardIndex - 1) or rewardIndex
+	local todayIndex = canClaim and rewardIndex or nil
+
+	for d = 1, 7 do
+		local cell = rewardCells[d]
+		if cell then
+			local isClaimed = d <= claimedUpTo
+			local isToday = (d == todayIndex)
+			local idleThickness = (d == 7) and 5 or 4
+			cell.isToday = isToday
+			cell.checkmark.Visible = isClaimed
+			-- state reads off the shell colour, not transparency: fading the card would
+			-- eat the outline and the gradient that make it look moulded.
+			if isToday then
+				cell.strokeInst.Color = READY_RIM
+				cell.strokeInst.Thickness = idleThickness + 1
+				cell.dayLabel.Text = "CLAIM!"
+				setButtonColor(cell.frame, UITheme.Color.Green)
+			elseif isClaimed then
+				cell.strokeInst.Color = OUTLINE_COLOR
+				cell.strokeInst.Thickness = idleThickness
+				cell.dayLabel.Text = "Day " .. d
+				setButtonColor(cell.frame, UITheme.Color.Locked)
+			else
+				cell.strokeInst.Color = OUTLINE_COLOR
+				cell.strokeInst.Thickness = idleThickness
+				cell.dayLabel.Text = "Day " .. d
+				setButtonColor(cell.frame, cell.idleColor)
+			end
+		end
+	end
+
+	if rewardBadge then
+		rewardBadge.Visible = canClaim
+	end
+
+	if canClaim then
+		rewardBannerLabel.Text = "🎉 Day " .. rewardIndex .. " is ready — click it to claim!"
+		setButtonColor(rewardBannerCard, UITheme.Color.Green)
+	else
+		local nextDay = (streak % #GameConfig.DailyRewards) + 1
+		rewardBannerLabel.Text = "Come back tomorrow for Day " .. nextDay .. "!"
+		setButtonColor(rewardBannerCard, UITheme.Color.Purple)
+	end
+end
+
+-- ===== Inventory panel (Potions) =====
+local inventoryPanel = Instance.new("Frame")
+inventoryPanel.Name = "InventoryPanel"
+-- tall enough for the two counter cards, the three live-boost lines and a scroll deep enough to
+-- show four of the nine bottles at once
+inventoryPanel.Size = UDim2.new(0, 520, 0, 528)
+inventoryPanel.Position = PANEL_ANCHOR
+inventoryPanel.ZIndex = 20
+inventoryPanel.Visible = false
+inventoryPanel.Parent = screenGui
+-- WHITE, WITH A BLUE RIM. Every panel in this HUD was PANEL_SHELL navy on the theory that it
+-- matches the tiles, and against a bright zone that reads as a hole cut in the screen. The rim is
+-- recoloured after styleCard rather than through it, because styleCard always uses OUTLINE_COLOR --
+-- deliberately, so nothing built through it can drift from UITheme's own shell.
+do
+	local shell = styleCard(inventoryPanel, UITheme.Color.PanelWhite, UDim.new(0, 22), 5)
+	if shell then shell.Color = UITheme.Color.SkyBlue end
+	-- and FLAT. styleCard hangs a top-to-bottom gradient on everything it builds, which is what
+	-- gives the coloured tiles their gloss -- but the same ramp over a white sheet just greys the
+	-- bottom half of it, so the panel read as dirty rather than as paper.
+	local grad = inventoryPanel:FindFirstChild("Gradient")
+	if grad then grad:Destroy() end
+end
+registerPanel(inventoryPanel)
+panelClose(inventoryPanel)
+
+-- The title sits ABOVE the card, not inside it. Inside, it costs 48px of the panel's own height
+-- and competes with the first section heading; above, it is a label on a box, which is what it is.
+local inventoryTitle = Instance.new("TextLabel")
+inventoryTitle.Name = "TitleLabel"
+inventoryTitle.Size = UDim2.new(0, 420, 0, 48)
+inventoryTitle.Position = UDim2.new(0, 6, 0, -54)
+inventoryTitle.BackgroundTransparency = 1
+inventoryTitle.TextXAlignment = Enum.TextXAlignment.Left
+inventoryTitle.Text = "\u{1F392} Items!"
+inventoryTitle.Parent = inventoryPanel
+themeLabel(inventoryTitle, 40)
+
+-- ===== SECTION HEADINGS =====
+-- Centred grey word with a rule running out of both sides. Two of them, written out rather than
+-- put behind a helper: a helper for two call sites is a function you have to go and read.
+-- INK on white, and passed EXPLICITLY -- themeLabel only rescues a dark colour to white when no
+-- colour was given at all, so an explicit dark one survives, which is the whole point here.
+local INK_ON_WHITE = Color3.fromRGB(108, 116, 140)
+for _, sec in ipairs({ { "Potions", 112 }, { "Resources", 368 } }) do
+	local head = Instance.new("TextLabel")
+	head.Name = "Section_" .. sec[1]
+	head.Size = UDim2.new(1, -36, 0, 30)
+	head.Position = UDim2.new(0, 18, 0, sec[2])
+	head.BackgroundTransparency = 1
+	head.Text = sec[1]
+	head.Parent = inventoryPanel
+	themeLabel(head, 26, INK_ON_WHITE)
+	for _, side in ipairs({ -1, 1 }) do
+		local rule = Instance.new("Frame")
+		rule.Name = "Rule"
+		rule.Size = UDim2.new(0.32, 0, 0, 3)
+		rule.Position = UDim2.new(side < 0 and 0 or 0.68, 0, 0.5, -1)
+		rule.BackgroundColor3 = Color3.fromRGB(224, 228, 238)
+		rule.BorderSizePixel = 0
+		rule.ZIndex = head.ZIndex
+		rule.Parent = head
+	end
+end
+
+-- ===== RESOURCES =====
+-- An icon with a count stuck on it, not a captioned card. The card version spent 66px of height
+-- and a full caption line to say "DIAMONDS 0"; a diamond with x0 on it says the same thing in a
+-- square, which is what leaves room for the potion shelf above to be worth scrolling.
+local diamondCard = Instance.new("Frame")
+diamondCard.Name = "DiamondCard"
+diamondCard.Size = UDim2.new(0, 92, 0, 92)
+diamondCard.Position = UDim2.new(0, 26, 0, 410)
+diamondCard.Parent = inventoryPanel
+styleCard(diamondCard, UITheme.Color.SkyBlue, UDim.new(0, 20), 4)
+
+local diamondCaption = Instance.new("TextLabel")
+diamondCaption.Name = "Caption"
+diamondCaption.Size = UDim2.new(1, -10, 1, -22)
+diamondCaption.Position = UDim2.new(0, 5, 0, 4)
+diamondCaption.BackgroundTransparency = 1
+diamondCaption.Text = "\u{1F48E}"
+diamondCaption.Parent = diamondCard
+themeLabel(diamondCaption, 44)
+
+local diamondCountLabel = Instance.new("TextLabel")
+diamondCountLabel.Name = "DiamondCount"
+diamondCountLabel.Size = UDim2.new(1, 0, 0, 26)
+diamondCountLabel.Position = UDim2.new(0, 0, 1, -26)
+diamondCountLabel.BackgroundTransparency = 1
+diamondCountLabel.Text = "x0"
+diamondCountLabel.ZIndex = diamondCard.ZIndex + UITheme.Z.Badge
+diamondCountLabel.Parent = diamondCard
+themeLabel(diamondCountLabel, 24)
+
+-- THE POTION SHELF.
+--
+-- There used to be one potion, held as a single integer, and this panel was a card reading
+-- "POTIONS 3" with one USE button under it. There are nine bottles now -- DNA / XP / Luck, each in
+-- Small / Medium / Large -- so the panel is the shelf: one row per bottle, how many are held, what
+-- it does and how long it lasts, and a USE that drinks that exact one.
+--
+-- All nine rows are built ONCE here and only their text, colour and button state are written on
+-- refresh. Rebuilding rows on every DataUpdate is what made the pet list flicker.
+local potionCard = Instance.new("Frame")
+potionCard.Name = "PotionCard"
+potionCard.Size = UDim2.new(0, 92, 0, 92)
+potionCard.Position = UDim2.new(0, 132, 0, 410)
+potionCard.Parent = inventoryPanel
+styleCard(potionCard, UITheme.Color.Green, UDim.new(0, 20), 4)
+
+local potionCaption = Instance.new("TextLabel")
+potionCaption.Name = "Caption"
+potionCaption.Size = UDim2.new(1, -10, 1, -22)
+potionCaption.Position = UDim2.new(0, 5, 0, 4)
+potionCaption.BackgroundTransparency = 1
+potionCaption.Text = "\u{1F9EA}"
+potionCaption.Parent = potionCard
+themeLabel(potionCaption, 44)
+
+local potionCountLabel = Instance.new("TextLabel")
+potionCountLabel.Name = "PotionCount"
+potionCountLabel.Size = UDim2.new(1, 0, 0, 26)
+potionCountLabel.Position = UDim2.new(0, 0, 1, -26)
+potionCountLabel.BackgroundTransparency = 1
+potionCountLabel.Text = "x0"
+potionCountLabel.ZIndex = potionCard.ZIndex + UITheme.Z.Badge
+potionCountLabel.Parent = potionCard
+themeLabel(potionCountLabel, 24)
+
+local BOOST_STRIP_H = 30
+
+local boostStrip = Instance.new("Frame")
+boostStrip.Name = "BoostStrip"
+-- the live-boost readout sits ABOVE the first heading, because it is status rather than content:
+-- what is running right now belongs at the top of the screen it belongs to
+boostStrip.Size = UDim2.new(1, -96, 0, BOOST_STRIP_H * 3)
+boostStrip.Position = UDim2.new(0, 18, 0, 16)
+boostStrip.BackgroundTransparency = 1
+boostStrip.Parent = inventoryPanel
+
+local boostRows = {}
+for i, kind in ipairs(GameConfig.PotionKinds) do
+	local row = Instance.new("TextLabel")
+	row.Name = "Boost_" .. kind.key
+	row.Size = UDim2.new(1, 0, 0, BOOST_STRIP_H)
+	row.Position = UDim2.new(0, 0, 0, (i - 1) * BOOST_STRIP_H)
+	row.BackgroundTransparency = 1
+	row.TextXAlignment = Enum.TextXAlignment.Left
+	row.Visible = false
+	row.Text = ""
+	row.Parent = boostStrip
+	themeLabel(row, 20, kind.color)
+	boostRows[kind.key] = row
+end
+
+-- shown in place of the strip when nothing at all is running, so the space is never just blank
+local noBoostLabel = Instance.new("TextLabel")
+noBoostLabel.Name = "NoBoost"
+noBoostLabel.Size = UDim2.new(1, 0, 0, BOOST_STRIP_H)
+noBoostLabel.BackgroundTransparency = 1
+noBoostLabel.TextXAlignment = Enum.TextXAlignment.Left
+noBoostLabel.Text = "No potion running"
+noBoostLabel.Parent = boostStrip
+themeLabel(noBoostLabel, 20, UITheme.Color.Cream)
+
+local potionScroll = Instance.new("ScrollingFrame")
+potionScroll.Name = "PotionScroll"
+potionScroll.Size = UDim2.new(1, -36, 0, 204)
+potionScroll.Position = UDim2.new(0, 18, 0, 146)
+potionScroll.BackgroundTransparency = 1
+potionScroll.BorderSizePixel = 0
+potionScroll.ScrollBarThickness = 6
+potionScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+potionScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+potionScroll.Parent = inventoryPanel
+
+local potionListLayout = Instance.new("UIListLayout")
+potionListLayout.Padding = UDim.new(0, 6)
+potionListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+potionListLayout.Parent = potionScroll
+
+-- WHAT AN EMPTY SHELF SAYS. Nine greyed rows reading x0 is a price list, not an inventory: it
+-- tells a player who owns nothing that the screen is broken rather than that they have not bought
+-- anything. One grey line over the whole shelf is the honest answer, and the rows go with it.
+local potionEmptyLabel = Instance.new("TextLabel")
+potionEmptyLabel.Name = "PotionEmpty"
+potionEmptyLabel.Size = UDim2.new(1, -36, 0, 204)
+potionEmptyLabel.Position = UDim2.new(0, 18, 0, 146)
+potionEmptyLabel.BackgroundTransparency = 1
+potionEmptyLabel.Visible = false
+potionEmptyLabel.Text = "You don't have any Potions!"
+potionEmptyLabel.ZIndex = inventoryPanel.ZIndex + UITheme.Z.Content
+potionEmptyLabel.Parent = inventoryPanel
+themeLabel(potionEmptyLabel, 26, Color3.fromRGB(168, 176, 194))
+
+local potionRows = {}
+for i, potion in ipairs(GameConfig.Potions) do
+	local row = Instance.new("Frame")
+	row.Name = "Potion_" .. potion.id
+	row.Size = UDim2.new(1, -10, 0, 62)
+	row.LayoutOrder = i
+	row.Parent = potionScroll
+	styleCard(row, potion.color, UDim.new(0, 14), 3)
+
+	local icon = Instance.new("TextLabel")
+	icon.Name = "Icon"
+	icon.Size = UDim2.new(0, 46, 1, -10)
+	icon.Position = UDim2.new(0, 8, 0, 5)
+	icon.BackgroundTransparency = 1
+	icon.Text = potion.sizeEmoji
+	icon.Parent = row
+	themeLabel(icon, 30)
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Name = "NameLabel"
+	nameLabel.Size = UDim2.new(1, -250, 0, 26)
+	nameLabel.Position = UDim2.new(0, 56, 0, 6)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.Text = potion.emoji .. " " .. potion.shortName
+	nameLabel.Parent = row
+	themeLabel(nameLabel, 22)
+
+	local subLabel = Instance.new("TextLabel")
+	subLabel.Name = "SubLabel"
+	-- WIDER, AND ON ONE LINE. `effectText` for the Luck bottles is "+120% egg, pet, character and
+	-- mutation luck" -- 52 characters. In a 224 x 22 box with TextScaled and TextWrapped that is
+	-- two wrapped lines inside 14px of bounds, which renders at about 7px: the three rows whose
+	-- text a player most needs to read were the only three in the whole GUI that did not fit.
+	--
+	-- The row has the width to give: the count sits at -168 and the button at -100, so reserving
+	-- 250 for both left 68 studs of the row unused. TextWrapped off so it can never stack two lines
+	-- into a 22px box again -- if a future bottle out-writes the space it truncates visibly rather
+	-- than shrinking to nothing.
+	subLabel.Size = UDim2.new(1, -186, 0, 22)
+	subLabel.Position = UDim2.new(0, 56, 0, 32)
+	subLabel.BackgroundTransparency = 1
+	subLabel.TextXAlignment = Enum.TextXAlignment.Left
+	subLabel.TextWrapped = false
+	subLabel.Text = ("%s  \u{2022}  %d min"):format(potion.effectText, potion.minutes)
+	subLabel.Parent = row
+	themeLabel(subLabel, 17, UITheme.Color.Cream)
+
+	local countLabel = Instance.new("TextLabel")
+	countLabel.Name = "CountLabel"
+	countLabel.Size = UDim2.new(0, 62, 1, -10)
+	countLabel.Position = UDim2.new(1, -168, 0, 5)
+	countLabel.BackgroundTransparency = 1
+	countLabel.Text = "x0"
+	countLabel.Parent = row
+	themeLabel(countLabel, 26)
+
+	local useBtn = Instance.new("TextButton")
+	useBtn.Name = "UseButton"
+	useBtn.Size = UDim2.new(0, 92, 0, 42)
+	useBtn.Position = UDim2.new(1, -100, 0.5, -21)
+	useBtn.Text = "USE"
+	useBtn.Parent = row
+	styleButton(useBtn, UITheme.Color.Green, UDim.new(1, 0))
+	useBtn.MouseButton1Click:Connect(function()
+		Remotes.UsePotion:FireServer(potion.id)
+	end)
+
+	potionRows[potion.id] = { row = row, countLabel = countLabel, useBtn = useBtn }
+end
+
+-- No opener: the Inventory tile was removed from the left column. `inventoryPanel` stays built and
+-- registered so registerPanel/toggleOnly bookkeeping and refreshInventoryPanel() are untouched.
+
+local function refreshInventoryPanel()
+	if not currentData then return end
+	-- the icon is drawn on the tile now, so the label is the COUNT and nothing else
+	diamondCountLabel.Text = "x" .. (currentData.Diamonds or 0)
+	local totalPotions = GameConfig.CountPotions(currentData)
+	potionCountLabel.Text = "x" .. totalPotions
+
+	local held = currentData.Potions
+	if type(held) ~= "table" then held = {} end
+	-- Owning nothing at all swaps the whole shelf for one line. Owning SOME still lists every
+	-- bottle, greyed -- that list doubles as the reference for what the mystery shop can hand over,
+	-- and hiding the ones you lack would remove the only place a player can see what exists.
+	potionEmptyLabel.Visible = totalPotions <= 0
+	potionScroll.Visible = totalPotions > 0
+	for _, potion in ipairs(GameConfig.Potions) do
+		local refs = potionRows[potion.id]
+		local count = held[potion.id] or 0
+		refs.countLabel.Text = "x" .. count
+		refs.useBtn.Visible = count > 0
+		UITheme.SetColor(refs.row, count > 0 and potion.color or UITheme.Color.Locked)
+	end
+
+	local anyRunning = false
+	for _, kind in ipairs(GameConfig.PotionKinds) do
+		local boost = GameConfig.GetPotionBoost(currentData, kind.key)
+		local row = boostRows[kind.key]
+		if boost then
+			anyRunning = true
+			local remaining = math.max((boost.untilTs or 0) - os.time(), 0)
+			local effect = boost.mult and ("x" .. boost.mult) or ("+" .. (boost.luckAdd or 0) .. "%")
+			row.Text = ("%s %s %s  \u{2022}  %dm %02ds left"):format(kind.emoji, effect, kind.name, remaining // 60, remaining % 60)
+			row.Visible = true
+		else
+			row.Visible = false
+		end
+	end
+	noBoostLabel.Visible = not anyRunning
+end
+
+-- keep the boost countdowns ticking live while the panel is open
+task.spawn(function()
+	while true do
+		task.wait(1)
+		if inventoryPanel.Visible then
+			refreshInventoryPanel()
+		end
+	end
+end)
+
+-- ===== THE INVENTORY TABS =====
+-- The Pets panel and the Potions panel are two separate frames that were built pages apart, and
+-- neither had to be rebuilt to join them: a tab is just `toggleOnly` pointed at the other one.
+-- The strip is drawn on BOTH panels so whichever is open shows the same pair, with its own tab
+-- held lit -- a tab row that disappears when you switch is a dead end.
+--
+-- Built inside an immediately-called function, NOT at the top level: MainUI is at Luau's 200-local
+-- ceiling and one more top-level local silently deletes the entire HUD. See the Fusion and Season
+-- Pass panels, which are wrapped for the same reason.
+;(function()
+	local function buildTabs(panel, activeIndex)
+		local row = Instance.new("Frame")
+		row.Name = "InventoryTabs"
+		row.Size = UDim2.new(0, 262, 0, 38)
+		-- above the card, not inside it: both panels fill their own interior with content that was
+		-- laid out before this existed, and squeezing a row in at the top would have meant moving
+		-- every scroll frame in both of them
+		row.Position = UDim2.new(1, -18, 0, -34)
+		row.AnchorPoint = Vector2.new(1, 0)
+		row.BackgroundTransparency = 1
+		row.ZIndex = panel.ZIndex + UITheme.Z.Badge
+		row.Parent = panel
+
+		local layout = Instance.new("UIListLayout")
+		layout.FillDirection = Enum.FillDirection.Horizontal
+		layout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+		layout.VerticalAlignment = Enum.VerticalAlignment.Center
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Padding = UDim.new(0, 8)
+		layout.Parent = row
+
+		local defs = {
+			{ text = "\u{1F43E} Pets", target = petsPanel, color = UITheme.Color.Bubblegum },
+			{ text = "\u{1F9EA} Potions", target = inventoryPanel, color = UITheme.Color.Aqua },
+		}
+		for i, def in ipairs(defs) do
+			local tab = Instance.new("TextButton")
+			tab.Name = "Tab" .. i
+			tab.Size = UDim2.new(0, 124, 0, 34)
+			tab.LayoutOrder = i
+			tab.AutoButtonColor = false
+			tab.Text = def.text
+			tab.Font = UITheme.Font.Display
+			tab.TextSize = 19
+			-- the inactive tab is dimmed rather than hidden, so the pair always reads as a pair
+			tab.TextColor3 = i == activeIndex and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(236, 238, 248)
+			tab.TextTransparency = i == activeIndex and 0 or 0.25
+			tab.ZIndex = row.ZIndex + 1
+			tab.Parent = row
+			styleCard(tab, i == activeIndex and def.color or UITheme.Color.Locked, UDim.new(0, 14), 4)
+			tab.MouseButton1Click:Connect(function()
+				if def.target == panel then return end
+				toggleOnly(def.target)
+				if def.target == inventoryPanel then
+					refreshInventoryPanel()
+				end
+			end)
+		end
+	end
+
+	buildTabs(petsPanel, 1)
+	buildTabs(inventoryPanel, 2)
+end)()
+
+
+-- ===== Robux Shop panel =====
+local robuxPanel = Instance.new("Frame")
+robuxPanel.Name = "RobuxPanel"
+robuxPanel.Size = UDim2.new(0, 448, 0, 500)
+robuxPanel.Position = PANEL_ANCHOR
+robuxPanel.ZIndex = 20
+robuxPanel.Visible = false
+robuxPanel.Parent = screenGui
+styleCard(robuxPanel, PANEL_SHELL, UDim.new(0, 22), 5)
+registerPanel(robuxPanel)
+panelClose(robuxPanel)
+
+local robuxTitle = Instance.new("TextLabel")
+robuxTitle.Name = "TitleLabel"
+robuxTitle.Size = UDim2.new(1, -80, 0, 38)
+robuxTitle.Position = UDim2.new(0, 18, 0, 10)
+robuxTitle.BackgroundTransparency = 1
+robuxTitle.TextXAlignment = Enum.TextXAlignment.Left
+robuxTitle.Text = "🛍️ Robux Shop"
+robuxTitle.Parent = robuxPanel
+themeLabel(robuxTitle, 30)
+
+local robuxGrid = Instance.new("Frame")
+robuxGrid.Name = "RobuxGrid"
+robuxGrid.Size = UDim2.new(1, -32, 1, -80)
+robuxGrid.Position = UDim2.new(0, 16, 0, 64)
+robuxGrid.BackgroundTransparency = 1
+robuxGrid.Parent = robuxPanel
+
+local robuxLayout = Instance.new("UIGridLayout")
+robuxLayout.CellSize = UDim2.new(0, 196, 0, 130)
+robuxLayout.CellPadding = UDim2.new(0, 12, 0, 12)
+robuxLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+robuxLayout.SortOrder = Enum.SortOrder.LayoutOrder
+robuxLayout.Parent = robuxGrid
+
+for i, product in ipairs(GameConfig.RobuxProducts) do
+	local card = Instance.new("Frame")
+	card.Name = product.key
+	card.LayoutOrder = i
+	card.Parent = robuxGrid
+	-- shell colour follows what the pack actually pays out, so the three pairs read apart
+	local accent = UITheme.Color.Blue
+	if product.grantPotions then
+		accent = UITheme.Color.Green
+	elseif product.grantDiamonds then
+		accent = UITheme.Color.SkyBlue
+	end
+	styleCard(card, accent, UDim.new(0, 16), 4)
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Name = "NameLabel"
+	nameLabel.Size = UDim2.new(1, -16, 0, 50)
+	nameLabel.Position = UDim2.new(0, 8, 0, 8)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.TextWrapped = true
+	nameLabel.Text = product.emoji .. " " .. product.name
+	nameLabel.Parent = card
+	themeLabel(nameLabel, 24)
+
+	local buyButton = Instance.new("TextButton")
+	buyButton.Name = "BuyButton"
+	buyButton.Size = UDim2.new(1, -20, 0, 46)
+	buyButton.Position = UDim2.new(0.5, 0, 1, -14)
+	buyButton.AnchorPoint = Vector2.new(0.5, 1)
+	buyButton.Text = "Buy with R$"
+	buyButton.Parent = card
+	styleButton(buyButton, UITheme.Color.Green, UDim.new(1, 0))
+
+	buyButton.MouseButton1Click:Connect(function()
+		Remotes.PromptRobuxPurchase:FireServer(product.key)
+	end)
+end
+
+robuxButton.MouseButton1Click:Connect(function()
+	toggleOnly(robuxPanel)
+end)
+
+-- ===== Playtime Gifts panel =====
+local playtimePanel = Instance.new("Frame")
+playtimePanel.Name = "PlaytimePanel"
+playtimePanel.Size = UDim2.new(0, 790, 0, 292)
+playtimePanel.Position = PANEL_ANCHOR
+playtimePanel.ZIndex = 20
+playtimePanel.Visible = false
+playtimePanel.Parent = screenGui
+styleCard(playtimePanel, PANEL_SHELL, UDim.new(0, 22), 5)
+registerPanel(playtimePanel)
+panelClose(playtimePanel)
+
+local playtimeTitle = Instance.new("TextLabel")
+playtimeTitle.Name = "TitleLabel"
+playtimeTitle.Size = UDim2.new(1, -90, 0, 40)
+playtimeTitle.Position = UDim2.new(0, 20, 0, 10)
+playtimeTitle.BackgroundTransparency = 1
+playtimeTitle.TextXAlignment = Enum.TextXAlignment.Left
+playtimeTitle.Text = "⏰ Playtime Gifts"
+playtimeTitle.Parent = playtimePanel
+themeLabel(playtimeTitle, 32)
+
+local playtimeSubLabel = Instance.new("TextLabel")
+playtimeSubLabel.Name = "SubLabel"
+playtimeSubLabel.Size = UDim2.new(1, -44, 0, 24)
+playtimeSubLabel.Position = UDim2.new(0, 22, 0, 54)
+playtimeSubLabel.BackgroundTransparency = 1
+playtimeSubLabel.TextXAlignment = Enum.TextXAlignment.Left
+playtimeSubLabel.Text = "The longer you stay in this session, the better the gift!"
+playtimeSubLabel.Parent = playtimePanel
+themeLabel(playtimeSubLabel, 20, UITheme.Color.Cream)
+
+local PLAYTIME_CELL_W = 142
+local playtimeCells = {} -- [index] = { frame, statusLabel, checkmark, strokeInst }
+
+for i, milestone in ipairs(GameConfig.PlaytimeGifts) do
+	local frame = Instance.new("Frame")
+	frame.Name = "Gift" .. i
+	frame.Size = UDim2.new(0, PLAYTIME_CELL_W, 0, 182)
+	frame.Position = UDim2.new(0, 16 + (i - 1) * (PLAYTIME_CELL_W + 12), 0, 92)
+	frame.Parent = playtimePanel
+	local strokeInst = styleCard(frame, UITheme.Color.Orange, UDim.new(0, 16), 4)
+
+	local timeLabel = Instance.new("TextLabel")
+	timeLabel.Name = "TimeLabel"
+	timeLabel.Size = UDim2.new(1, -14, 0, 26)
+	timeLabel.Position = UDim2.new(0, 7, 0, 8)
+	timeLabel.BackgroundTransparency = 1
+	timeLabel.Text = milestone.minutes .. " min"
+	timeLabel.Parent = frame
+	themeLabel(timeLabel, 24)
+
+	local iconLabel = Instance.new("TextLabel")
+	iconLabel.Name = "IconLabel"
+	iconLabel.Size = UDim2.new(1, 0, 0, 52)
+	iconLabel.Position = UDim2.new(0, 0, 0, 36)
+	iconLabel.BackgroundTransparency = 1
+	iconLabel.Text = milestone.diamonds and "💎" or (milestone.potions and "🧪" or "🧬")
+	iconLabel.Parent = frame
+	themeLabel(iconLabel, 44)
+
+	local amountLabel = Instance.new("TextLabel")
+	amountLabel.Name = "AmountLabel"
+	amountLabel.Size = UDim2.new(1, -12, 0, 24)
+	amountLabel.Position = UDim2.new(0, 6, 0, 92)
+	amountLabel.BackgroundTransparency = 1
+	amountLabel.Text = formatNumber(milestone.dna) .. " DNA"
+	amountLabel.Parent = frame
+	themeLabel(amountLabel, 21, UITheme.Color.Cream)
+
+	local bonusLabel = Instance.new("TextLabel")
+	bonusLabel.Name = "BonusLabel"
+	bonusLabel.Size = UDim2.new(1, -12, 0, 22)
+	bonusLabel.Position = UDim2.new(0, 6, 0, 118)
+	bonusLabel.BackgroundTransparency = 1
+	local parts = {}
+	if milestone.potions then table.insert(parts, "🧪 x" .. milestone.potions) end
+	if milestone.diamonds then table.insert(parts, "💎 x" .. milestone.diamonds) end
+	bonusLabel.Text = table.concat(parts, "  ")
+	bonusLabel.Visible = #parts > 0
+	bonusLabel.Parent = frame
+	themeLabel(bonusLabel, 19)
+
+	local statusLabel = Instance.new("TextLabel")
+	statusLabel.Name = "StatusLabel"
+	statusLabel.Size = UDim2.new(1, -12, 0, 26)
+	statusLabel.Position = UDim2.new(0, 6, 1, -34)
+	statusLabel.BackgroundTransparency = 1
+	statusLabel.Text = "Locked"
+	statusLabel.Parent = frame
+	themeLabel(statusLabel, 20, UITheme.Color.Cream)
+
+	local checkmark = claimTick(frame, 32, 20)
+
+	local claimButton = claimOverlay(frame)
+	claimButton.MouseButton1Click:Connect(function()
+		Remotes.ClaimPlaytimeGift:FireServer(i)
+	end)
+
+	playtimeCells[i] = { frame = frame, statusLabel = statusLabel, checkmark = checkmark, strokeInst = strokeInst }
+end
+
+playtimeButton.MouseButton1Click:Connect(function()
+	toggleOnly(playtimePanel)
+end)
+
+local playtimeSessionStart = os.time()
+local playtimeClaimed = {}
+
+Remotes.PlaytimeStatus.OnClientEvent:Connect(function(payload)
+	if payload.sessionStart then
+		playtimeSessionStart = payload.sessionStart
+	end
+	playtimeClaimed = {}
+	if payload.claimed then
+		for _, idx in ipairs(payload.claimed) do
+			playtimeClaimed[idx] = true
+		end
+	end
+end)
+
+local function refreshPlaytimePanel()
+	local elapsedSeconds = os.time() - playtimeSessionStart
+	for i, milestone in ipairs(GameConfig.PlaytimeGifts) do
+		local cell = playtimeCells[i]
+		if cell then
+			local isClaimed = playtimeClaimed[i] == true
+			cell.checkmark.Visible = isClaimed
+			if isClaimed then
+				cell.statusLabel.Text = "Claimed"
+				cell.statusLabel.TextColor3 = UITheme.Color.Cream
+				cell.strokeInst.Color = OUTLINE_COLOR
+				cell.strokeInst.Thickness = 4
+				setButtonColor(cell.frame, UITheme.Color.Locked)
+			else
+				local remaining = milestone.minutes * 60 - elapsedSeconds
+				if remaining <= 0 then
+					cell.statusLabel.Text = "CLAIM!"
+					cell.statusLabel.TextColor3 = UITheme.Color.White
+					cell.strokeInst.Color = READY_RIM
+					cell.strokeInst.Thickness = 5
+					setButtonColor(cell.frame, UITheme.Color.Green)
+				else
+					cell.statusLabel.Text = string.format("in %dm %ds", remaining // 60, remaining % 60)
+					cell.statusLabel.TextColor3 = UITheme.Color.Cream
+					cell.strokeInst.Color = OUTLINE_COLOR
+					cell.strokeInst.Thickness = 4
+					setButtonColor(cell.frame, UITheme.Color.Orange)
+				end
+			end
+		end
+	end
+end
+
+task.spawn(function()
+	while true do
+		task.wait(1)
+		refreshPlaytimePanel()
+	end
+end)
+
+
+-- ===== Character Journal =====
+-- A hundred characters, five for every stage, unlocked by evolving into that stage. This is the
+-- one place a player can see what they have and what they are still missing.
+--
+-- Built as twenty rows of five cells rather than a flat grid of a hundred: the collection IS
+-- per stage -- five Wolves, five Aliens -- and a grid loses that grouping entirely. A locked cell
+-- keeps its shape and shows a padlock over the rarity colour, so the row always tells you how
+-- close to complete it is at a glance.
+--
+-- Nothing here is created per refresh. All 120 instances are built once and refreshCharacterPanel
+-- only writes text, colour and visibility -- rebuilding a hundred cells on every DataUpdate would
+-- hitch the client every time a creature died.
+local characterPanel = Instance.new("Frame")
+characterPanel.Name = "CharacterPanel"
+-- Wide enough for a second column. The collection is on the left and the ONE character you are
+-- looking at is on the right, at a size where you can actually see it -- a grid of thumbnails with
+-- no detail view is a contact sheet, and it is the reason the old panel needed a hover tooltip to
+-- say anything at all about what the cursor was over.
+characterPanel.Size = UDim2.new(0, 968, 0, 548)
+characterPanel.Position = PANEL_ANCHOR
+characterPanel.ZIndex = 20
+characterPanel.Visible = false
+characterPanel.Parent = screenGui
+-- Same white shell as the Items panel: flat white sheet, sky-blue rim, gradient removed. See the
+-- longer note over inventoryPanel for why the gradient has to go on a white card.
+do
+	local shell = styleCard(characterPanel, UITheme.Color.PanelWhite, UDim.new(0, 22), 5)
+	if shell then shell.Color = UITheme.Color.SkyBlue end
+	local grad = characterPanel:FindFirstChild("Gradient")
+	if grad then grad:Destroy() end
+end
+registerPanel(characterPanel)
+panelClose(characterPanel)
+
+-- ON A WHITE PANEL EVERY LABEL HAS TO NAME ITS COLOUR, and that is not automatic: themeLabel only
+-- rescues a colour to white when none was given, so anything left to default -- or set to Cream --
+-- ends up white on white and disappears.
+local characterTitle = Instance.new("TextLabel")
+characterTitle.Size = UDim2.new(0, 460, 0, 48)
+characterTitle.Position = UDim2.new(0, 6, 0, -54)
+characterTitle.BackgroundTransparency = 1
+characterTitle.TextXAlignment = Enum.TextXAlignment.Left
+characterTitle.Text = "\u{1F4D2} Journal!"
+characterTitle.Parent = characterPanel
+themeLabel(characterTitle, 40)
+
+local characterCount = Instance.new("TextLabel")
+characterCount.Name = "CountLabel"
+characterCount.Size = UDim2.new(1, -44, 0, 26)
+characterCount.Position = UDim2.new(0, 20, 0, 14)
+characterCount.BackgroundTransparency = 1
+characterCount.TextXAlignment = Enum.TextXAlignment.Left
+characterCount.Text = "Discovered 0 / 100"
+characterCount.Parent = characterPanel
+themeLabel(characterCount, 22, Color3.fromRGB(124, 134, 156))
+
+local characterScroll = Instance.new("ScrollingFrame")
+characterScroll.Name = "CharacterScroll"
+-- the left column only: the detail card owns the right 330 and is built further down
+characterScroll.Size = UDim2.new(0, 604, 1, -62)
+characterScroll.Position = UDim2.new(0, 14, 0, 48)
+characterScroll.BackgroundTransparency = 1
+characterScroll.BorderSizePixel = 0
+-- The Journal is twenty rows deep and only three and a bit fit on screen, so the scrollbar is the
+-- only thing telling a player there is anything below the fold. At 6px and default colouring it was
+-- a pale hairline on a white panel -- the list looked like it simply ended, and the report was
+-- "there is no scroll in the Journal". Thick, dark and fully opaque, against the panel's own ink.
+characterScroll.ScrollBarThickness = 12
+characterScroll.ScrollBarImageColor3 = Color3.fromRGB(58, 66, 88)
+characterScroll.ScrollBarImageTransparency = 0
+characterScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+characterScroll.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
+-- measured off the rows rather than counted: a stage's row is as tall as the number of characters
+-- it has needs, and that number is data (it went from five to ten once already)
+characterScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+characterScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+characterScroll.Parent = characterPanel
+
+local characterLayout = Instance.new("UIListLayout")
+characterLayout.Padding = UDim.new(0, 8)
+characterLayout.SortOrder = Enum.SortOrder.LayoutOrder
+characterLayout.Parent = characterScroll
+
+local characterCells = {}  -- [key] = { cell, icon, nameLabel, lock, strokeInst }
+local characterRows = {}   -- [stageIndex] = { row, headerLabel }
+
+-- How many cells stand side by side. The rest wrap onto another line of the same stage's row --
+-- five across is what fits this panel legibly, and a stage now carries ten.
+local CHAR_PER_LINE = 5
+-- ROUND cells, and the diameter is the whole cell. A rounded rectangle carrying an icon and a name
+-- is a list row; a disc carrying an icon is a COLLECTION SLOT, and the difference is most of why
+-- the reference reads as a scrapbook and this read as a settings screen. The name moved into the
+-- hover card -- it was never legible at 15px inside a 68px box anyway.
+-- Grown from 84 once the discs started carrying a rig instead of a glyph: a character in an 84px
+-- circle inset for its own rim is drawn about 60px tall, which is a smudge.
+local CHAR_CELL_H = 96
+local CHAR_LINE_H = 132
+
+-- Built inside an immediately-called function, NOT at the top level: MainUI is at Luau's 200-local
+-- ceiling and one more top-level local silently deletes the whole HUD. The hover card has to be an
+-- upvalue every cell handler can see, and this is the only way to have one without spending a
+-- register. `characterCells` and `characterRows` are declared above and filled from in here.
+;(function()
+	-- Required IN HERE, not at the top of the file: MainUI is at Luau's 200-local ceiling and a
+	-- top-level require would cost one of the last registers. This function has its own 200.
+	local CharacterPreview = require(RS.Modules.CharacterPreview)
+
+	-- THE HOVER CARD IS GONE. It said a name and a damage figure, which the detail card on the
+	-- right now states permanently and at a readable size -- and it was actively broken: it was
+	-- shown on MouseEnter and hidden ONLY on MouseLeave, so closing the panel, scrolling the cell
+	-- out from under the cursor, or a refresh hiding that cell all left it welded open at its build
+	-- position (top-left, over the "Discovered 15 / 200" header) with stale text in it. Its stat
+	-- line was also Cream on PanelWhite -- the exact white-on-white trap this file warns about
+	-- twenty lines above.
+
+	for stageIndex, stage in ipairs(GameConfig.Stages) do
+		local entries = GameConfig.GetCharactersForStage(stageIndex)
+		local lineCount = math.max(1, math.ceil(#entries / CHAR_PER_LINE))
+
+		-- The number under each disc is WHAT IT DOES. It used to be the chance of rolling it, and
+		-- that stopped being a fact the moment unlocks went sequential: there is no roll any more,
+		-- so there is no chance to print. Position in the stage's list is the power ladder now --
+		-- see GameConfig.GetCharacterDamagePct -- and the damage it grants is the one number that
+		-- tells a player whether walking to the next disc is worth anything.
+
+		local row = Instance.new("Frame")
+		row.Name = "Stage" .. stageIndex
+		row.LayoutOrder = stageIndex
+		row.Size = UDim2.new(1, 0, 0, 26 + lineCount * CHAR_LINE_H + 4)
+		row.BackgroundTransparency = 1
+		row.Parent = characterScroll
+
+		local header = Instance.new("TextLabel")
+		header.Name = "Header"
+		header.Size = UDim2.new(1, -8, 0, 22)
+		header.Position = UDim2.new(0, 6, 0, 0)
+		header.BackgroundTransparency = 1
+		header.TextXAlignment = Enum.TextXAlignment.Left
+		header.Text = stage.emoji .. " " .. stage.name
+		header.Parent = row
+		themeLabel(header, 20, Color3.fromRGB(46, 54, 74))
+
+		for i, entry in ipairs(entries) do
+			-- THE DISC IS THE CHARACTER'S OWN COLOUR, NOT ITS RARITY'S. Rarity is no longer a thing
+			-- the player experiences -- unlocks run left to right and the only difference between
+			-- two discs is damage -- so colouring five of them gold and five grey was showing a
+			-- ladder that no longer exists. Its own colour is the useful fact: the disc is now a
+			-- swatch of what you actually turn into when you press it.
+			local tint = entry.color or GameConfig.GetRarity(entry.rarity).color
+			local damagePct = GameConfig.GetCharacterDamagePct(entry)
+
+			local col = (i - 1) % CHAR_PER_LINE
+			local line = math.floor((i - 1) / CHAR_PER_LINE)
+
+			local cell = Instance.new("TextButton")
+			cell.Name = entry.key
+			cell.AutoButtonColor = false
+			cell.Text = ""
+			-- square, and centred in its fifth of the row: a disc needs equal width and height, so
+			-- the size is in offset and only the POSITION is in scale
+			cell.Size = UDim2.new(0, CHAR_CELL_H, 0, CHAR_CELL_H)
+			cell.Position = UDim2.new((col + 0.5) / CHAR_PER_LINE, -CHAR_CELL_H / 2, 0, 26 + line * CHAR_LINE_H)
+			cell.Parent = row
+			local cellStroke = styleCard(cell, tint, UDim.new(0.5, 0), 3)
+
+			-- THE CHARACTER ITSELF, not a glyph standing in for it. Half the roster shares an emoji,
+			-- so a hundred discs carrying emoji showed a player perhaps eight distinct pictures for a
+			-- hundred things they had collected -- which is the whole complaint about this panel.
+			--
+			-- Left EMPTY here and filled by syncPreviews below. A rig is 30 parts; building all
+			-- hundred up front is three thousand parts created on join for a panel that is shut.
+			local art = Instance.new("ViewportFrame")
+			art.Name = "Art"
+			-- inset off the rim so a shoulder cannot poke out through the side of the circle
+			art.Size = UDim2.new(1, -12, 1, -12)
+			art.Position = UDim2.new(0, 6, 0, 6)
+			art.Visible = false
+			art.ZIndex = cell.ZIndex + 1
+			art.Parent = cell
+			CharacterPreview.Light(art)
+
+			-- the emoji stays as the stand-in until the rig for this cell exists -- which is what a
+			-- cell shows while it is off screen, and what it falls back to if the build ever fails
+			local icon = Instance.new("TextLabel")
+			icon.Name = "Icon"
+			icon.Size = UDim2.new(1, -12, 1, -12)
+			icon.Position = UDim2.new(0, 6, 0, 6)
+			icon.BackgroundTransparency = 1
+			icon.Text = entry.emoji
+			icon.Parent = cell
+			themeLabel(icon, 40)
+
+			-- what it grants, just under the disc and slightly overlapping it
+			local damageLabel = Instance.new("TextLabel")
+			damageLabel.Name = "Damage"
+			damageLabel.Size = UDim2.new(1, 24, 0, 24)
+			damageLabel.Position = UDim2.new(0, -12, 1, -6)
+			damageLabel.BackgroundTransparency = 1
+			damageLabel.Text = ("\u{2694}\u{FE0F} +%d%%"):format(damagePct)
+			damageLabel.ZIndex = cell.ZIndex + UITheme.Z.Badge
+			damageLabel.Parent = cell
+			themeLabel(damageLabel, 17, Color3.fromRGB(58, 66, 88))
+
+			-- The locked state: a "?" over a DARKENED VERSION OF ITS OWN RARITY COLOUR, not a flat
+			-- grey. The shape of the collection -- how many slots, which rarities -- is the
+			-- information, and a row of identical grey discs throws it away. A padlock said only
+			-- "locked"; a dim gold disc says "there is a Legendary here you have not found".
+			local lock = Instance.new("TextLabel")
+			lock.Name = "Lock"
+			lock.Size = UDim2.new(1, 0, 1, 0)
+			lock.BackgroundColor3 = tint:Lerp(Color3.fromRGB(18, 16, 26), 0.72)
+			lock.BackgroundTransparency = 0
+			lock.Text = "?"
+			lock.ZIndex = cell.ZIndex + UITheme.Z.Badge + 1
+			lock.Parent = cell
+			corner(lock, UDim.new(0.5, 0))
+			themeLabel(lock, 38)
+
+			-- worn marker, on top of everything
+			local check = Instance.new("TextLabel")
+			check.Name = "Check"
+			check.Size = UDim2.new(0, 30, 0, 30)
+			check.Position = UDim2.new(1, -26, 0, -4)
+			check.BackgroundColor3 = UITheme.Color.Green
+			check.Text = "\u{2713}"
+			check.Visible = false
+			check.ZIndex = cell.ZIndex + UITheme.Z.Badge + 2
+			check.Parent = cell
+			corner(check, UDim.new(0.5, 0))
+			themeLabel(check, 22)
+
+			-- A CLICK SELECTS, IT NO LONGER EQUIPS. It used to put the character straight on the body,
+			-- which meant the only way to find out what one looked like was to wear it, and the only
+			-- way to compare two was to wear both. The detail card on the right is where a character
+			-- is looked at, and the Equip button on it is where the decision is made.
+			cell.MouseButton1Click:Connect(function()
+				if hudRefs.journalSelect then
+					hudRefs.journalSelect(entry.key)
+				end
+			end)
+
+			characterCells[entry.key] = {
+				cell = cell, icon = icon, art = art, lock = lock, check = check, chance = damageLabel,
+				strokeInst = cellStroke, entry = entry, rarity = { color = tint },
+			}
+		end
+
+		characterRows[stageIndex] = { row = row, header = header }
+	end
+
+	-- ===== THE DETAIL CARD =====
+	-- One character, big, on the right. Everything the hover card used to whisper is stated here at
+	-- a size you can read, and the Equip button lives here rather than on the cell -- so looking at
+	-- a character and deciding to become it are two different actions again.
+	local detail = Instance.new("Frame")
+	detail.Name = "Detail"
+	detail.Size = UDim2.new(0, 322, 1, -62)
+	detail.Position = UDim2.new(1, -14, 0, 48)
+	detail.AnchorPoint = Vector2.new(1, 0)
+	detail.ZIndex = characterPanel.ZIndex + UITheme.Z.Content
+	detail.Parent = characterPanel
+	styleCard(detail, Color3.fromRGB(240, 243, 250), UDim.new(0, 18), 3)
+
+	-- A WELL FOR THE FIGURE TO STAND IN. On the panel's own white sheet a pale character had no
+	-- edge at all -- the same problem the loading screen's tip card was made to solve.
+	local stageBox = Instance.new("Frame")
+	stageBox.Name = "StageBox"
+	stageBox.Size = UDim2.new(1, -24, 0, 244)
+	stageBox.Position = UDim2.new(0, 12, 0, 12)
+	stageBox.ZIndex = detail.ZIndex + 1
+	stageBox.Parent = detail
+	local stageStroke = styleCard(stageBox, Color3.fromRGB(224, 230, 244), UDim.new(0, 14), 3)
+
+	local bigArt = Instance.new("ViewportFrame")
+	bigArt.Name = "Art"
+	bigArt.Size = UDim2.new(1, -10, 1, -10)
+	bigArt.Position = UDim2.new(0, 5, 0, 5)
+	bigArt.ZIndex = stageBox.ZIndex + 1
+	bigArt.Parent = stageBox
+	CharacterPreview.Light(bigArt)
+
+	-- what stands in the well when nothing is selected, and when what IS selected has never been
+	-- found: a locked character is a silhouette on purpose, so the panel keeps something to find
+	local bigMark = Instance.new("TextLabel")
+	bigMark.Name = "Mark"
+	bigMark.Size = UDim2.new(1, 0, 1, 0)
+	bigMark.BackgroundTransparency = 1
+	bigMark.Text = "?"
+	bigMark.ZIndex = stageBox.ZIndex + 2
+	bigMark.Parent = stageBox
+	themeLabel(bigMark, 96, Color3.fromRGB(186, 194, 214))
+
+	local dName = Instance.new("TextLabel")
+	dName.Name = "DetailName"
+	dName.Size = UDim2.new(1, -24, 0, 36)
+	dName.Position = UDim2.new(0, 12, 0, 264)
+	dName.BackgroundTransparency = 1
+	dName.ZIndex = detail.ZIndex + 1
+	dName.Parent = detail
+	themeLabel(dName, 30, Color3.fromRGB(46, 54, 74))
+
+	local dSub = Instance.new("TextLabel")
+	dSub.Name = "DetailSub"
+	dSub.Size = UDim2.new(1, -24, 0, 24)
+	dSub.Position = UDim2.new(0, 12, 0, 300)
+	dSub.BackgroundTransparency = 1
+	dSub.ZIndex = detail.ZIndex + 1
+	dSub.Parent = detail
+	themeLabel(dSub, 20, Color3.fromRGB(126, 134, 156))
+
+	-- the one number that matters, in the shape every other stat in this game is drawn in
+	local dStat = Instance.new("Frame")
+	dStat.Name = "DetailStat"
+	dStat.Size = UDim2.new(1, -24, 0, 40)
+	dStat.Position = UDim2.new(0, 12, 0, 332)
+	dStat.ZIndex = detail.ZIndex + 1
+	dStat.Parent = detail
+	styleCard(dStat, Color3.fromRGB(230, 235, 246), UDim.new(0, 12), 3)
+
+	local dStatLabel = Instance.new("TextLabel")
+	dStatLabel.Size = UDim2.new(1, -16, 1, -6)
+	dStatLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+	dStatLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+	dStatLabel.BackgroundTransparency = 1
+	dStatLabel.ZIndex = dStat.ZIndex + 1
+	dStatLabel.Parent = dStat
+	themeLabel(dStatLabel, 21, Color3.fromRGB(70, 78, 98))
+
+	local dHint = Instance.new("TextLabel")
+	dHint.Name = "DetailHint"
+	-- clear of the button below it: the hint wraps to two lines for every owned character, and at
+	-- -78 the second line was entirely behind the green button -- which is the one sentence in this
+	-- panel that explains why pressing it might appear to do nothing
+	dHint.Size = UDim2.new(1, -24, 0, 44)
+	dHint.Position = UDim2.new(0, 12, 1, -112)
+	dHint.BackgroundTransparency = 1
+	dHint.TextWrapped = true
+	dHint.ZIndex = detail.ZIndex + 1
+	dHint.Parent = detail
+	themeLabel(dHint, 17, Color3.fromRGB(146, 154, 174))
+
+	local equipButton = Instance.new("TextButton")
+	equipButton.Name = "EquipButton"
+	equipButton.Size = UDim2.new(1, -24, 0, 52)
+	equipButton.Position = UDim2.new(0.5, 0, 1, -12)
+	equipButton.AnchorPoint = Vector2.new(0.5, 1)
+	equipButton.Text = "Wear this one"
+	equipButton.Parent = detail
+	styleButton(equipButton, UITheme.Color.Green, UDim.new(0, 16))
+	-- AFTER styleButton, which writes its own ZIndex over anything set before it -- set first, the
+	-- button ended up level with the hint and the stacking fell back to tree order
+	equipButton.ZIndex = detail.ZIndex + 4
+
+	local selectedKey = nil
+	local bigRig, bigPivot = nil, nil
+
+	-- TEXT AND BUTTON ONLY. Called from refreshCharacterPanel, which runs on every DataUpdate --
+	-- which is to say on every creature anyone kills -- so it must never rebuild the figure.
+	local function paintDetail()
+		local refs = selectedKey and characterCells[selectedKey]
+		local entry = refs and refs.entry
+		if not entry then
+			dName.Text = "Nothing picked"
+			dSub.Text = "Choose one from the list"
+			dStatLabel.Text = ""
+			dHint.Text = ""
+			bigMark.Visible = true
+			bigMark.Text = "\u{1F4D2}"
+			equipButton.Visible = false
+			return
+		end
+
+		local owned = currentData and currentData.Characters and currentData.Characters[entry.key] == true
+		local stage = GameConfig.Stages[entry.stage]
+		-- ONE worn character, wherever the player is standing -- see GameConfig.GetWornCharacter
+		local equipped = currentData and currentData.WornCharacter == entry.key
+		local wornEntry = currentData and GameConfig.GetWornCharacter(currentData)
+		local wornPct = wornEntry and GameConfig.GetCharacterDamagePct(wornEntry) or 0
+
+		dName.Text = owned and entry.name or "???"
+		dName.TextColor3 = owned and (entry.color or Color3.fromRGB(46, 54, 74)) or Color3.fromRGB(150, 158, 178)
+		dSub.Text = ("%s %s  \u{2022}  #%d of %d"):format(stage and stage.emoji or "", stage and stage.name or "",
+			GameConfig.GetCharacterIndex(entry), #GameConfig.GetCharactersForStage(entry.stage))
+		dStatLabel.Text = ("\u{2694}\u{FE0F}  +%d%% Damage"):format(GameConfig.GetCharacterDamagePct(entry))
+
+		equipButton.Visible = owned
+		if equipped then
+			equipButton.Text = "\u{2713} Wearing it"
+			setButtonColor(equipButton, UITheme.Color.Locked)
+			-- dimmed AND dead. A greyed-out button that still fires a remote and still answers with a
+			-- toast is worse than one that does nothing: it says the press failed rather than that
+			-- there was nothing to press.
+			equipButton.Active = false
+			equipButton.AutoButtonColor = false
+		else
+			equipButton.Text = "Wear this one"
+			setButtonColor(equipButton, UITheme.Color.Green)
+			equipButton.Active = true
+		end
+
+		-- WHAT IT COSTS OR PAYS, against what is on the body right now. Anything can be worn at any
+		-- time, so the only question left is the trade -- and a drop in damage that nothing warned
+		-- about reads as the game breaking rather than as the price of the skin you chose.
+		if not owned then
+			dHint.Text = "Evolve to " .. (stage and stage.name or "this stage") .. " to discover it."
+		elseif equipped then
+			dHint.Text = "This is what you look like right now."
+		else
+			local delta = GameConfig.GetCharacterDamagePct(entry) - wornPct
+			if delta > 0 then
+				dHint.Text = ("Wearing this is +%d%% damage on what you have on."):format(delta)
+				dHint.TextColor3 = Color3.fromRGB(72, 168, 96)
+			elseif delta < 0 then
+				dHint.Text = ("Wearing this costs you %d%% damage \u{2014} but you can wear it anywhere."):format(-delta)
+				dHint.TextColor3 = Color3.fromRGB(206, 116, 96)
+			else
+				dHint.Text = "Same damage as what you have on."
+				dHint.TextColor3 = Color3.fromRGB(146, 154, 174)
+			end
+		end
+	end
+
+	-- REBUILDS THE FIGURE. Only from a click, never from a data push.
+	local function selectCharacter(key)
+		selectedKey = key
+		if bigRig then
+			bigRig:Destroy()
+			bigRig, bigPivot = nil, nil
+		end
+		local refs = key and characterCells[key]
+		local entry = refs and refs.entry
+		local owned = entry and currentData and currentData.Characters
+			and currentData.Characters[entry.key] == true
+		if owned then
+			-- no part cap here: this is the one place a player is actually looking at the build, so
+			-- it gets every rivet the body in the world has
+			bigRig = CharacterPreview.Build(bigArt, entry.stage, entry)
+			if bigRig then
+				CharacterPreview.Frame(bigArt, bigRig, { zoom = 1.06, pitch = 0.12 })
+				bigPivot = bigRig:GetPivot()
+			end
+		end
+		bigMark.Visible = bigRig == nil
+		bigMark.Text = entry and "?" or "\u{1F4D2}"
+		if entry then
+			stageStroke.Color = (owned and entry.color) or OUTLINE_COLOR
+		end
+		-- the rim on the selected cell, so the grid and the card agree about what is being shown
+		for otherKey, other in pairs(characterCells) do
+			other.selected = otherKey == key
+		end
+		paintDetail()
+		-- refreshCharacterPanel is declared BELOW this function, so naming it here would read a
+		-- global, not the upvalue -- it hands itself over on hudRefs once it exists instead
+		if hudRefs.refreshCharacterPanel then hudRefs.refreshCharacterPanel() end
+	end
+
+	equipButton.MouseButton1Click:Connect(function()
+		if selectedKey and equipButton.Active then
+			Remotes.EquipCharacter:FireServer(selectedKey)
+		end
+	end)
+
+	-- ===== THE RIGS, BUILT AS THEY COME INTO VIEW =====
+	-- A hundred cells is three thousand parts if they are all built, and the panel shows about
+	-- eighteen of them at a time. So a cell builds its rig when it scrolls into the window and
+	-- gives it back when it leaves, and at most two are built per pass -- a scroll that stops on a
+	-- fresh row builds them over the next few frames instead of hitching on one.
+	local function syncPreviews()
+		if not (characterPanel.Visible and currentData) then return end
+		local owned = currentData.Characters or {}
+		local top = characterScroll.AbsolutePosition.Y
+		local height = characterScroll.AbsoluteSize.Y
+		if height <= 0 then return end
+		local budget = 2
+
+		for key, refs in pairs(characterCells) do
+			local y = refs.cell.AbsolutePosition.Y - top
+			-- a row of slack either side, so a slow scroll never shows an empty disc arriving
+			local inView = y > -CHAR_LINE_H and y < height + CHAR_LINE_H
+			if owned[key] and inView then
+				if not refs.rig and budget > 0 then
+					budget -= 1
+					refs.rig = CharacterPreview.Build(refs.art, refs.entry.stage, refs.entry, { maxParts = 26 })
+					if refs.rig then
+						CharacterPreview.Frame(refs.art, refs.rig, { zoom = 1.16 })
+						refs.art.Visible = true
+						refs.icon.Visible = false
+					end
+				end
+			elseif refs.rig then
+				refs.rig:Destroy()
+				refs.rig = nil
+				refs.art.Visible = false
+				refs.icon.Visible = owned[key] == true
+			end
+		end
+	end
+
+	-- Scrolling is the only thing that changes what is in view, and CanvasPosition is the only
+	-- honest signal for it -- the cells live inside the scrolling frame and their own positions
+	-- move with it.
+	characterScroll:GetPropertyChangedSignal("CanvasPosition"):Connect(syncPreviews)
+
+	-- ONE turntable, for the big figure only. Turning eighteen cell rigs as well would be six
+	-- hundred part CFrames written every frame behind a panel, and a 96px disc reads no better
+	-- moving than still.
+	RunService.RenderStepped:Connect(function()
+		if not (characterPanel.Visible and bigRig and bigPivot) then return end
+		bigRig:PivotTo(CFrame.Angles(0, os.clock() * 0.6, 0) * bigPivot)
+	end)
+
+	hudRefs.journalSelect = selectCharacter
+	hudRefs.journalPaintDetail = paintDetail
+	hudRefs.journalSync = syncPreviews
+	-- Opening the panel lands on the character you are wearing. An empty card next to a full grid
+	-- reads as something that failed to load.
+	hudRefs.journalOnOpen = function()
+		if not selectedKey and currentData then
+			local worn = currentData.WornCharacter
+			if worn then
+				selectCharacter(worn)
+			end
+		end
+		syncPreviews()
+	end
+
+	paintDetail()
+end)()
+
+journalButton.MouseButton1Click:Connect(function()
+	toggleOnly(characterPanel)
+	if characterPanel.Visible and hudRefs.journalOnOpen then
+		-- one frame, so the scrolling frame has been laid out and AbsolutePosition means something
+		task.defer(hudRefs.journalOnOpen)
+	end
+end)
+
+local function refreshCharacterPanel()
+	if not currentData then return end
+	local owned = currentData.Characters or {}
+	-- one key, not a per-stage map: any character can be worn at any time now
+	local wornKey = currentData.WornCharacter
+
+	local have, total = GameConfig.CountCharacters(owned)
+	characterCount.Text = ("Discovered %d / %d"):format(have, total)
+
+	for stageIndex in ipairs(GameConfig.Stages) do
+		local entries = GameConfig.GetCharactersForStage(stageIndex)
+		local n = 0
+		for _, entry in ipairs(entries) do
+			if owned[entry.key] then n += 1 end
+		end
+		local refs = characterRows[stageIndex]
+		if refs then
+			local stage = GameConfig.Stages[stageIndex]
+			refs.header.Text = ("%s %s   %d/%d"):format(stage.emoji, stage.name, n, #entries)
+			-- the stage you are standing at is the only one you can change right now, so it is
+			-- the only one drawn in white
+			-- dark ink on the white sheet; the stage you are standing at is the only one you can
+			-- change right now, so it is the only one at full contrast
+			refs.header.TextColor3 = (stageIndex == currentData.StageIndex)
+				and Color3.fromRGB(46, 54, 74) or Color3.fromRGB(150, 158, 178)
+		end
+	end
+
+	-- rigs come and go with the scroll and with what has just been discovered
+	if hudRefs.journalSync then hudRefs.journalSync() end
+
+	for key, refs in pairs(characterCells) do
+		local isOwned = owned[key] == true
+		-- exactly one tick in the whole panel: there is one character on the body
+		local isWorn = wornKey == key
+		local chosen = isWorn
+		refs.lock.Visible = not isOwned
+		-- a locked disc hides its chance too: the "?" is the whole message, and a percentage under
+		-- something you have never seen is just noise
+		refs.chance.Visible = isOwned
+		-- the rig if this cell has one, the emoji until it does. Never both, or the glyph sits on
+		-- top of the character it was standing in for.
+		refs.art.Visible = isOwned and refs.rig ~= nil
+		refs.icon.Visible = isOwned and refs.rig == nil
+		refs.check.Visible = isOwned and isWorn
+		if isOwned then
+			setButtonColor(refs.cell, refs.rarity.color)
+			-- the one being worn gets a bright rim, the same "this is active" signal the Daily
+			-- board and the Mastery list already use
+			-- Worn gets the full bright rim. A pick saved for ANOTHER stage gets the same colour at
+			-- 40% strength and one step of thickness -- enough to find it again when you scroll to
+			-- that stage, not enough to compete with the one you have on. No badge either way but
+			-- the tick, so there is exactly one tick in the panel.
+			refs.strokeInst.Color = isWorn and READY_RIM
+				or (chosen and READY_RIM:Lerp(OUTLINE_COLOR, 0.6) or OUTLINE_COLOR)
+			refs.strokeInst.Thickness = isWorn and 5 or (chosen and 4 or 3)
+		else
+			setButtonColor(refs.cell, UITheme.Color.Locked)
+			refs.strokeInst.Color = OUTLINE_COLOR
+			refs.strokeInst.Thickness = 3
+		end
+		-- WHAT THE DETAIL CARD IS SHOWING, on top of all of it. Worn is a state of the character;
+		-- selected is a state of the cursor, and the panel needs to say both at once -- otherwise
+		-- clicking a second character while wearing a first leaves nothing pointing at the card.
+		if refs.selected then
+			refs.strokeInst.Color = Color3.fromRGB(58, 66, 88)
+			refs.strokeInst.Thickness = 5
+		end
+	end
+
+	if hudRefs.journalPaintDetail then hudRefs.journalPaintDetail() end
+end
+
+-- Handed over rather than named directly by the Journal's own build, which runs above this line.
+hudRefs.refreshCharacterPanel = refreshCharacterPanel
+
+-- ===== Season Pass panel =====
+-- Two pages behind one pair of tabs: the thirty-level TRACK, and the QUEST BOARD that is the only
+-- thing which fills it. They belong together -- a track with no visible way to earn XP reads as
+-- decoration, and a quest list with nothing to spend the XP on reads as busywork.
+--
+-- Nothing in here is created per refresh. The thirty columns (sixty reward cells) and the seven
+-- quest rows are built once and `refresh` only writes text, colour and visibility -- the same rule
+-- the Character Journal follows, and for the same reason: rebuilding ~500 instances on every
+-- DataUpdate would stutter the screen on every creature kill.
+--
+-- BUILT INSIDE A FUNCTION, and a `do` block would NOT have done. Luau's 200-register limit is per
+-- FUNCTION, and a do-block shares the enclosing function's budget: its locals are released at the
+-- block's `end`, so blocks can run one after another, but the PEAK inside any one of them is this
+-- file's ~191 top-level locals plus everything the block itself declares. A block buys about nine.
+-- This panel declares forty, and it sits at the very bottom of the file where that peak is highest.
+--
+-- An immediately-called function has the same scoping and the same upvalues but its OWN 200 --
+-- the only way to add anything substantial here short of moving it into a module. The leading `;`
+-- stops Lua reading the `(` as a call on the preceding statement. Handles escape via `hudRefs`.
+;(function()
+	local SEASON = GameConfig.Season
+	local CELL = 92          -- one reward cell, square
+	local PITCH = 104        -- ...plus the gap to the next column
+	local PAGE_TOP = 106
+
+	local panel = Instance.new("Frame")
+	panel.Name = "SeasonPanel"
+	panel.Size = UDim2.new(0, 880, 0, 480)
+	panel.Position = PANEL_ANCHOR
+	panel.ZIndex = 20
+	panel.Visible = false
+	panel.Parent = screenGui
+	styleCard(panel, PANEL_SHELL, UDim.new(0, 22), 5)
+	registerPanel(panel)
+	panelClose(panel)
+
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(0, 330, 0, 40)
+	title.Position = UDim2.new(0, 18, 0, 10)
+	title.BackgroundTransparency = 1
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Text = SEASON.emoji .. " " .. SEASON.name
+	title.Parent = panel
+	themeLabel(title, 30)
+
+	-- ---- the two remotes this panel talks over. Newer than the authored Remotes folder, so they
+	-- are waited for by name rather than indexed -- SeasonPassService creates whichever is missing.
+	local claimQuestRemote, claimRewardRemote
+	task.spawn(function()
+		claimQuestRemote = Remotes:WaitForChild("ClaimQuest", 30)
+		claimRewardRemote = Remotes:WaitForChild("ClaimSeasonReward", 30)
+	end)
+
+	-- ---- pages
+	local function newPage(name)
+		local page = Instance.new("Frame")
+		page.Name = name
+		page.Size = UDim2.new(1, -28, 1, -(PAGE_TOP + 14))
+		page.Position = UDim2.new(0, 14, 0, PAGE_TOP)
+		page.BackgroundTransparency = 1
+		page.ZIndex = panel.ZIndex + UITheme.Z.Content
+		page.Visible = false
+		page.Parent = panel
+		return page
+	end
+	local trackPage = newPage("TrackPage")
+	local questPage = newPage("QuestPage")
+
+	-- ---- tabs
+	local tabs = {}
+	local currentTab = "track"
+	local function setTab(name)
+		currentTab = name
+		trackPage.Visible = (name == "track")
+		questPage.Visible = (name == "quests")
+		for key, btn in pairs(tabs) do
+			setButtonColor(btn, key == name and UITheme.Color.Sunny or UITheme.Color.Locked)
+		end
+	end
+
+	for i, spec in ipairs({
+		{ key = "track",  text = SEASON.emoji .. " Season Pass" },
+		{ key = "quests", text = "\u{1F4CB} Quests" },
+	}) do
+		local btn = Instance.new("TextButton")
+		btn.Name = "Tab_" .. spec.key
+		btn.Size = UDim2.new(0, 190, 0, 42)
+		btn.Position = UDim2.new(0, 360 + (i - 1) * 200, 0, 12)
+		btn.Text = spec.text
+		btn.ZIndex = panel.ZIndex + UITheme.Z.Content
+		btn.Parent = panel
+		styleButton(btn, UITheme.Color.Locked, UDim.new(0, 14))
+		btn.MouseButton1Click:Connect(function()
+			setTab(spec.key)
+		end)
+		tabs[spec.key] = btn
+	end
+
+	-- ================= TRACK PAGE =================
+
+	-- left: the level badge and the XP bar, the two numbers the whole page is about
+	local sideCard = Instance.new("Frame")
+	sideCard.Size = UDim2.new(0, 210, 1, 0)
+	sideCard.Parent = trackPage
+	styleCard(sideCard, UITheme.Color.Lavender, UDim.new(0, 18), 4)
+
+	local levelLabel = Instance.new("TextLabel")
+	levelLabel.Size = UDim2.new(1, -20, 0, 64)
+	levelLabel.Position = UDim2.new(0, 10, 0, 14)
+	levelLabel.BackgroundTransparency = 1
+	levelLabel.Text = "Level 1"
+	levelLabel.Parent = sideCard
+	themeLabel(levelLabel, 42)
+
+	-- THIS FILE IS AT LUAU'S 200-REGISTER CEILING. ProgressBar returns (background, fill, label) and
+	-- the background was being bound to a local that nothing ever reads -- one wasted register out of
+	-- two hundred, and it was the one that tipped the count over: adding any local anywhere above
+	-- this point made the WHOLE script fail to compile, reported here rather than at the new line.
+	-- Dropped via select() so the slot is never allocated. Keep an eye on this when adding UI.
+	local xpBarFill, xpBarLabel = select(2, UITheme.ProgressBar(sideCard, {
+		name = "SeasonXP",
+		size = UDim2.new(1, -24, 0, 30),
+		position = UDim2.new(0.5, 0, 0, 84),
+		anchorPoint = Vector2.new(0.5, 0),
+		color = UITheme.Color.Green,
+		text = "0 / " .. SEASON.xpPerLevel,
+		maxTextSize = 18,
+		zIndex = sideCard.ZIndex + UITheme.Z.Content,
+	}))
+
+	local premiumStatus = Instance.new("TextLabel")
+	premiumStatus.Size = UDim2.new(1, -20, 0, 92)
+	premiumStatus.Position = UDim2.new(0, 10, 0, 128)
+	premiumStatus.BackgroundTransparency = 1
+	premiumStatus.TextWrapped = true
+	premiumStatus.Text = ""
+	premiumStatus.Parent = sideCard
+	themeLabel(premiumStatus, 17, UITheme.Color.Cream)
+
+	local premiumButton = Instance.new("TextButton")
+	premiumButton.Size = UDim2.new(1, -24, 0, 52)
+	premiumButton.Position = UDim2.new(0.5, 0, 1, -16)
+	premiumButton.AnchorPoint = Vector2.new(0.5, 1)
+	premiumButton.Text = "Get Premium"
+	premiumButton.Parent = sideCard
+	styleButton(premiumButton, UITheme.Color.Gold, UDim.new(0, 14))
+	premiumButton.MouseButton1Click:Connect(function()
+		Remotes.PromptRobuxPurchase:FireServer("SeasonPremium")
+	end)
+
+	-- right: the thirty columns, scrolling sideways
+	local trackScroll = Instance.new("ScrollingFrame")
+	trackScroll.Name = "TrackScroll"
+	trackScroll.Size = UDim2.new(1, -224, 0, 254)
+	trackScroll.Position = UDim2.new(0, 224, 0.5, 0)
+	trackScroll.AnchorPoint = Vector2.new(0, 0.5)
+	trackScroll.BackgroundTransparency = 1
+	trackScroll.BorderSizePixel = 0
+	trackScroll.ScrollBarThickness = 8
+	trackScroll.ScrollingDirection = Enum.ScrollingDirection.X
+	trackScroll.CanvasSize = UDim2.new(0, SEASON.maxLevel * PITCH + 8, 0, 0)
+	trackScroll.ZIndex = trackPage.ZIndex
+	trackScroll.Parent = trackPage
+
+	local trackLayout = Instance.new("UIListLayout")
+	trackLayout.FillDirection = Enum.FillDirection.Horizontal
+	trackLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	trackLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	trackLayout.Padding = UDim.new(0, 12)
+	trackLayout.Parent = trackScroll
+
+	-- What a cell shows: the best thing in the reward as one big icon, and its count under it.
+	-- A cell is 92px square -- it cannot list four payouts, and the point of the icon is to be
+	-- recognisable at a glance while scrolling past thirty of them.
+	local function rewardFace(reward)
+		if reward.shards then return "\u{2728}", "x" .. reward.shards end
+		if reward.diamonds then return "\u{1F48E}", "x" .. reward.diamonds end
+		if reward.potions then
+			local potion = reward.potionId and GameConfig.GetPotion(reward.potionId)
+			return potion and potion.emoji or "\u{1F9EA}", "x" .. reward.potions
+		end
+		return "\u{1F9EC}", formatNumber(reward.dna or 0)
+	end
+
+	local cells = {} -- [level] = { free = refs, premium = refs }
+
+	local function buildCell(parent, level, track, order)
+		local btn = Instance.new("TextButton")
+		btn.Name = track
+		btn.Size = UDim2.new(0, CELL, 0, CELL)
+		btn.LayoutOrder = order
+		btn.Text = ""
+		btn.ZIndex = parent.ZIndex
+		btn.Parent = parent
+		local strokeInst = styleCard(btn, UITheme.Color.Locked, UDim.new(0, 14), 4)
+
+		local reward = GameConfig.GetSeasonReward(level)[track]
+		local faceEmoji, faceAmount = rewardFace(reward)
+
+		local icon = Instance.new("TextLabel")
+		icon.Size = UDim2.new(1, -8, 0, 36)
+		icon.Position = UDim2.new(0, 4, 0, 5)
+		icon.BackgroundTransparency = 1
+		icon.Text = faceEmoji
+		icon.Parent = btn
+		themeLabel(icon, 30)
+
+		local amount = Instance.new("TextLabel")
+		amount.Size = UDim2.new(1, -8, 0, 20)
+		amount.Position = UDim2.new(0, 4, 0, 40)
+		amount.BackgroundTransparency = 1
+		amount.Text = faceAmount
+		amount.Parent = btn
+		themeLabel(amount, 17)
+
+		local status = Instance.new("TextLabel")
+		status.Size = UDim2.new(1, -8, 0, 24)
+		status.Position = UDim2.new(0, 4, 1, -27)
+		status.BackgroundTransparency = 1
+		status.Text = "\u{1F512}"
+		status.Parent = btn
+		themeLabel(status, 16)
+
+		btn.MouseButton1Click:Connect(function()
+			if claimRewardRemote then
+				claimRewardRemote:FireServer(level, track)
+			end
+		end)
+
+		return { btn = btn, status = status, strokeInst = strokeInst }
+	end
+
+	for level = 1, SEASON.maxLevel do
+		local row = GameConfig.GetSeasonReward(level)
+
+		local column = Instance.new("Frame")
+		column.Name = "Level" .. level
+		column.Size = UDim2.new(0, CELL, 0, CELL * 2 + 42)
+		column.LayoutOrder = level
+		column.BackgroundTransparency = 1
+		column.ZIndex = trackScroll.ZIndex + UITheme.Z.Content
+		column.Parent = trackScroll
+
+		local columnLayout = Instance.new("UIListLayout")
+		columnLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		columnLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+		columnLayout.Padding = UDim.new(0, 5)
+		columnLayout.Parent = column
+
+		local freeRefs = buildCell(column, level, "free", 1)
+
+		-- the level number between the two rows, brighter on every tenth
+		local chip = Instance.new("Frame")
+		chip.Name = "Chip"
+		chip.Size = UDim2.new(0, CELL, 0, 32)
+		chip.LayoutOrder = 2
+		chip.ZIndex = column.ZIndex
+		chip.Parent = column
+		local chipStroke = styleCard(chip, row.milestone and UITheme.Color.Sunny or UITheme.Color.Locked, UDim.new(1, 0), 3)
+
+		local chipLabel = Instance.new("TextLabel")
+		chipLabel.Size = UDim2.new(1, -8, 1, -6)
+		chipLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+		chipLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+		chipLabel.BackgroundTransparency = 1
+		chipLabel.Text = tostring(level)
+		chipLabel.Parent = chip
+		themeLabel(chipLabel, 22)
+
+		local premiumRefs = buildCell(column, level, "premium", 3)
+
+		cells[level] = { free = freeRefs, premium = premiumRefs, chip = chip, chipStroke = chipStroke }
+	end
+
+	-- ================= QUEST PAGE =================
+
+	local questScroll = Instance.new("ScrollingFrame")
+	questScroll.Name = "QuestScroll"
+	questScroll.Size = UDim2.new(1, 0, 1, 0)
+	questScroll.BackgroundTransparency = 1
+	questScroll.BorderSizePixel = 0
+	questScroll.ScrollBarThickness = 8
+	questScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	questScroll.ZIndex = questPage.ZIndex
+	questScroll.Parent = questPage
+
+	local questLayout = Instance.new("UIListLayout")
+	questLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	questLayout.Padding = UDim.new(0, 7)
+	questLayout.Parent = questScroll
+
+	local questRows = {}   -- [period .. "|" .. key] = refs
+	local periodHeaders = {} -- [period] = label, for the countdown
+	local questOrder = 0
+
+	for _, period in ipairs({ "daily", "weekly" }) do
+		local periodDef = GameConfig.QuestPeriods[period]
+
+		questOrder += 1
+		local header = Instance.new("Frame")
+		header.Name = period .. "Header"
+		header.Size = UDim2.new(1, -10, 0, 40)
+		header.LayoutOrder = questOrder
+		header.ZIndex = questScroll.ZIndex + UITheme.Z.Content
+		header.Parent = questScroll
+		styleCard(header, period == "daily" and UITheme.Color.Aqua or UITheme.Color.Peach, UDim.new(0, 12), 3)
+
+		local headerLabel = Instance.new("TextLabel")
+		headerLabel.Size = UDim2.new(1, -20, 1, -6)
+		headerLabel.Position = UDim2.new(0, 12, 0, 2)
+		headerLabel.BackgroundTransparency = 1
+		headerLabel.TextXAlignment = Enum.TextXAlignment.Left
+		headerLabel.Text = periodDef.emoji .. " " .. periodDef.label
+		headerLabel.Parent = header
+		themeLabel(headerLabel, 22)
+		periodHeaders[period] = headerLabel
+
+		for _, quest in ipairs(GameConfig.GetQuests(period)) do
+			questOrder += 1
+			local row = Instance.new("Frame")
+			row.Name = quest.key
+			row.Size = UDim2.new(1, -10, 0, 74)
+			row.LayoutOrder = questOrder
+			row.ZIndex = questScroll.ZIndex + UITheme.Z.Content
+			row.Parent = questScroll
+			local rowStroke = styleCard(row, PET_ROW_SHELL, UDim.new(0, 14), 4)
+
+			local nameLabel = Instance.new("TextLabel")
+			nameLabel.Size = UDim2.new(0, 330, 0, 28)
+			nameLabel.Position = UDim2.new(0, 16, 0, 8)
+			nameLabel.BackgroundTransparency = 1
+			nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+			nameLabel.Text = quest.emoji .. " " .. quest.name
+			nameLabel.Parent = row
+			themeLabel(nameLabel, 23)
+
+			local barBg, barFill, barLabel = UITheme.ProgressBar(row, {
+				name = "Progress",
+				size = UDim2.new(0, 330, 0, 26),
+				position = UDim2.new(0, 16, 1, -34),
+				color = UITheme.Color.Green,
+				text = "0 / " .. quest.target,
+				maxTextSize = 17,
+				zIndex = row.ZIndex + UITheme.Z.Content,
+			})
+
+			-- what completing it pays, spelled out rather than left to the toast afterwards
+			local payLabel = Instance.new("TextLabel")
+			payLabel.Size = UDim2.new(0, 220, 1, -16)
+			payLabel.Position = UDim2.new(0, 360, 0, 8)
+			payLabel.BackgroundTransparency = 1
+			payLabel.TextXAlignment = Enum.TextXAlignment.Left
+			payLabel.TextWrapped = true
+			payLabel.Text = ("+%d Season XP%s"):format(quest.xp,
+				quest.diamonds and (("\n+%d \u{1F48E}"):format(quest.diamonds)) or "")
+			payLabel.Parent = row
+			themeLabel(payLabel, 18, UITheme.Color.Cream)
+
+			local claimBtn = Instance.new("TextButton")
+			claimBtn.Name = "ClaimButton"
+			claimBtn.Size = UDim2.new(0, 120, 0, 46)
+			claimBtn.Position = UDim2.new(1, -14, 0.5, -23)
+			claimBtn.AnchorPoint = Vector2.new(1, 0)
+			claimBtn.Text = "Claim"
+			claimBtn.Parent = row
+			styleButton(claimBtn, UITheme.Color.Locked, UDim.new(1, 0))
+			claimBtn.MouseButton1Click:Connect(function()
+				if claimQuestRemote then
+					claimQuestRemote:FireServer(period, quest.key)
+				end
+			end)
+
+			questRows[period .. "|" .. quest.key] = {
+				quest = quest, period = period, rowStroke = rowStroke,
+				barFill = barFill, barLabel = barLabel, claimBtn = claimBtn,
+			}
+		end
+	end
+
+	questScroll.CanvasSize = UDim2.new(0, 0, 0, questOrder * 78 + 30)
+
+	-- ================= REFRESH =================
+
+	local function refresh()
+		if not currentData then return end
+		local season = currentData.Season or {}
+		local xp = season.xp or 0
+		local level = GameConfig.GetSeasonLevel(xp)
+		local into, need = GameConfig.GetSeasonLevelProgress(xp)
+		local hasPremium = season.premium == true
+		-- string keys: a table keyed by scattered integers does not survive the RemoteEvent that
+		-- brought this data over -- see SeasonPassService
+		local claimedFree = season.claimedFree or {}
+		local claimedPremium = season.claimedPremium or {}
+
+		levelLabel.Text = "Level " .. level
+		xpBarFill.Size = UDim2.new(need > 0 and (into / need) or 1, 0, 1, 0)
+		xpBarLabel.Text = (level >= SEASON.maxLevel)
+			and "MAX LEVEL"
+			or ("%d / %d XP"):format(into, need)
+
+		if hasPremium then
+			premiumStatus.Text = "\u{2705} Premium unlocked \u{2014} both rows are yours."
+			premiumButton.Visible = false
+		else
+			premiumStatus.Text = "Premium unlocks the bottom row, including every level you have already passed."
+			premiumButton.Visible = true
+		end
+
+		for lvl = 1, SEASON.maxLevel do
+			local refs = cells[lvl]
+			local slot = tostring(lvl)
+			local reached = (lvl <= level)
+
+			for _, track in ipairs({ "free", "premium" }) do
+				local cellRefs = refs[track]
+				local claimed = (track == "premium" and claimedPremium or claimedFree)[slot] == true
+				local owned = (track == "free") or hasPremium
+
+				if claimed then
+					cellRefs.status.Text = "\u{2705} Claimed"
+					setButtonColor(cellRefs.btn, UITheme.Color.Locked)
+					cellRefs.strokeInst.Color = OUTLINE_COLOR
+					cellRefs.strokeInst.Thickness = 4
+				elseif reached and owned then
+					-- the one "press me" state on the board, same bright rim as everywhere else
+					cellRefs.status.Text = "CLAIM!"
+					setButtonColor(cellRefs.btn, UITheme.Color.Green)
+					cellRefs.strokeInst.Color = READY_RIM
+					cellRefs.strokeInst.Thickness = 5
+				elseif reached and not owned then
+					-- earned but behind the pass: gold rim, so it reads as "buy this" and not "grind more"
+					cellRefs.status.Text = "\u{1F512} Premium"
+					setButtonColor(cellRefs.btn, UITheme.Color.Locked)
+					cellRefs.strokeInst.Color = UITheme.Color.Gold
+					cellRefs.strokeInst.Thickness = 4
+				else
+					cellRefs.status.Text = "\u{1F512} Lv." .. lvl
+					setButtonColor(cellRefs.btn, UITheme.Color.Locked)
+					cellRefs.strokeInst.Color = OUTLINE_COLOR
+					cellRefs.strokeInst.Thickness = 4
+				end
+			end
+		end
+
+		local held = currentData.Quests or {}
+		for _, refs in pairs(questRows) do
+			local quest = refs.quest
+			local periodData = held[refs.period] or {}
+			-- A period the server has not reset yet still carries the PREVIOUS period's numbers, so
+			-- the stamp is checked here too rather than trusted -- otherwise a player who leaves the
+			-- panel open across midnight watches yesterday's finished board.
+			local stale = periodData.periodId ~= GameConfig.GetQuestPeriodId(refs.period)
+			local done = stale and 0 or ((periodData.progress or {})[quest.key] or 0)
+			local claimed = (not stale) and ((periodData.claimed or {})[quest.key] == true)
+
+			refs.barFill.Size = UDim2.new(math.clamp(done / quest.target, 0, 1), 0, 1, 0)
+			refs.barLabel.Text = ("%d / %d"):format(math.min(done, quest.target), quest.target)
+
+			if claimed then
+				refs.claimBtn.Text = "\u{2705} Done"
+				setButtonColor(refs.claimBtn, UITheme.Color.Locked)
+				refs.rowStroke.Color = OUTLINE_COLOR
+				refs.rowStroke.Thickness = 4
+			elseif done >= quest.target then
+				refs.claimBtn.Text = "CLAIM!"
+				setButtonColor(refs.claimBtn, UITheme.Color.Green)
+				refs.rowStroke.Color = READY_RIM
+				refs.rowStroke.Thickness = 5
+			else
+				refs.claimBtn.Text = "Claim"
+				setButtonColor(refs.claimBtn, UITheme.Color.Locked)
+				refs.rowStroke.Color = OUTLINE_COLOR
+				refs.rowStroke.Thickness = 4
+			end
+		end
+	end
+
+	-- the countdown to the next reset, ticking only while somebody is looking at it
+	local function updateTimers()
+		for period, label in pairs(periodHeaders) do
+			local def = GameConfig.QuestPeriods[period]
+			local remaining = math.max(0, GameConfig.GetQuestPeriodEnd(period) - os.time())
+			label.Text = ("%s %s  \u{2022}  resets in %dh %02dm")
+				:format(def.emoji, def.label, remaining // 3600, (remaining % 3600) // 60)
+		end
+	end
+
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			if panel.Visible then
+				updateTimers()
+			end
+		end
+	end)
+
+	-- ---- HUD tile, bottom of the right column (see RIGHT_COUNT)
+	local tile = columnTile("R", 5, SEASON.emoji, "Season", UITheme.Color.Sunny)
+	tile.MouseButton1Click:Connect(function()
+		toggleOnly(panel)
+		setTab(currentTab)
+		updateTimers()
+		refresh()
+	end)
+
+	setTab("track")
+	updateTimers()
+
+	hudRefs.refreshSeasonPanel = refresh
+	hudRefs.showSeasonPanel = function()
+		toggleOnly(panel)
+		setTab(currentTab)
+		updateTimers()
+		refresh()
+	end
+end)()
+
+-- ===== Notification popup (top-center, stacks) =====
+-- Sits above every floating panel (ZIndex 20) and the Daily modal's dim (19), because a
+-- claim confirmation usually fires while one of those is still open.
+-- Parked at the TOP-CENTRE and narrow, not across the middle of the screen.
+--
+-- These were 420 px wide and anchored at screen centre, which put a stack of fat coloured bars
+-- directly over the player's own character -- the one thing on screen the player is actually
+-- looking at while fighting. A notification is a readout: it has to be legible and then get out of
+-- the way. Half the width, above the action, and it never crosses the middle third of the screen.
+local notifFrame = Instance.new("Frame")
+notifFrame.Name = "NotifFrame"
+notifFrame.Size = UDim2.new(0, 300, 0, 260)
+notifFrame.Position = UDim2.new(0.5, 0, 0, 66)
+notifFrame.AnchorPoint = Vector2.new(0.5, 0)
+notifFrame.BackgroundTransparency = 1
+notifFrame.ZIndex = 60
+notifFrame.Parent = screenGui
+
+local notifLayout = Instance.new("UIListLayout")
+notifLayout.Padding = UDim.new(0, 6)
+notifLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+notifLayout.SortOrder = Enum.SortOrder.LayoutOrder
+notifLayout.Parent = notifFrame
+
+-- At most this many on screen. A kill that pays DNA fires one, taking damage fires one, and a
+-- fight produces both several times a second -- without a cap the stack grew down the screen
+-- faster than the 2.5 s timer cleared it. The oldest goes when a new one arrives.
+local NOTIF_MAX = 4
+
+-- ===== THE TOAST, REBUILT =====
+--
+-- It was a flat rounded bar that appeared, sat there, and faded. Nothing about it moved, the
+-- colour it was handed was used raw (so half of them came out muddy), and the message was one
+-- 16 px wrapped line -- an emoji and its text run together at the same weight, which is why a
+-- reward and an error read as the same grey event.
+--
+-- Four changes, in order of how much they do:
+--
+--   1. IT MOVES. Slides up and overshoots in on Back easing, drops and shrinks out. Motion is
+--      what makes a notification register at the edge of vision while the player is fighting --
+--      a static card in a corner is furniture, and the eye stops reporting furniture.
+--   2. THE COLOUR IS PUSHED. `vividToast` lifts whatever it is handed to full saturation and a
+--      high value before it reaches styleCard, so the gradient has somewhere bright to go. The
+--      raw colours passed by the call sites are chosen to be readable as text, not as fills.
+--   3. THE ICON IS ITS OWN CHIP. The leading emoji is split off into a round badge on the left,
+--      lit in the toast's own colour. That is the whole difference between "a sentence" and "a
+--      notification": you know what kind of event it is before reading a word.
+--   4. A TIMER BAR drains along the bottom, so a toast that is about to go says so.
+--
+-- ALL OF IT LIVES INSIDE THIS FUNCTION. MainUI is at Luau's 200-register cap -- one more
+-- top-level local deletes the entire HUD -- so the helpers below are nested, not hoisted.
+local function showNotification(text, color)
+	local live = {}
+	for _, c in ipairs(notifFrame:GetChildren()) do
+		if c:IsA("Frame") then table.insert(live, c) end
+	end
+	for i = 1, #live - (NOTIF_MAX - 1) do
+		live[i]:Destroy()
+	end
+
+	-- Full saturation, value floored at 0.92. A toast is a two-second flash on top of a busy
+	-- world; anything less than the brightest version of its own hue loses to the scenery behind
+	-- it. Hue is preserved exactly, so every call site keeps meaning what it meant.
+	local base = color or UITheme.Color.Purple
+	local h, s, v = Color3.toHSV(base)
+	local vivid = Color3.fromHSV(h, math.max(s, 0.55), math.max(v, 0.92))
+
+	-- Split a leading emoji off the message. Roblox emoji are multi-byte, so this takes
+	-- everything up to the first space and only treats it as an icon if it is NOT plain ASCII --
+	-- that keeps "Not enough DNA!" whole while lifting the 💎 off "💎 Diamond found!".
+	local icon, body = nil, text
+	local head, rest = text:match("^(%S+)%s+(.*)$")
+	if head and #head <= 8 and not head:match("^[%w%p]+$") then
+		icon, body = head, rest
+	end
+
+	local notif = Instance.new("Frame")
+	notif.Name = "Notif"
+	notif.Size = UDim2.new(1, 0, 0, 46)
+	notif.ZIndex = notifFrame.ZIndex
+	notif.Parent = notifFrame
+	styleCard(notif, vivid, UDim.new(1, 0), 3)
+
+	-- THE POP. A UIScale on the card itself, so the outline, lip, gloss and text all scale as one
+	-- object -- tweening Size instead would leave the stroke at its own thickness and the card
+	-- would appear to grow a border. Back/Out overshoots and settles, which is the difference
+	-- between something arriving and something being switched on.
+	local pop = Instance.new("UIScale")
+	pop.Scale = 0.55
+	pop.Parent = notif
+	TweenService:Create(pop, TweenInfo.new(0.34, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{ Scale = 1 }):Play()
+
+	if icon then
+		local chip = Instance.new("Frame")
+		chip.Name = "Chip"
+		chip.Size = UDim2.new(0, 32, 0, 32)
+		chip.Position = UDim2.new(0, 7, 0.5, -2)
+		chip.AnchorPoint = Vector2.new(0, 0.5)
+		chip.ZIndex = notif.ZIndex + UITheme.Z.Content
+		chip.Parent = notif
+		-- a shade DOWN from the card, not up: the badge has to separate from the fill it sits on,
+		-- and the card is already at the top of its own range
+		styleCard(chip, UITheme.Shade(vivid, -0.3), UDim.new(1, 0), 2)
+
+		local glyph = Instance.new("TextLabel")
+		glyph.Size = UDim2.new(1, 0, 1, 0)
+		glyph.BackgroundTransparency = 1
+		glyph.Text = icon
+		glyph.ZIndex = chip.ZIndex + UITheme.Z.Content
+		glyph.Parent = chip
+		themeLabel(glyph, 20)
+	end
+
+	local message = Instance.new("TextLabel")
+	message.Name = "Message"
+	-- left-aligned and inset past the chip when there is one. Centred text that starts at a
+	-- different x on every toast is what made a stack of them read as noise.
+	message.Size = UDim2.new(1, icon and -54 or -20, 1, -12)
+	message.Position = UDim2.new(0, icon and 46 or 10, 0.5, -2)
+	message.AnchorPoint = Vector2.new(0, 0.5)
+	message.BackgroundTransparency = 1
+	message.TextWrapped = true
+	message.TextXAlignment = icon and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center
+	message.Text = body
+	message.Parent = notif
+	themeLabel(message, 17)
+
+	-- THE TIMER. Drains right to left along the bottom lip in the toast's own colour, lightened
+	-- so it reads against the fill. Not styled as a card: it is a two-pixel readout, and an
+	-- outline on it would be thicker than the bar.
+	local timer = Instance.new("Frame")
+	timer.Name = "Timer"
+	timer.Size = UDim2.new(1, -22, 0, 3)
+	timer.Position = UDim2.new(0.5, 0, 1, -8)
+	timer.AnchorPoint = Vector2.new(0.5, 1)
+	timer.BackgroundColor3 = UITheme.Shade(vivid, 0.55)
+	timer.BorderSizePixel = 0
+	timer.ZIndex = notif.ZIndex + UITheme.Z.Content
+	timer.Parent = notif
+	corner(timer, UDim.new(1, 0))
+	TweenService:Create(timer, TweenInfo.new(2.5, Enum.EasingStyle.Linear), { Size = UDim2.new(0, 0, 0, 3) }):Play()
+
+	task.delay(2.5, function()
+		if not (notif and notif.Parent) then return end
+		-- OUT IS A MOVE AS WELL AS A FADE. Shrinking away on Back/In mirrors the entrance, so a
+		-- toast leaving is as readable as one arriving -- a pure alpha fade on a busy background
+		-- simply looks like the card was always half there.
+		local info = TweenInfo.new(0.32)
+		TweenService:Create(pop, TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.In),
+			{ Scale = 0.7 }):Play()
+		-- a chunky toast is a whole stack of parts, so fade shell, lip, gloss, outline and
+		-- the outlined text together instead of just the one label the flat version had.
+		local shellTween = TweenService:Create(notif, info, { BackgroundTransparency = 1 })
+		for _, d in ipairs(notif:GetDescendants()) do
+			if d:IsA("TextLabel") then
+				TweenService:Create(d, info, { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
+			elseif d:IsA("GuiObject") then
+				TweenService:Create(d, info, { BackgroundTransparency = 1 }):Play()
+			elseif d:IsA("UIStroke") then
+				TweenService:Create(d, info, { Transparency = 1 }):Play()
+			end
+		end
+		shellTween:Play()
+		shellTween.Completed:Wait()
+		notif:Destroy()
+	end)
+end
+
+-- ===== World popup =====
+-- A small card that floats up off the player IN THE WORLD, not across the screen.
+--
+-- Everything that happens at a place -- a pet hatching out of the egg you are standing at, a
+-- potion bought at the stall you are standing at -- is drawn here rather than as a screen banner.
+-- A banner covers the thing the player walked over to look at, and it also reads as chrome: the
+-- eye learns to ignore a bar that appears in the same place every time.
+--
+-- Sized in PIXELS and AlwaysOnTop for the same reason the damage numbers are: this is a readout,
+-- so it stays legible at whatever distance the camera happens to be, and it must never end up
+-- behind the scenery. It is small on purpose -- the point is that it does not take the screen.
+local function worldPopup(text, subText, color)
+	local character = player.Character
+	local head = character and character:FindFirstChild("Head")
+	if not head then
+		-- no body to hang it on (mid-respawn): fall back to the toast rather than losing the message
+		showNotification(text, color)
+		return
+	end
+
+	local host = Instance.new("Part")
+	host.Name = "WorldPopup"
+	host.Size = Vector3.new(1, 1, 1)
+	host.Transparency = 1
+	host.Anchored = true
+	host.CanCollide = false
+	host.CanQuery = false -- must never become the answer to a combat ray
+	host.CanTouch = false
+	host.CastShadow = false
+	-- measured off the head's own size: the body runs 1x to 9x across the twenty stages, and a
+	-- constant offset is a hat at one end of the game and a kite at the other
+	local startCF = head.CFrame * CFrame.new(0, head.Size.Y * 1.6 + 2, 0)
+	host.CFrame = startCF
+	host.Parent = workspace
+
+	local gui = Instance.new("BillboardGui")
+	gui.Size = UDim2.new(0, 210, 0, subText and 62 or 42)
+	gui.AlwaysOnTop = true
+	gui.LightInfluence = 0
+	gui.Parent = host
+
+	local card = Instance.new("Frame")
+	card.Size = UDim2.new(1, 0, 1, 0)
+	card.Parent = gui
+	styleCard(card, color or UITheme.Color.Gold, UDim.new(0, 12), 3)
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, -14, subText and 0.56 or 1, -6)
+	label.Position = UDim2.new(0.5, 0, 0, 3)
+	label.AnchorPoint = Vector2.new(0.5, 0)
+	label.BackgroundTransparency = 1
+	label.Text = text
+	label.ZIndex = card.ZIndex + UITheme.Z.Content
+	label.Parent = card
+	themeLabel(label, 20)
+
+	if subText then
+		local sub = Instance.new("TextLabel")
+		sub.Size = UDim2.new(1, -14, 0.36, 0)
+		sub.Position = UDim2.new(0.5, 0, 1, -4)
+		sub.AnchorPoint = Vector2.new(0.5, 1)
+		sub.BackgroundTransparency = 1
+		sub.Text = subText
+		sub.ZIndex = label.ZIndex
+		sub.Parent = card
+		themeLabel(sub, 15, UITheme.Color.Cream)
+	end
+
+	-- rises and fades, held solid for the first half: a card that starts fading immediately is
+	-- never read
+	task.spawn(function()
+		local t0 = os.clock()
+		local LIFE = 1.9
+		while host.Parent do
+			local t = (os.clock() - t0) / LIFE
+			if t >= 1 then break end
+			local ease = 1 - (1 - t) * (1 - t)
+			host.CFrame = startCF + Vector3.new(0, ease * 7, 0)
+			local fade = math.clamp((t - 0.55) / 0.45, 0, 1)
+			for _, d in ipairs(card:GetDescendants()) do
+				if d:IsA("TextLabel") then
+					d.TextTransparency = fade
+					local s = d:FindFirstChildOfClass("UIStroke")
+					if s then s.Transparency = fade end
+				elseif d:IsA("GuiObject") then
+					d.BackgroundTransparency = fade
+				elseif d:IsA("UIStroke") then
+					d.Transparency = fade
+				end
+			end
+			card.BackgroundTransparency = fade
+			RunService.RenderStepped:Wait()
+		end
+		host:Destroy()
+	end)
+end
+
+-- ===== Purchase celebration =====
+-- The complaint: "when I buy anything in the market I have no idea I bought it." That was literally
+-- true -- PotionService fires { kind = "reward" } for both stalls and for the cauldron, and nothing
+-- in this file had ever handled that kind, so the DNA came off the counter and the screen did not
+-- change. Same for { kind = "bossDefeated" }.
+--
+-- Handling them as toasts would have been the minimum. This is deliberately louder: it lands in
+-- the middle of the screen over everything, it punches in past its own size before settling, a
+-- ring runs out past it, and a burst goes off on the player in the world -- because the purchase
+-- happened at a stall you are standing at, and something that only happens on the HUD does not
+-- read as having happened THERE.
+local function celebratePurchase(text, color)
+	color = color or UITheme.Color.Gold
+
+	-- One at a time. An egg multi-hatch or a run of purchases would otherwise stack several of
+	-- these on top of each other at the same screen position, which reads as one flickering card.
+	for _, sg in ipairs(screenGui:GetChildren()) do
+		if sg.Name == "PurchasePop" then sg:Destroy() end
+	end
+
+	local holder = Instance.new("Frame")
+	holder.Name = "PurchasePop"
+	holder.AnchorPoint = Vector2.new(0.5, 0.5)
+	-- high on the screen, clear of the character: this is a celebration, not a curtain
+	holder.Position = UDim2.new(0.5, 0, 0.24, 0)
+	holder.Size = UDim2.new(0, 330, 0, 74)
+	holder.BackgroundTransparency = 1
+	-- above the notification stack (60), which is itself above every floating panel
+	holder.ZIndex = 80
+	holder.Parent = screenGui
+
+	local ring = Instance.new("Frame")
+	ring.Name = "Ring"
+	ring.AnchorPoint = Vector2.new(0.5, 0.5)
+	ring.Position = UDim2.new(0.5, 0, 0.5, 0)
+	ring.Size = UDim2.new(0.6, 0, 0.6, 0)
+	ring.BackgroundTransparency = 1
+	ring.ZIndex = holder.ZIndex
+	ring.Parent = holder
+	corner(ring, UDim.new(1, 0))
+	local ringStroke = Instance.new("UIStroke")
+	ringStroke.Thickness = 6
+	ringStroke.Color = color
+	ringStroke.Parent = ring
+
+	local card = Instance.new("Frame")
+	card.Name = "Card"
+	card.AnchorPoint = Vector2.new(0.5, 0.5)
+	card.Position = UDim2.new(0.5, 0, 0.5, 0)
+	card.Size = UDim2.new(0, 0, 0, 0)
+	card.ZIndex = holder.ZIndex + 1
+	card.Parent = holder
+	styleCard(card, color, UDim.new(0, 20), 5)
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Message"
+	label.Size = UDim2.new(1, -30, 1, -18)
+	label.Position = UDim2.new(0.5, 0, 0.5, 0)
+	label.AnchorPoint = Vector2.new(0.5, 0.5)
+	label.BackgroundTransparency = 1
+	label.TextWrapped = true
+	label.Text = text
+	label.ZIndex = card.ZIndex + UITheme.Z.Content
+	label.Parent = card
+	themeLabel(label, 21)
+
+	-- Back easing overshoots on purpose. An element that simply appears at its final size has no
+	-- arrival, and the arrival IS the message.
+	TweenService:Create(card, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Size = UDim2.new(1, 0, 1, 0),
+	}):Play()
+	TweenService:Create(ring, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = UDim2.new(1.6, 0, 2.6, 0),
+	}):Play()
+	TweenService:Create(ringStroke, TweenInfo.new(0.5), { Transparency = 1 }):Play()
+
+	local character = player.Character
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	if hrp then
+		local scale = character:GetAttribute("BodyScale") or 1
+		local host = Instance.new("Part")
+		host.Name = "PurchaseBurst"
+		host.Size = Vector3.new(1, 1, 1)
+		host.CFrame = hrp.CFrame
+		host.Transparency = 1
+		host.Anchored = true
+		host.CanCollide = false
+		host.CanQuery = false -- it must never become the answer to a combat ray
+		host.CanTouch = false
+		host.CastShadow = false
+		-- parented to workspace on the client only: confetti is not game state and no other machine
+		-- has any business receiving it
+		host.Parent = workspace
+
+		local att = Instance.new("Attachment")
+		att.Parent = host
+
+		local bits = Instance.new("ParticleEmitter")
+		bits.Color = ColorSequence.new(color, UITheme.Color.Cream)
+		-- sized and thrown off the BODY, which runs 1x to 9x across the twenty stages: a fixed
+		-- burst is a firework at stage one and a sprinkle of dust at stage twenty
+		bits.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1.4 * scale),
+			NumberSequenceKeypoint.new(0.7, 1 * scale),
+			NumberSequenceKeypoint.new(1, 0),
+		})
+		bits.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0),
+			NumberSequenceKeypoint.new(0.7, 0),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		bits.Lifetime = NumberRange.new(0.6, 1.1)
+		bits.Speed = NumberRange.new(14 * scale, 30 * scale)
+		bits.SpreadAngle = Vector2.new(180, 180)
+		bits.Rate = 0
+		bits.RotSpeed = NumberRange.new(-300, 300)
+		bits.Acceleration = Vector3.new(0, -46 * scale, 0) -- it falls: confetti that drifts is smoke
+		bits.LightEmission = 0.4
+		bits.Parent = att
+		bits:Emit(26)
+
+		task.delay(2, function()
+			host:Destroy()
+		end)
+	end
+
+	task.delay(1.25, function()
+		if not holder.Parent then return end
+		local info = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		TweenService:Create(holder, info, { Position = UDim2.new(0.5, 0, 0.17, 0) }):Play()
+		for _, d in ipairs(holder:GetDescendants()) do
+			if d:IsA("TextLabel") then
+				TweenService:Create(d, info, { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
+			elseif d:IsA("GuiObject") then
+				TweenService:Create(d, info, { BackgroundTransparency = 1 }):Play()
+			elseif d:IsA("UIStroke") then
+				TweenService:Create(d, info, { Transparency = 1 }):Play()
+			end
+		end
+		task.delay(0.4, function()
+			if holder.Parent then holder:Destroy() end
+		end)
+	end)
+end
+
+-- ================= state updates =================
+local function refreshUI()
+	if not currentData then return end
+	local data = currentData
+	local stage = GameConfig.Stages[data.StageIndex]
+
+	stageLabel.Text = stage.emoji .. " " .. stage.name
+	-- ONE SOURCE FOR WHAT THE EVOLVE BUTTON DOES. GetEvolveStep is the same function DNAService
+	-- charges against, so the price printed here and the price taken there cannot drift apart --
+	-- and a lit green button can never be answered by a red "not enough" toast.
+	local step = GameConfig.GetEvolveStep(data)
+	-- The stage name over the evolve bar and the number written on the bar are BOTH part of this
+	-- refresh. They were built once with placeholder text ("\u{2B50} Cell", "0 / 50 DNA") and then
+	-- never written to again, so a Star Weaver with 5.8T DNA still read "Cell / 0 / 50" all session.
+	-- The (n/5) is where you stand INSIDE the stage: five skins is five evolves.
+	evolveStageLabel.Text = ("\u{2B50} %s  (%d/%d)"):format(stage.name, step.have, step.stageTotal)
+	dnaLabel.Text = "\u{1F9EC} " .. formatNumber(data.DNA) .. " DNA"
+
+	-- THE BOTTOM-LEFT CURRENCY STACK, WHICH NOTHING HAD EVER WRITTEN TO.
+	--
+	-- The three pills were built with a placeholder "0" and then never touched again, so DNA,
+	-- Diamonds and Evolution Shards all read 0 for a whole session however much was earned. It was
+	-- reported as "I get a diamond and it is not counted here", and the diamond is only where it
+	-- shows: DNA has a second readout in the top-right card and the shard count has one in the
+	-- Rebirth panel, so the dead pill was invisible for both of them.
+	--
+	-- The three `.Value` labels used to be cached in locals up beside the pills and were dropped to
+	-- free registers -- MainUI is at Luau's 200 top-level local cap -- and the write that was
+	-- supposed to replace them never landed. Reached through the frames instead, which costs no
+	-- locals at all.
+	dnaPill.Value.Text = formatNumber(data.DNA)
+	diamondPill.Value.Text = formatNumber(data.Diamonds or 0)
+	shardPill.Value.Text = formatNumber(data.EvolutionShards or 0)
+
+	-- the starting hint has done its job the moment there is any DNA on the counter
+	if data.DNA > 0 then
+		local hint = screenGui:FindFirstChild("ClickHint")
+		if hint and hint.Visible then hint.Visible = false end
+	end
+
+	if step.isMax then
+		evolveButton.Text = "MAX EVOLUTION REACHED"
+		progressBarFill.Size = UDim2.new(1, 0, 1, 0)
+		evolveProgressLabel.Text = "MAX STAGE"
+		setButtonColor(evolveButton, UITheme.Color.Locked)
+	else
+		local dnaPct = math.clamp(data.DNA / step.cost, 0, 1)
+		local xpPct = step.xpCost > 0 and math.clamp((data.XP or 0) / step.xpCost, 0, 1) or 1
+		progressBarFill.Size = UDim2.new(math.min(dnaPct, xpPct), 0, 1, 0)
+		-- the fill tracks whichever requirement is furthest behind, so the label has to name that
+		-- same requirement -- otherwise the number contradicts the bar drawn under it
+		if xpPct < dnaPct then
+			evolveProgressLabel.Text = formatNumber(data.XP or 0) .. " / " .. formatNumber(step.xpCost) .. " XP"
+		else
+			evolveProgressLabel.Text = formatNumber(data.DNA) .. " / " .. formatNumber(step.cost) .. " DNA"
+		end
+
+		-- WHAT THE PRESS BUYS, WHICH IS NOT ALWAYS A STAGE. Four presses in five hand over the next
+		-- skin and leave the body where it is; the fifth is the stage. Naming the stage on all five
+		-- was the old text, and it would now be wrong four times out of five.
+		--
+		-- THE MOST IMPORTANT BUTTON IN THE GAME, AND IT WAS ILLEGIBLE: it used to print both
+		-- requirements in full ("EVOLVE to \u{1F9A7} Gorilla (59.17B/60.00K DNA, 264/357 XP)"),
+		-- 51 characters crushed by TextScaled into about 13px. The bar underneath already draws
+		-- whichever requirement is furthest behind, so the button names one -- the one in the way.
+		local goal
+		if step.advancesStage and step.nextStage then
+			goal = ("%s %s"):format(step.nextStage.emoji, step.nextStage.name)
+		elseif step.entry then
+			goal = ("%s %s (%d/%d)"):format(step.entry.emoji, step.entry.name, step.entryIndex, step.entryTotal)
+		else
+			goal = ("%s %s"):format(stage.emoji, stage.name)
+		end
+
+		local canEvolve = data.DNA >= step.cost and (data.XP or 0) >= step.xpCost
+		if canEvolve then
+			evolveButton.Text = "EVOLVE to " .. goal
+		elseif xpPct < dnaPct then
+			evolveButton.Text = ("%s \u{2014} needs %s more XP"):format(goal,
+				formatNumber(math.max(step.xpCost - (data.XP or 0), 0)))
+		else
+			evolveButton.Text = ("%s \u{2014} needs %s more DNA"):format(goal,
+				formatNumber(math.max(step.cost - data.DNA, 0)))
+		end
+		-- LIT ONLY WHEN IT WILL WORK. A full-brightness green button that answers a press with a red
+		-- error toast is the game telling the player they did something wrong for doing the one
+		-- thing the screen was inviting them to do.
+		setButtonColor(evolveButton, canEvolve and UITheme.Color.Green or UITheme.Color.Locked)
+	end
+
+	-- Same rule for both shop lists: a row you cannot afford is dimmed rather than left inviting.
+	for key, refs in pairs(upgradeButtons) do
+		local level = data.Upgrades[key]
+		local cost = GameConfig.GetUpgradeCost(key, level)
+		refs.levelLabel.Text = "Lv " .. level
+		refs.costLabel.Text = "\u{1F9EC} " .. formatNumber(cost)
+		if refs.button then
+			setButtonColor(refs.button, data.DNA >= cost and UITheme.Color.Green or UITheme.Color.Locked)
+		end
+	end
+
+	for key, refs in pairs(diamondUpgradeButtons) do
+		local def = GameConfig.DiamondUpgrades[key]
+		local level = (data.DiamondUpgrades and data.DiamondUpgrades[key]) or 0
+		local cost = GameConfig.GetDiamondUpgradeCost(key, level)
+		refs.levelLabel.Text = "Level " .. level .. (def.maxLevel and (" / " .. def.maxLevel) or "")
+		refs.costLabel.Text = (cost == math.huge) and "MAXED" or ("💎 " .. formatNumber(cost))
+		if refs.button then
+			setButtonColor(refs.button, (cost ~= math.huge and (data.Diamonds or 0) >= cost)
+				and UITheme.Color.SkyBlue or UITheme.Color.Locked)
+		end
+	end
+end
+
+Remotes.DataUpdate.OnClientEvent:Connect(function(data)
+	currentData = data
+	refreshUI()
+	refreshZonesPanel()
+	refreshPetsPanel()
+	if hudRefs.refreshFusionPanel then hudRefs.refreshFusionPanel() end
+	if hudRefs.refreshSeasonPanel then hudRefs.refreshSeasonPanel() end
+	refreshRebirthPanel()
+	refreshRewardPanel()
+	refreshMasteryPanel()
+	refreshInventoryPanel()
+	refreshCharacterPanel()
+end)
+
+-- ===== A BOUGHT UPGRADE HAS TO LOOK BOUGHT =====
+--
+-- The only feedback was a toast sliding in at the top of the screen, nowhere near the tile the
+-- player just pressed, so the tile itself never acknowledged the click -- the number simply changed
+-- on the next DataUpdate, which arrives a round trip later and reads as lag rather than as a
+-- purchase.
+--
+-- IT REUSES THE UISCALE styleButton ALREADY PUT ON THE BUTTON. A GuiObject may hold only one
+-- UIScale, so a second one added here would silently do nothing at all. That same scale is what
+-- styleButton squashes to 0.96 on press and restores to 1 on release -- the two do not collide in
+-- practice because the purchase confirmation comes back from the server well after mouse-up, and
+-- if it ever did overlap the tween is the later writer and wins.
+--
+-- Inside a `do` block with only the function escaping onto hudRefs: this file is at Luau's 200-local
+-- ceiling and the timing constants must not cost top-level registers.
+do
+	local PUNCH_UP = TweenInfo.new(0.11, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	local PUNCH_DOWN = TweenInfo.new(0.17, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local BADGE_REST = UITheme.Shade(UITheme.Color.Outline, 0.22)
+
+	function hudRefs.punchUpgrade(key)
+		local refs = upgradeButtons[key]
+		if not refs or not refs.button or not refs.button.Parent then return end
+
+		local scale = refs.button:FindFirstChildOfClass("UIScale")
+		if scale then
+			local up = TweenService:Create(scale, PUNCH_UP, { Scale = 1.12 })
+			up.Completed:Connect(function()
+				TweenService:Create(scale, PUNCH_DOWN, { Scale = 1 }):Play()
+			end)
+			up:Play()
+		end
+
+		local badge = refs.badge
+		if not badge or not badge.Parent then return end
+		-- the badge flashes green and settles back, so the eye is pulled to the number that changed
+		setButtonColor(badge, UITheme.Color.Green)
+		task.delay(0.45, function()
+			if badge.Parent then setButtonColor(badge, BADGE_REST) end
+		end)
+
+		local pop = Instance.new("TextLabel")
+		pop.Name = "Pop"
+		pop.Size = UDim2.new(0, 48, 0, 26)
+		pop.Position = UDim2.new(0.5, 0, 0, -2)
+		pop.AnchorPoint = Vector2.new(0.5, 1)
+		pop.BackgroundTransparency = 1
+		pop.Text = "+1"
+		pop.ZIndex = badge.ZIndex + UITheme.Z.Overlay
+		pop.Parent = badge
+		themeLabel(pop, 22, UITheme.Color.Green)
+
+		local rise = TweenService:Create(pop, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ Position = UDim2.new(0.5, 0, 0, -32), TextTransparency = 1 })
+		-- the outline has to fade WITH the glyph. themeLabel gives every label a UIStroke, and a stroke
+		-- left at Transparency 0 while its text fades out leaves a "+1" written in outline hanging in
+		-- the air -- the same trap the notification fade already documents.
+		local popStroke = pop:FindFirstChildOfClass("UIStroke")
+		if popStroke then
+			TweenService:Create(popStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{ Transparency = 1 }):Play()
+		end
+		rise.Completed:Connect(function() pop:Destroy() end)
+		rise:Play()
+	end
+end
+
+Remotes.Notify.OnClientEvent:Connect(function(payload)
+	if payload.kind == "crit" then
+		showNotification("💥 CRITICAL! +" .. formatNumber(payload.amount) .. " DNA", Color3.fromRGB(255, 200, 60))
+	elseif payload.kind == "upgrade" then
+		local def = GameConfig.Upgrades[payload.upgrade]
+		showNotification("⬆️ " .. def.displayName .. " upgraded to Lv." .. payload.level, Color3.fromRGB(90, 200, 255))
+		-- nil-guarded like every other hudRefs consumer: a panel that failed to build must not take
+		-- the notification with it
+		if hudRefs.punchUpgrade then hudRefs.punchUpgrade(payload.upgrade) end
+	elseif payload.kind == "diamond" then
+		showNotification("\u{1F48E} Diamond found!  +" .. (payload.amount or 1), Color3.fromRGB(130, 225, 255))
+	elseif payload.kind == "evolve" then
+		-- TWO DIFFERENT EVENTS SHARE THIS PAYLOAD. Four presses in five hand over the next skin and
+		-- leave the stage where it is, so announcing "EVOLVED into Worm" on all of them would be
+		-- wrong four times out of five -- and what changed is the thing the player is looking at.
+		-- The reveal card draws the picture; this line is the words that go with it.
+		if payload.advanced then
+			showNotification("\u{1F31F} EVOLVED into " .. payload.emoji .. " " .. payload.stage .. "!",
+				Color3.fromRGB(190, 120, 255))
+		else
+			showNotification(("\u{2728} NEW FORM: %s %s  (%d/%d)"):format(
+				(GameConfig.GetCharacter(payload.character or "") or {}).emoji or "\u{2B50}",
+				(GameConfig.GetCharacter(payload.character or "") or {}).name or payload.stage,
+				payload.step or 1, payload.steps or 5), Color3.fromRGB(190, 120, 255))
+		end
+	elseif payload.kind == "character" then
+		-- THE CLIENT HALF OF A CHANGE THAT ONLY LANDED ON THE SERVER.
+		--
+		-- DNAService deliberately stopped sending `rarity` -- unlocks run in order now, so there is
+		-- nothing rare about the next one along, and its comment says stamping "COMMON!" on
+		-- something a player just earned reads as a disappointment. It sends `damagePct` instead.
+		-- This branch never stopped reading `rarity`: GetRarity(nil) fell back to Common, so every
+		-- character in the game was announced as "📒 NEW COMMON CHARACTER!" -- the exact words the
+		-- server was rewritten to stop saying -- and the damage figure was never shown at all.
+		local tint = (GameConfig.GetCharacter(payload.key or "") or {}).color or UITheme.Color.Lavender
+		local gain = payload.damagePct and (("  \u{2694}\u{FE0F} +%d%% Damage"):format(payload.damagePct)) or ""
+		if payload.isNew then
+			celebratePurchase(("📒 NEW CHARACTER!\n%s %s%s"):format(payload.emoji, payload.name, gain), tint)
+		else
+			showNotification(("%s %s%s"):format(payload.emoji, payload.name, gain), tint)
+		end
+	elseif payload.kind == "questComplete" then
+		-- finishing one is worth a toast; the reward itself is a separate, deliberate press, so the
+		-- message says where to go rather than implying it has already been paid out
+		showNotification(("%s %s \u{2014} ready to claim in %s!")
+			:format(payload.emoji, payload.name, GameConfig.Season.emoji .. " Season"),
+			UITheme.Color.Gold)
+	-- The "mutation" toast is gone: DNAService stopped sending it. Mutations roll every ten
+	-- seconds and the banner fired over and over during ordinary play.
+	elseif payload.kind == "zone" then
+		showNotification("🗺️ NEW ZONE UNLOCKED: " .. payload.emoji .. " " .. payload.name .. "!", Color3.fromRGB(60, 160, 220))
+	elseif payload.kind == "pet" then
+		-- A hatch happens AT the egg you are standing in front of, so that is where it is drawn --
+		-- a card across the middle of the screen covered the one thing the player had just walked
+		-- over to look at. Tinted by what was actually rolled, so a Legendary does not slide past
+		-- looking like every other hatch.
+		local rarity = GameConfig.GetRarity(payload.rarity)
+		worldPopup(payload.emoji .. " " .. payload.name, rarity.name, rarity.color)
+	elseif payload.kind == "fuse" then
+		local rarity = GameConfig.GetRarity(payload.rarity)
+		worldPopup(payload.emoji .. " " .. payload.name, "FUSED → " .. payload.tier, rarity.color)
+	elseif payload.kind == "creature" then
+		-- Deliberately silent. A kill ALREADY writes its DNA in the world, floating up off the
+		-- creature that died (CombatClient's popNumber) -- which is where a player fighting it is
+		-- looking. Repeating it as a screen banner meant every kill printed the same fact twice, and
+		-- at auto-attack speed the second copy was a wall of green bars over the character.
+	elseif payload.kind == "playerHurt" then
+		-- Same: this is drawn on the player's own head by CombatClient, in red, where the damage is
+		-- actually happening. A banner for it was the single most frequent thing on screen.
+	elseif payload.kind == "machine" then
+		showNotification("🧬 Machine gave +" .. formatNumber(payload.amount) .. " DNA", Color3.fromRGB(120, 220, 255))
+	elseif payload.kind == "rebirth" then
+		-- The permanent damage is the reward now, not the shards -- see GameConfig's note on why
+		-- income was the wrong thing to pay for a full reset. It leads, because it is what the
+		-- player just traded an entire climb for.
+		celebratePurchase(("♻️ REBIRTH #%d!\n+%d%% Damage — forever"):format(
+			payload.rebirths, payload.damagePct or 0), Color3.fromRGB(190, 120, 255))
+	elseif payload.kind == "dailyReward" then
+		local text = "🎁 Day " .. payload.day .. " reward: +" .. formatNumber(payload.dna) .. " DNA"
+		if payload.potions and payload.potions > 0 then
+			text = text .. " +" .. payload.potions .. " 🧪"
+		end
+		if payload.shards and payload.shards > 0 then
+			text = text .. " +" .. payload.shards .. " 💎 Shards"
+		end
+		if payload.diamonds and payload.diamonds > 0 then
+			text = text .. " +" .. payload.diamonds .. " 💎 Diamonds"
+		end
+		showNotification(text, Color3.fromRGB(255, 180, 60))
+	elseif payload.kind == "stageMastery" then
+		showNotification("⭐ " .. payload.emoji .. " " .. payload.stage .. " MASTERED! (" .. payload.owned .. "/" .. #GameConfig.Stages .. ")", Color3.fromRGB(255, 215, 70))
+	elseif payload.kind == "diamondUpgrade" then
+		local def = GameConfig.DiamondUpgrades[payload.upgrade]
+		showNotification("💎 " .. (def and def.displayName or payload.upgrade) .. " upgraded to Lv." .. payload.level .. "!", Color3.fromRGB(120, 200, 255))
+	elseif payload.kind == "potion" then
+		local remaining = math.max(0, (payload.untilTs or 0) - os.time())
+		local potion = payload.potionId and GameConfig.GetPotion(payload.potionId)
+		showNotification(string.format("%s %s  \u{2022}  %dm %02ds left",
+			potion and potion.emoji or "\u{1F9EA}",
+			potion and potion.effectText or "Potion used",
+			remaining // 60, remaining % 60), (potion and potion.color) or Color3.fromRGB(120, 255, 180))
+	elseif payload.kind == "playtimeGift" then
+		showNotification("⏰ Playtime Gift (" .. payload.minutes .. " min)! Reward claimed!", Color3.fromRGB(255, 150, 90))
+	elseif payload.kind == "robuxPurchase" then
+		celebratePurchase("🛍️ Purchased!\n" .. payload.name, Color3.fromRGB(90, 220, 130))
+	elseif payload.kind == "reward" then
+		-- Every shop purchase in the game lands here: both village stalls, the potion cauldron, and
+		-- the Colosseum announcements. Until now this branch did not exist and all of it was silent.
+		celebratePurchase(payload.message, payload.color or Color3.fromRGB(120, 226, 168))
+	elseif payload.kind == "bossDefeated" then
+		celebratePurchase("👑 " .. payload.name .. " defeated!\n+" .. formatNumber(payload.amount) .. " DNA", UITheme.Color.Gold)
+	elseif payload.kind == "error" then
+		showNotification("❌ " .. payload.message, Color3.fromRGB(200, 60, 60))
+	end
+end)
+
+-- ================= input =================
+evolveButton.MouseButton1Click:Connect(function()
+	Remotes.Evolve:FireServer()
+end)
+
+
+-- ================= shop counters that open a panel =================
+--
+-- Two of the three shop kinds do not need the server at all: Pet Fusion and the two Upgrade
+-- Emporium counters only have to OPEN a panel this HUD already builds. So the client listens for
+-- its own prompt rather than firing a remote and waiting for the server to tell it what it already
+-- knows -- there is no remote and no server handler for these, and the walk-up-and-press feels
+-- instant because nothing round-trips.
+--
+-- The counter says which panel it is through a `ShopPanel` attribute that ZoneBuilder stamps on
+-- the prompt, so a new shop is a new attribute value and one line here, not a new remote.
+local ProximityPromptService = game:GetService("ProximityPromptService")
+
+local shopPanels = {
+	pets = petsPanel,
+	mastery = masteryPanel,
+	robux = robuxPanel,
+}
+
+
+-- ===== The two tile columns, fitted to the screen =====
+-- Both columns are laid out in raw pixels: the left runs DOWN from y=100, the right runs UP from
+-- the bottom, five tiles at a 96 pitch. That needs 596px of height, and a Roblox phone viewport is
+-- about 420 -- so on a phone the top two tiles of the right column (Journal and Zones) were drawn
+-- at y=-176 and y=-80. Entirely off the screen, and the Journal tile is the only way into the
+-- character collection at all.
+--
+-- Rather than a scrollable menu or a hamburger, the columns just tighten: the gap closes first,
+-- and only then do the tiles themselves shrink, down to a 40px floor. On a desktop viewport this
+-- resolves to within a few pixels of the hand-authored layout, so nothing moves for the people
+-- already playing it.
+--
+-- Inside a function, and finding its tiles by attribute rather than from a table, because this
+-- file is at Luau's 200-local ceiling -- see the note over the Season Pass panel.
+;(function()
+	local cam = workspace.CurrentCamera
+	if not cam then return end
+
+	local columns = { L = {}, R = {} }
+	for _, child in ipairs(screenGui:GetChildren()) do
+		local side = child:GetAttribute("ColumnSide")
+		if side and columns[side] then
+			table.insert(columns[side], child)
+		end
+	end
+	for _, list in pairs(columns) do
+		table.sort(list, function(a, b)
+			return (a:GetAttribute("ColumnOrder") or 0) < (b:GetAttribute("ColumnOrder") or 0)
+		end)
+	end
+
+	-- what the columns may not grow into: the topbar and the stage card above, and the evolve card
+	-- and XP bar below. BOTTOM_CLEAR came down 122 -> 46 when the quick-action row it was reserving
+	-- space for became rows 3 and 4 of this cluster -- that dead strip is now cluster.
+	-- 121, up from 96: the TopBar carrying the stage card ends at y = 32 and the first tile started
+	-- at 38, which after both strokes is no gap at all -- the card and the Shop tile were touching.
+	local TOP_CLEAR, BOTTOM_CLEAR = 121, 46
+
+	-- THE GAP IS NOT THE GAP YOU SEE, and this is why raising it to 18 did not visibly separate
+	-- anything. Every tile carries a UIStroke of 5 drawn in Border mode -- OUTSIDE the frame's own
+	-- bounds -- and addShadow parks a sibling 5px lower. So between two tiles a nominal gap loses
+	-- 5 to the upper tile's stroke, 5 to its shadow and 5 to the lower tile's stroke: measured live,
+	-- an 18px pitch gap left exactly 3px of air, which is why the column read as one welded strip.
+	--
+	-- 31 for 16px of actual daylight. The number to change is this one, and the arithmetic to
+	-- remember is `visible = GAP - 15`.
+	local GAP_MAX, GAP_MIN = 31, 8
+	-- ...and the gap closes BEFORE the tiles shrink, which is what the note at the top of this block
+	-- promises and what the old fixed gap never actually did. At 31 a four-row cluster needs 93px of
+	-- pure spacing, and on a short viewport that pushed the tiles under their 40px floor and
+	-- overflowed the screen. Spacing is the first thing a cramped screen can afford to lose.
+	-- how many tiles wide each side is. The left column stays single-file: it has three tiles and
+	-- sits against the edge the player's eye starts from.
+	local WIDTH = { L = 1, R = RIGHT_COLS }
+
+	local function layout()
+		local avail = math.max(cam.ViewportSize.Y - TOP_CLEAR - BOTTOM_CLEAR, 140)
+		for side, list in pairs(columns) do
+			local n = #list
+			if n > 0 then
+				-- SIZE IS DRIVEN BY THE ROW COUNT, NOT THE TILE COUNT. That is the whole benefit of
+				-- the grid: seven tiles in two columns is four rows, so each tile gets the height
+				-- budget of a quarter of the screen instead of a seventh, and stays at its authored
+				-- 82px on any ordinary viewport instead of shrinking toward the 40px floor and
+				-- dragging every caption down to its minimum size with it.
+				local cols = WIDTH[side] or 1
+				local rows = math.ceil(n / cols)
+				local gap = GAP_MAX
+				local size = math.clamp(math.floor((avail - (rows - 1) * gap) / rows), 40, 82)
+				if rows * size + (rows - 1) * gap > avail and rows > 1 then
+					gap = math.clamp(math.floor((avail - rows * size) / (rows - 1)), GAP_MIN, GAP_MAX)
+					size = math.clamp(math.floor((avail - (rows - 1) * gap) / rows), 40, 82)
+				end
+				local pitch = size + gap
+				for i, tile in ipairs(list) do
+					tile.Size = UDim2.new(0, size, 0, size)
+					local col = (i - 1) % cols
+					local row = math.floor((i - 1) / cols)
+					if side == "L" then
+						tile.Position = UDim2.new(0, 20 + col * pitch, 0, TOP_CLEAR + row * pitch)
+					else
+						-- anchored (1, 1), i.e. positioned by its bottom-RIGHT corner: the cluster
+						-- fills upward from the bottom edge and leftward from the right one, so the
+						-- last row and the last column are the ones pinned to the corner.
+						tile.Position = UDim2.new(
+							1, -20 - (cols - 1 - col) * pitch,
+							1, -(BOTTOM_CLEAR + (rows - 1 - row) * pitch))
+					end
+				end
+			end
+		end
+	end
+
+	cam:GetPropertyChangedSignal("ViewportSize"):Connect(layout)
+	layout()
+end)()
+
+ProximityPromptService.PromptTriggered:Connect(function(prompt, playerWhoTriggered)
+	-- PromptTriggered fires on every client for every player, so a teammate walking up to the
+	-- fusion lab must not open the panel on your screen
+	if playerWhoTriggered ~= player then return end
+	local which = prompt:GetAttribute("ShopPanel")
+	if not which then return end
+	-- Fusion is handled by name rather than through the table above: its panel is built inside a
+	-- block and only escapes as a function on hudRefs, which already does the toggle and the refresh.
+	-- This is the ONLY way into fusing -- there is deliberately no HUD button for it any more.
+	if which == "fusion" then
+		if hudRefs.showFusionPanel then hudRefs.showFusionPanel() end
+		return
+	end
+	local panel = shopPanels[which]
+	if panel then
+		toggleOnly(panel)
+		if which == "pets" then
+			refreshPetsPanel()
+		elseif which == "mastery" then
+			refreshMasteryPanel()
+		end
+	end
+end)

@@ -1,0 +1,6 @@
+# `src/` is a BYTE-EXACT mirror of the Roblox place, extracted by tools/rbxl_extract.py and
+# verified against the live Studio datamodel by length and checksum. This machine has
+# core.autocrlf on, which would rewrite every line ending on checkout -- that breaks the byte
+# identity, makes a re-extraction show all 44 files as modified, and would push mangled line
+# endings back into Studio. Store and check out every file exactly as it is.
+* -text

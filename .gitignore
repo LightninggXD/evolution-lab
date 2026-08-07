@@ -1,0 +1,11 @@
+# Roblox place files. These are 20+ MB binaries that change wholesale on every save, so a
+# committed one is unrecoverable weight in the history forever. The reviewable mirror of the
+# place is `src/`, extracted from the binary with `tools/rbxl_extract.py` -- commit that.
+*.rbxl
+*.rbxlx
+*.rbxm
+*.rbxmx
+
+# Python caches from tools/
+__pycache__/
+*.pyc

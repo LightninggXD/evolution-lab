@@ -1,0 +1,1040 @@
+--[[
+	CombatClient -- everything a fight LOOKS like.
+
+	The complaint this exists to answer: "I stand next to a creature, I click it, and it disappears
+	like it was made of balloon." The server was already doing the fight correctly -- cooldowns,
+	scaled damage, retaliation, DNA -- and showing almost none of it. A click produced a number on a
+	health bar and, on the last one, an instant Destroy().
+
+	Everything drawn here is drawn LOCALLY, on every machine that is near enough to see it. The
+	server sends one small description per hit over Remotes.CombatFx and owns nothing else about
+	the presentation. Two reasons:
+
+	  * A billboard or particle emitter created on the server replicates at a throttled rate, so
+	    the number meant to punctuate a click lands visibly after it.
+	  * The attacker's own swing has to start on the FRAME THEY CLICKED. A round trip is ~100 ms
+	    and the whole swing is 260 ms -- routed through the server it would be a third late, which
+	    is the difference between "I hit it" and "it reacted to something".
+
+	So the local player's swing is fired straight off their own mouse button, and the remote is
+	what plays *other* people's swings and every impact effect.
+]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local Debris = game:GetService("Debris")
+local RS = game:GetService("ReplicatedStorage")
+
+local UITheme = require(RS:WaitForChild("Modules"):WaitForChild("UITheme"))
+
+local player = Players.LocalPlayer
+local INK = Color3.fromRGB(26, 18, 36)
+
+-- Local-only scenery. Anything parented here is invisible to the server and to every other
+-- client, which is the point: sparks are not game state.
+local fxFolder = Instance.new("Folder")
+fxFolder.Name = "CombatFxLocal"
+fxFolder.Parent = workspace
+
+-- ============================================================================
+-- THE SWING
+-- ============================================================================
+--
+-- Procedural, not an Animation asset. Two reasons it is not one:
+--
+--   1. There is nothing to load. A catalog animation id has to be owned by the place's creator or
+--      it fails at LoadAnimation and the character simply never swings -- with no error a player
+--      would ever see. Nothing here can fail to load.
+--   2. It composes with whatever is already playing. The Animator drives each joint's `Transform`,
+--      which is applied on top of the joint's own static offset -- so writing that offset ADDS a
+--      swing to the run or idle the character is already in, instead of replacing it and freezing
+--      the legs mid-stride.
+--
+-- It also survives the thing that would break a canned animation here: the body scales 1x -> 9x
+-- across the twenty stages. A rotation is scale-free, so the same code swings a Cell and a 28-stud
+-- Absolute identically.
+--
+-- ---- two kinds of joint ----
+-- Roblox is midway through replacing Motor6D with AnimationConstraint on avatar rigs, and which
+-- one a player arrives with is not this game's choice: the character that tested this build had
+-- no Motor6D anywhere in it. The static offset lives in a different place on each --
+--
+--   Motor6D             -> the joint's own C0
+--   AnimationConstraint -> Attachment0's CFrame, the PARENT-side attachment (a shoulder's sits in
+--                          UpperTorso, not in the arm)
+--
+-- -- so `resolveJoint` hands back a uniform little handle and the animation below never asks which
+-- kind it got. Written against Motor6D alone the arm simply never moved and nothing errored, which
+-- is the failure that is hardest to notice.
+local SWING_TIME = 0.30
+-- A new swing may cut into the tail of the one before it. Holding the old "one swing at a time"
+-- rule made auto-attack look broken: the loop fires faster than a swing lasts, so every second
+-- request was dropped and the character stood still through half its own hits.
+local SWING_RECUT = 0.55 -- fraction of a swing that must have played before another may start
+local swinging = {}  -- [character] = { token, startedAt }
+local nextHand = {}  -- [character] = "Left"/"Right" -- alternating reads as a flurry, not a tic
+
+local function resolveJoint(character, name)
+	local found = character:FindFirstChild(name, true)
+	if not found then return nil end
+	if found:IsA("Motor6D") then
+		return { inst = found, prop = "C0", base = found.C0 }
+	elseif found:IsA("AnimationConstraint") and found.Attachment0 then
+		return { inst = found.Attachment0, prop = "CFrame", base = found.Attachment0.CFrame }
+	end
+	return nil
+end
+
+local function setJoint(joint, cframe)
+	joint.inst[joint.prop] = cframe
+end
+
+-- ---- the shape of the swing ----
+-- Three beats, and the whole thing lives or dies on the middle one being much faster than the
+-- other two. An arm that travels at one speed reads as waving; an arm that loads slowly, crosses
+-- in three frames and then drifts back reads as a blow landing.
+--
+--   0.00 - 0.30  WIND UP   -- fist drawn back over the shoulder, elbow folded
+--   0.30 - 0.56  STRIKE    -- smoothstepped through 4.2 radians, elbow snapping straight
+--   0.56 - 1.00  RECOVER   -- a decay, not a return: this is the follow-through
+--
+-- The numbers were cut hard after seeing it on the finished body. A 4.35-radian sweep is correct
+-- on a thin avatar arm and wrong on this one: the limbs are now shells two-thirds the width of the
+-- torso, so an arm thrown through 250 degrees passes straight THROUGH the chest and comes out as a
+-- jumble of overlapping blocks -- which is exactly what auto-attack looked like, a body chewing
+-- itself. A short forward throw reads as a punch and never leaves the silhouette.
+local function armAngle(t)
+	if t < 0.30 then
+		local k = t / 0.30
+		return -0.75 * (k * k * (3 - 2 * k))
+	elseif t < 0.56 then
+		local k = (t - 0.30) / 0.26
+		return -0.75 + 2.35 * (k * k * (3 - 2 * k))
+	end
+	local k = (t - 0.56) / 0.44
+	return 1.60 * (1 - k) ^ 1.7
+end
+
+-- Elbow folds on the wind-up and snaps straight through the strike. Positive flexes: with the arm
+-- hanging, the same axis that raises it at the shoulder brings the forearm forward at the elbow.
+local function elbowAngle(t)
+	if t < 0.30 then
+		local k = t / 0.30
+		return 0.85 * (k * k * (3 - 2 * k))
+	elseif t < 0.56 then
+		local k = (t - 0.30) / 0.26
+		return 0.85 * (1 - k) ^ 0.7
+	end
+	local k = (t - 0.56) / 0.44
+	return 0.24 * (1 - k)
+end
+
+-- The swoosh. A Trail off the swinging hand rather than a drawn arc: it follows whatever path the
+-- hand actually takes, at whatever size the body happens to be, and costs one instance.
+local function handTrail(character, hand, isR6)
+	local part = character:FindFirstChild(isR6 and (hand .. " Arm") or (hand .. "Hand"))
+	if not part then return end
+
+	local a0 = Instance.new("Attachment")
+	a0.Position = Vector3.new(0, part.Size.Y * 0.6, 0)
+	a0.Parent = part
+	local a1 = Instance.new("Attachment")
+	-- reaches PAST the hand, so the ribbon is roughly a weapon's length rather than a finger's
+	a1.Position = Vector3.new(0, -part.Size.Y * 1.7, 0)
+	a1.Parent = part
+
+	local trail = Instance.new("Trail")
+	trail.Attachment0 = a0
+	trail.Attachment1 = a1
+	trail.Lifetime = 0.17
+	trail.MinLength = 0
+	trail.FaceCamera = true
+	trail.LightEmission = 1
+	trail.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(255, 224, 128))
+	trail.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.15),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	trail.WidthScale = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	trail.Parent = part
+
+	-- created on this machine only, so they are ours to clean up and nobody else ever sees them
+	Debris:AddItem(trail, 0.7)
+	Debris:AddItem(a0, 0.7)
+	Debris:AddItem(a1, 0.7)
+end
+
+-- The complaint this rewrite answers: "when I hit, the character stands still and only the ground
+-- shakes." Two causes, and both are fixed here and in CreatureService.
+--
+--   * the swing only ever moved ONE joint -- a shoulder, plus a thirteenth of the angle at the
+--     waist. On a body scaled up to nine times human that is a small thing happening at the far
+--     end of a large silhouette, and it was the only thing happening.
+--   * it very often did not play at all. The swing is gated on the mouse ray finding a creature,
+--     and until now only the torso and head of a rig were queryable -- aim at a horn, a wing or a
+--     paw and the ray came back empty, so the click did damage (the ClickDetector fired) and drew
+--     nothing. The full-rig hit box on the server side is what actually fixes that one.
+--
+-- Now the whole body commits: both arms (the off arm counter-swings), the elbows, the waist twists
+-- INTO the blow and back, the head leads it, and the hips take a short step. Everything is a
+-- rotation, so it is scale-free -- a one-stud Cell and a 28-stud Absolute swing identically.
+-- Every joint a swing touches, resolved as ONE set and then carried on the swing state.
+--
+-- THIS IS THE BUG THAT FOLDED THE CHARACTER UP. `resolveJoint` captures a joint's rest pose at the
+-- moment it is called, and playSwing called it fresh every time. A re-cut swing -- which is every
+-- swing once auto-attack is running, since the loop fires before the previous one has recovered --
+-- therefore captured the joints while they were still ROTATED from the swing before, and treated
+-- that mid-pose as the new rest. The error compounded a few degrees per hit until the whole rig had
+-- twisted into a pile of blocks, which is exactly what it looked like.
+--
+-- Resolving once and reusing the set means `base` is always the true rest pose, however many swings
+-- overlap. The set is dropped when a swing finishes cleanly, so the next one re-reads it -- which is
+-- what picks up an evolve, where every attachment moves with the body scale.
+local function resolveSet(character, isR6)
+	-- R6 names its shoulders with a space ("Right Shoulder"); R15 does not. Everything in this game
+	-- is R15 -- the stage scaling needs it -- but an R6 avatar should still swing.
+	local suffix = isR6 and " Shoulder" or "Shoulder"
+	local set = {
+		RightShoulder = resolveJoint(character, "Right" .. suffix),
+		LeftShoulder = resolveJoint(character, "Left" .. suffix),
+	}
+	-- R15 only: R6 has no elbows, no waist and no neck joint worth writing to
+	if not isR6 then
+		set.RightElbow = resolveJoint(character, "RightElbow")
+		set.LeftElbow = resolveJoint(character, "LeftElbow")
+		set.Waist = resolveJoint(character, "Waist")
+		set.Neck = resolveJoint(character, "Neck")
+		set.RightHip = resolveJoint(character, "RightHip")
+		set.LeftHip = resolveJoint(character, "LeftHip")
+	end
+	return set
+end
+
+-- Puts every joint back and forgets the set. Called when a swing ends cleanly, and whenever the
+-- body changes size under it: a rest pose captured at one scale is not the rest pose at the next,
+-- and writing the stale one would leave the new body standing crooked.
+local function resetSwing(character)
+	local state = swinging[character]
+	if not state then return end
+	swinging[character] = nil
+	for _, j in pairs(state.joints) do
+		if j.inst.Parent then setJoint(j, j.base) end
+	end
+end
+
+local function playSwing(character)
+	if not character then return end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then return end
+
+	local active = swinging[character]
+	if active and (os.clock() - active.startedAt) < SWING_TIME * SWING_RECUT then
+		return
+	end
+
+	local isR6 = humanoid.RigType == Enum.HumanoidRigType.R6
+	local hand = (nextHand[character] == "Right") and "Left" or "Right"
+	local other = (hand == "Right") and "Left" or "Right"
+	nextHand[character] = hand
+
+	-- reused from the swing being cut into, or read fresh if nothing is running. NEVER re-read
+	-- mid-swing -- see the note on resolveSet.
+	local joints = (active and active.joints) or resolveSet(character, isR6)
+	local arm = joints[hand .. "Shoulder"]
+	if not arm then return end
+	local offArm = joints[other .. "Shoulder"]
+	local elbow = joints[hand .. "Elbow"]
+	local offElbow = joints[other .. "Elbow"]
+	local waist, neck = joints.Waist, joints.Neck
+	local hip = joints[other .. "Hip"]
+
+	-- every joint this swing owns, so the restore at the end is one loop and can never miss one
+	local owned = {}
+	for _, j in pairs(joints) do
+		table.insert(owned, j)
+	end
+
+	local token = {}
+	swinging[character] = { token = token, startedAt = os.clock(), joints = joints }
+	handTrail(character, hand, isR6)
+
+	local side = (hand == "Right") and 1 or -1
+
+	task.spawn(function()
+		local t0 = os.clock()
+		while character.Parent and arm.inst.Parent do
+			-- a newer swing has taken over: leave the joints exactly where they are and let the
+			-- newer loop own the restore, or the two fight and the arm stutters
+			local state = swinging[character]
+			if not state or state.token ~= token then return end
+
+			local t = (os.clock() - t0) / SWING_TIME
+			if t >= 1 then break end
+			local a = armAngle(t)
+
+			if isR6 then
+				-- the R6 shoulder's offset carries a 90-degree yaw, which turns its local Z into the
+				-- character's left-right axis -- so a forward swing is a roll here, not a pitch
+				setJoint(arm, arm.base * CFrame.Angles(0, 0, -side * a))
+				if offArm then
+					setJoint(offArm, offArm.base * CFrame.Angles(0, 0, side * a * 0.34))
+				end
+			else
+				-- The roll is OUTWARD (+side), away from the chest. Rolled inward -- which is what a
+				-- human swing does -- a shell this wide is inside the torso for most of the throw.
+				setJoint(arm, arm.base * CFrame.Angles(a, 0, side * math.abs(a) * 0.12))
+				if offArm then
+					-- the off arm goes the other way. Counter-rotation is most of what makes a swing
+					-- look driven by a body rather than performed by an arm.
+					setJoint(offArm, offArm.base * CFrame.Angles(-a * 0.34, 0, -side * math.abs(a) * 0.1))
+				end
+				local bend = elbowAngle(t)
+				if elbow then setJoint(elbow, elbow.base * CFrame.Angles(bend, 0, 0)) end
+				if offElbow then setJoint(offElbow, offElbow.base * CFrame.Angles(bend * 0.4, 0, 0)) end
+				if waist then
+					-- pitch with the arm, and TWIST against it and back through it -- the twist is
+					-- what carries the weight across. Kept small: the torso shell is most of the
+					-- character's mass now, and a big twist swings the whole silhouette.
+					setJoint(waist, waist.base * CFrame.Angles(a * 0.14, side * a * 0.18, 0))
+				end
+				if neck then
+					-- the head leads slightly and stays with the blow: a character that swings without
+					-- looking at what it is hitting reads as a puppet
+					setJoint(neck, neck.base * CFrame.Angles(a * 0.12, -side * a * 0.12, 0))
+				end
+				if hip then
+					-- the short step under it. Only the trailing leg, and only a little -- both legs
+					-- would fight the walk animation the Animator is still playing underneath.
+					setJoint(hip, hip.base * CFrame.Angles(-a * 0.13, 0, 0))
+				end
+			end
+			RunService.RenderStepped:Wait()
+		end
+		-- always put them all back, even if the loop bailed out: a joint left rotated is a character
+		-- permanently standing with one arm out
+		-- only the swing that still owns the character restores it: a superseded loop putting the
+		-- joints back would yank the arm mid-throw of the swing that replaced it
+		if swinging[character] and swinging[character].token == token then
+			swinging[character] = nil
+			for _, j in ipairs(owned) do
+				if j.inst.Parent then setJoint(j, j.base) end
+			end
+		end
+	end)
+end
+
+-- ============================================================================
+-- IMPACT
+-- ============================================================================
+
+local function invisibleHost(cframe)
+	local host = Instance.new("Part")
+	host.Size = Vector3.new(1, 1, 1)
+	host.CFrame = cframe
+	host.Transparency = 1
+	host.Anchored = true
+	host.CanCollide = false
+	host.CanQuery = false
+	host.CanTouch = false
+	host.CastShadow = false
+	host.Parent = fxFolder
+	return host
+end
+
+-- Hard-edged shards and one flash, sized off the creature that was hit. Deliberately not a smoke
+-- puff: every other object in this game is chunky and flat-shaded, and a soft grey cloud is the
+-- one effect that reads as borrowed from a different game.
+local function spark(position, color, size, big)
+	size = math.clamp(size or 10, 4, 40)
+	color = color or Color3.fromRGB(255, 235, 150)
+
+	local host = invisibleHost(CFrame.new(position))
+	local att = Instance.new("Attachment")
+	att.Parent = host
+
+	local shards = Instance.new("ParticleEmitter")
+	shards.Color = ColorSequence.new(Color3.new(1, 1, 1), color)
+	shards.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, size * 0.15),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	shards.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.65, 0.1),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	shards.Lifetime = NumberRange.new(0.14, 0.3)
+	shards.Speed = NumberRange.new(size * 1.3, size * 2.8)
+	shards.SpreadAngle = Vector2.new(180, 180)
+	shards.Rate = 0
+	shards.RotSpeed = NumberRange.new(-420, 420)
+	shards.LightEmission = 0.9
+	shards.Parent = att
+	shards:Emit(big and 22 or 11)
+
+	-- The flash. Six frames of a neon ball is what puts the hit ON the creature rather than in the
+	-- air near it -- without it the shards read as something that happened by itself.
+	local flash = Instance.new("Part")
+	flash.Shape = Enum.PartType.Ball
+	flash.Size = Vector3.new(size * 0.45, size * 0.45, size * 0.45)
+	flash.CFrame = CFrame.new(position)
+	flash.Color = Color3.new(1, 1, 1)
+	flash.Material = Enum.Material.Neon
+	flash.Transparency = 0.1
+	flash.Anchored = true
+	flash.CanCollide = false
+	flash.CanQuery = false
+	flash.CanTouch = false
+	flash.CastShadow = false
+	flash.Parent = fxFolder
+	TweenService:Create(flash, TweenInfo.new(0.13, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = Vector3.new(size * 1.15, size * 1.15, size * 1.15),
+		Transparency = 1,
+	}):Play()
+
+	Debris:AddItem(host, 0.8)
+	Debris:AddItem(flash, 0.2)
+end
+
+-- ============================================================================
+-- DAMAGE NUMBERS
+-- ============================================================================
+--
+-- Sized in PIXELS, not studs, and AlwaysOnTop. A number is a readout, not an object in the world:
+-- it has to stay legible from wherever the camera happens to be, and it must never end up behind
+-- the creature it belongs to.
+local NUMBER_TIME = 0.85
+
+local function popNumber(position, text, color, big)
+	local host = invisibleHost(CFrame.new(position))
+
+	local gui = Instance.new("BillboardGui")
+	gui.Size = UDim2.new(0, big and 210 or 140, 0, big and 76 or 52)
+	gui.AlwaysOnTop = true
+	gui.LightInfluence = 0
+	gui.Parent = host
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Font = UITheme.Font.Display
+	label.TextScaled = true
+	label.TextColor3 = color
+	label.Text = text
+	label.Parent = gui
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = big and 4 or 3
+	stroke.Color = INK
+	stroke.LineJoinMode = Enum.LineJoinMode.Round
+	stroke.Parent = label
+
+	-- Every number gets its own sideways drift, or a burst of them stacks into one illegible
+	-- column. The rise is eased out so it decelerates as it fades rather than sliding off screen.
+	local drift = Vector3.new((math.random() - 0.5) * 5, 0, (math.random() - 0.5) * 5)
+	local rise = big and 11 or 7
+	local baseSize = gui.Size
+
+	task.spawn(function()
+		local t0 = os.clock()
+		while host.Parent do
+			local t = (os.clock() - t0) / NUMBER_TIME
+			if t >= 1 then break end
+			local ease = 1 - (1 - t) * (1 - t)
+			host.CFrame = CFrame.new(position + drift * ease + Vector3.new(0, rise * ease, 0))
+			-- a pop on the way in: 30% over size in the first eighth of a second, then settle
+			local pop = t < 0.12 and (1 + 0.3 * math.sin(t / 0.12 * math.pi)) or 1
+			gui.Size = UDim2.new(0, baseSize.X.Offset * pop, 0, baseSize.Y.Offset * pop)
+			-- held solid for the first half, then out: a number that starts fading immediately is
+			-- never read
+			local fade = math.clamp((t - 0.5) / 0.5, 0, 1)
+			label.TextTransparency = fade
+			stroke.Transparency = fade
+			RunService.RenderStepped:Wait()
+		end
+		host:Destroy()
+	end)
+end
+
+-- ============================================================================
+-- CAMERA KICK
+-- ============================================================================
+--
+-- Through Humanoid.CameraOffset rather than by moving the camera or pulling the FOV: the offset is
+-- a single vector the engine folds into the follow camera, so it cannot fight the player's own
+-- control and it cannot leave the camera stranded if this script dies mid-shake. Scaled by the
+-- body, because 0.4 studs is a punch at stage one and imperceptible at stage twenty.
+local shakeUntil = 0
+
+local function cameraKick(strength)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+	local scale = character:GetAttribute("BodyScale") or 1
+	local amount = 0.34 * strength * scale
+	local duration = 0.2 * strength
+
+	local mine = os.clock() + duration
+	shakeUntil = mine
+	task.spawn(function()
+		local t0 = os.clock()
+		while humanoid.Parent and shakeUntil == mine do
+			local t = (os.clock() - t0) / duration
+			if t >= 1 then break end
+			local decay = (1 - t) * amount
+			humanoid.CameraOffset = Vector3.new(
+				(math.random() - 0.5) * 2 * decay,
+				(math.random() - 0.5) * 2 * decay,
+				0
+			)
+			RunService.RenderStepped:Wait()
+		end
+		-- only the newest shake is allowed to put the camera back, or an overlapping one gets cut
+		if humanoid.Parent and shakeUntil == mine then
+			humanoid.CameraOffset = Vector3.zero
+		end
+	end)
+end
+
+-- ============================================================================
+-- HEALTH OVER THE HEAD
+-- ============================================================================
+--
+-- Roblox's built-in humanoid health bar is a thin red strip with none of this game's outline,
+-- radius or palette, and it is switched off below in favour of one built from UITheme.
+--
+-- The BAR appears when a character is hurt and hides a few seconds after it is full again. A bar
+-- that is always up is chrome; a bar that appears exactly when you are being hit is information.
+-- The NAME above it is always up, because that is not a readout, it is who this is.
+local PLATE_HIDE_DELAY = 4
+
+local function attachHealthPlate(character)
+	local humanoid = character:WaitForChild("Humanoid", 10)
+	local head = character:WaitForChild("Head", 10)
+	if not (humanoid and head) then return end
+
+	humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+	-- ...AND SO IS ROBLOX'S OWN NAME LABEL. It is drawn off the Head, and every stage except Human
+	-- makes the Head fully transparent and buries it inside a costume shell -- which is why the
+	-- report was "there is still no name above me" even though the Humanoid had a DisplayName and a
+	-- 100-stud NameDisplayDistance the whole time. The name is drawn in this plate instead, where
+	-- it sits above the bar, in this game's font, and clears the costume.
+	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+
+	local owner = Players:GetPlayerFromCharacter(character)
+
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "HealthPlate"
+	-- name row + bar row. The plate keeps this height whether or not the bar is showing, so the
+	-- name does not hop down the screen every time a fight ends.
+	gui.Size = UDim2.new(0, 168, 0, 52)
+	gui.AlwaysOnTop = true
+	gui.LightInfluence = 0
+	gui.MaxDistance = 260
+	gui.Enabled = true
+	-- THE WHOLE PLATE SITS ABOVE ITS ANCHOR POINT, not centred on it. This is the fix for "the bar
+	-- is over my head": a BillboardGui sized in OFFSET is a constant number of PIXELS on screen,
+	-- while StudsOffset is world space and shrinks as the camera pulls back -- so any stud offset
+	-- that clears the head up close is swallowed by the plate's own pixel height from further away,
+	-- which is exactly what the screenshot showed. SizeOffset is measured in the plate's own size,
+	-- so half of it puts the bottom edge on the anchor at every distance and every stage scale.
+	gui.SizeOffset = Vector2.new(0, 0.5)
+	gui.Parent = head
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Name = "NameLabel"
+	nameLabel.Size = UDim2.new(1, 0, 0, 26)
+	nameLabel.Position = UDim2.new(0, 0, 0, 0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Font = UITheme.Font.Display
+	nameLabel.TextScaled = true
+	nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	-- DisplayName, with the username as the fallback -- and the character's own name for anything
+	-- this ever runs on that is not a player's body
+	nameLabel.Text = owner and (owner.DisplayName ~= "" and owner.DisplayName or owner.Name) or character.Name
+	nameLabel.Parent = gui
+
+	local nameStroke = Instance.new("UIStroke")
+	nameStroke.Thickness = 3
+	nameStroke.Color = INK
+	nameStroke.LineJoinMode = Enum.LineJoinMode.Round
+	nameStroke.Parent = nameLabel
+
+	local bar, fill = UITheme.ProgressBar(gui, {
+		name = "Bar",
+		size = UDim2.new(1, 0, 0, 22),
+		position = UDim2.new(0, 0, 1, 0),
+		anchorPoint = Vector2.new(0, 1),
+		radius = UDim.new(1, 0),
+		thickness = 3,
+		progress = 1,
+		color = UITheme.Color.Green,
+		text = "",
+	})
+	bar.Visible = false
+
+	local hideAt = 0
+
+	local function refresh()
+		local ratio = humanoid.MaxHealth > 0 and math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1) or 0
+		fill.Size = UDim2.new(ratio, 0, 1, 0)
+		-- green -> amber -> red. Colour is read before length is: a bar that only changes length
+		-- says "some health", a bar that goes red says "you are about to die".
+		UITheme.SetColor(fill, ratio > 0.5 and UITheme.Color.Green
+			or (ratio > 0.22 and UITheme.Color.Sunny or UITheme.Color.Red))
+		-- Clearance over the COSTUME, not over the avatar. The head this hangs on is invisible inside
+		-- a shell about 1.18x its largest axis, lifted a tenth of that again, and several stages put a
+		-- crown or horns on top of THAT -- so the old 1.5x of the bare head left the plate inside the
+		-- character's skull at every stage. Still measured off the head rather than set as a constant:
+		-- the body runs 1x to 9x across the twenty stages.
+		gui.StudsOffset = Vector3.new(0, head.Size.Y * 1.35 + 1.6, 0)
+
+		if ratio < 1 then
+			bar.Visible = true
+			hideAt = 0
+		elseif bar.Visible and hideAt == 0 then
+			hideAt = os.clock() + PLATE_HIDE_DELAY
+			task.delay(PLATE_HIDE_DELAY + 0.05, function()
+				if gui.Parent and hideAt ~= 0 and os.clock() >= hideAt then
+					bar.Visible = false
+					hideAt = 0
+				end
+			end)
+		end
+	end
+
+	-- DAMAGE TAKEN, WRITTEN ON THE PLAYER.
+	--
+	-- Being hit used to print "Ouch! -30 HP" as a screen banner, which was the most frequent thing
+	-- on screen in a fight and sat nowhere near the character it was about. A creature's damage
+	-- already floats off the creature; a player's should float off the player, in red, right beside
+	-- the bar that is dropping -- one place to look, and the number and the bar agree.
+	--
+	-- Driven off HealthChanged rather than off a remote: the drop is already replicated, so this
+	-- catches EVERY source (a Brute's retaliation, an Elite's aura, a boss, a fall) without any of
+	-- them having to know about it.
+	-- The local player only. This function runs for every character in the game (see hookCharacters)
+	-- and the plate is worth drawing over all of them, but a number for every hit every other player
+	-- takes is someone else's fight reported on your screen.
+	if Players:GetPlayerFromCharacter(character) == player then
+		local lastHealth = humanoid.Health
+		humanoid.HealthChanged:Connect(function(health)
+			local lost = lastHealth - health
+			lastHealth = health
+			-- only real damage. A heal is a rise, and a sub-1 drop is rounding, not a hit.
+			if lost >= 1 and health > 0 then
+				local at = head.Position + Vector3.new(0, head.Size.Y * 1.1, 0)
+				popNumber(at, "-" .. math.floor(lost + 0.5), Color3.fromRGB(255, 116, 108), false)
+			end
+		end)
+	end
+
+	humanoid.HealthChanged:Connect(refresh)
+	humanoid:GetPropertyChangedSignal("MaxHealth"):Connect(refresh)
+	refresh()
+end
+
+local function hookCharacters(plr)
+	if plr.Character then
+		task.spawn(attachHealthPlate, plr.Character)
+	end
+	plr.CharacterAdded:Connect(function(character)
+		task.spawn(attachHealthPlate, character)
+	end)
+end
+
+for _, plr in ipairs(Players:GetPlayers()) do
+	hookCharacters(plr)
+end
+Players.PlayerAdded:Connect(hookCharacters)
+
+-- ============================================================================
+-- SPRINT
+-- ============================================================================
+--
+-- Shift to run. The base speed is whatever the server last set (it scales with the body and with
+-- Stage Mastery), so this multiplies rather than assigns: hard-coding a sprint speed would make a
+-- Cell faster than an Alien the moment they held Shift.
+--
+-- The base is re-read whenever the server changes WalkSpeed while we are NOT sprinting -- that is
+-- what keeps an evolve mid-sprint from being clamped back to the old stage's pace on release.
+local SPRINT_MULT = 1.4
+local sprinting = false
+local sprintHumanoid = nil
+local baseSpeed = 16
+local writing = false
+
+local function applySpeed()
+	if not sprintHumanoid or sprintHumanoid.Parent == nil then return end
+	writing = true
+	sprintHumanoid.WalkSpeed = sprinting and baseSpeed * SPRINT_MULT or baseSpeed
+	writing = false
+end
+
+local function bindSprint(character)
+	-- An evolve moves every joint attachment with the body scale, so a swing set captured before it
+	-- is stale. Dropped here rather than inside playSwing so a character that stops swinging across
+	-- an evolve still ends up standing straight.
+	character:GetAttributeChangedSignal("BodyScale"):Connect(function()
+		resetSwing(character)
+	end)
+
+	local humanoid = character:WaitForChild("Humanoid", 10)
+	if not humanoid then return end
+	sprintHumanoid = humanoid
+	baseSpeed = humanoid.WalkSpeed
+	sprinting = false
+	humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+		if writing then return end
+		-- someone else (the server, on spawn / evolve / mastery) moved it
+		baseSpeed = sprinting and humanoid.WalkSpeed / SPRINT_MULT or humanoid.WalkSpeed
+	end)
+end
+
+if player.Character then
+	task.spawn(bindSprint, player.Character)
+end
+player.CharacterAdded:Connect(function(character)
+	task.spawn(bindSprint, character)
+end)
+
+-- ============================================================================
+-- AUTO-ATTACK
+-- ============================================================================
+--
+-- Off by default and toggled by the "Auto" tile in the HUD or by the T key. The state lives on
+-- ONE thing -- `player:GetAttribute("AutoAttack")` -- rather than in either script: MainUI draws
+-- the tile and flips the attribute, this script reads it and does the fighting, and neither has
+-- to know the other is there. Whichever of them changes it, both see the change.
+--
+-- A ClickDetector cannot be fired by code, so this cannot reuse the click path: it names the
+-- model it wants hit over Remotes.AutoAttack and the server validates and applies it, through the
+-- exact same handler a click lands in. The cooldowns, the retaliation and the DNA are therefore
+-- identical -- auto-attack is not a second set of combat rules, it is a second set of fingers.
+-- A beat longer than the swing, not shorter. At 0.2 the next request landed before the previous
+-- swing had recovered, so the arms never returned to rest and auto-attack read as a body thrashing
+-- rather than as a character hitting something repeatedly.
+local AUTO_INTERVAL = 0.34
+-- 34, DOWN FROM 55. This is the radius the auto-attack target scan sweeps, and 55 studs is most
+-- of a screen: it was picking fights with creatures the player had not walked up to and could not
+-- reasonably be said to be next to. It is NOT scaled by the player's body -- nothing in combat is,
+-- on either side -- so the number is read at face value in world studs at every stage.
+--
+-- Sanity-checked against the server, which is the thing that actually decides: CreatureService
+-- validates every blow against `max(clickReach, 34) + tier.size`, i.e. 40.5 for a Swarmer up to
+-- 83.2 for an Elite. 34 sits inside the tightest of those, so a legitimate auto-attack at the edge
+-- of the client's scan is never refused.
+--
+-- Bosses keep 70, and that is not an oversight: a zone boss is 75 to 121 studs across, so 70 studs
+-- from its centre is barely clear of its own body.
+local AUTO_REACH = { Creatures = 34, Bosses = 70 }
+
+local function autoEnabled()
+	if player:GetAttribute("AutoAttack") ~= true then return false end
+	-- A CORPSE DOES NOT FIGHT. The server refuses the blow now whatever the client sends, but a
+	-- dead player whose arms keep swinging at a creature that never loses health reads as the game
+	-- being broken rather than as the player being dead.
+	local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	return humanoid ~= nil and humanoid.Health > 0
+end
+
+-- Nearest thing in reach, creatures and bosses alike. Nearest rather than "whatever the mouse is
+-- over": the whole point of the toggle is that the player stops aiming, and a boss standing in the
+-- middle of its arena should be attacked because you walked up to it, not because you held still.
+local function nearestTarget()
+	local character = player.Character
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return nil end
+	local at = hrp.Position
+
+	local best, bestDist = nil, math.huge
+	for folderName, reach in pairs(AUTO_REACH) do
+		local folder = workspace:FindFirstChild(folderName)
+		if folder then
+			-- With StreamingEnabled a client only ever holds the corner of the strip it is standing
+			-- in, so this is a handful of models per tick, not the hundreds that exist on the server.
+			--
+			-- The IsA check is load-bearing: these folders are NOT only creatures. deathBurst parents
+			-- its confetti host and its ground shockwave straight into workspace.Creatures beside the
+			-- corpse, and `somePart.PrimaryPart` is a hard error, not nil -- which killed this whole
+			-- loop on the first creature anyone anywhere in the server managed to kill.
+			for _, model in ipairs(folder:GetChildren()) do
+				if model:IsA("Model") then
+					local part = model.PrimaryPart or model:FindFirstChild("Body")
+					if part then
+						local d = (part.Position - at).Magnitude
+						if d <= reach and d < bestDist then
+							best, bestDist = model, d
+						end
+					end
+				end
+			end
+		end
+	end
+	return best
+end
+
+if player:GetAttribute("AutoAttack") == nil then
+	player:SetAttribute("AutoAttack", false)
+end
+
+task.spawn(function()
+	local autoRemote = RS:WaitForChild("Remotes"):WaitForChild("AutoAttack", 30)
+	if not autoRemote then
+		warn("[CombatClient] Remotes.AutoAttack never appeared -- auto-attack is disabled")
+		player:SetAttribute("AutoAttack", false)
+		return
+	end
+	while true do
+		task.wait(AUTO_INTERVAL)
+		if autoEnabled() then
+			-- pcall'd on purpose. This is an unattended loop with no second chance: anything that
+			-- throws inside it ends auto-attack for the rest of the session, silently, and the
+			-- player's only symptom is a toggle that does nothing.
+			local ok, target = pcall(nearestTarget)
+			if not ok then
+				warn("[CombatClient] auto-attack target scan failed: " .. tostring(target))
+			elseif target then
+				autoRemote:FireServer(target)
+				-- fired locally for the same reason a clicked swing is: the animation has to start on
+				-- this frame, and a round trip is a third of the swing
+				playSwing(player.Character)
+			end
+		end
+	end
+end)
+
+-- ============================================================================
+-- INPUT
+-- ============================================================================
+
+-- A click only swings at something worth swinging at -- swinging on every click in the world would
+-- fire the animation at every shop prompt, egg and UI dismissal in the game.
+--
+-- This casts its OWN ray rather than reading `Mouse.Target`, and the filter is an *include* list of
+-- the two combat folders. Two things that matters for:
+--
+--   * Mouse.Target is whatever queryable part the cursor happens to be over, and a zone is full of
+--     large invisible carriers -- the atmosphere sheet is 640 x 800 studs of it at head height,
+--     and until it was made CanQuery = false it WAS the answer everywhere in the game. An include
+--     filter cannot be fooled by anything that is not a creature.
+--   * a hit anywhere on the rig counts. The ClickDetectors sit on the body and the head; a ray
+--     that lands on a horn or a wing still means the player is aiming at the creature, and the
+--     swing should play whether or not that particular part was the clickable one.
+--
+-- The reach is deliberately generous. A swing that plays a little out of range costs nothing; one
+-- that refuses to play because the player was a stud too far reads as an input that was dropped.
+local SWING_REACH = 400
+local swingParams = RaycastParams.new()
+swingParams.FilterType = Enum.RaycastFilterType.Include
+swingParams.RespectCanCollide = false
+
+local function pointingAtCombatTarget()
+	local cam = workspace.CurrentCamera
+	if not cam then return false end
+
+	local folders = {}
+	local creatures = workspace:FindFirstChild("Creatures")
+	if creatures then table.insert(folders, creatures) end
+	local bosses = workspace:FindFirstChild("Bosses")
+	if bosses then table.insert(folders, bosses) end
+	if #folders == 0 then return false end
+	swingParams.FilterDescendantsInstances = folders
+
+	-- GetMouseLocation is the one that pairs with ViewportPointToRay: it already carries the GUI
+	-- inset, which Mouse.X/Y do not (they are 58 px out at the top of a Studio window).
+	local at = UserInputService:GetMouseLocation()
+	local ray = cam:ViewportPointToRay(at.X, at.Y)
+	return workspace:Raycast(ray.Origin, ray.Direction * SWING_REACH, swingParams) ~= nil
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if input.KeyCode == Enum.KeyCode.T and not processed then
+		player:SetAttribute("AutoAttack", not autoEnabled())
+		return
+	end
+	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
+		-- not gated on `processed`: releasing over a text box would otherwise leave the player
+		-- sprinting for the rest of the session
+		sprinting = true
+		applySpeed()
+		return
+	end
+	if processed then return end
+	if input.UserInputType ~= Enum.UserInputType.MouseButton1
+		and input.UserInputType ~= Enum.UserInputType.Touch then
+		return
+	end
+	if pointingAtCombatTarget() then
+		playSwing(player.Character)
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
+		sprinting = false
+		applySpeed()
+	end
+end)
+
+-- ============================================================================
+-- THE SERVER'S SIDE OF IT
+-- ============================================================================
+
+local CombatFx = RS:WaitForChild("Remotes"):WaitForChild("CombatFx", 30)
+if not CombatFx then
+	warn("[CombatClient] Remotes.CombatFx never appeared -- hits will not draw")
+	return
+end
+
+-- ============================================================================
+-- THE BOSS BAR
+-- ============================================================================
+--
+-- A boss wears a name plate at `top + size * 0.18` studs -- about 145 up on the Forest bear. That
+-- is the right place for it while you are walking toward the thing, and it is off the top of the
+-- screen the moment you are close enough to swing. Lowering it does not fix it: a plate low enough
+-- to read from the feet is inside the rig.
+--
+-- So the fight gets a screen-space bar, which is what the boss's health actually is -- a readout,
+-- not an object in the world. It appears when you hit a boss and fades a few seconds after you
+-- stop, so it is never chrome sitting on the screen while you farm creatures.
+local BOSS_BAR_HOLD = 5
+
+-- Boss health reaches the trillions. Its own copy rather than MainUI's `formatNumber`: that one is
+-- a local in a 4500-line LocalScript and this file cannot see it, and a boss bar reading
+-- "1284000000000 / 1284000000000" is not a readout of anything.
+local BAR_SUFFIX = { "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp" }
+local function barNumber(n)
+	n = math.floor(n or 0)
+	if n < 1000 then return tostring(n) end
+	local mag = 0
+	while n >= 1000 and mag < #BAR_SUFFIX do
+		n = n / 1000
+		mag += 1
+	end
+	return string.format("%.1f%s", n, BAR_SUFFIX[mag])
+end
+
+local bossBar, bossBarFill, bossBarLabel, bossBarName
+local bossBarUntil = 0
+
+local function ensureBossBar()
+	if bossBar then return end
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "BossBar"
+	gui.ResetOnSpawn = false
+	gui.IgnoreGuiInset = true
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.DisplayOrder = 30
+	gui.Parent = player:WaitForChild("PlayerGui")
+
+	local holder = Instance.new("Frame")
+	holder.Name = "Holder"
+	-- top-centre, clear of the Roblox topbar and of this game's own stage card
+	holder.Size = UDim2.new(0, 520, 0, 74)
+	holder.Position = UDim2.new(0.5, 0, 0, 96)
+	holder.AnchorPoint = Vector2.new(0.5, 0)
+	holder.BackgroundTransparency = 1
+	holder.Visible = false
+	holder.Parent = gui
+
+	-- fits a phone: the bar is the one thing that must never be wider than the screen
+	local scale = Instance.new("UIScale")
+	scale.Parent = holder
+	local cam = workspace.CurrentCamera
+	local function fit()
+		if cam then
+			scale.Scale = math.clamp((cam.ViewportSize.X - 40) / 520, 0.5, 1)
+		end
+	end
+	if cam then
+		cam:GetPropertyChangedSignal("ViewportSize"):Connect(fit)
+	end
+	fit()
+
+	bossBarName = Instance.new("TextLabel")
+	bossBarName.Size = UDim2.new(1, 0, 0, 28)
+	bossBarName.BackgroundTransparency = 1
+	bossBarName.Font = UITheme.Font.Display
+	bossBarName.TextScaled = true
+	bossBarName.TextColor3 = Color3.fromRGB(255, 255, 255)
+	bossBarName.Parent = holder
+
+	local nameStroke = Instance.new("UIStroke")
+	nameStroke.Thickness = 3
+	nameStroke.Color = INK
+	nameStroke.LineJoinMode = Enum.LineJoinMode.Round
+	nameStroke.Parent = bossBarName
+
+	local _bar, fill, label = UITheme.ProgressBar(holder, {
+		name = "Bar",
+		size = UDim2.new(1, 0, 0, 40),
+		position = UDim2.new(0, 0, 1, 0),
+		anchorPoint = Vector2.new(0, 1),
+		radius = UDim.new(0, 14),
+		thickness = 4,
+		progress = 1,
+		color = UITheme.Color.Red,
+		text = "",
+		maxTextSize = 22,
+	})
+	bossBar, bossBarFill, bossBarLabel = holder, fill, label
+end
+
+local function showBossBar(name, hp, max)
+	ensureBossBar()
+	local ratio = max > 0 and math.clamp(hp / max, 0, 1) or 0
+	bossBarName.Text = name
+	bossBarFill.Size = UDim2.new(ratio, 0, 1, 0)
+	bossBarLabel.Text = barNumber(hp) .. " / " .. barNumber(max)
+	-- red down to amber as it falls, the same signal the player's own plate uses
+	UITheme.SetColor(bossBarFill, ratio > 0.5 and UITheme.Color.Red
+		or (ratio > 0.2 and UITheme.Color.Sunny or UITheme.Color.Gold))
+	bossBar.Visible = true
+	bossBarUntil = os.clock() + BOSS_BAR_HOLD
+	task.delay(BOSS_BAR_HOLD + 0.05, function()
+		if bossBar and os.clock() >= bossBarUntil then
+			bossBar.Visible = false
+		end
+	end)
+end
+
+CombatFx.OnClientEvent:Connect(function(fx)
+	if type(fx) ~= "table" then return end
+	-- handled before the Vector3 check: a bar update carries no position, it is not a hit at a place
+	if fx.k == "bossBar" then
+		if type(fx.hp) == "number" and type(fx.max) == "number" then
+			showBossBar(tostring(fx.name or "Boss"), fx.hp, fx.max)
+		end
+		return
+	end
+	if typeof(fx.p) ~= "Vector3" then return end
+	local kill = fx.k == "kill"
+	local mine = fx.a == player.UserId
+
+	-- our own swing already played off the mouse button; this is what makes everyone else's
+	-- characters swing on our screen
+	if not mine and fx.a then
+		local other = Players:GetPlayerByUserId(fx.a)
+		if other and other.Character then
+			playSwing(other.Character)
+		end
+	end
+
+	spark(fx.p, fx.c, fx.s, kill)
+
+	if mine then
+		if kill and fx.dna then
+			popNumber(fx.p, "+" .. fx.dna .. " \u{1F9EC}", UITheme.Color.Mint, true)
+		elseif fx.d and fx.d > 0 then
+			popNumber(fx.p, "-" .. fx.d, Color3.fromRGB(255, 236, 168), false)
+		end
+		cameraKick(kill and 1.5 or 0.7)
+	end
+end)
