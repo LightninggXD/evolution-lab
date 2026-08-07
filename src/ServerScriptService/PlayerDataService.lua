@@ -97,6 +97,10 @@ local function defaultData()
 		-- in memory because a table cleared on leave hands the whole ladder back on every rejoin --
 		-- see PlaytimeGiftService. Shaped and reset by that service, so {} is the right start.
 		PlaytimeClaims = {},
+		-- Game pass ownership, as a set of pass keys. RUNTIME ONLY: PassService writes it from the
+		-- Roblox ownership API on join, and Load below clears it unconditionally, so whatever ends up
+		-- in the DataStore is never read back. Declared here only so nothing ever indexes a nil.
+		Passes = {},
 	}
 end
 
@@ -241,6 +245,20 @@ function PlayerDataService.Load(player)
 			end
 		end
 	end
+	-- ===== PASS OWNERSHIP IS NEVER READ OUT OF THE SAVE =====
+	--
+	-- `data.Passes` is a runtime cache of what Roblox's ownership API says this player owns, and
+	-- PassService rebuilds it on every join. It is cleared HERE, unconditionally and for both a fresh
+	-- and a returning save, because the alternative is a permanently free pass: if a `true` survived
+	-- in the save and the later UserOwnsGamePassAsync check failed -- or the pass had been refunded
+	-- or revoked -- that stale value is the answer every stat function in the game would get, and
+	-- nothing anywhere would ever take it back.
+	--
+	-- Cleared on load rather than stripped before the write on purpose. SetAsync yields, and blanking
+	-- the field across that yield would leave a paying player's multipliers switched off for the
+	-- duration of every autosave.
+	data.Passes = {}
+
 	-- Reads yield, and a player can leave during one. Caching them then leaves an entry for
 	-- somebody who is gone -- which never gets cleared (PlayerRemoving already ran) and is handed
 	-- to them stale if they rejoin this same server.

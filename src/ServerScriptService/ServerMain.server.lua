@@ -18,6 +18,7 @@ local RebirthService = require(ServerScriptService.RebirthService)
 local RebirthShrine = require(ServerScriptService.RebirthShrine)
 local RewardService = require(ServerScriptService.RewardService)
 local PotionService = require(ServerScriptService.PotionService)
+local PassService = require(ServerScriptService.PassService)
 local RobuxShopService = require(ServerScriptService.RobuxShopService)
 local PlaytimeGiftService = require(ServerScriptService.PlaytimeGiftService)
 local SeasonPassService = require(ServerScriptService.SeasonPassService)
@@ -77,6 +78,10 @@ RebirthService.Init()
 RebirthShrine.Init()
 RewardService.Init()
 PotionService.Init()
+-- before RobuxShopService: both take a Robux purchase path, and PassService owns the one that has
+-- to be answered on join (a pass is permanent and is read by the stat functions on the first click,
+-- where a developer product is a one-off receipt that can arrive whenever)
+PassService.Init()
 RobuxShopService.Init()
 PlaytimeGiftService.Init()
 SeasonPassService.Init()
@@ -90,6 +95,14 @@ end
 -- Stage Mastery raises walk speed and max health, which live on the Humanoid -- push them onto
 -- the live character the moment one is bought instead of waiting for the next respawn.
 DNAService.OnMasteryChanged = function(player, data)
+	EvolutionVisuals.RefreshBonuses(player, data)
+end
+
+-- The 2x Speed pass lands on the Humanoid too, and it can arrive at any point in a session: on the
+-- join refresh, on a purchase, or on a background re-check that finally got an answer out of the
+-- ownership API. Same treatment as Stage Mastery above, for the same reason -- otherwise the player
+-- pays for speed and does not move any faster until they next die.
+PassService.OnPassesChanged = function(player, data)
 	EvolutionVisuals.RefreshBonuses(player, data)
 end
 

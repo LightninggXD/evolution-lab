@@ -98,12 +98,12 @@ API surface: `PassService.Init()`, `.Refresh(player)`, `.Has(player, key)`, `.Mu
 
 | ID | | Task | Files | Verified how |
 |---|---|---|---|---|
-| 1.1 | `[ ]` | Route `grantDNA` / `grantDiamonds` through `ScaleReward` | `RobuxShopService:45-53` | same pack bought at stage 1 and stage 14 is worth the same number of kills |
-| 1.2 | `[ ]` | `GameConfig.GamePasses` table + `GetGamePass(key)`, mirroring the `RobuxProducts` shape | `GameConfig` (beside `:1373`) | `require` clean; 9 entries, no duplicate keys |
-| 1.3 | `[ ]` | `PassService` module — Has / Mult / Refresh, fail-closed, purchase hook | new `ServerScriptService/PassService.lua` | force a failed `UserOwnsGamePassAsync`: player must end with **no** pass |
-| 1.4 | `[ ]` | `data.Passes` reset to `{}` on load, never persisted as truth | `PlayerDataService.defaultData:44` + load path | plant `Passes.x2DNA = true` in a save, rejoin, confirm it is gone until the API confirms it |
-| 1.5 | `[ ]` | `Remotes.PromptGamePassPurchase` + server handler with the `passId = 0` guard | `Remotes`, `PassService` | with id 0, buying notifies and grants nothing |
-| 1.6 | `[ ]` | Wire `PassService.Init()` into `ServerMain` **before** `RobuxShopService.Init()` | `ServerMain:80` | no boot errors in the console |
+| 1.1 | `[x]` | Route `grantDNA` through `ScaleReward`. **Diamonds deliberately NOT scaled** — every diamond sink is a small fixed number (upgrades cost 5/8/15) that does not ride the stage curve, so scaling would cap every permanent upgrade in one purchase | `RobuxShopService:45-62` | measured: the 10,000 DNA pack is worth **7,692 clicks at stage 1, 6, 14 and 20 alike**. Before the fix: 7,692 → 41 → 0.009 → 0.00002 |
+| 1.2 | `[x]` | `GameConfig.GamePasses` (9 rows) + `GetGamePass` / `OwnsPass` / `GetPassMult` / `GetPassAdd`. Effects are **fields**, so a hook reads `GetPassMult(data, "incomeMult")` and never names a pass | `GameConfig:1393+` | 9 passes, 2,041 R$, 0 duplicate keys, 0 live ids. Stacking: 2x DNA alone 2.00, VIP alone 1.50, both 3.00; luck 50 / 15 / 65 |
+| 1.3 | `[x]` | `PassService` — Has / Refresh / Init, fail-closed, background re-check, purchase hook | new `ServerScriptService/PassService.lua` | `ownsPass` returns true / false / **nil**; nil and false both grant nothing. Boots clean in Play |
+| 1.4 | `[x]` | `data.Passes` cleared on load, unconditionally, for **both** the fresh and the returning branch | `PlayerDataService` defaultData + `Load` | measured on the real save (OGLightninggXD, stage 5): `Passes` comes back a table with **0** entries |
+| 1.5 | `[x]` | `Remotes.PromptGamePassPurchase` + handler with the `passId = 0` guard and an already-owned guard | `Remotes`, `PassService.Init` | remote exists in Play; all 9 passes refuse to prompt on id 0 |
+| 1.6 | `[x]` | Wire `PassService.Init()` into `ServerMain` before `RobuxShopService.Init()`, plus `OnPassesChanged` → `EvolutionVisuals.RefreshBonuses` so 2x Speed lands without a respawn | `ServerMain` | `Server systems initialized.` with no errors; compile sweep 45 scripts / 0 failures |
 | 1.7 | `[ ]` | **👤 OWNER** Create the 7 existing developer products on the dashboard, paste real ids | `GameConfig.RobuxProducts` | a real purchase in a published test place grants and saves |
 
 ---
@@ -272,6 +272,13 @@ Gathered 2026-08-07/08 while writing this plan.
 
 ## Changelog
 
+- **2026-08-08** — **Phase 1.1–1.6 done; 1.7 is owner-blocked.** The monetisation foundation is in
+  and verified in Play. The DNA packs no longer pay a rounding error late game. `GameConfig` gained
+  the 9-pass table and the four accessors; `PassService` is new; `PlayerDataService` clears
+  `data.Passes` on load so a stale save can never grant a free pass; `ServerMain` wires it before
+  `RobuxShopService`. **Note the passes do not DO anything yet** — the call-site hooks are Phase
+  2.1–2.9. `src/` was kept in step with every edit and re-verified byte-identical to Studio.
+  Also confirmed still open: 0.4, the streaming radii, which warn on every boot.
 - **2026-08-08** — **Phase 0.1–0.3 done.** Studio's Save As offers only the binary `.rbxl` in
   this install, so `tools/rbxl_extract.py` was written to parse the binary place format
   directly (zstd chunks, interleaved zigzag referents). All 44 scripts extracted into `src/`

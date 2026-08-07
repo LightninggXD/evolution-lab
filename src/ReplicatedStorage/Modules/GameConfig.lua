@@ -1390,6 +1390,104 @@ function GameConfig.GetRobuxProduct(key)
 	return nil
 end
 
+-- ===== GAME PASSES =====
+-- One-off, permanent, account-wide Robux purchases -- as opposed to the consumable Developer
+-- Products above. Same placeholder rule: `passId = 0` until the pass is created for real on the
+-- Creator Dashboard (Create > this game > Monetization > Passes) and its numeric id pasted in.
+-- PassService refuses to prompt on a zero id rather than opening a dialog that cannot complete.
+--
+-- EVERY EFFECT IS A FIELD READ BY GetPassMult / GetPassAdd BELOW, never a special case at the call
+-- site. That is what lets the 2x DNA pass and the VIP bundle both raise income without either hook
+-- knowing the other exists, and it is why a tenth pass needs no new code anywhere -- only a row.
+--
+-- Three decisions worth not re-litigating:
+--
+-- 1. LUCK IS ADDITIVE, NOT A MULTIPLIER. Every other luck source in this game adds percentage
+--    points (the Luck upgrade +2 a level, pet `luckAdd`, the Luck potion) and luck starts at ZERO.
+--    A "2x Luck" pass would therefore do literally nothing for a new player -- the exact person
+--    most likely to buy it. See DNAService.GetLuckPercent, which is the one function eggs, pets,
+--    characters, mutations and crit chance all read.
+--
+-- 2. AUTO-ATTACK ITSELF STAYS FREE. It already ships free on the `AutoAttack` attribute and the T
+--    key. Paywalling something players already have is the fastest way to lose them, so FastAuto
+--    sells the swing RATE instead -- new value rather than confiscated value.
+--
+-- 3. ORDERED CHEAPEST FIRST, and the cheapest is deliberately a small quality-of-life pass. Across
+--    the genre the entry pass is what converts a non-payer into a payer; the multipliers are where
+--    the money actually is, but almost nobody buys one first.
+GameConfig.GamePasses = {
+	{ key = "Speed2x",   passId = 0, price = 99,  emoji = "🏃", name = "2x Speed",
+	  desc = "Move twice as fast, in every zone.", walkMult = 2 },
+
+	{ key = "XP2x",      passId = 0, price = 149, emoji = "⭐", name = "2x XP",
+	  desc = "Every kill fills the evolve bar twice as fast.", xpMult = 2 },
+
+	{ key = "AutoHatch", passId = 0, price = 149, emoji = "🥚", name = "Auto Hatch",
+	  desc = "Eggs keep hatching while you stand at the stall.", autoHatch = true },
+
+	{ key = "DNA2x",     passId = 0, price = 199, emoji = "🧬", name = "2x DNA",
+	  desc = "Double DNA from clicks, kills and idle income.", incomeMult = 2 },
+
+	{ key = "Damage2x",  passId = 0, price = 199, emoji = "⚔️", name = "2x Damage",
+	  desc = "Hit twice as hard. Bosses die in half the swings.", damageMult = 2 },
+
+	{ key = "FastAuto",  passId = 0, price = 199, emoji = "⚡", name = "Fast Auto Attack",
+	  desc = "Your auto attack swings 70% faster.", autoSpeedMult = 1.7 },
+
+	{ key = "Lucky",     passId = 0, price = 249, emoji = "🍀", name = "Lucky",
+	  desc = "+50% Luck on every egg, pet and mutation roll.", luckAdd = 50 },
+
+	{ key = "PetSlots3", passId = 0, price = 299, emoji = "🐾", name = "+3 Pet Slots",
+	  desc = "Equip three more pets at once.", petSlots = 3 },
+
+	{ key = "VIP",       passId = 0, price = 499, emoji = "👑", name = "VIP",
+	  desc = "1.5x DNA and damage, +15% Luck, a golden aura, a chat tag and 5 Diamonds a day.",
+	  incomeMult = 1.5, damageMult = 1.5, luckAdd = 15, dailyDiamonds = 5, vip = true },
+}
+
+function GameConfig.GetGamePass(key)
+	for _, p in ipairs(GameConfig.GamePasses) do
+		if p.key == key then return p end
+	end
+	return nil
+end
+
+-- `data.Passes` is a RUNTIME cache written by PassService on join and on purchase. It is never
+-- trusted out of the save -- PlayerDataService clears it on load -- so a missing or empty table
+-- means "owns nothing", which is the correct fail-closed answer when the ownership check could not
+-- be completed. Reading it here rather than taking a `player` is the whole reason none of the stat
+-- functions had to change signature: GetIncomeMult, GetLuckPercent, GetCombatDamage and
+-- GetMaxEquippedPets all already take `data`.
+function GameConfig.OwnsPass(data, key)
+	return (data and data.Passes and data.Passes[key]) == true
+end
+
+-- Product of `field` across every owned pass, or 1 when none of them carries it. Multiplicative on
+-- purpose: a player holding both 2x DNA and VIP gets 3x, which is the entire reason to own two.
+function GameConfig.GetPassMult(data, field)
+	if not (data and data.Passes) then return 1 end
+	local mult = 1
+	for _, p in ipairs(GameConfig.GamePasses) do
+		if data.Passes[p.key] and p[field] then
+			mult = mult * p[field]
+		end
+	end
+	return mult
+end
+
+-- Sum of `field` across every owned pass, or 0. For the stats measured in points rather than in
+-- factors -- luck and pet slots today.
+function GameConfig.GetPassAdd(data, field)
+	if not (data and data.Passes) then return 0 end
+	local total = 0
+	for _, p in ipairs(GameConfig.GamePasses) do
+		if data.Passes[p.key] and p[field] then
+			total = total + p[field]
+		end
+	end
+	return total
+end
+
 -- ============================================================================
 -- SEASON PASS
 -- ============================================================================

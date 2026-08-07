@@ -42,12 +42,26 @@ local function processReceipt(receiptInfo)
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 
+	-- SCALED, because a fixed DNA figure is meaningless in an economy spanning 1e2 to 1e17.
+	--
+	-- The packs are authored as 1,000 and 10,000 DNA. That is a real boost at stage one and less
+	-- than a SINGLE KILL from stage six on -- a player paying real money for a rounding error, which
+	-- is a refund and a one-star review rather than a sale. GameConfig.ScaleReward reads the authored
+	-- figure as "what this is worth in stage-one clicks" and converts it to where the buyer actually
+	-- stands, so a pack is worth the same number of kills at every stage. This is the same treatment
+	-- RewardService, PlaytimeGiftService and SeasonPassService.grant already give their tables; the
+	-- paid route was the one that was missed.
 	if product.grantDNA then
-		data.DNA += product.grantDNA
+		data.DNA += GameConfig.ScaleReward(product.grantDNA, data)
 	end
 	if product.grantPotions then
 		GameConfig.AddPotions(data, product.grantPotionId, product.grantPotions)
 	end
+	-- DIAMONDS ARE DELIBERATELY NOT SCALED, and this is not an oversight. Every diamond sink in the
+	-- game is a small fixed number that does NOT move with the stage curve: the three DiamondUpgrades
+	-- cost 5, 8 and 15 with a per-level multiplier, and Stage Mastery is priced the same way. Putting
+	-- these through ScaleReward would hand a stage-14 buyer thousands of diamonds and cap every
+	-- permanent upgrade in the game in one purchase.
 	if product.grantDiamonds then
 		data.Diamonds = (data.Diamonds or 0) + product.grantDiamonds
 	end
