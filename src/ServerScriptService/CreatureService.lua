@@ -3028,7 +3028,7 @@ local function spawnCreature(position, tierName, zone)
 			if auraConnection then auraConnection:Disconnect() end
 			local amount = DNAService.GetClickAmount(data) * tier.dnaMult
 			data.DNA += amount
-			data.XP = (data.XP or 0) + math.max(1, math.floor(tier.xp * GameConfig.GetPotionMult(data, "xp")))
+			data.XP = (data.XP or 0) + math.max(1, math.floor(tier.xp * GameConfig.GetXPMult(data)))
 
 			-- DIAMONDS, THE ONLY GAMEPLAY SOURCE THERE IS. Every other one is a time gate (daily,
 			-- playtime, Season Pass) or a Robux product whose id is still 0. Odds are per tier and

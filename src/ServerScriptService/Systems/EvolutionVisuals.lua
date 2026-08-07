@@ -153,9 +153,16 @@ local function applyMastery(character, data)
 
 	-- The Speed upgrade is added here, alongside Stage Mastery's own walk bonus -- this is the one
 	-- place in the game that writes WalkSpeed, and the client's sprint reads whatever it finds.
+	-- The 2x Speed pass multiplies the whole thing AND lifts the ceiling, because against the normal
+	-- cap of 150 it would not be a 2x for most of the game: an unbought stage-20 body already runs
+	-- 127, so the doubling was landing as 1.18x at the top and was a true 2x only through stage 7 of
+	-- 20. MaxWalkSpeed is not a balance number -- it is the speed past which a player outruns
+	-- StreamingEnabled -- so the raised ceiling is a measured decision (260 covers the doubled top
+	-- stage at 254.5 with a little headroom), not a default. Nobody without the pass moves any faster.
 	humanoid.WalkSpeed = math.min(
-		(GameConfig.BaseWalkSpeed + bonus.walkSpeed + GameConfig.GetSpeedUpgradeBonus(data)) * sizeMult,
-		GameConfig.MaxWalkSpeed or 120
+		(GameConfig.BaseWalkSpeed + bonus.walkSpeed + GameConfig.GetSpeedUpgradeBonus(data))
+			* sizeMult * GameConfig.GetPassMult(data, "walkMult"),
+		GameConfig.GetPassMax(data, "walkCap", GameConfig.MaxWalkSpeed or 120)
 	)
 	-- R15 characters default to JumpHeight, not JumpPower, so setting JumpPower alone is silently
 	-- ignored -- UseJumpPower has to be flipped first or the jump bonus never lands.

@@ -28,6 +28,11 @@ function DNAService.GetIncomeMult(data)
 	-- Diamond-bought Mega Income upgrade
 	local megaIncomeLevel = data.DiamondUpgrades and data.DiamondUpgrades.MegaIncome or 0
 	mult = mult * (1 + megaIncomeLevel * (GameConfig.DiamondUpgrades.MegaIncome.effectPct / 100))
+	-- Robux game passes, LAST so a bought multiplier applies to everything above it rather than to
+	-- the bare base. One call covers 2x DNA and VIP together (and anything added later carrying an
+	-- `incomeMult` field) -- this function never learns any pass by name. Because this is the single
+	-- income multiplier, the pass reaches clicks, kill payouts and idle auto-collect at once.
+	mult = mult * GameConfig.GetPassMult(data, "incomeMult")
 	return mult
 end
 
@@ -37,8 +42,11 @@ function DNAService.GetLuckPercent(data)
 	-- Every luck source in the game is additive percentage points, and the Luck Potion is one more
 	-- of them: this single function is what eggs, pets, characters, mutations and crit chance all
 	-- read, so adding it here reaches every one of them.
+	-- The Lucky pass and VIP are ADDED here, in points, for the same reason everything else is: luck
+	-- starts at zero, so a multiplier would pay a first-time buyer nothing at all.
 	return data.Upgrades.Luck * 2 + PetService.GetEquippedBonus(data).luckAdd + megaLuckAdd
 		+ GameConfig.GetPotionLuckAdd(data) -- each upgrade level = +2% luck, plus pets and potions
+		+ GameConfig.GetPassAdd(data, "luckAdd")
 end
 
 function DNAService.GetClickAmount(data)
@@ -74,6 +82,10 @@ function DNAService.GetCombatDamage(data)
 	-- and every rebirth the player has ever done. This is what a rebirth buys -- see the note over
 	-- GameConfig.GetRebirthDamageMult for why it is damage and not income.
 	mult = mult * GameConfig.GetRebirthDamageMult(data)
+	-- Robux game passes: 2x Damage and VIP. Note this raises damage DEALT only -- the incoming-damage
+	-- cap in CreatureService/BossService is a fraction of the player's own health and is untouched,
+	-- so a pass makes fights shorter without making the player unkillable.
+	mult = mult * GameConfig.GetPassMult(data, "damageMult")
 	return math.floor(base * mult)
 end
 

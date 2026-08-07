@@ -52,15 +52,22 @@ checksum (`sum = (sum + byte(i) * i) % 2147483647`), and the place's total
 
 Studio reports **44** `LuaSourceContainer`s; the extraction wrote **44** files.
 
-`tools/luastruct.py` passes on all 44. `tools/luanames.py` reports four names, all checked and
-all false positives or dead code:
+`tools/luastruct.py` passes on all 44. `tools/luanames.py` reports **six** names across five files,
+all checked and all false positives or dead code. **This is the baseline — six, not zero.** An
+agent that sees six here has regressed nothing; seven means something new.
 
 - `MainUI.client.lua:730` `animatePanel` — a forward-declared `local` assigned by
   `function animatePanel(...)` inside a `do` block. That pattern is deliberate (it keeps the
   file under Luau's 200-local register cap) and the linter does not pair the two.
+- `EvolutionVisuals.lua:305` `waited`, `LoadingScreen.client.lua:208,231` `modules` / `bar` — the
+  same blind spot: a `local` declared inside a `do` block or before a `repeat`, which the linter's
+  binding collector does not associate with its later use.
 - `LightConfig.server.lua:38`, `Type.lua:23` — `Game`, the deprecated Roblox global, in
   third-party LightConfig code parked in `ServerStorage` that sets nothing.
 - `ZoneBuilder_pre_gate_axis.lua:110,112` — a `_PushBackup` snapshot, dead code.
+
+(An earlier note in this file said four. That count came from a `tail`-truncated run and was
+wrong; the two extra were always there.)
 
 ## What is in here
 

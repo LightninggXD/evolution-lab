@@ -49,7 +49,7 @@ in Studio). Every cold-starting agent currently burns half its context on `scrip
 |---|---|---|---|---|
 | 0.1 | `[x]` | **👤 OWNER** Save the place to the repo. **Studio here offers only binary `.rbxl`** — there is no `.rbxlx` option in the type dropdown, and renaming does not convert. That is fine, see 0.2 | `Evolution-lab.rbxlx.rbxl` | on disk, 20.8 MB, saved 2026-08-08 00:29 |
 | 0.2 | `[x]` | Extract every script's source into `src/`. Needed a **binary place parser** — `tools/rbxl_extract.py`, which reads the zstd-compressed chunk format directly (`pip install zstandard`) | `tools/rbxl_extract.py`, `src/**`, `src/SYNC.md` | 44 files written vs 44 `LuaSourceContainer`s in Studio; 6 files byte- and checksum-identical to the live datamodel |
-| 0.3 | `[x]` | Run `luastruct.py` + `luanames.py`, record a clean baseline | `tools/` | `luastruct` clean on all 44. `luanames` flags 4, all checked and dismissed — see `src/SYNC.md` |
+| 0.3 | `[x]` | Run `luastruct.py` + `luanames.py`, record a clean baseline | `tools/` | `luastruct` clean on all 44. `luanames` flags **6**, all checked and dismissed — that is the baseline, see `src/SYNC.md` |
 | 0.4 | `[ ]` | **👤 OWNER** Set `StreamingMinRadius 512`, `StreamingTargetRadius 3000`, `StreamingIntegrityMode PauseOutsideLoadedArea` by hand in Properties | `Workspace` | the `[Streaming]` warn at `ServerMain:35-54` stops firing on boot |
 | 0.5 | `[ ]` | Commit the synced tree + this file to git on a branch. `.gitignore` now excludes `*.rbxl*` — a 20 MB binary that rewrites wholesale on every save must never enter the history | `.gitignore` | `git log` |
 
@@ -139,17 +139,21 @@ cheap entry pass → core multipliers → premium bundle.
   than a new panel — no new registers, and no `RIGHT_COUNT` bump (it is at 7, `MainUI:756`).
 - An owned pass renders an `OWNED` state, not a buy button.
 
+All **server hooks** are in. What is left in this phase is the two passes that need new behaviour
+(Auto Hatch, VIP's non-multiplier extras) and the shop UI.
+
 | ID | | Task | Verified how |
 |---|---|---|---|
-| 2.1 | `[ ]` | 🏃 2x Speed — config + hook + tile | force the pass true: `Humanoid.WalkSpeed` doubles, still clamped by `MaxWalkSpeed` |
-| 2.2 | `[ ]` | ⭐ 2x XP — extract `GetXPMult(data)`, use in both call sites, + hook + tile | a kill and a boss kill both pay exactly 2x |
-| 2.3 | `[ ]` | 🥚 Auto Hatch — server loop + client trigger + tile | stand at a podium with 0 DNA: nothing hatches, no error spam |
-| 2.4 | `[ ]` | 🧬 2x DNA — hook + tile | `GetClickAmount` exactly doubles; `GetCombatDamage` **unchanged** |
-| 2.5 | `[ ]` | ⚔️ 2x Damage — hook + tile | `GetCombatDamage` exactly doubles; `GetClickAmount` **unchanged** |
-| 2.6 | `[ ]` | ⚡ Fast Auto Attack — hook + tile | swings/sec measured live; the free auto-attack still works without the pass |
-| 2.7 | `[ ]` | 🍀 Lucky — **additive** hook + tile | `GetLuckPercent` rises by exactly 50 for a brand-new save |
-| 2.8 | `[ ]` | 🐾 +3 Pet Slots — hook + tile | equip 6 pets; the HUD capsule and the panel title agree |
-| 2.9 | `[ ]` | 👑 VIP — multipliers, chat tag, aura, exclusive skin, daily grant | all five effects observed live |
+| 2.1 | `[x]` | 🏃 2x Speed — `EvolutionVisuals.applyMastery`. **The pass also lifts the cap** (`walkCap = 260` + new `GameConfig.GetPassMax`): against the normal 150 it delivered 1.18x at stage 20 and was a true 2x only through stage 7 of 20 | measured 2.00x at stages 1 / 7 / 14 / 20; a non-owner at stage 20 is still 127.2 |
+| 2.2 | `[x]` | ⭐ 2x XP — extracted `GameConfig.GetXPMult(data)`, now the single XP multiplier, used by both `CreatureService` and `BossService` | `GetXPMult` x1.00 → x2.00; nothing else moves |
+| 2.3 | `[ ]` | 🥚 Auto Hatch — server loop + client trigger | stand at a podium with 0 DNA: nothing hatches, no error spam |
+| 2.4 | `[x]` | 🧬 2x DNA — `DNAService.GetIncomeMult`, added last so it multiplies the whole stack | income x1.00 → x2.00, damage unchanged at 62 |
+| 2.5 | `[x]` | ⚔️ 2x Damage — `DNAService.GetCombatDamage`. Raises damage **dealt** only; the incoming-damage cap is untouched | damage 62 → 124, income unchanged at x1.00 |
+| 2.6 | `[x]` | ⚡ Fast Auto Attack — `CombatClient` reads an `AutoSpeedMult` **player attribute** the server stamps, so the client never learns what a pass is. Floored at `SWING_TIME` | attribute reads 1 for a non-owner; x1.70 with the pass; free auto-attack untouched |
+| 2.7 | `[x]` | 🍀 Lucky — `DNAService.GetLuckPercent`, **added in points** | luck 0 → 50; Lucky + VIP = 65 |
+| 2.8 | `[x]` | 🐾 +3 Pet Slots — `GameConfig.GetMaxEquippedPets`, stacking **on top of** the 3-level diamond upgrade (3 + 3 + 3 = 9) | pets 3 → 6 |
+| 2.9 | `[~]` | 👑 VIP — multipliers **done** (1.5x DNA, 1.5x damage, +15 luck). Still to build: chat tag, golden aura, 5 diamonds a day, and the **VIP golden skin** | multipliers measured; extras not started |
+| 2.9a | `[ ]` | The VIP skin, per the owner's decision: **a 201st golden skin that appears in the Journal and is unlocked only by VIP.** It must NOT enter `CHARACTERS_BY_STAGE` — that table drives `CountCharactersForStage`, `GetEvolveStep` and the 100/100 count, and a 201st entry inside it would break all three. Proposed: its own entry with an explicit rank, and `GetCharacterDamageMult` / the health ladder treat it as **worth the wearer's best earned rank**, so it never costs damage to wear and never grants damage that was not earned | wear it at two different collection depths: damage and health must equal the best owned skin, and the Journal must still read `n/200` |
 | 2.10 | `[ ]` | Robux panel: Products / Passes tabs, `OWNED` state, price chips | `loadstring` OK + screen capture |
 | 2.11 | `[ ]` | **👤 OWNER** Create all 9 passes on the dashboard, paste ids | a real purchase applies without a rejoin |
 | 2.12 | `[ ]` | Balance check: VIP × 2x DNA × potion × pets stacked — evolve costs at stage 20 must still hold | replay the curve numerically |
@@ -272,6 +276,14 @@ Gathered 2026-08-07/08 while writing this plan.
 
 ## Changelog
 
+- **2026-08-08** — **Phase 2: all seven multiplier passes hooked and measured.** 2x DNA, 2x Damage,
+  2x XP, Lucky, +3 Pet Slots, Fast Auto Attack and 2x Speed all move their own stat and nothing
+  else — isolation checked pass by pass in Play. Two decisions the owner made along the way:
+  **2x Speed lifts the walk cap to 260**, because against the 150 streaming cap it was only a true
+  2x through stage 7 of 20 and delivered 1.18x at the top; and the **VIP skin will be a 201st
+  golden skin inside the Journal**, unlocked only by VIP (see 2.9a for why it must stay out of
+  `CHARACTERS_BY_STAGE`). Still open in this phase: Auto Hatch, VIP's non-multiplier extras, the
+  VIP skin, and the shop UI.
 - **2026-08-08** — **Phase 1.1–1.6 done; 1.7 is owner-blocked.** The monetisation foundation is in
   and verified in Play. The DNA packs no longer pay a rounding error late game. `GameConfig` gained
   the 9-pass table and the four accessors; `PassService` is new; `PlayerDataService` clears

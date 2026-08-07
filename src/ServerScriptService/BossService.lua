@@ -2306,7 +2306,7 @@ local function spawnBoss(zone)
 			data.DNA += boss.dnaReward
 			-- half a level for THIS zone's stage -- GameConfig derives it, because a flat 25 was a third
 			-- of the first level and a rounding error by the tenth
-			data.XP = (data.XP or 0) + math.floor((boss.xpReward or 25) * GameConfig.GetPotionMult(data, "xp"))
+			data.XP = (data.XP or 0) + math.floor((boss.xpReward or 25) * GameConfig.GetXPMult(data))
 			-- counted before markDefeated, which is what pushes. Note this fires on EVERY kill, not
 			-- only the first: markDefeated is idempotent per zone, but the quest asks for a number of
 			-- bosses beaten, and a boss that respawns is a boss you can beat again.

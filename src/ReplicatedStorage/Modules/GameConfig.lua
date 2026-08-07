@@ -1255,7 +1255,10 @@ end
 
 function GameConfig.GetMaxEquippedPets(data)
 	local petSlotLevel = data.DiamondUpgrades and data.DiamondUpgrades.PetSlot or 0
-	return GameConfig.MaxEquippedPets + petSlotLevel
+	-- The +3 Pet Slots pass stacks ON TOP of the diamond upgrade rather than replacing it: the
+	-- upgrade is capped at 3 levels, so a player who bought all three and then bought the pass has
+	-- spent in both currencies and should get both. 3 base + 3 diamond + 3 pass = 9.
+	return GameConfig.MaxEquippedPets + petSlotLevel + GameConfig.GetPassAdd(data, "petSlots")
 end
 
 -- ===== STAGE MASTERY =====
@@ -1390,6 +1393,14 @@ function GameConfig.GetRobuxProduct(key)
 	return nil
 end
 
+-- THE ONE XP MULTIPLIER. The creature kill and the boss kill each called GetPotionMult(data, "xp")
+-- directly, so the 2x XP pass would have had to be added in two places and kept in step with itself
+-- forever -- and a third XP source added later would have quietly missed both. Everything that
+-- scales XP goes through here now.
+function GameConfig.GetXPMult(data)
+	return GameConfig.GetPotionMult(data, "xp") * GameConfig.GetPassMult(data, "xpMult")
+end
+
 -- ===== GAME PASSES =====
 -- One-off, permanent, account-wide Robux purchases -- as opposed to the consumable Developer
 -- Products above. Same placeholder rule: `passId = 0` until the pass is created for real on the
@@ -1416,8 +1427,13 @@ end
 --    the genre the entry pass is what converts a non-payer into a payer; the multipliers are where
 --    the money actually is, but almost nobody buys one first.
 GameConfig.GamePasses = {
+	-- `walkCap` lifts GameConfig.MaxWalkSpeed for this player. Without it the pass is a lie for most
+	-- of the game: the cap is 150, and an unbought stage-20 body already runs 127, so a 2x would have
+	-- delivered 1.18x at the top and a true 2x only through stage 7 of 20. 260 covers the doubled
+	-- top-stage speed (254.5) with a little headroom. The cap exists to stop a player outrunning
+	-- StreamingEnabled, which is why lifting it is a deliberate, measured decision and not a default.
 	{ key = "Speed2x",   passId = 0, price = 99,  emoji = "🏃", name = "2x Speed",
-	  desc = "Move twice as fast, in every zone.", walkMult = 2 },
+	  desc = "Move twice as fast, in every zone.", walkMult = 2, walkCap = 260 },
 
 	{ key = "XP2x",      passId = 0, price = 149, emoji = "⭐", name = "2x XP",
 	  desc = "Every kill fills the evolve bar twice as fast.", xpMult = 2 },
@@ -1473,6 +1489,20 @@ function GameConfig.GetPassMult(data, field)
 		end
 	end
 	return mult
+end
+
+-- Highest `field` across every owned pass, or `fallback`. BEST-ONE-APPLIES, the same rule
+-- GetMutationIncomeMult uses -- for a value that is a ceiling rather than a contribution, summing
+-- two of them would be meaningless and multiplying them would be worse.
+function GameConfig.GetPassMax(data, field, fallback)
+	local best = fallback or 0
+	if not (data and data.Passes) then return best end
+	for _, p in ipairs(GameConfig.GamePasses) do
+		if data.Passes[p.key] and p[field] and p[field] > best then
+			best = p[field]
+		end
+	end
+	return best
 end
 
 -- Sum of `field` across every owned pass, or 0. For the stats measured in points rather than in

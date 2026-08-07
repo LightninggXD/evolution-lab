@@ -791,7 +791,14 @@ task.spawn(function()
 		return
 	end
 	while true do
-		task.wait(AUTO_INTERVAL)
+		-- The Fast Auto Attack pass shortens the gap between swings. Read off a player ATTRIBUTE rather
+		-- than off the data table: the server owns pass ownership and stamps the finished multiplier
+		-- here, so this script never has to know what a pass is, and a purchase mid-session takes
+		-- effect on the very next swing with nothing to re-wire. 1 when nothing is owned.
+		-- Floored at SWING_TIME so the loop can never re-cut a swing faster than one can play.
+		local autoMult = player:GetAttribute("AutoSpeedMult")
+		if type(autoMult) ~= "number" or autoMult <= 0 then autoMult = 1 end
+		task.wait(math.max(AUTO_INTERVAL / autoMult, SWING_TIME))
 		if autoEnabled() then
 			-- pcall'd on purpose. This is an unattended loop with no second chance: anything that
 			-- throws inside it ends auto-attack for the rest of the session, silently, and the

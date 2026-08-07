@@ -104,6 +104,10 @@ end
 -- pays for speed and does not move any faster until they next die.
 PassService.OnPassesChanged = function(player, data)
 	EvolutionVisuals.RefreshBonuses(player, data)
+	-- CombatClient reads this attribute rather than the pass table. The server stays the only thing
+	-- that knows what is owned, the client needs no remote and no re-wire, and a purchase applies on
+	-- the very next swing. Runs on the join refresh too, so it is always set before the first fight.
+	player:SetAttribute("AutoSpeedMult", GameConfig.GetPassMult(data, "autoSpeedMult"))
 end
 
 -- Wearing a different character from the Journal. The body is rebuilt rather than recoloured: the
