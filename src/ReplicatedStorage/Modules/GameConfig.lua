@@ -2095,6 +2095,27 @@ for _, c in ipairs(GameConfig.StageCharacters) do
 	end
 end
 
+-- ===== THE VIP SKIN: A 201st ENTRY THAT IS NOT PART OF THE COLLECTION =====
+--
+-- Registered in CHARACTER_BY_KEY so it resolves, wears and paints like any other skin -- and
+-- DELIBERATELY NOT in CHARACTERS_BY_STAGE. That table is what CountCharactersForStage, GetEvolveStep
+-- and GetCollectionStage all count off; a 201st entry inside it would add a sixth step to some
+-- stage's evolve chain, move every rank above it, and make the Journal unable to ever read 200/200.
+-- Kept outside, it is visible and wearable while the collection arithmetic never sees it.
+--
+-- There is no generated SkinMesh_vip_gold, and that is fine: SkinMesh.Has() is what callers use to
+-- choose between the mesh and StageCostume, so this falls back to the costume painted in the colour
+-- below -- i.e. a gold version of whatever stage the player is standing at, at any stage.
+GameConfig.VipCharacter = {
+	key = "vip_gold",
+	name = "Golden Patron",
+	emoji = "👑",
+	rarity = "Legendary",
+	color = Color3.fromRGB(255, 205, 74),
+	vip = true,
+}
+CHARACTER_BY_KEY[GameConfig.VipCharacter.key] = GameConfig.VipCharacter
+
 function GameConfig.GetCharacter(key)
 	return key and CHARACTER_BY_KEY[key] or nil
 end
@@ -2164,6 +2185,10 @@ end
 -- not silently shift everything after it.
 function GameConfig.GetCharacterRank(entry)
 	if not entry then return 0 end
+	-- The VIP skin has no rung on the ladder -- it is not in CHARACTERS_BY_STAGE and counting it as
+	-- one would put it either at the bottom (worthless) or the top (bought power). What it is worth
+	-- is decided per WEARER instead; see GetEffectiveRank.
+	if entry.vip then return 0 end
 	local rank = 0
 	for stageIndex = 1, (entry.stage or 1) - 1 do
 		rank += #(CHARACTERS_BY_STAGE[stageIndex] or {})
@@ -2190,10 +2215,32 @@ function GameConfig.GetWornCharacter(data)
 	return key and CHARACTER_BY_KEY[key] or nil
 end
 
+-- The best rung this player has actually EARNED. The VIP skin ignores the entry it is worn as and
+-- scores as this instead, which is the whole reason it is not pay-to-win: wearing it never costs a
+-- player damage they had, and never hands them damage they did not climb to. It also means the
+-- skin stays worth wearing for the rest of the game instead of being abandoned the moment the
+-- collection passes it, which is what any fixed rank would have caused.
+function GameConfig.GetBestOwnedRank(data)
+	local best = 0
+	for key in pairs((data and data.Characters) or {}) do
+		local entry = CHARACTER_BY_KEY[key]
+		if entry and not entry.vip then
+			local rank = GameConfig.GetCharacterRank(entry)
+			if rank > best then best = rank end
+		end
+	end
+	return best
+end
+
+function GameConfig.GetEffectiveRank(data, entry)
+	if entry and entry.vip then return GameConfig.GetBestOwnedRank(data) end
+	return GameConfig.GetCharacterRank(entry)
+end
+
 function GameConfig.GetCharacterDamageMult(data)
 	local entry = GameConfig.GetWornCharacter(data)
 	if not entry then return 1 end
-	return 1 + GameConfig.GetCharacterDamagePct(entry) / 100
+	return 1 + GameConfig.GetEffectiveRank(data, entry) * GameConfig.CharacterDamagePerRank / 100
 end
 
 -- ===== A SKIN GIVES HEALTH AS WELL AS DAMAGE =====
@@ -2217,7 +2264,37 @@ end
 function GameConfig.GetCharacterHealthMult(data)
 	local entry = GameConfig.GetWornCharacter(data)
 	if not entry then return 1 end
-	return 1 + GameConfig.GetCharacterHealthPct(entry) / 100
+	return 1 + GameConfig.GetEffectiveRank(data, entry) * GameConfig.CharacterHealthPerRank / 100
+end
+
+-- Grants or REVOKES the VIP skin so it always matches the pass. Called on every pass refresh and
+-- again after a rebirth, because RebirthService clears `data.Characters` wholesale -- without the
+-- second call a VIP who rebirthed would lose the skin until they next rejoined.
+function GameConfig.SyncVipCharacter(data)
+	if not data then return end
+	data.Characters = data.Characters or {}
+	local key = GameConfig.VipCharacter.key
+
+	if GameConfig.OwnsPass(data, "VIP") then
+		data.Characters[key] = true
+		return
+	end
+
+	data.Characters[key] = nil
+	-- Still wearing it after the pass went away would leave the body in a skin the player no longer
+	-- owns, and GetWornCharacter would happily keep resolving it. Fall back to the best thing they
+	-- actually earned, which is also exactly what the VIP skin had been scoring as.
+	if data.WornCharacter == key then
+		local best, bestRank = nil, -1
+		for owned in pairs(data.Characters) do
+			local entry = GameConfig.GetCharacter(owned)
+			if entry and not entry.vip then
+				local rank = GameConfig.GetCharacterRank(entry)
+				if rank > bestRank then best, bestRank = owned, rank end
+			end
+		end
+		data.WornCharacter = best
+	end
 end
 
 -- THE NEXT ONE TO HAND OVER: the first entry of this stage the player does not already own.

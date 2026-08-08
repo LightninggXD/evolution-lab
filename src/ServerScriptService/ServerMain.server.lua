@@ -108,6 +108,9 @@ PassService.OnPassesChanged = function(player, data)
 	-- that knows what is owned, the client needs no remote and no re-wire, and a purchase applies on
 	-- the very next swing. Runs on the join refresh too, so it is always set before the first fight.
 	player:SetAttribute("AutoSpeedMult", GameConfig.GetPassMult(data, "autoSpeedMult"))
+	-- Grants the VIP skin, and takes it back if the pass ever goes. Safe to run on every refresh:
+	-- it is idempotent, and it is the only thing that ever writes that key.
+	GameConfig.SyncVipCharacter(data)
 end
 
 -- Wearing a different character from the Journal. The body is rebuilt rather than recoloured: the
@@ -121,6 +124,10 @@ end
 -- Rebirth resets stage/zones, so re-run the same unlock + visual reset logic as evolving does
 RebirthService.OnRebirth = function(player, data)
 	ZoneService.CheckUnlocks(player, data)
+	-- A rebirth clears `data.Characters` wholesale, which takes the VIP skin with it even though the
+	-- pass is untouched. Put it back BEFORE the body is rebuilt, or a VIP who rebirths while wearing
+	-- it respawns in a skin the save no longer lists.
+	GameConfig.SyncVipCharacter(data)
 	EvolutionVisuals.ApplyStage(player, data.StageIndex, { animate = true, burst = true })
 end
 
