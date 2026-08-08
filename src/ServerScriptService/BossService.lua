@@ -2358,6 +2358,8 @@ local function spawnBoss(zone)
 			local gems = GameConfig.RollBossDiamonds(false)
 			data.Diamonds = (data.Diamonds or 0) + gems
 			SeasonPassService.Track(player, "bosses", 1)
+			-- a boss is a kill too, and counts on the same lifetime board (5.3)
+			data.Kills = (data.Kills or 0) + 1
 			markDefeated(player, data, zone.key)
 			Remotes.Notify:FireClient(player, { kind = "bossDefeated", name = boss.name, amount = boss.dnaReward, diamonds = gems })
 
@@ -2618,6 +2620,7 @@ local function spawnEventBoss()
 						local gems = GameConfig.RollBossDiamonds(true)
 						d.Diamonds = (d.Diamonds or 0) + gems
 						SeasonPassService.Track(plr, "bosses", 1)
+						d.Kills = (d.Kills or 0) + 1
 						PlayerDataService.UpdateLeaderstats(plr)
 						PlayerDataService.PushToClient(plr)
 						Remotes.Notify:FireClient(plr, { kind = "bossDefeated", name = boss.name, amount = boss.dnaReward, diamonds = gems })

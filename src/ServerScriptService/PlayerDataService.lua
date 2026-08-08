@@ -61,6 +61,11 @@ local function defaultData()
 		Pets = {}, -- list of { id, key, tier } owned pet instances
 		EquippedPetIds = {}, -- list of pet ids currently equipped (max GameConfig.MaxEquippedPets)
 		Rebirths = 0,
+		-- Lifetime creatures and bosses killed, for the global leaderboard (5.3). NOT reset by a
+		-- rebirth: a lifetime board that a rebirth zeroed would rank players by how recently they
+		-- reset rather than by how much they have played. Starts at 0 for everyone, including saves
+		-- that predate it -- there is nothing in an old save to reconstruct it from.
+		Kills = 0,
 		EvolutionShards = 0,
 		LastRewardClaim = 0,
 		RewardStreak = 0,

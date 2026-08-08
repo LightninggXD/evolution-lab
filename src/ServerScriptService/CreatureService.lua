@@ -3070,6 +3070,12 @@ local function spawnCreature(position, tierName, zone)
 			-- frequent event in the game and Track does not replicate on its own, so the counter
 			-- rides out on the push that was happening anyway.
 			SeasonPassService.Track(player, "creatures", 1)
+			-- Lifetime kill count, for the global leaderboard (5.3). Placed with the Season counter and
+			-- for the same reason: it is a single integer add on the most frequent event in the game and
+			-- it rides out on the PushToClient below rather than costing its own replication.
+			-- Deliberately NOT reset by a rebirth -- a lifetime board that a rebirth zeroed would rank
+			-- players by how recently they reset rather than by how much they have played.
+			data.Kills = (data.Kills or 0) + 1
 			PlayerDataService.UpdateLeaderstats(player)
 			PlayerDataService.PushToClient(player)
 			Remotes.Notify:FireClient(player, { kind = "creature", amount = math.floor(amount) })
