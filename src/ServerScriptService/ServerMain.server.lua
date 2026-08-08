@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local SoundLibrary = require(ReplicatedStorage.Modules.SoundLibrary)
 local PlayerDataService = require(ServerScriptService.PlayerDataService)
 local DNAService = require(ServerScriptService.DNAService)
 local ZoneBuilder = require(ServerScriptService.ZoneBuilder)
@@ -59,6 +60,12 @@ end
 -- Forest shop footprint. Build() is also what trips the BUILD_VERSION guard that regenerates
 -- zone geometry left over from an older version of this file.
 ZoneBuilder.Build()
+
+-- Before PlayerDataService, and therefore before anyone can join. The three SoundGroups have to
+-- exist on the server so they REPLICATE: every client resolves them by name and sets its own
+-- Volume on its own copy, which is what makes one player muting the music a local act. A client
+-- that arrived first and made its own would end up on a fader nothing else in the game touches.
+SoundLibrary.EnsureGroups()
 
 PlayerDataService.Init()
 DNAService.Init()

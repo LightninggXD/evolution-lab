@@ -5,6 +5,7 @@ local TweenService = game:GetService("TweenService")
 
 local GameConfig = require(RS.Modules.GameConfig)
 local PetModel = require(RS.Modules.PetModel)
+local SoundLibrary = require(RS.Modules:WaitForChild("SoundLibrary"))
 local Remotes = RS.Remotes
 
 local player = Players.LocalPlayer
@@ -5258,7 +5259,25 @@ local function refreshUI()
 end
 
 Remotes.DataUpdate.OnClientEvent:Connect(function(data)
+	local firstPayload = (currentData == nil)
 	currentData = data
+
+	-- AUDIO STARTS HERE, on the first payload, because this is the earliest point at which the client
+	-- knows both that the server is alive and what this player's saved volumes are (4.6). Init resolves
+	-- the three SoundGroups the server made, pushes the saved levels onto them and warms the asset
+	-- cache off the main thread -- without that last part the first swing of a session is silent while
+	-- the wav is still downloading.
+	if firstPayload then
+		SoundLibrary.Init(data.AudioVolumes)
+	end
+
+	-- The ambient bed follows the SAVE rather than the travel remote. ZoneTransition only fires when a
+	-- player walks a gate, so driving it from there would leave the bed silent on join, wrong after a
+	-- rebirth (which puts the save back to Forest without a transition) and stale after a respawn.
+	-- SetAmbience is a no-op when the bed is already the right one, so calling it on every push -- the
+	-- server sends one about every three seconds -- costs a table lookup and a string compare.
+	SoundLibrary.SetAmbience(data.CurrentZone)
+
 	refreshUI()
 	refreshZonesPanel()
 	refreshPetsPanel()
@@ -5342,6 +5361,12 @@ do
 end
 
 Remotes.Notify.OnClientEvent:Connect(function(payload)
+	-- ONE line, not twenty. Which sound a notification makes is decided by SoundLibrary.NOTIFY_SOUND,
+	-- a row per kind, so the branches below stay about wording and a new kind is a row rather than an
+	-- edit in here. It runs BEFORE the branches on purpose: `showNotification` and `celebratePurchase`
+	-- both tween, and the sound belongs to the moment the event arrived, not to the end of an animation.
+	SoundLibrary.PlayNotify(payload)
+
 	if payload.kind == "crit" then
 		showNotification("💥 CRITICAL! +" .. formatNumber(payload.amount) .. " DNA", Color3.fromRGB(255, 200, 60))
 	elseif payload.kind == "upgrade" then

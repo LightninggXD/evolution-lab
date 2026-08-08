@@ -107,6 +107,12 @@ local function defaultData()
 		-- in memory because a table cleared on leave hands the whole ladder back on every rejoin --
 		-- see PlaytimeGiftService. Shaped and reset by that service, so {} is the right start.
 		PlaytimeClaims = {},
+		-- Per-player audio levels (4.6): a master fader plus one per SoundGroup, each 0..1, pushed
+		-- onto the groups by SoundLibrary.Init on the client's first data payload. In the SAVE rather
+		-- than in a client-side setting for the obvious reason -- a player who turned the music off did
+		-- not ask for it back on their next join -- and it is the one field in here the client is
+		-- allowed to set directly, because nothing about it is worth anything to cheat.
+		AudioVolumes = { Master = 1, SFX = 1, UI = 1, Ambience = 1 },
 		-- Game pass ownership, as a set of pass keys. RUNTIME ONLY: PassService writes it from the
 		-- Roblox ownership API on join, and Load below clears it unconditionally, so whatever ends up
 		-- in the DataStore is never read back. Declared here only so nothing ever indexes a nil.
@@ -248,6 +254,10 @@ function PlayerDataService.Load(player)
 		-- its stamp does not match the current season/period, which covers a save that predates them
 		if type(data.Season) ~= "table" then data.Season = {} end
 		if type(data.Quests) ~= "table" then data.Quests = {} end
+		-- the top-level nil-fill above already hands a save from before 4.6 the whole default table;
+		-- this is the guard for one written as something else, and it restores every fader at once
+		-- rather than leaving a half-populated table for the client to index
+		if type(data.AudioVolumes) ~= "table" then data.AudioVolumes = def.AudioVolumes end
 		if not data.DiamondUpgrades then data.DiamondUpgrades = {} end
 		for k, v in pairs(def.DiamondUpgrades) do
 			if data.DiamondUpgrades[k] == nil then
@@ -314,7 +324,43 @@ function PlayerDataService.UpdateLeaderstats(player)
 	end
 end
 
+-- ===== THE ONE SETTING THE CLIENT IS ALLOWED TO WRITE =====
+--
+-- Every other write to `data` in this game is server-authoritative. Audio levels are the deliberate
+-- exception: a volume fader is worth nothing to cheat, and routing four numbers through a service
+-- would be ceremony around a preference.
+--
+-- Validated anyway, because "worth nothing to cheat" is not the same as "safe to store". Anything at
+-- all can come down a RemoteEvent, and this table goes into a DataStore -- unchecked, that is how a
+-- save ends up holding a megabyte of string under a key nobody looks at, or a NaN the client later
+-- multiplies a SoundGroup by. Note `value == value`: that is the NaN test, and math.clamp passes NaN
+-- straight through.
+local AUDIO_KEYS = { Master = true, SFX = true, UI = true, Ambience = true }
+
+local function handleSetAudio(player, payload)
+	local data = PlayerDataService.Cache[player.UserId]
+	if not data or type(payload) ~= "table" then return end
+	if type(data.AudioVolumes) ~= "table" then
+		data.AudioVolumes = { Master = 1, SFX = 1, UI = 1, Ambience = 1 }
+	end
+	for key, value in pairs(payload) do
+		if AUDIO_KEYS[key] and type(value) == "number" and value == value then
+			data.AudioVolumes[key] = math.clamp(value, 0, 1)
+		end
+	end
+	-- deliberately NOT pushed back to the client: it is the client's own value coming home, and a
+	-- DataUpdate landing mid-drag would fight the fader the player is still holding
+end
+
 function PlayerDataService.Init()
+	local setAudio = Remotes:FindFirstChild("SetAudioVolumes")
+	if not setAudio then
+		setAudio = Instance.new("RemoteEvent")
+		setAudio.Name = "SetAudioVolumes"
+		setAudio.Parent = Remotes
+	end
+	setAudio.OnServerEvent:Connect(handleSetAudio)
+
 	Players.PlayerAdded:Connect(function(player)
 		local data = PlayerDataService.Load(player)
 		-- nil means the player was kicked or left during the read. Everything below would index it.

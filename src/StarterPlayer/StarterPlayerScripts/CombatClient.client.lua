@@ -28,6 +28,7 @@ local Debris = game:GetService("Debris")
 local RS = game:GetService("ReplicatedStorage")
 
 local UITheme = require(RS:WaitForChild("Modules"):WaitForChild("UITheme"))
+local SoundLibrary = require(RS.Modules:WaitForChild("SoundLibrary"))
 
 local player = Players.LocalPlayer
 local INK = Color3.fromRGB(26, 18, 36)
@@ -262,6 +263,18 @@ local function playSwing(character)
 	local token = {}
 	swinging[character] = { token = token, startedAt = os.clock(), joints = joints }
 	handTrail(character, hand, isR6)
+
+	-- Positional, on the swinger's own root -- this function plays OTHER players' swings too (see
+	-- the CombatFx handler at the bottom), and a whoosh from someone fighting across the platform
+	-- must not arrive as if it came out of your own arms.
+	--
+	-- `swing` is the one entry in SoundLibrary carrying BOTH mitigations: four assets and a random
+	-- pitch. At one swing every 0.20s with the Fast Auto Attack pass, a single fixed sample stops
+	-- reading as fighting and starts reading as a stuck loop.
+	local swingRoot = character:FindFirstChild("HumanoidRootPart")
+	if swingRoot then
+		SoundLibrary.Play("swing", swingRoot)
+	end
 
 	local side = (hand == "Right") and 1 or -1
 
@@ -630,6 +643,9 @@ local function attachHealthPlate(character)
 			if lost >= 1 and health > 0 then
 				local at = head.Position + Vector3.new(0, head.Size.Y * 1.1, 0)
 				popNumber(at, "-" .. math.floor(lost + 0.5), Color3.fromRGB(255, 116, 108), false)
+				-- guarded by the same local-player check the number is, and for the same reason: every
+				-- hit every other player takes is someone else's fight reported in your ears
+				SoundLibrary.Play("hurt", head)
 			end
 		end)
 	end
@@ -1129,6 +1145,16 @@ CombatFx.OnClientEvent:Connect(function(fx)
 	end
 
 	spark(fx.p, fx.c, fx.s, kill)
+
+	-- At the impact, never on the listener: this payload is broadcast to everyone inside FX_RADIUS,
+	-- so a fight two platforms over should be faint rather than absent. Both entries carry a minGap,
+	-- which is what stops an Elite's aura killing six Swarmers on one frame from stacking six copies
+	-- of the same wav into a clipping wall.
+	if kill then
+		SoundLibrary.Play("death", fx.p)
+	elseif fx.d and fx.d > 0 then
+		SoundLibrary.Play("hit", fx.p)
+	end
 
 	if mine then
 		if kill and fx.dna then

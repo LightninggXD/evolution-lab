@@ -205,14 +205,26 @@ A tree scan for `Sound` returns **exactly one instance**, inside an unused VFX p
 click, hit, death, hatch, evolve, purchase or ambient audio anywhere in the game. This is the
 largest "doesn't feel finished" factor — above any art change.
 
+**Every asset id in `SoundLibrary` was loaded in this place before it was written down** — a `Sound`
+per candidate, `ContentProvider:PreloadAsync`, and the pair (`AssetFetchStatus == Success`,
+`TimeLength > 0`) recorded. 38 of 38 passed. This matters more than it looks: an audio asset that is
+moderated, private or simply wrong is not an error, it is **silence**, and silence is
+indistinguishable from "the code never fired".
+
+Most ids come from **ProSoundEffects**, the library Roblox licensed and gave away free. Picked over
+higher-ranking community uploads on purpose: their descriptions state what the recording *is*
+("Duration: 0.9 seconds, Category: Weapons - Misc, Axe Impact, Giant, Thuddy Hits") where a community
+upload is called `fish4`. Nobody working on this can hear the file, so a described asset is the only
+kind that can be chosen on evidence rather than on its name.
+
 | ID | | Task | Verified how |
 |---|---|---|---|
-| 4.1 | `[ ]` | `SoundLibrary` module (id table + `Play(name, part?)`) and a `Sounds` folder under `ReplicatedStorage` | `require` clean |
-| 4.2 | `[ ]` | Combat: swing, hit, crit, creature death, player hurt — fired from `CombatClient` (client-side, for the same reason its swing is: a server-created `Sound` replicates throttled and lands after the click) | heard in Play, no delay against the swing |
-| 4.3 | `[ ]` | Economy: click/collect, purchase, evolve, hatch (rarity-scaled sting), fusion, level-up | heard in Play |
-| 4.4 | `[ ]` | UI: panel open/close, button press, error buzz — through `UITheme` so every button gets it once | every existing button has it without per-call-site edits |
-| 4.5 | `[ ]` | Ambience: one looping bed per biome + the Colosseum | changes on zone transition |
-| 4.6 | `[ ]` | Volume / mute setting persisted in `data` | survives rejoin |
+| 4.1 | `[x]` | `SoundLibrary` (`ReplicatedStorage/Modules`) — id table, `Play` / `PlayLocal` / `PlayAt` / `PlayAtPosition`, three `SoundGroup`s (SFX / UI / Ambience) created **by the server** in `EnsureGroups()` so they replicate before any client asks. 2D sounds are pooled one instance per name and restarted; only positional sounds allocate. `minGap` drops a repeat inside N seconds, `vary` randomises pitch, `variants` picks one of several assets. **Three silent-failure traps are documented in the file header** — the sharpest is that `Sound.TimeLength` is 0 until the asset loads, so the obvious `Debris:AddItem(s, s.TimeLength)` destroys a sound before its first noise and works perfectly every time after | 26 entries, 0 without an id or a length, 0 bad group names; unknown name **errors** rather than returning nil; all 20 `GameConfig.Zones` map to a bed and every bed name resolves; `EnsureGroups` twice leaves **3** groups, not 6; 60 plays of `swing` drew **4** distinct assets |
+| 4.2 | `[x]` | Combat — `swing` on `playSwing` (positional, on the swinger's own root, so other players' swings arrive from where they are), `hit` / `death` on the `CombatFx` payload, `hurt` on the local player's `HealthChanged`. `swing` is the one entry carrying **both** repeat mitigations: at one swing every 0.20s with the Fast Auto Attack pass, a single fixed sample reads as a stuck loop | live in Play: firing `CombatFx` produced positional `death` and `hit` on Terrain with the right rolloff (12..130 / 12..120) and **pitch actually varying** (1.33, 1.09) |
+| 4.3 | `[x]` | Economy — routed through **one** new `SoundLibrary.PlayNotify(payload)` and a row-per-kind table, so MainUI's twenty-branch Notify handler gained a single line instead of twenty, and a new kind is a row rather than an edit. `creature` and `playerHurt` are deliberately **absent**: both are already drawn and sounded in the world, so a row here would double every kill | live: 9 notification kinds fired from the server each produced the right pooled sound in the right group. `hatch` for a **Legendary** came out at speed **0.76** and volume **0.62** — the rarity-scaled sting working, rarer being lower and bigger |
+| 4.4 | `[x]` | UI — `click` inside `UITheme`'s `Button` and `IconTile` press handlers, so every interactive surface in the game gets it in **one** edit. Fires on *down*, with the sink, not on release. **Guarded on `RunService:IsClient()`, and that guard is load-bearing**: `UITheme` is not client-only (CreatureService and BossService both require it on the server) and a server-created `Sound` replicates — unguarded, it would fire a button press into every player's ears from a server that pressed nothing | `PlayLocal("click")` verified building a pooled `UI`-group sound; `UITheme.Button` and `IconTile` both build clean in Play with SoundLibrary loaded. **Not click-tested** — `VirtualInputManager` needs a capability this environment lacks, the same limit recorded at 2.10 and 3.7 |
+| 4.5 | `[x]` | Ambience — **nine beds mapped across twenty zones + the Colosseum**, grouped by what a place *sounds* like rather than what it looks like (Moon, Mars, Galaxy and Nebula are four different pictures and one hollow spacecraft hum). Driven from `data.CurrentZone` on every `DataUpdate`, **not** from the travel remote: `ZoneTransition` only fires when a player walks a gate, so that would be silent on join, wrong after a rebirth and stale after a respawn | live: the bed for the save's real zone came up on its own and held **0.180**. Crossfade measured mid-flight — Forest **0.091** falling while Volcano **0.069** rose, Forest destroyed, Volcano settled at 0.160. Re-asking the same zone builds no second bed; an unmapped zone changes nothing and warns once; `StopAmbience` clears it |
+| 4.6 | `[~]` | Volume — `data.AudioVolumes` (Master + one fader per group), `Remotes.SetAudioVolumes`, and `SoundLibrary.Init` applying them on the client's first payload. **The one field in the save the client may write directly** (a fader is worth nothing to cheat) and therefore the one that is validated hardest. **What is missing is the player-facing control**: there is no slider or mute button in the HUD yet, so the setting works end to end but nothing in the game can move it | **verified across a real rejoin**: set to Master 0.4 / Ambience 0.2, stopped, restarted — came back 0.4 / 0.2 from the DataStore and `Init` applied them with no further input (SFX/UI **0.40**, Ambience **0.40 × 0.20 = 0.08**), so master × group composes. Validation: 99 clamped to 1, **NaN rejected** (left at its old value, and `math.clamp` passes NaN straight through — hence the explicit `value == value`), unknown keys refused |
 
 ---
 
@@ -299,6 +311,34 @@ Gathered 2026-08-07/08 while writing this plan.
 ---
 
 ## Changelog
+
+- **2026-08-08** — **Phase 4: the game has audio.** It had exactly one `Sound` in the whole place;
+  it now has 26 catalogued entries across combat, economy, interface and ambience, and **every asset
+  id was loaded in this place before it was written into the table** (38 of 38 passed). That check is
+  the phase's main reusable lesson: a bad audio id is not an error, it is silence, and silence looks
+  exactly like code that never ran.
+  Three decisions worth carrying forward. **(1) A shared module can protect MainUI's register cap.**
+  The Notify handler needed a sound per kind; putting the twenty-row table in `SoundLibrary` and
+  calling one `PlayNotify(payload)` cost MainUI **one** top-level local instead of twenty-plus, and
+  the file went 178 → **179** while taking the whole phase. **(2) The one guard that is load-bearing
+  is `RunService:IsClient()` in `UITheme`** — that module is required on the *server* by
+  CreatureService and BossService, and a server-created `Sound` replicates, so an unguarded click
+  would have played a button press in every player's ears from a server that pressed nothing.
+  **(3) `data.AudioVolumes` is the first field in the game the client may write directly**, and so
+  the first that needed real validation: 99 clamps, unknown keys are refused, and NaN is rejected
+  explicitly because `math.clamp` passes it straight through.
+  **A real bug was found only because the test read a property rather than trusted a call.** The
+  ambience bed came up correctly created, grouped, loaded, playing and looping — at Volume 0.000, and
+  still 0.000 eight seconds later; `TweenService:Create(...):Play()` had run and nothing had moved,
+  while a direct write to the same property stuck instantly. The fade is now a task that **always
+  writes its final value**, because the end state is the entire point: a bed that never reaches its
+  target is a silent soundtrack that still costs a stream, and nothing anywhere would report it.
+  A second, smaller find from the same session: `flatParent()` created its folder without looking for
+  an existing one, so a second module instance silently split the game's audio across two folders of
+  the same name.
+  **Still open in this phase: 4.6's player-facing control.** The setting persists, replicates and
+  applies across a rejoin, but there is no slider or mute button in the HUD, so nothing in the game
+  can currently move it.
 
 - **2026-08-08** — **Phase 3 is code-complete; only 3.8 (owner) is left.** The shop went 7 products
   → 17: five DNA tiers, five Diamond tiers, the Lucky Spin, the Boss Revive and two Catalyst packs,

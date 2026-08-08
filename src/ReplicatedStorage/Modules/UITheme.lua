@@ -10,7 +10,26 @@
 		Layering: Shadow(-1) < Shell(0) < Gloss(+1) < Content(+3) < Badge(+5)
 ]]
 
+local RunService = game:GetService("RunService")
+local SoundLibrary = require(script.Parent:WaitForChild("SoundLibrary"))
+
 local UITheme = {}
+
+-- THE CLICK, IN THE ONE PLACE EVERY BUTTON ALREADY GOES THROUGH.
+--
+-- Every interactive surface in the game is a UITheme.Button or a UITheme.IconTile, so Phase 4.4 is
+-- two lines here rather than a Play() beside a couple of hundred separate MouseButton1Click
+-- connections -- and a button added next year gets its click without anyone remembering to ask.
+--
+-- Guarded on IsClient, and that guard is not defensive padding: this module is NOT client-only.
+-- CreatureService and BossService both require it on the server for colours and label styling, and
+-- a Sound created on the server REPLICATES -- so an unguarded click here would fire a button press
+-- into every player's ears at once, from a server that never pressed anything.
+local function clickSound()
+	if RunService:IsClient() then
+		SoundLibrary.PlayLocal("click")
+	end
+end
 
 -- ============================================================================
 -- PALETTE
@@ -418,6 +437,9 @@ function UITheme.Button(parent, opts)
 		restPos = button.Position
 		button.Position = restPos + UDim2.new(0, 0, 0, 3)
 		press(true)
+		-- on DOWN, with the sink, not on the click release: the sound is feedback for the press and
+		-- has to land on the same frame the button visibly moves
+		clickSound()
 	end
 	local function up()
 		if not pressed then
@@ -592,6 +614,7 @@ function UITheme.IconTile(parent, opts)
 		restPos = tile.Position
 		tile.Position = restPos + UDim2.new(0, 0, 0, 3)
 		press(true)
+		clickSound()
 	end)
 	local function up()
 		if not pressed then
