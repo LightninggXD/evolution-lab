@@ -224,7 +224,7 @@ kind that can be chosen on evidence rather than on its name.
 | 4.3 | `[x]` | Economy — routed through **one** new `SoundLibrary.PlayNotify(payload)` and a row-per-kind table, so MainUI's twenty-branch Notify handler gained a single line instead of twenty, and a new kind is a row rather than an edit. `creature` and `playerHurt` are deliberately **absent**: both are already drawn and sounded in the world, so a row here would double every kill | live: 9 notification kinds fired from the server each produced the right pooled sound in the right group. `hatch` for a **Legendary** came out at speed **0.76** and volume **0.62** — the rarity-scaled sting working, rarer being lower and bigger |
 | 4.4 | `[x]` | UI — `click` inside `UITheme`'s `Button` and `IconTile` press handlers, so every interactive surface in the game gets it in **one** edit. Fires on *down*, with the sink, not on release. **Guarded on `RunService:IsClient()`, and that guard is load-bearing**: `UITheme` is not client-only (CreatureService and BossService both require it on the server) and a server-created `Sound` replicates — unguarded, it would fire a button press into every player's ears from a server that pressed nothing | `PlayLocal("click")` verified building a pooled `UI`-group sound; `UITheme.Button` and `IconTile` both build clean in Play with SoundLibrary loaded. **Not click-tested** — `VirtualInputManager` needs a capability this environment lacks, the same limit recorded at 2.10 and 3.7 |
 | 4.5 | `[x]` | Ambience — **nine beds mapped across twenty zones + the Colosseum**, grouped by what a place *sounds* like rather than what it looks like (Moon, Mars, Galaxy and Nebula are four different pictures and one hollow spacecraft hum). Driven from `data.CurrentZone` on every `DataUpdate`, **not** from the travel remote: `ZoneTransition` only fires when a player walks a gate, so that would be silent on join, wrong after a rebirth and stale after a respawn | live: the bed for the save's real zone came up on its own and held **0.180**. Crossfade measured mid-flight — Forest **0.091** falling while Volcano **0.069** rose, Forest destroyed, Volcano settled at 0.160. Re-asking the same zone builds no second bed; an unmapped zone changes nothing and warns once; `StopAmbience` clears it |
-| 4.6 | `[~]` | Volume — `data.AudioVolumes` (Master + one fader per group), `Remotes.SetAudioVolumes`, and `SoundLibrary.Init` applying them on the client's first payload. **The one field in the save the client may write directly** (a fader is worth nothing to cheat) and therefore the one that is validated hardest. **What is missing is the player-facing control**: there is no slider or mute button in the HUD yet, so the setting works end to end but nothing in the game can move it | **verified across a real rejoin**: set to Master 0.4 / Ambience 0.2, stopped, restarted — came back 0.4 / 0.2 from the DataStore and `Init` applied them with no further input (SFX/UI **0.40**, Ambience **0.40 × 0.20 = 0.08**), so master × group composes. Validation: 99 clamped to 1, **NaN rejected** (left at its old value, and `math.clamp` passes NaN straight through — hence the explicit `value == value`), unknown keys refused |
+| 4.6 | `[x]` | Volume — `data.AudioVolumes` (Master + one fader per group), `Remotes.SetAudioVolumes`, `SoundLibrary.Init` applying them on the client's first payload, and an **Audio panel** with four sliders and a mute button on a new right-column tile. **`data.AudioVolumes` is the one field in the save the client may write directly** (a fader is worth nothing to cheat) and therefore the one validated hardest. The panel applies **locally on every frame of a drag** but only **sends on release** — a remote per mouse-move frame is sixty round trips a second for a preference. Mute drives Master alone and restores the pre-mute value rather than snapping to 100% | **verified across a real rejoin**: set to Master 0.4 / Ambience 0.2, stopped, restarted — came back 0.4 / 0.2 from the DataStore and `Init` applied them with no further input (SFX/UI **0.40**, Ambience **0.40 × 0.20 = 0.08**), so master × group composes. Validation: 99 clamped to 1, **NaN rejected** (left at its old value, and `math.clamp` passes NaN straight through — hence the explicit `value == value`), unknown keys refused. Panel live: a server round-trip repainted all four rows in step (readout **and** fill width: 40%/0.40, 75%/0.75, 20%/0.20), groups landed at 0.4×0.75 = **0.30** and 0.4×0.2 = **0.08**, and muting Master flipped the button to **UNMUTE** and zeroed both groups. 11 labels, **none clipped** at the authored size. **The drag itself and the tile click are not click-tested** — same environment limit as 2.10, 3.7 and 4.4 |
 
 ---
 
@@ -336,9 +336,22 @@ Gathered 2026-08-07/08 while writing this plan.
   A second, smaller find from the same session: `flatParent()` created its folder without looking for
   an existing one, so a second module instance silently split the game's audio across two folders of
   the same name.
-  **Still open in this phase: 4.6's player-facing control.** The setting persists, replicates and
-  applies across a rejoin, but there is no slider or mute button in the HUD, so nothing in the game
-  can currently move it.
+  **4.6's control landed in the same session: Phase 4 is complete.** An Audio panel with four
+  sliders and a mute button, on a new right-column tile — and the whole panel cost MainUI **zero**
+  top-level locals (still 179), which is the third time the `;(function() … end)()` shape has paid
+  for itself.
+  **Two things the live read caught that reading the file could not.** First, the tile was placed at
+  right-column order 5 on the reasoning that the slot looked empty in the run of `columnTile` calls —
+  it is the **Season Pass tile**, which is built inside its own immediately-called block further
+  down and therefore does not appear in that list. The two overlapped exactly. It moved to order 8,
+  the genuinely empty bottom-right corner, which also fills the hole that left order 7 sitting alone.
+  *Never infer a free slot from one run of `columnTile` calls — read the live column.* Second, the
+  slider track overlapped its own percentage readout by 4px (8 once the `UIStroke`, which draws
+  outside the frame, is counted).
+  **A note for anyone probing the HUD through MCP:** the Play viewport reported **1x1**, so the
+  responsive pass had squeezed every panel to a 0.35 scale and *every* label answered
+  `TextFits = false`. That is not a layout bug and chasing it is wasted time — force the panel's
+  `UIScale` to 1 before measuring, and the same 11 labels all fit.
 
 - **2026-08-08** — **Phase 3 is code-complete; only 3.8 (owner) is left.** The shop went 7 products
   → 17: five DNA tiers, five Diamond tiers, the Lucky Spin, the Boss Revive and two Catalyst packs,
