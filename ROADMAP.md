@@ -139,8 +139,9 @@ cheap entry pass → core multipliers → premium bundle.
   than a new panel — no new registers, and no `RIGHT_COUNT` bump (it is at 7, `MainUI:756`).
 - An owned pass renders an `OWNED` state, not a buy button.
 
-All **server hooks** are in. What is left in this phase is the two passes that need new behaviour
-(Auto Hatch, VIP's non-multiplier extras) and the shop UI.
+Eight of the nine passes are **complete and verified**. What is left in this phase is Auto Hatch
+(the one pass that needs a new loop rather than a multiplier) and the two UI jobs — both of which
+touch `MainUI`, so read the register-cap rule below before starting either.
 
 | ID | | Task | Verified how |
 |---|---|---|---|
@@ -152,7 +153,7 @@ All **server hooks** are in. What is left in this phase is the two passes that n
 | 2.6 | `[x]` | ⚡ Fast Auto Attack — `CombatClient` reads an `AutoSpeedMult` **player attribute** the server stamps, so the client never learns what a pass is. Floored at `SWING_TIME` | attribute reads 1 for a non-owner; x1.70 with the pass; free auto-attack untouched |
 | 2.7 | `[x]` | 🍀 Lucky — `DNAService.GetLuckPercent`, **added in points** | luck 0 → 50; Lucky + VIP = 65 |
 | 2.8 | `[x]` | 🐾 +3 Pet Slots — `GameConfig.GetMaxEquippedPets`, stacking **on top of** the 3-level diamond upgrade (3 + 3 + 3 = 9) | pets 3 → 6 |
-| 2.9 | `[~]` | 👑 VIP — multipliers **done** (1.5x DNA, 1.5x damage, +15 luck) and the golden skin **done** (2.9a). Still to build: chat tag, golden aura, 5 diamonds a day. **Note for the aura:** the game rents a 14-`Highlight` pool and Roblox renders roughly 31 at once — a VIP aura must come out of that pool, not add a Highlight per player | multipliers and skin measured; the three extras not started |
+| 2.9 | `[x]` | 👑 VIP — multipliers, golden skin (2.9a), **golden aura, [VIP] chat tag and 5 Diamonds a day**. The aura is **particles + a PointLight, never a `Highlight`**: CreatureService rents 14 of the ~31 Roblox renders, and one Highlight per VIP in a full server would strip the outlines off every creature in the world. Aura and tag are drawn client-side off an `IsVIP` player attribute, which replicates to everyone by itself — no remote, and other players see the badge for free | daily pays 5 once, pays nothing on a second call the same day, pays again after the stamp rolls, and pays a non-VIP nothing. Aura built with emitter + light sized off `BodyScale`, **0 extra Highlights on the character**, removed and rebuilt as `IsVIP` toggles. Chat pipeline confirmed `TextChatService` |
 | 2.9a | `[x]` | The VIP skin — `GameConfig.VipCharacter` (`vip_gold`, "Golden Patron"). Registered in `CHARACTER_BY_KEY` only, **never** in `CHARACTERS_BY_STAGE`. `GetEffectiveRank` makes it score as `GetBestOwnedRank(data)`, so it is worth exactly what the wearer earned. `SyncVipCharacter` grants and **revokes** it, and is called after a rebirth too because `RebirthService` clears `data.Characters` wholesale. No `SkinMesh_vip_gold` exists and that is intended — `SkinMesh.Has()` falls back to `StageCostume` painted gold, i.e. a gold version of whatever stage you are | collection still counts 100 collectible (of 200 authored) with the skin owned; no leak into `CHARACTERS_BY_STAGE`; damage identical to the best owned skin at depths 1/3/10/20 (x1.15 / x1.45 / x2.50 / x4.00); losing the pass removes it and moves the body to a real skin |
 | 2.9b | `[ ]` | The VIP skin in the **Journal UI** — it needs a slot outside the twenty stage rows, and the register-cap rule applies | opens, shows locked for a non-VIP, selectable for a VIP |
 | 2.10 | `[ ]` | Robux panel: Products / Passes tabs, `OWNED` state, price chips | `loadstring` OK + screen capture |

@@ -111,6 +111,10 @@ PassService.OnPassesChanged = function(player, data)
 	-- Grants the VIP skin, and takes it back if the pass ever goes. Safe to run on every refresh:
 	-- it is idempotent, and it is the only thing that ever writes that key.
 	GameConfig.SyncVipCharacter(data)
+	-- Read by VipFlair on every client to draw the aura and the chat tag. An attribute rather than a
+	-- remote because it replicates to EVERYONE by itself, which is exactly what a badge needs: other
+	-- players have to see it, and that is most of what the buyer is paying for.
+	player:SetAttribute("IsVIP", GameConfig.OwnsPass(data, "VIP"))
 end
 
 -- Wearing a different character from the Journal. The body is rebuilt rather than recoloured: the

@@ -55,6 +55,40 @@ local function ownsPass(userId, passId)
 	return nil
 end
 
+-- VIP pays a few Diamonds a day. Stamped by UTC day IN THE SAVE, the same way PlaytimeGiftService
+-- does it -- and for the same reason: that ladder was re-farmable by rejoining precisely because its
+-- claim table lived in module memory and was cleared on leave. A day stamp in `data` cannot be
+-- rejoined around.
+--
+-- Diamonds and not DNA on purpose. Diamond sinks are small fixed numbers that do not ride the stage
+-- curve, so five of them is worth the same to a new player and to a stage-20 one; a daily DNA grant
+-- would have to be scaled and would still be either trivial or game-breaking at one end.
+--
+-- Public rather than local so it can be driven directly from a probe: with every passId still 0
+-- there is no way to make Refresh see VIP as owned, and "verified by reading" is not verified.
+function PassService.GrantVipDaily(player, data)
+	if not GameConfig.OwnsPass(data, "VIP") then return end
+	local pass = GameConfig.GetGamePass("VIP")
+	local amount = pass and pass.dailyDiamonds or 0
+	if amount <= 0 then return end
+
+	local today = math.floor(os.time() / 86400)
+	if data.VipDailyDay == today then return end
+	data.VipDailyDay = today
+	data.Diamonds = (data.Diamonds or 0) + amount
+
+	-- Saved immediately. A grant that lives only in memory until the next autosave is a grant the
+	-- player loses if the server goes down, and the day stamp would go with it -- so they would be
+	-- paid twice tomorrow instead, which is the same bug from the other side.
+	PlayerDataService.Save(player)
+	PlayerDataService.UpdateLeaderstats(player)
+	Remotes.Notify:FireClient(player, {
+		kind = "reward",
+		message = ("\u{1F451} VIP Daily\n+%d \u{1F48E}"):format(amount),
+		color = Color3.fromRGB(255, 205, 74),
+	})
+end
+
 -- Rebuilds `data.Passes` from the live ownership API. Returns true when every pass got a definite
 -- answer, false when at least one did not.
 --
@@ -81,6 +115,8 @@ function PassService.Refresh(player)
 	end
 
 	data.Passes = owned
+	-- Before the push, so the client's copy already carries the diamonds and the day stamp.
+	PassService.GrantVipDaily(player, data)
 	PlayerDataService.PushToClient(player)
 	if PassService.OnPassesChanged then
 		PassService.OnPassesChanged(player, data)
@@ -150,6 +186,8 @@ function PassService.Init()
 			if pass.passId == passId and passId > 0 then
 				data.Passes = data.Passes or {}
 				data.Passes[pass.key] = true
+				-- A player who buys VIP mid-session should not wait until tomorrow for the first payout.
+				PassService.GrantVipDaily(player, data)
 				-- Deliberately NOT saved. `Passes` is a runtime cache rebuilt from the ownership API
 				-- on every join (PlayerDataService clears it on load), so writing it to the DataStore
 				-- would persist a claim nothing ever reads and that must never be trusted anyway.
