@@ -1904,7 +1904,7 @@ end)
 		local data = currentData
 
 		for _, child in ipairs(scroll:GetChildren()) do
-			if child:IsA("Frame") and child.Name == "FuseRow" then
+			if child:IsA("Frame") and (child.Name == "FuseRow" or child.Name == "CatalystRow") then
 				child:Destroy()
 			end
 		end
@@ -1915,7 +1915,9 @@ end)
 			local groupKey = pet.key .. "|" .. pet.tier
 			local g = groups[groupKey]
 			if not g then
-				g = { key = pet.key, tier = pet.tier, count = 0 }
+				-- firstId is what a Catalyst is spent on: a catalyst raises ONE pet, so the row needs a
+				-- specific id, where a fuse only needs the species and tier
+				g = { key = pet.key, tier = pet.tier, count = 0, firstId = pet.id }
 				groups[groupKey] = g
 				table.insert(order, g)
 			end
@@ -1938,7 +1940,98 @@ end)
 			return a.key < b.key
 		end)
 
-		emptyLabel.Visible = (#ready == 0)
+		-- ===== THE CATALYST ROWS =====
+		--
+		-- They sit at the top of the same scroll rather than in a panel of their own, because they are
+		-- the same decision as the rows below -- "make this pet stronger" -- reached by paying instead
+		-- of by grinding. A player comparing the two should not have to hold one in their head while
+		-- they go and look at the other. (It is also the only option: this file is at Luau's 200-local
+		-- register cap and everything here lives inside one immediately-called function.)
+		--
+		-- Unlike the fuse rows, a group with ONE copy is a perfectly good catalyst target -- not needing
+		-- four copies is the entire product -- so these are filtered only by the tier cap.
+		local catalysts = {}
+		for _, g in ipairs(order) do
+			local step = GameConfig.GetCatalystNextTier(g.tier)
+			if step then
+				g.catalystTier = step
+				table.insert(catalysts, g)
+			end
+		end
+		table.sort(catalysts, function(a, b)
+			local pa = GameConfig.GetPetPower({ key = a.key, tier = a.catalystTier })
+			local pb = GameConfig.GetPetPower({ key = b.key, tier = b.catalystTier })
+			if pa ~= pb then return pa > pb end
+			return a.key < b.key
+		end)
+
+		local tokens = (currentData and currentData.TierUpTokens) or 0
+		local shown = 0
+		for _, g in ipairs(catalysts) do
+			if shown >= 6 then break end
+			shown += 1
+			local info = petDisplayInfo(g.key)
+
+			local row = Instance.new("Frame")
+			row.Name = "CatalystRow"
+			row.LayoutOrder = -1000 + shown
+			row.Size = UDim2.new(1, 0, 0, 72)
+			row.Parent = scroll
+			styleCard(row, UITheme.Color.Pink or PET_ROW_SHELL, UDim.new(0, 14), 4)
+
+			local nameLabel = Instance.new("TextLabel")
+			nameLabel.Size = UDim2.new(0, 250, 0, 28)
+			nameLabel.Position = UDim2.new(0, 16, 0, 8)
+			nameLabel.BackgroundTransparency = 1
+			nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+			nameLabel.Text = ("\u{1F308} %s %s"):format(info.emoji, info.name)
+			nameLabel.Parent = row
+			themeLabel(nameLabel, 23)
+
+			-- THE GAIN IS READ OFF GetPetBonus, NOT GetPetPower.
+			--
+			-- GetPetPower is the raw tier x rarity product, so a tier step always divides out to exactly
+			-- +100% -- which is what the fuse rows below print. The bonuses it feeds are AFFINE
+			-- (1 + 0.4*mult and so on), so a Common's real income gain from Golden to Rainbow is +44%,
+			-- not +100%. A row the player is about to pay Robux against has to quote the number they
+			-- will actually get.
+			local fromBonus = GameConfig.GetPetBonus(g.tier, info.rarity).incomeMult
+			local toBonus = GameConfig.GetPetBonus(g.catalystTier, info.rarity).incomeMult
+			local gainLabel = Instance.new("TextLabel")
+			gainLabel.Size = UDim2.new(0, 290, 0, 24)
+			gainLabel.Position = UDim2.new(0, 16, 1, -32)
+			gainLabel.BackgroundTransparency = 1
+			gainLabel.TextXAlignment = Enum.TextXAlignment.Left
+			gainLabel.RichText = true
+			gainLabel.Text = ("%s \u{2192} %s   income x%.2f \u{2192} %s"):format(
+				g.tier,
+				colorTag(g.catalystTier, GameConfig.PetTierColor[g.catalystTier] or UITheme.Color.White),
+				fromBonus,
+				colorTag(("x%.2f (+%.0f%%)"):format(toBonus, (toBonus / fromBonus - 1) * 100), READY_RIM))
+			gainLabel.Parent = row
+			themeLabel(gainLabel, 17, UITheme.Color.Cream)
+
+			local btn = Instance.new("TextButton")
+			btn.Name = "CatalystButton"
+			btn.Size = UDim2.new(0, 118, 0, 46)
+			btn.Position = UDim2.new(1, -12, 0.5, -23)
+			btn.AnchorPoint = Vector2.new(1, 0)
+			-- With no token in hand the row is not hidden, it becomes the offer. Hiding it would make a
+			-- product nobody has heard of, and the moment a player is looking at their pets is the one
+			-- moment they care what a tier is worth.
+			btn.Text = tokens > 0 and ("USE (%d)"):format(tokens) or "R$ 99"
+			btn.Parent = row
+			styleButton(btn, tokens > 0 and UITheme.Color.Green or UITheme.Color.Gold, UDim.new(1, 0))
+			btn.MouseButton1Click:Connect(function()
+				if tokens > 0 then
+					Remotes.UseTierUp:FireServer(g.firstId)
+				else
+					Remotes.PromptRobuxPurchase:FireServer("TierUp_1")
+				end
+			end)
+		end
+
+		emptyLabel.Visible = (#ready == 0 and shown == 0)
 
 		for i, g in ipairs(ready) do
 			local info = petDisplayInfo(g.key)
@@ -2021,7 +2114,7 @@ end)
 			end)
 		end
 
-		scroll.CanvasSize = UDim2.new(0, 0, 0, #ready * 78 + 40)
+		scroll.CanvasSize = UDim2.new(0, 0, 0, (#ready + shown) * 78 + 40)
 	end
 
 	hudRefs.refreshFusionPanel = refresh
@@ -2915,57 +3008,197 @@ robuxTitle.Text = "🛍️ Robux Shop"
 robuxTitle.Parent = robuxPanel
 themeLabel(robuxTitle, 30)
 
-local robuxGrid = Instance.new("Frame")
+-- A SCROLLING FRAME, NOT A FRAME. Seventeen products in a 448 x 500 panel is nine rows of two,
+-- about 1,400 px of cards in roughly 350 px of space: as a plain Frame everything below the third
+-- row simply did not exist as far as the player was concerned. The class is the only thing that
+-- changed here -- Visible still toggles the same way the tab code expects.
+local robuxGrid = Instance.new("ScrollingFrame")
 robuxGrid.Name = "RobuxGrid"
 robuxGrid.Size = UDim2.new(1, -32, 1, -80)
 robuxGrid.Position = UDim2.new(0, 16, 0, 64)
 robuxGrid.BackgroundTransparency = 1
+robuxGrid.BorderSizePixel = 0
+robuxGrid.ScrollBarThickness = 6
+robuxGrid.AutomaticCanvasSize = Enum.AutomaticSize.Y
+robuxGrid.CanvasSize = UDim2.new(0, 0, 0, 0)
 robuxGrid.Parent = robuxPanel
 
 local robuxLayout = Instance.new("UIGridLayout")
-robuxLayout.CellSize = UDim2.new(0, 196, 0, 130)
-robuxLayout.CellPadding = UDim2.new(0, 12, 0, 12)
+robuxLayout.CellSize = UDim2.new(0, 192, 0, 180)
+robuxLayout.CellPadding = UDim2.new(0, 10, 0, 12)
 robuxLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 robuxLayout.SortOrder = Enum.SortOrder.LayoutOrder
 robuxLayout.Parent = robuxGrid
 
-for i, product in ipairs(GameConfig.RobuxProducts) do
-	local card = Instance.new("Frame")
-	card.Name = product.key
-	card.LayoutOrder = i
-	card.Parent = robuxGrid
-	-- shell colour follows what the pack actually pays out, so the three pairs read apart
-	local accent = UITheme.Color.Blue
-	if product.grantPotions then
-		accent = UITheme.Color.Green
-	elseif product.grantDiamonds then
-		accent = UITheme.Color.SkyBlue
+-- ===== THE PRODUCT TILES =====
+--
+-- Inside an immediately-called function for the reason stated at the pass shop below: this file is
+-- at Luau's 200-local register cap, and the tiles need per-card handles to update later. Everything
+-- kept alive escapes as one function on hudRefs.
+;(function()
+	-- [key] = the label under the name, the one thing on a tile whose text depends on the player
+	local amountLabels = {}
+
+	-- ===== TODAY'S PICK =====
+	--
+	-- Derived from the calendar day, so it is the same product for every player on every server
+	-- without a byte of server state, and it genuinely changes at midnight UTC. That honesty is the
+	-- reason it is a PICK and not a "limited offer": nothing here is discounted and nothing expires,
+	-- so a countdown to a price going up would be a lie told to hurry someone. What the timer counts
+	-- down to is exactly what it says -- when the highlight moves to something else.
+	local function pickIndex()
+		return (math.floor(os.time() / 86400) % #GameConfig.RobuxProducts) + 1
 	end
-	styleCard(card, accent, UDim.new(0, 16), 4)
 
-	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Name = "NameLabel"
-	nameLabel.Size = UDim2.new(1, -16, 0, 50)
-	nameLabel.Position = UDim2.new(0, 8, 0, 8)
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.TextWrapped = true
-	nameLabel.Text = product.emoji .. " " .. product.name
-	nameLabel.Parent = card
-	themeLabel(nameLabel, 24)
+	for i, product in ipairs(GameConfig.RobuxProducts) do
+		local card = Instance.new("Frame")
+		card.Name = product.key
+		card.LayoutOrder = i
+		card.Parent = robuxGrid
+		-- shell colour follows what the tile actually pays out, so the groups read apart at a glance
+		local accent = UITheme.Color.Blue
+		if product.grantPotions then
+			accent = UITheme.Color.Green
+		elseif product.grantDiamonds then
+			accent = UITheme.Color.SkyBlue
+		elseif product.grantBossRevives then
+			accent = UITheme.Color.Red
+		elseif product.grantTierUps then
+			accent = UITheme.Color.Pink
+		elseif product.grantSpin then
+			accent = UITheme.Color.Purple
+		elseif product.grantSeasonPremium then
+			accent = UITheme.Color.Gold
+		end
+		styleCard(card, accent, UDim.new(0, 16), 4)
 
-	local buyButton = Instance.new("TextButton")
-	buyButton.Name = "BuyButton"
-	buyButton.Size = UDim2.new(1, -20, 0, 46)
-	buyButton.Position = UDim2.new(0.5, 0, 1, -14)
-	buyButton.AnchorPoint = Vector2.new(0.5, 1)
-	buyButton.Text = "Buy with R$"
-	buyButton.Parent = card
-	styleButton(buyButton, UITheme.Color.Green, UDim.new(1, 0))
+		-- THE ICON IS THE TILE. At 24 px the emoji was punctuation in front of a name; the fastest
+		-- thing to recognise in a shop is what kind of thing you are looking at, and that is the icon.
+		local icon = Instance.new("TextLabel")
+		icon.Name = "Icon"
+		-- 60 px of BOX for what will draw as roughly half that in GLYPH. TextScaled fits the font size
+		-- to the line box, and an emoji's line box is mostly padding -- a 40 px box drew an icon barely
+		-- larger than the name under it, which was the whole thing this was meant to fix. Measured off
+		-- a capture rather than guessed.
+		icon.Size = UDim2.new(1, -16, 0, 60)
+		icon.Position = UDim2.new(0, 8, 0, 8)
+		icon.BackgroundTransparency = 1
+		icon.Text = product.emoji
+		icon.Parent = card
+		themeLabel(icon, 40)
 
-	buyButton.MouseButton1Click:Connect(function()
-		Remotes.PromptRobuxPurchase:FireServer(product.key)
-	end)
-end
+		local nameLabel = Instance.new("TextLabel")
+		nameLabel.Name = "NameLabel"
+		-- TWO LINES OF ROOM, and it is not cosmetic. themeLabel floors text at 14 px
+		-- (UITextSizeConstraint.MinTextSize), so TextScaled cannot rescue a wrapped name from a box
+		-- shorter than two lines -- it clips instead. "Small DNA Pack" wraps, and at 24 px tall the
+		-- second line was cut in half on every DNA tile.
+		nameLabel.Size = UDim2.new(1, -12, 0, 32)
+		nameLabel.Position = UDim2.new(0, 6, 0, 68)
+		nameLabel.BackgroundTransparency = 1
+		nameLabel.TextWrapped = true
+		nameLabel.Text = product.name
+		nameLabel.Parent = card
+		themeLabel(nameLabel, 17)
+
+		-- The second line: what you actually receive. Blank for the products whose name already says
+		-- it (a diamond count is a diamond count), filled in per player for the DNA packs, whose
+		-- payout is scaled to the buyer's stage and is therefore unknowable at build time.
+		local amount = Instance.new("TextLabel")
+		amount.Name = "AmountLabel"
+		amount.Size = UDim2.new(1, -12, 0, 18)
+		amount.Position = UDim2.new(0, 6, 0, 100)
+		amount.BackgroundTransparency = 1
+		amount.Text = ""
+		amount.Parent = card
+		themeLabel(amount, 16, UITheme.Color.Cream)
+		amountLabels[product.key] = amount
+
+		-- THE PRICE IS ON THE BUTTON. Every tile used to read "Buy with R$", which made a 49 and a 999
+		-- look like the same decision and forced the player through a Roblox modal to find out which
+		-- was which.
+		local buyButton = Instance.new("TextButton")
+		buyButton.Name = "BuyButton"
+		buyButton.Size = UDim2.new(1, -20, 0, 40)
+		buyButton.Position = UDim2.new(0.5, 0, 1, -8)
+		buyButton.AnchorPoint = Vector2.new(0.5, 1)
+		buyButton.Text = product.price and ("R$ " .. product.price) or "Buy with R$"
+		buyButton.Parent = card
+		styleButton(buyButton, UITheme.Color.Green, UDim.new(1, 0))
+
+		buyButton.MouseButton1Click:Connect(function()
+			Remotes.PromptRobuxPurchase:FireServer(product.key)
+		end)
+
+		-- THE RIBBON, AND WHY NO TILE CLAIMS TO BE POPULAR.
+		--
+		-- "MOST POPULAR" is the standard ribbon in this genre and it is a claim about other players
+		-- that nothing in this game measures. What is measurable is value: GetTierBonusPct divides
+		-- this tier's payout per Robux by the cheapest tier's, so "+48% BONUS" is arithmetic done on
+		-- the table three hundred lines up rather than a sentence somebody typed.
+		local ribbonText = product.ribbon
+		if not ribbonText then
+			local bonus = GameConfig.GetTierBonusPct(product)
+			if bonus > 0 then ribbonText = ("+%d%% BONUS"):format(bonus) end
+		end
+		if ribbonText then
+			local ribbon = Instance.new("TextLabel")
+			ribbon.Name = "Ribbon"
+			ribbon.Size = UDim2.new(1, -20, 0, 20)
+			ribbon.Position = UDim2.new(0.5, 0, 0, -6)
+			ribbon.AnchorPoint = Vector2.new(0.5, 0)
+			ribbon.BackgroundColor3 = product.ribbon and UITheme.Color.Gold or UITheme.Color.Purple
+			ribbon.BorderSizePixel = 0
+			ribbon.Text = ribbonText
+			ribbon.ZIndex = card.ZIndex + UITheme.Z.Badge
+			ribbon.Parent = card
+			corner(ribbon, UDim.new(0, 8))
+			themeLabel(ribbon, 14)
+			ribbon.ZIndex = card.ZIndex + UITheme.Z.Badge
+		end
+
+		-- the pick's own marker, drawn over the tile rather than in place of the ribbon so a tile can
+		-- be both the best value and today's pick without one of the two facts disappearing
+		if i == pickIndex() then
+			local star = Instance.new("TextLabel")
+			star.Name = "PickStar"
+			star.Size = UDim2.new(0, 30, 0, 30)
+			star.Position = UDim2.new(0, 2, 0, 12)
+			star.BackgroundTransparency = 1
+			star.Text = "\u{2B50}"
+			star.ZIndex = card.ZIndex + UITheme.Z.Badge
+			star.Parent = card
+			themeLabel(star, 24)
+		end
+	end
+
+	-- Re-run on every data push, which is also what makes the countdown in the title tick without a
+	-- loop of its own -- the server pushes about every three seconds.
+	hudRefs.refreshRobuxShop = function()
+		for _, product in ipairs(GameConfig.RobuxProducts) do
+			local label = amountLabels[product.key]
+			if label then
+				if product.grantDNA and currentData then
+					-- WHAT THIS PACK IS WORTH TO YOU, not what it was authored as. The table stores
+					-- "1,000" meaning a thousand stage-one clicks; at stage 14 the same pack pays out
+					-- billions, and a tile that said "1,000 DNA" there would read as an insult.
+					label.Text = "+" .. formatNumber(GameConfig.ScaleReward(product.grantDNA, currentData)) .. " DNA"
+				elseif product.grantPotions then
+					label.Text = ("%d potions"):format(product.grantPotions)
+				elseif product.grantTierUps then
+					label.Text = ("%d catalyst%s"):format(product.grantTierUps, product.grantTierUps > 1 and "s" or "")
+				elseif product.grantSpin then
+					label.Text = "1 spin of the wheel"
+				elseif product.grantBossRevives then
+					label.Text = "keep your boss damage"
+				end
+			end
+		end
+		local left = 86400 - (os.time() % 86400)
+		robuxTitle.Text = ("\u{1F6CD}\u{FE0F} Robux Shop   \u{2B50} pick resets in %dh %02dm"):format(left // 3600, (left % 3600) // 60)
+	end
+	hudRefs.refreshRobuxShop()
+end)()
 
 -- ===== THE PASS SHOP: A SECOND TAB, NOT A SECOND PANEL =====
 --
@@ -3106,6 +3339,9 @@ end
 	productsTab.MouseButton1Click:Connect(function() selectTab(false) end)
 	passesTab.MouseButton1Click:Connect(function() selectTab(true) end)
 	selectTab(false)
+	-- escapes so the HUD's currency `+` buttons can open the panel on the right tab; a player who
+	-- taps `+` on Diamonds and lands on the pass list has been answered with a different question
+	hudRefs.selectRobuxTab = selectTab
 
 	-- OWNED IS A STATE, NOT A MESSAGE. A pass the player already holds must stop looking like
 	-- something to buy -- leaving a live price on it is how a second purchase gets attempted and how
@@ -3127,6 +3363,43 @@ end
 			end
 		end
 	end
+end)()
+
+-- ===== THE `+` ON THE CURRENCY CAPSULES =====
+--
+-- Twenty lines, and the highest-leverage conversion change in this file: the shop was reachable
+-- only from a tile in the right-hand column, i.e. never at the moment a player discovers they are
+-- short. The `+` sits on the number that just came up short.
+--
+-- It has to be built HERE, after robuxPanel exists, rather than beside the pills 2,500 lines up:
+-- `robuxPanel` is a local declared later in the file, so a closure written up there could not see
+-- it. Inside an immediately-called function, like everything else added to this file -- the register
+-- cap does not care that these are only two small buttons.
+;(function()
+	local function addPlus(pill, tone)
+		-- the pill is a horizontal UIListLayout of Icon (40 wide) + Value; the value gives up the room
+		local value = pill:FindFirstChild("Value")
+		if not value then return end
+		value.Size = UDim2.new(1, -84, 1, 0)
+
+		local plus = Instance.new("TextButton")
+		plus.Name = "PlusButton"
+		plus.Size = UDim2.new(0, 32, 0, 32)
+		plus.LayoutOrder = 3
+		plus.Text = "+"
+		plus.Parent = pill
+		styleButton(plus, tone, UDim.new(1, 0))
+		plus.MouseButton1Click:Connect(function()
+			toggleOnly(robuxPanel)
+			-- always the Packs tab: `+` on a currency is a request for that currency, never for a pass
+			if hudRefs.selectRobuxTab then hudRefs.selectRobuxTab(false) end
+		end)
+	end
+
+	addPlus(dnaPill, UITheme.Color.Green)
+	addPlus(diamondPill, UITheme.Color.SkyBlue)
+	-- deliberately NOT on the Shard pill: Evolution Shards are a rebirth reward and are not sold for
+	-- Robux anywhere, so a `+` there would open a shop that has nothing to answer it with
 end)()
 
 robuxButton.MouseButton1Click:Connect(function()
@@ -4992,6 +5265,8 @@ Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 	if hudRefs.refreshFusionPanel then hudRefs.refreshFusionPanel() end
 	if hudRefs.refreshSeasonPanel then hudRefs.refreshSeasonPanel() end
 	if hudRefs.refreshPassShop then hudRefs.refreshPassShop() end
+	-- the DNA tiles are priced in the player's own stage, so they move when the player does
+	if hudRefs.refreshRobuxShop then hudRefs.refreshRobuxShop() end
 	refreshRebirthPanel()
 	refreshRewardPanel()
 	refreshMasteryPanel()
@@ -5169,6 +5444,16 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 			remaining // 60, remaining % 60), (potion and potion.color) or Color3.fromRGB(120, 255, 180))
 	elseif payload.kind == "playtimeGift" then
 		showNotification("⏰ Playtime Gift (" .. payload.minutes .. " min)! Reward claimed!", Color3.fromRGB(255, 150, 90))
+	elseif payload.kind == "bossRevive" then
+		celebratePurchase(("\u{2694}\u{FE0F} REVIVED!\n%s is back to %d%%"):format(payload.name or "The boss", payload.pct or 0),
+			UITheme.Color.Gold)
+	elseif payload.kind == "spin" then
+		-- The server has already rolled and already paid; this is the reveal, not the roll. The two
+		-- rarest segments come up gold because landing one has to look different from landing the
+		-- 34% one, or the wheel reads the same every time and stops being a wheel.
+		local rare = (payload.segmentKey == "jackpot" or payload.segmentKey == "vault")
+		celebratePurchase(("🎡 LUCKY SPIN!\n%s %s"):format(payload.emoji or "", payload.name or ""),
+			rare and UITheme.Color.Gold or Color3.fromRGB(120, 200, 255))
 	elseif payload.kind == "robuxPurchase" then
 		celebratePurchase("🛍️ Purchased!\n" .. payload.name, Color3.fromRGB(90, 220, 130))
 	elseif payload.kind == "reward" then

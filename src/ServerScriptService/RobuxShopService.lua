@@ -6,8 +6,49 @@ local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local SeasonPassService = require(script.Parent.SeasonPassService)
+-- for the Lucky Spin only: the wheel is bent by the buyer's own luck, and GetLuckPercent is the one
+-- function that knows what that is. No cycle -- DNAService requires PlayerDataService and PetService
+-- and neither of those reaches back here.
+local DNAService = require(script.Parent.DNAService)
 
 local RobuxShopService = {}
+
+-- ===== THE LUCKY SPIN, GRANTED SERVER-SIDE OFF THE PLAYER'S OWN LUCK =====
+--
+-- The client never sees the wheel turn until the server has already decided. That ordering is the
+-- whole security model of a paid gamble: if the client picked the segment and told the server, every
+-- spin would be a jackpot within a day of launch.
+--
+-- DNA is SCALED and everything else is not, for exactly the reasons the grant block below states --
+-- a DNA figure is authored in stage-one clicks and has to be converted to where the buyer stands,
+-- while diamonds, shards and potions are fixed-size objects that do not ride the stage curve.
+local function applySpin(player, data)
+	local segment = GameConfig.RollSpin(DNAService.GetLuckPercent(data))
+
+	if segment.dna then
+		data.DNA += GameConfig.ScaleReward(segment.dna, data)
+	end
+	if segment.diamonds then
+		data.Diamonds = (data.Diamonds or 0) + segment.diamonds
+	end
+	if segment.shards then
+		data.EvolutionShards = (data.EvolutionShards or 0) + segment.shards
+	end
+	if segment.potions then
+		GameConfig.AddPotions(data, segment.potionId, segment.potions)
+	end
+
+	return segment
+end
+
+local function notifySpin(player, segment)
+	Remotes.Notify:FireClient(player, {
+		kind = "spin",
+		segmentKey = segment.key,
+		emoji = segment.emoji,
+		name = segment.name,
+	})
+end
 
 local function getProductByPurchaseId(productId)
 	for _, p in ipairs(GameConfig.RobuxProducts) do
@@ -70,10 +111,50 @@ local function processReceipt(receiptInfo)
 	if product.grantSeasonPremium then
 		SeasonPassService.GrantPremium(player)
 	end
+	local spinSegment
+	if product.grantSpin then
+		spinSegment = applySpin(player, data)
+	end
+	-- A COUNT, not an event, and deliberately NOT put through ScaleReward: a revive is one fixed-size
+	-- object like a potion bottle, not a currency riding the stage curve.
+	if product.grantBossRevives then
+		data.BossRevives = (data.BossRevives or 0) + product.grantBossRevives
+	end
+	-- same shape, same reasoning: a counted charge, spent later by PetService.HandleTierUp
+	if product.grantTierUps then
+		data.TierUpTokens = (data.TierUpTokens or 0) + product.grantTierUps
+	end
+
+	-- SPEND IT NOW IF THERE IS SOMETHING TO SPEND IT ON. A buyer who paid in the middle of a fight
+	-- expects the boss's health back, not an item in a menu -- so the receipt landing is itself the
+	-- trigger. When it lands too late (the fight is over, the boss respawned, nothing has healed)
+	-- TryConsumeRevive spends nothing and the charge simply waits, which is the entire reason this
+	-- product is a counted charge instead of a moment. Required lazily: BossService builds folders and
+	-- remotes at module load, and this file has no business forcing that during a receipt.
+	local announced = false
+	if product.grantBossRevives then
+		local BossService = require(script.Parent.BossService)
+		if BossService.TryConsumeRevive(player) then
+			-- TryConsumeRevive has already told the player what happened to their boss
+			announced = true
+		else
+			Remotes.Notify:FireClient(player, {
+				kind = "reward",
+				message = ("\u{2694}\u{FE0F} Boss Revive saved -- %d ready for your next attempt."):format(data.BossRevives),
+			})
+			announced = true
+		end
+	end
 
 	PlayerDataService.UpdateLeaderstats(player)
 	PlayerDataService.PushToClient(player)
-	Remotes.Notify:FireClient(player, { kind = "robuxPurchase", name = product.name })
+	-- The spin announces ITSELF, and only itself. Firing the generic "Purchased!" card as well would
+	-- stack two celebrations on one click and bury the one the player actually paid to see.
+	if spinSegment then
+		notifySpin(player, spinSegment)
+	elseif not announced then
+		Remotes.Notify:FireClient(player, { kind = "robuxPurchase", name = product.name })
+	end
 
 	-- SAVED BEFORE IT IS ACKNOWLEDGED, and only acknowledged if the save actually landed.
 	--
@@ -89,6 +170,21 @@ local function processReceipt(receiptInfo)
 	end
 
 	return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+
+-- PUBLIC ON PURPOSE, for two reasons that both outlive this line. ROADMAP 5.6 wants a free daily
+-- spin, which is this same wheel reached by a different trigger and must not become a second copy
+-- of the grant logic. And while every productId is still 0 there is no way to make a real receipt
+-- arrive, so without a public entry point the paid path could only be READ, never run -- which the
+-- ROADMAP does not accept as verification. Grants and announces one spin; returns the segment.
+function RobuxShopService.GrantSpin(player)
+	local data = PlayerDataService.Get(player)
+	if not data then return nil end
+	local segment = applySpin(player, data)
+	PlayerDataService.UpdateLeaderstats(player)
+	PlayerDataService.PushToClient(player)
+	notifySpin(player, segment)
+	return segment
 end
 
 function RobuxShopService.Init()

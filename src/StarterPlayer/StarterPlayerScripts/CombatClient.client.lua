@@ -1012,6 +1012,94 @@ local function showBossBar(name, hp, max)
 	end)
 end
 
+-- ===== THE REVIVE OFFER =====
+--
+-- It lives in THIS file and not in MainUI for two reasons. The boss bar's ScreenGui above is built
+-- with ResetOnSpawn = false, which is exactly the lifetime a "you died -- want your progress back?"
+-- card needs: it has to survive the death that triggered it and the respawn that follows. And this
+-- file is nowhere near Luau's 200-local register cap that MainUI is pinned against.
+--
+-- The card never decides anything. The server has already checked that a snapshot exists, that it
+-- is inside the TTL and that the boss is still standing; pressing the button either spends a charge
+-- the player owns or opens the purchase prompt, and the server re-checks all of it either way.
+local reviveCard, reviveLabel, reviveButton
+local reviveHeld = 0
+-- Resolved once, here, rather than indexed inside the click handler: UseBossRevive is created by
+-- BossService at module load and PromptRobuxPurchase by the Remotes folder itself, so both exist
+-- long before a player can die -- but a nil index inside a button handler is a silent dead button,
+-- and a warn on boot is a bug someone can actually see.
+local remotesFolder = RS:WaitForChild("Remotes")
+local useReviveRemote = remotesFolder:WaitForChild("UseBossRevive", 30)
+local promptBuyRemote = remotesFolder:WaitForChild("PromptRobuxPurchase", 30)
+if not useReviveRemote then
+	warn("[CombatClient] Remotes.UseBossRevive never appeared -- the revive offer is disabled")
+end
+-- mirrors GameConfig.BossReviveTTL, read from the module so the card and the server cannot disagree
+-- about how long an offer is good for
+local REVIVE_TTL = require(RS:WaitForChild("Modules"):WaitForChild("GameConfig")).BossReviveTTL
+
+local function hideReviveOffer()
+	if reviveCard then reviveCard.Visible = false end
+end
+
+local function showReviveOffer(name, pct, held)
+	ensureBossBar()
+	reviveHeld = held or 0
+	if not reviveCard then
+		-- parented to the ScreenGui rather than to the bar's holder: the bar hides itself a few
+		-- seconds after the last blow, and this has to outlive it
+		local gui = bossBar.Parent
+		reviveCard = Instance.new("Frame")
+		reviveCard.Name = "ReviveOffer"
+		reviveCard.Size = UDim2.new(0, 520, 0, 96)
+		reviveCard.Position = UDim2.new(0.5, 0, 0, 182)
+		reviveCard.AnchorPoint = Vector2.new(0.5, 0)
+		reviveCard.BackgroundTransparency = 1
+		reviveCard.Parent = gui
+
+		reviveLabel = Instance.new("TextLabel")
+		reviveLabel.Size = UDim2.new(1, 0, 0, 30)
+		reviveLabel.BackgroundTransparency = 1
+		reviveLabel.Font = UITheme.Font.Display
+		reviveLabel.TextScaled = true
+		reviveLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		reviveLabel.Parent = reviveCard
+
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = 3
+		stroke.Color = INK
+		stroke.LineJoinMode = Enum.LineJoinMode.Round
+		stroke.Parent = reviveLabel
+
+		reviveButton = UITheme.Button(reviveCard, {
+			name = "ReviveButton",
+			size = UDim2.new(0, 300, 0, 54),
+			position = UDim2.new(0.5, 0, 1, 0),
+			anchorPoint = Vector2.new(0.5, 1),
+			color = UITheme.Color.Gold,
+			text = "REVIVE",
+		})
+		reviveButton.MouseButton1Click:Connect(function()
+			hideReviveOffer()
+			if reviveHeld > 0 then
+				if useReviveRemote then useReviveRemote:FireServer() end
+			elseif promptBuyRemote then
+				promptBuyRemote:FireServer("BossRevive")
+			end
+		end)
+	end
+
+	reviveLabel.Text = ("\u{2620}\u{FE0F} %s was at %d%%"):format(name, pct)
+	UITheme.SetText(reviveButton, reviveHeld > 0
+		and ("\u{2694}\u{FE0F} REVIVE  (%d left)"):format(reviveHeld)
+		or "\u{2694}\u{FE0F} REVIVE BOSS")
+	reviveCard.Visible = true
+
+	-- The offer expires with the snapshot behind it. A button that is still on screen after the
+	-- server has forgotten why is a button that answers "nothing to restore".
+	task.delay(REVIVE_TTL, hideReviveOffer)
+end
+
 CombatFx.OnClientEvent:Connect(function(fx)
 	if type(fx) ~= "table" then return end
 	-- handled before the Vector3 check: a bar update carries no position, it is not a hit at a place
@@ -1019,6 +1107,12 @@ CombatFx.OnClientEvent:Connect(function(fx)
 		if type(fx.hp) == "number" and type(fx.max) == "number" then
 			showBossBar(tostring(fx.name or "Boss"), fx.hp, fx.max)
 		end
+		-- a bar update means the fight is live again, so a stale offer card comes down
+		hideReviveOffer()
+		return
+	end
+	if fx.k == "reviveOffer" then
+		showReviveOffer(tostring(fx.name or "The boss"), tonumber(fx.pct) or 0, tonumber(fx.held) or 0)
 		return
 	end
 	if typeof(fx.p) ~= "Vector3" then return end

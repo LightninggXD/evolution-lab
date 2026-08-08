@@ -296,6 +296,25 @@ GameConfig.BossStationZ = -368
 -- builders that place two or three parts around one scatter point.
 GameConfig.BossStationClear = 178
 
+-- ===== BOSS REVIVE =====
+--
+-- What the product actually sells, stated plainly because the frustration it addresses is easy to
+-- describe wrongly. A boss nobody has touched for BOSS_REGEN_DELAY (14 s) heals fully over
+-- BOSS_REGEN_TIME (20 s). The walk back from a respawn is about 31 s -- Roblox's 5 s respawn, the
+-- 0.35 s ZoneService wait, then ~858 studs from the arrival gate at Z 490 to the station at Z -368
+-- at the base walk speed. So a player does NOT reliably lose everything; they typically come back
+-- to a boss that has healed most, not all, of what they took off it. The pitch is "keep your
+-- progress", never "you always lose everything", and the code should not pretend otherwise.
+--
+-- TTL: how long the snapshot of your best health against a boss stays spendable. It has to cover a
+-- Robux purchase modal, the respawn and the walk back, and it has to be short enough that nobody
+-- banks an hour-old fight. Three minutes clears the first with room and fails the second.
+GameConfig.BossReviveTTL = 180
+-- After a revive lands, regen is held off for this long REGARDLESS of the 14 s idle delay -- because
+-- the buyer is usually still walking back at the moment it lands, and a revive that healed away
+-- while they crossed the street would be the same complaint with a receipt attached.
+GameConfig.BossReviveFreeze = 30
+
 -- The bosses were tuned as a speed bump on the way to the next portal, and at 18-60 studs they
 -- read as a big mob rather than the raid monster the art brief asks for. Applied as one pass over
 -- the finished table instead of retyping twenty rows, which is also the only way the three curves
@@ -692,6 +711,27 @@ function GameConfig.GetPetBonus(tier, rarity)
 		dnaMult = 1 + (base.dnaMult - 1) * mult,
 		damageMult = 1 + (base.damageMult - 1) * mult,
 	}
+end
+
+-- The highest tier a paid Rainbow Catalyst may PRODUCE. Fusing is unaffected and still reaches
+-- Celestial for free -- this caps the bought shortcut, not the ladder. One constant, read by both
+-- the server that validates the spend and the panel that decides which pets to offer, so the two
+-- can never disagree about what is buyable. See the product comment in RobuxProducts for why the
+-- cap exists at all: equipped bonuses multiply across up to nine slots.
+GameConfig.CatalystMaxTier = "Rainbow"
+
+-- The next tier a catalyst is allowed to take this pet to, or nil if there is none -- either because
+-- the pet is already at the top of the whole ladder, or because the step would cross the cap above.
+function GameConfig.GetCatalystNextTier(tier)
+	local nextTier = GameConfig.GetNextTier(tier)
+	if not nextTier then return nil end
+	local capIndex, nextIndex
+	for i, t in ipairs(GameConfig.PetTiers) do
+		if t == GameConfig.CatalystMaxTier then capIndex = i end
+		if t == nextTier then nextIndex = i end
+	end
+	if not (capIndex and nextIndex) or nextIndex > capIndex then return nil end
+	return nextTier
 end
 
 function GameConfig.GetNextTier(tier)
@@ -1176,6 +1216,78 @@ function GameConfig.GetMysteryOddsText()
 	return table.concat(parts, "   ")
 end
 
+-- ===== THE LUCKY SPIN =====
+--
+-- One spin, eight outcomes, and which one it lands on IS the product. It sits on the shelf beside
+-- the flat DNA packs deliberately: the pack is the safe buy and the wheel is the gamble, so the
+-- wheel's EXPECTED DNA IS SET BELOW the pack at the same price (2,260 against 2,500 authored
+-- stage-one clicks). What the buyer is paying that difference for is the tail -- diamonds, potions,
+-- shards and a jackpot that no pack sells at any price. A wheel whose average beat the guaranteed
+-- product would simply retire the guaranteed product, and then there would be one product again.
+--
+-- The weights sum to exactly 100, so at zero luck a weight IS its percentage. That is not a
+-- coincidence to preserve for its own sake -- GetSpinOddsText divides by the real total either way
+-- -- but while it holds, the table can be read as the odds board without doing any arithmetic.
+--
+-- ORDERED COMMON FIRST, and the order is load-bearing: luck lifts the later segments, the same
+-- shape RollMysteryPotion uses, so the luck economy reaches this wheel too. Move a row and you have
+-- changed what luck does to it.
+GameConfig.SpinWheel = {
+	{ key = "dna_splash", emoji = "\u{1F9EC}", name = "DNA Splash",     weight = 34,  dna = 2000 },
+	{ key = "potion",     emoji = "\u{1F9EA}", name = "Potion",         weight = 24,  potionId = "dna_m", potions = 1 },
+	{ key = "dna_surge",  emoji = "\u{1F9EC}", name = "DNA Surge",      weight = 18,  dna = 6000 },
+	{ key = "diamonds",   emoji = "\u{1F48E}", name = "25 Diamonds",    weight = 12,  diamonds = 25 },
+	{ key = "shards",     emoji = "\u{1F31F}", name = "25 Shards",      weight = 7,   shards = 25 },
+	{ key = "luck_l",     emoji = "\u{1F340}", name = "2x Large Luck",  weight = 3.5, potionId = "luck_l", potions = 2 },
+	{ key = "vault",      emoji = "\u{1F48E}", name = "120 Diamonds",   weight = 1,   diamonds = 120 },
+	{ key = "jackpot",    emoji = "\u{1F308}", name = "JACKPOT",        weight = 0.5, dna = 100000, diamonds = 60 },
+}
+
+-- How hard luck bends the wheel. NORMALISED BY SEGMENT COUNT -- (i-1)/(n-1), where
+-- RollMysteryPotion uses a raw (i-1) -- and that difference is the whole reason this constant
+-- exists. That table has three rows and this one has eight, so under a raw index the same luck
+-- would bend this wheel nearly three times as hard, and adding a ninth segment one day would
+-- silently make every existing player luckier without a line of code changing. Normalised, the
+-- strength of luck is a property of this constant alone.
+--
+-- At the game's worst honest luck (385%, measured in the ROADMAP 2.12 balance pass) the jackpot
+-- moves 0.5% -> 1.4% and the commonest segment 34% -> 17%. Luck is worth having here and does not
+-- take the wheel over.
+GameConfig.SpinLuckSpread = 1.2
+
+-- Returns the winning SEGMENT TABLE, not an index or a key -- the caller grants straight off it, so
+-- there is no second lookup that could disagree with the roll.
+function GameConfig.RollSpin(luckPercent)
+	local wheel = GameConfig.SpinWheel
+	local n = #wheel
+	local weights, total = {}, 0
+	for i, seg in ipairs(wheel) do
+		-- i = 1 is the commonest segment and is never boosted; what luck buys is the step up the list
+		local spread = (n > 1) and ((i - 1) / (n - 1)) or 0
+		local w = seg.weight * (1 + ((luckPercent or 0) / 100) * spread * GameConfig.SpinLuckSpread)
+		weights[i] = w
+		total += w
+	end
+	local pick = math.random() * total
+	for i, seg in ipairs(wheel) do
+		pick -= weights[i]
+		if pick <= 0 then return seg end
+	end
+	return wheel[1]
+end
+
+-- The odds board, built from the same table the roll reads -- the rule the Mystery shop already
+-- follows. A gamble the player cannot see the odds of is not a product, it is a trick.
+function GameConfig.GetSpinOddsText()
+	local total = 0
+	for _, seg in ipairs(GameConfig.SpinWheel) do total += seg.weight end
+	local parts = {}
+	for _, seg in ipairs(GameConfig.SpinWheel) do
+		table.insert(parts, ("%s %s %.4g%%"):format(seg.emoji, seg.name, seg.weight / total * 100))
+	end
+	return table.concat(parts, "   ")
+end
+
 -- ===== DIAMONDS =====
 -- Premium currency, separate from DNA and Evolution Shards. Earned from Daily Rewards
 -- (Day 6+) and spent on the 3 Diamond Upgrades below -- permanent, powerful, and priced
@@ -1373,17 +1485,85 @@ GameConfig.PlaytimeGifts = {
 -- Developer Product on the Roblox Creator Dashboard (Create > this game > Monetization >
 -- Developer Products) -- that step can't be done from a script, only from the website by
 -- the game owner. Once created, replace the matching productId below with the real numeric ID.
+-- ===== FIVE TIERS PER CURRENCY, AND WHY THE LADDER IS SHAPED THIS WAY =====
+--
+-- There used to be two DNA packs and two Diamond packs. Two price points is not a shop, it is a
+-- yes/no question: a player who finds the small one too small and the large one too expensive has
+-- nowhere to land, and the whole 199-499 band -- which is where this genre actually earns -- was
+-- simply absent. Five tiers at 49 / 99 / 199 / 499 / 999 is the shape every comparable game runs
+-- (see the market notes in ROADMAP.md), and it is a LADDER rather than a list: each rung must be
+-- better VALUE PER ROBUX than the one below it, never merely bigger. That one rule is what makes
+-- trading up read as a discount instead of a bigger bill, and it is not left to trust -- see
+-- GetValuePerRobux and GetTierBonusPct below, which the shop UI draws its bonus ribbons from, so a
+-- tile can never advertise a discount this table does not actually contain.
+--
+-- `price` is authored here only so the shop can render a price before Roblox answers, and so the
+-- ribbons have something to divide by. It is NOT what the player is charged -- MarketplaceService
+-- charges whatever the dashboard says. Keep the two in step when the real ids are pasted in.
+--
+-- DNA IS SCALED, DIAMONDS ARE NOT. The DNA figures are authored as "what this is worth in stage-one
+-- clicks" and RobuxShopService puts them through GameConfig.ScaleReward, so a pack buys the same
+-- number of kills at stage 1 and at stage 20. Diamonds are deliberately raw: every diamond sink in
+-- the game is a small fixed number (the three DiamondUpgrades at 5 / 8 / 15, Stage Mastery) that
+-- does not ride the stage curve, so scaling them would cap every permanent upgrade in one purchase.
+-- The full reasoning sits in the grant block of RobuxShopService.
 GameConfig.RobuxProducts = {
-	{ key = "DNA_Small",   productId = 0, name = "1,000 DNA",   emoji = "🧬", grantDNA = 1000 },
-	{ key = "DNA_Large",   productId = 0, name = "10,000 DNA",  emoji = "🧬", grantDNA = 10000 },
-	{ key = "Potions_3",   productId = 0, name = "Potion Pack",   emoji = "🧪", grantPotions = 3, grantPotionId = "dna_m" },
-	{ key = "Potions_10",  productId = 0, name = "Potion Crate",  emoji = "🧪", grantPotions = 4, grantPotionId = "dna_l" },
-	{ key = "Diamonds_10", productId = 0, name = "10 Diamonds", emoji = "💎", grantDiamonds = 10 },
-	{ key = "Diamonds_50", productId = 0, name = "50 Diamonds", emoji = "💎", grantDiamonds = 50 },
+	{ key = "DNA_1", productId = 0, price = 49,  tierGroup = "DNA", name = "Small DNA Pack",  emoji = "🧬", grantDNA = 1000 },
+	{ key = "DNA_2", productId = 0, price = 99,  tierGroup = "DNA", name = "Medium DNA Pack", emoji = "🧬", grantDNA = 2500 },
+	{ key = "DNA_3", productId = 0, price = 199, tierGroup = "DNA", name = "Large DNA Pack",  emoji = "🧬", grantDNA = 6000 },
+	{ key = "DNA_4", productId = 0, price = 499, tierGroup = "DNA", name = "Huge DNA Pack",   emoji = "🧬", grantDNA = 18000 },
+	{ key = "DNA_5", productId = 0, price = 999, tierGroup = "DNA", name = "Mega DNA Pack",   emoji = "🧬", grantDNA = 40000, ribbon = "BEST VALUE" },
+
+	-- Named with their real numbers, unlike the DNA packs above: a diamond count is not scaled, so
+	-- "50 Diamonds" is true at every stage, and hiding a true number behind an adjective only costs
+	-- the buyer clarity.
+	{ key = "Diamonds_1", productId = 0, price = 49,  tierGroup = "Diamonds", name = "10 Diamonds",  emoji = "💎", grantDiamonds = 10 },
+	{ key = "Diamonds_2", productId = 0, price = 99,  tierGroup = "Diamonds", name = "22 Diamonds",  emoji = "💎", grantDiamonds = 22 },
+	{ key = "Diamonds_3", productId = 0, price = 199, tierGroup = "Diamonds", name = "50 Diamonds",  emoji = "💎", grantDiamonds = 50 },
+	{ key = "Diamonds_4", productId = 0, price = 499, tierGroup = "Diamonds", name = "140 Diamonds", emoji = "💎", grantDiamonds = 140 },
+	{ key = "Diamonds_5", productId = 0, price = 999, tierGroup = "Diamonds", name = "300 Diamonds", emoji = "💎", grantDiamonds = 300, ribbon = "BEST VALUE" },
+
+	-- The wheel. Priced against the 99 R$ DNA pack it sits next to -- see the SpinWheel comment for
+	-- why its expected DNA is deliberately the lower of the two.
+	{ key = "LuckySpin",   productId = 0, price = 99,  name = "Lucky Spin",    emoji = "\u{1F3A1}", grantSpin = true },
+
+	-- A COUNTED CHARGE, not a moment. `grantBossRevives` adds to data.BossRevives and BossService
+	-- spends one when there is something to restore; the receipt can therefore arrive late, on
+	-- another server, or after a rejoin without the player losing what they paid for. That is not a
+	-- nicety -- ProcessReceipt is retried on Roblox's own schedule and does a DataStore write before
+	-- it acknowledges, so any design that had to land inside the 34 s heal window would have a tail
+	-- of buyers who paid for nothing. Cheapest product in the shop on purpose: it is bought in a
+	-- moment of frustration, and a frustrated player will not spend 199.
+	{ key = "BossRevive",  productId = 0, price = 49,  name = "Boss Revive",   emoji = "\u{2694}\u{FE0F}", grantBossRevives = 1 },
+
+	-- ===== THE RAINBOW CATALYST, AND WHY IT IS NOT WHAT THE ROADMAP ASKED FOR =====
+	--
+	-- ROADMAP 3.5 asked for a "Rainbow Fusion" product, "one tier above the existing Golden fusion".
+	-- That premise is simply wrong about this game: PetTiers has run Normal / Golden / Rainbow /
+	-- Celestial since long before this phase, GetNextTier has no gate in it, and PetService.HandleFuse
+	-- refuses exactly two things -- being at Celestial already, and not holding four copies. A player
+	-- with four Goldens gets a Rainbow today, free. Selling it would have been charging 199 R$ for
+	-- something already shipped, which is the one thing the GamePasses block above refuses to do (see
+	-- the note on auto-attack: sell the RATE, never the thing).
+	--
+	-- So the product sells the GRIND instead of the tier. The wall is not tier access, it is needing
+	-- four identical copies of the same species AND tier: a Rainbow costs 16 Normals of one species
+	-- end to end, a Celestial 64. A catalyst raises one owned pet one tier with no copies at all.
+	--
+	-- IT STOPS BELOW THE TOP. HandleTierUp refuses a step INTO Celestial, and that cap is doing real
+	-- work rather than being decoration. Equipped pet bonuses MULTIPLY across slots (up to nine of
+	-- them with the PetSlots3 pass), so an unbounded tier-up sold by the token is a compounding
+	-- income multiplier priced like a consumable. Capped at Rainbow it sells the tedious middle of the
+	-- ladder and leaves the ceiling as something only fusing can reach.
+	{ key = "TierUp_1", productId = 0, price = 99,  tierGroup = "TierUp", name = "Rainbow Catalyst",  emoji = "\u{1F308}", grantTierUps = 1 },
+	{ key = "TierUp_3", productId = 0, price = 249, tierGroup = "TierUp", name = "Catalyst x3",       emoji = "\u{1F308}", grantTierUps = 3, ribbon = "BEST VALUE" },
+
+	{ key = "Potions_3",   productId = 0, price = 99,  name = "Potion Pack",   emoji = "🧪", grantPotions = 3, grantPotionId = "dna_m" },
+	{ key = "Potions_10",  productId = 0, price = 199, name = "Potion Crate",  emoji = "🧪", grantPotions = 4, grantPotionId = "dna_l" },
 	-- The Season Pass premium track. `grantSeasonPremium` is read by RobuxShopService's
 	-- ProcessReceipt; buying it late is safe, because every premium reward already reached stays
 	-- claimable (see SeasonPassService.GrantPremium).
-	{ key = "SeasonPremium", productId = 0, name = "Premium Season Pass", emoji = "\u{1F39F}\u{FE0F}", grantSeasonPremium = true },
+	{ key = "SeasonPremium", productId = 0, price = 399, name = "Premium Season Pass", emoji = "\u{1F39F}\u{FE0F}", grantSeasonPremium = true },
 }
 
 function GameConfig.GetRobuxProduct(key)
@@ -1391,6 +1571,35 @@ function GameConfig.GetRobuxProduct(key)
 		if p.key == key then return p end
 	end
 	return nil
+end
+
+-- What one Robux buys on this product, in whatever unit the product pays out. Comparable only
+-- WITHIN a tierGroup -- DNA against DNA, Diamonds against Diamonds -- which is exactly how the shop
+-- uses it. Returns 0 for products that pay a flag rather than an amount (the Season Pass), so those
+-- simply never draw a ribbon.
+function GameConfig.GetValuePerRobux(product)
+	if not product or not product.price or product.price <= 0 then return 0 end
+	local amount = product.grantDNA or product.grantDiamonds or product.grantPotions or product.grantTierUps
+	if not amount then return 0 end
+	return amount / product.price
+end
+
+-- How much more this tier pays per Robux than the CHEAPEST tier in its group, as a percentage.
+-- DERIVED, never authored: the shop's "+47% BONUS" ribbon comes from here, so the claim on the tile
+-- and the numbers in the table cannot drift apart. Returns 0 for the base tier of a group and for
+-- anything with no group at all.
+function GameConfig.GetTierBonusPct(product)
+	if not product or not product.tierGroup then return 0 end
+	local base
+	for _, p in ipairs(GameConfig.RobuxProducts) do
+		if p.tierGroup == product.tierGroup then
+			if not base or p.price < base.price then base = p end
+		end
+	end
+	if not base or base == product then return 0 end
+	local baseValue = GameConfig.GetValuePerRobux(base)
+	if baseValue <= 0 then return 0 end
+	return math.floor((GameConfig.GetValuePerRobux(product) / baseValue - 1) * 100 + 0.5)
 end
 
 -- THE ONE XP MULTIPLIER. The creature kill and the boss kill each called GetPotionMult(data, "xp")

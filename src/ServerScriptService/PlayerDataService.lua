@@ -66,6 +66,16 @@ local function defaultData()
 		Potions = {},
 		PotionBoosts = {},
 		Diamonds = 0,
+		-- Counted Boss Revive charges. A COUNT rather than a flag on purpose: a receipt can arrive
+		-- late, on another server or after a rejoin, and a charge that simply waits in the save is
+		-- what makes that harmless. Spent by BossService.TryConsumeRevive, and only when a restore
+		-- actually happens. Unlike data.Passes this IS trusted out of the save -- it is something the
+		-- player owns, not a cached answer from a web call.
+		BossRevives = 0,
+		-- Rainbow Catalyst charges, counted for the same reason BossRevives is: the receipt that pays
+		-- for one can arrive on another server or after a rejoin, and a token that simply waits in the
+		-- save makes that harmless. Spent by PetService.HandleTierUp.
+		TierUpTokens = 0,
 		DiamondUpgrades = {
 			MegaIncome = 0,
 			MegaLuck = 0,

@@ -307,6 +307,63 @@ function PetService.HandleFuse(player, petKey, tier)
 	})
 end
 
+-- ===== SPENDING A RAINBOW CATALYST =====
+--
+-- The paid cousin of HandleFuse above, and deliberately the SIMPLER of the two. A fuse destroys
+-- four pets and builds a fifth, which is why it carries all that machinery about emptied equip
+-- slots; a catalyst raises the pet that is already there. The tier is mutated IN PLACE and the pet
+-- keeps its id, so it stays equipped, stays in EquippedPetIds, and none of the slot-repair logic in
+-- HandleFuse is needed or at risk here.
+--
+-- The client picks WHICH pet and nothing else. Ownership, the token count and the tier cap are all
+-- decided here; a petId naming a pet the player does not own simply falls through.
+function PetService.HandleTierUp(player, petId)
+	local data = PlayerDataService.Get(player)
+	if not data then return end
+
+	if (data.TierUpTokens or 0) <= 0 then
+		Remotes.Notify:FireClient(player, { kind = "error", message = "You have no Rainbow Catalyst!" })
+		return
+	end
+
+	local pet
+	for _, p in ipairs(data.Pets) do
+		if p.id == petId then pet = p break end
+	end
+	if not pet then return end
+
+	-- Two different refusals with two different messages, because they mean different things to the
+	-- player: one is "this pet is finished", the other is "this is as far as buying goes".
+	if not GameConfig.GetNextTier(pet.tier) then
+		Remotes.Notify:FireClient(player, { kind = "error", message = "That pet is already max tier!" })
+		return
+	end
+	local nextTier = GameConfig.GetCatalystNextTier(pet.tier)
+	if not nextTier then
+		Remotes.Notify:FireClient(player, {
+			kind = "error",
+			message = GameConfig.CatalystMaxTier .. " is as far as a Catalyst goes -- fuse four to go higher!",
+		})
+		return
+	end
+
+	-- spent only after every check has passed, and with no yield between the check and the spend
+	data.TierUpTokens -= 1
+	pet.tier = nextTier
+
+	local petDef = GameConfig.GetPetDef(pet.key)
+	PlayerDataService.PushToClient(player)
+	-- the same payload a fuse sends: the client already knows how to celebrate a new tier, and a
+	-- second card that says the same thing in different words is not a feature
+	Remotes.Notify:FireClient(player, {
+		kind = "fuse",
+		name = petDef and petDef.name or pet.key,
+		emoji = petDef and petDef.emoji or "",
+		tier = nextTier,
+		rarity = petDef and petDef.rarity,
+	})
+end
+
 -- ===== AUTO HATCH =====
 -- Every egg prompt in the world, collected once by WireKiosks so the driver below does not walk
 -- twenty zone models every tick. Rebuilt from scratch on each wiring pass, like the connections are.
@@ -447,6 +504,12 @@ function PetService.Init()
 	Remotes.FusePet.OnServerEvent:Connect(function(player, petKey, tier)
 		if typeof(petKey) == "string" and typeof(tier) == "string" then
 			PetService.HandleFuse(player, petKey, tier)
+		end
+	end)
+
+	ensureRemote("UseTierUp").OnServerEvent:Connect(function(player, petId)
+		if typeof(petId) == "string" then
+			PetService.HandleTierUp(player, petId)
 		end
 	end)
 

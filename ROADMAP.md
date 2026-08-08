@@ -33,7 +33,15 @@ Created 2026-08-08 from a gap analysis of the live Studio datamodel against the 
   `loadstring(inst.Source)()` when testing an edit.
 - `require` in **Play** mode builds a *fresh* service whose `PlayerDataService.Cache` is empty.
   Populate `PDS.Cache[plr.UserId]` in the same call or the probe sees no player data.
-- `screen_capture` stops Play. Capture before or after, never during; budget one per session.
+- `screen_capture` does **not** stop Play (re-checked 2026-08-08: `multi_edit` still refused with
+  "Edit datamodel is not available in Play mode" straight after a capture). Capturing *during* Play
+  is the only way to see a HUD. Budget one slow attempt — the first call of a session took >120 s and
+  came back in the background; the next two were quick.
+- **A capture is downscaled about 2x, so a 448 px panel is unreadable at native size.** Push a
+  `UIScale` of ~1.6 onto the panel from the `Client` datamodel first, capture, then remove it.
+- **A structural probe cannot see clipped text.** After any tile-layout change, walk the labels and
+  check `TextLabel.TextFits` — `themeLabel` floors text at 14 px, so a box too short for its wrapped
+  text cuts the overflow instead of shrinking it, and reports nothing wrong.
 - Structural checks: `C:\Python313\python.exe tools/luastruct.py` and `tools/luanames.py`.
   The `python` on PATH is the Microsoft Store stub and exits 49.
 
@@ -169,16 +177,25 @@ local if anyone cares.
 
 ## Phase 3 — Developer products and shop presentation
 
+The shop went from 7 products to **17**. Two of them are counted charges rather than payouts
+(`BossRevive`, `TierUp`), and that shape is deliberate and shared: `ProcessReceipt` is retried on
+Roblox's own schedule, can land on a different server, and does a DataStore write before it
+acknowledges — so anything that had to be consumed *at the moment of purchase* would have a tail of
+buyers who paid for nothing. A charge sits in the save until there is something to spend it on.
+
+**3.5 was not built as specified, because the specification was wrong about this game** — see the
+row below. Everything else in the phase landed as written.
+
 | ID | | Task | Verified how |
 |---|---|---|---|
-| 3.1 | `[ ]` | DNA packs 2 → 5 tiers (49/99/199/499/999 R$), all through `ScaleReward` | payout per Robux is monotonic across tiers |
-| 3.2 | `[ ]` | Diamond packs 2 → 5 tiers | same |
-| 3.3 | `[ ]` | 🎡 **Lucky Spin** (99 R$) — weighted wheel reusing the luck-shifting shape in `PotionService:78` | 10,000 rolls match the advertised odds |
-| 3.4 | `[ ]` | ⏭️ **Boss Revive / Skip** (49 R$) — sells against a real frustration: `BOSS_REGEN_DELAY 14 + BOSS_REGEN_TIME 20` fully heals a zone boss after a death, so every attempt restarts from full | buy mid-fight, boss health is preserved |
-| 3.5 | `[ ]` | 🌈 **Rainbow Fusion** (199 R$) — one tier above the existing Golden fusion | fuse result shows the new tier and its multiplier |
-| 3.6 | `[ ]` | Robux panel: `BEST VALUE` / `MOST POPULAR` ribbons, limited-offer timer, bigger icons | screen capture |
-| 3.7 | `[ ]` | **`+` buttons on the HUD currency capsules** that open the shop — highest-leverage conversion change in the file, ~20 lines | clicking `+` on DNA and Diamonds opens the right tab |
-| 3.8 | `[ ]` | **👤 OWNER** Create the new products, paste ids | real purchase grants and saves |
+| 3.1 | `[x]` | DNA packs 2 → 5 tiers (49/99/199/499/999 R$), all through `ScaleReward`. Named by size (`Small`…`Mega`) rather than by a number, because a scaled payout makes "1,000 DNA" false at every stage but the first | value per Robux **strictly monotonic**: 20.41 → 25.25 → 30.15 → 36.07 → 40.04 per R$. A pack is worth the same clicks at every stage: `DNA_1` = 769 and `DNA_5` = 30,769 at stages 1, 10 and 20 alike |
+| 3.2 | `[x]` | Diamond packs 2 → 5 tiers (10/22/50/140/300). Deliberately **not** scaled and named with their real numbers — the reasoning is the diamond note in `RobuxShopService` | monotonic: 0.2041 → 0.2222 → 0.2513 → 0.2806 → 0.3003 per R$ |
+| 3.3 | `[x]` | 🎡 **Lucky Spin** (99 R$) — 8 segments, weights summing to 100, luck-shifted with the `RollMysteryPotion` shape but **normalised by segment count** (`(i-1)/(n-1)`), so adding a ninth segment later cannot silently change how strong luck is. Expected DNA is set **below** the 99 R$ flat pack (2,260 vs 2,500): the pack is the safe buy, the wheel is the gamble. `RobuxShopService.GrantSpin` is public so 5.6's free daily spin reuses it rather than copying it | 10,000 rolls at luck 0 and at luck 385 (the worst honest case from 2.12): **worst deviation 0.44 points**. Live in Play: 12 real grants, each segment paying exactly its own payload; DNA scaled (1,538 clicks at stage 1 and 14), diamonds and shards not |
+| 3.4 | `[x]` | ⚔️ **Boss Revive** (49 R$) — a **counted charge**, auto-spent the instant the receipt lands and otherwise kept for the next attempt. `BossService` now snapshots the **lowest** health each player has driven a boss to, and a revive restores it **only downward, never upward**, so a revive can never undo another player's damage on a shared boss. Adds the game's first `Humanoid.Died` hook (offer shown only when a snapshot is actually behind it) and a 30 s regen freeze so the restore survives the walk back. Client card lives in `CombatClient`, whose boss-bar GUI already has `ResetOnSpawn = false` | live in Play, all five cases: boss healed 760→800, revive restored **800→760** and spent the charge; no charge → refused; nothing healed → refused **and the charge kept**; boss at 300 below a 760 snapshot → refused, health **not raised**; and the freeze held regen off at 17 s idle (past the 14 s delay) then released it by 37 s |
+| 3.5 | `[x]` | 🌈 **Rainbow Catalyst** (99 R$ / 249 R$ x3) — **RESHAPED, and the roadmap's own premise was the reason.** "One tier above the existing Golden fusion" describes a game this is not: `PetTiers` has run Normal/Golden/Rainbow/Celestial for a long time, `GetNextTier` has no gate, and `HandleFuse` refuses only "already Celestial" and "fewer than 4 copies". **A player with four Goldens gets a Rainbow today, free** — so the product as specified would have charged 199 R$ for shipped content, which is the one thing this project refuses to do (see the auto-attack note in `GamePasses`). The real wall is needing **4 identical copies of the same species and tier** — 16 Normals for a Rainbow, 64 for a Celestial. So the token sells the grind: raise one owned pet one tier, no copies. **Capped below Celestial** (`GameConfig.CatalystMaxTier`), because equipped bonuses multiply across up to 9 slots and an uncapped bought tier is a compounding income multiplier priced like a consumable | live in Play: Normal→Golden and Golden→Rainbow spend one token each; **Rainbow→Celestial refused and no token spent**; already-max refused; unowned pet id spends nothing; 0 tokens changes nothing. The pet keeps its `id`, so an equipped pet **stays equipped** — unlike a fuse. Free fusing still reaches Celestial |
+| 3.6 | `[x]` | Robux panel: the grid is now a **`ScrollingFrame`** (17 products is ~1,400 px of cards in ~350 px of panel — as a plain Frame everything past row three did not exist), 40 px icons, the **price on the button** instead of "Buy with R$", a per-player "what this pays you at your stage" line on the DNA tiles, and ribbons. **No tile claims to be popular:** `MOST POPULAR` is a claim about other players that nothing here measures, so the ribbons are `BEST VALUE` plus a **derived** `+N% BONUS` from `GetTierBonusPct` — arithmetic on the product table, not a sentence someone typed. The "limited offer timer" is a **Today's Pick** rotating off the calendar day with a real countdown to the rotation; nothing is discounted, so nothing pretends to expire | live client probe: `RobuxGrid` is a ScrollingFrame with `AutomaticCanvasSize`, **17 cards, 17 priced buttons, 9 ribbons** (`+24/48/77% BONUS`, `BEST VALUE`, `+9/23/37% BONUS`, `BEST VALUE`, `BEST VALUE`), 1 pick star, title counting down. `DNA_1` read `+65.97K DNA` for a stage-5 save, i.e. the scaling reaches the tile. **Screen capture caught a real bug the probe could not**: at a 24 px name box, `themeLabel`'s 14 px floor (`UITextSizeConstraint.MinTextSize`) meant a wrapped "Small DNA Pack" was clipped rather than shrunk, on every DNA tile. Card 158 → 180 px, name given two lines, icon box 40 → 60 px (an emoji's glyph fills about half its line box, so a 40 px box drew an icon no bigger than the name under it). Re-verified with the engine's own `TextFits` on every label of all 17 cards: **none clipped** |
+| 3.7 | `[x]` | **`+` on the DNA and Diamond capsules**, opening the shop on the **Packs** tab (`hudRefs.selectRobuxTab`). Built after `robuxPanel` exists — a closure written beside the pills 2,500 lines earlier cannot see a local declared later — and inside `;(function() … end)()`. **Not** on the Shard pill: shards are a rebirth reward and are sold nowhere | live: `PlusButton` present on `DNAPill` and `DiamondPill`, absent on `ShardPill`. MainUI still **178 top-level locals** — the whole phase added none. Not click-tested, same environment limit noted in 2.10 |
+| 3.8 | `[ ]` | **👤 OWNER** Create the **10 new** developer products on the dashboard and paste the ids (`DNA_1`…`DNA_5`, `Diamonds_1`…`Diamonds_5` replace the old four; plus `LuckySpin`, `BossRevive`, `TierUp_1`, `TierUp_3`) — 17 rows in total with the two potion packs and the Season Pass | real purchase grants and saves |
 
 ---
 
@@ -260,7 +277,7 @@ Collect these once; each one blocks agents until it exists.
 | `[ ]` | `StreamingMinRadius` / `TargetRadius` / `IntegrityMode` in Properties | 0.4 |
 | `[ ]` | Create the 7 existing developer products, paste ids | 1.7 |
 | `[ ]` | Create the 9 game passes, paste ids | 2.11 |
-| `[ ]` | Create the new developer products, paste ids | 3.8 |
+| `[ ]` | Create the 10 new developer products, paste ids (the shop is 17 rows now — see 3.8) | 3.8 |
 | `[ ]` | Game icon and thumbnail | 6.5 |
 
 ---
@@ -282,6 +299,29 @@ Gathered 2026-08-07/08 while writing this plan.
 ---
 
 ## Changelog
+
+- **2026-08-08** — **Phase 3 is code-complete; only 3.8 (owner) is left.** The shop went 7 products
+  → 17: five DNA tiers, five Diamond tiers, the Lucky Spin, the Boss Revive and two Catalyst packs,
+  all verified live in Play rather than read.
+  Three things worth carrying forward. **(1) 3.5's specification was wrong about this game** —
+  Rainbow and Celestial have always been free to fuse, so "Rainbow Fusion" would have sold shipped
+  content. It became a Rainbow Catalyst that sells the 16-copy grind instead and stops below
+  Celestial; the reasoning is in `GameConfig.RobuxProducts` and the row above. **(2) Both new
+  consumables are counted charges, not moments**, because `ProcessReceipt` is retried on Roblox's
+  schedule, can land on another server, and writes to the DataStore before acknowledging — anything
+  that had to be spent at the instant of purchase would have a tail of buyers who paid for nothing.
+  **(3) The screen capture earned its place.** A structural probe reported 17 healthy cards while
+  every DNA tile was clipping its own name: `themeLabel` floors text at 14 px, so a wrapped name in
+  a 24 px box is cut, not shrunk. Only the picture showed it. `TextLabel.TextFits` is the cheap
+  check that would have caught it — worth using after any tile-layout change.
+  Also new, and reusable: `RobuxShopService.GrantSpin` is public so 5.6's free daily spin does not
+  copy the wheel; `BossService` gained the game's **first `Humanoid.Died` hook**; and MainUI took
+  four new features while staying at **178 top-level locals** — everything went inside
+  `;(function() … end)()` with handles on `hudRefs`.
+  One thing found and deliberately NOT fixed, because it is outside this phase: the free fusion
+  rows in `MainUI` label every fuse `+100%`, because they divide `GetPetPower` (raw tier × rarity)
+  rather than the affine bonus it feeds. A Common's real income gain from Golden to Rainbow is
+  **+44%**. The new Catalyst rows quote `GetPetBonus` and are honest; the old rows still overstate.
 
 - **2026-08-08** — **Phase 2 is code-complete.** The Journal gained its 21st section for the VIP
   skin (built by the same code as every other disc, and it does not inflate `Discovered n / 100`),

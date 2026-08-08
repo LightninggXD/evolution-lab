@@ -42,6 +42,13 @@ local FX_RADIUS = 420 -- wider than the creatures': a 124-stud event boss is vis
 local AutoAttack = ensureRemote("AutoAttack")
 local hitHandlers = {} -- [model] = { fn, body, reach }; cleared explicitly on death/despawn
 
+-- THE REVIVE REMOTE TAKES NO ARGUMENTS, AND THAT IS THE POINT.
+--
+-- The server picks the target out of its own per-player snapshot below. A client-supplied model
+-- would hand every exploiter a "set any boss to any health" primitive, which is a strictly worse
+-- thing to own than the product itself is worth.
+local UseBossRevive = ensureRemote("UseBossRevive")
+
 -- The fewest blows a boss may be killed in. See the note above TIERS in CreatureService: player
 -- damage and enemy health are on curves that only meet in the zone matching the player's stage,
 -- and every earlier zone stays walkable -- so a boss seven zones back would otherwise die to one
@@ -1805,7 +1812,23 @@ end
 -- together over fifteen minutes and it already resets itself by withdrawing.
 local BOSS_REGEN_DELAY = 14
 local BOSS_REGEN_TIME = 20
-local hurt = {} -- [model] = { max, hp, lastHit, draw }
+local hurt = {} -- [model] = { max, hp, lastHit, draw, frozenUntil }
+
+-- ===== WHAT A BOSS REVIVE REMEMBERS =====
+--
+-- [userId] = { model, hp, max, draw, name, t }. One entry per player, holding the LOWEST health
+-- they have personally driven this boss to, and when. Written on every landed blow -- see onHit,
+-- which is the only place all of those values are in scope at once.
+--
+-- Keyed by userId and holding the MODEL INSTANCE, not a zone key: a respawned boss is a brand new
+-- model, so a stale snapshot is inert by construction rather than by a timestamp check (there is a
+-- timestamp too, but it is the second line of defence, not the first).
+--
+-- The boss is SHARED -- `hurt` is keyed by model and Health is a model attribute, so two players on
+-- one boss are chipping one pool. That is why restoring is clamped to "only ever lower, never
+-- raise": if A revives while B is beating the same boss, B's damage is never undone. Without that
+-- clamp this would be a heal button pointed at someone else's fight.
+local reviveSnapshot = {}
 
 local function driveBossRegen(dt)
 	if not next(hurt) then return end
@@ -1813,7 +1836,7 @@ local function driveBossRegen(dt)
 	for model, e in pairs(hurt) do
 		if not model.Parent then
 			hurt[model] = nil
-		elseif now - e.lastHit >= BOSS_REGEN_DELAY then
+		elseif now - e.lastHit >= BOSS_REGEN_DELAY and now >= (e.frozenUntil or 0) then
 			-- the precise value lives on the entry; only the rounded one is published, or the
 			-- rounding would eat every per-frame step and nothing would ever heal
 			e.hp = math.min(e.hp + e.max * (dt / BOSS_REGEN_TIME), e.max)
@@ -2253,6 +2276,24 @@ local function spawnBoss(zone)
 			else
 				hurt[model] = { max = boss.health, hp = health, lastHit = now, draw = drawHealth }
 			end
+
+			-- The revive snapshot, written here because this is the one place the model, the health,
+			-- the bar's own draw function and the boss's name are all in scope together.
+			--
+			-- It keeps the LOWEST health this player has driven THIS model to, not the latest. The
+			-- difference is the whole feature: a player who died at 40 %, walked back and landed one
+			-- blow on a boss that had healed to 99 % would otherwise have overwritten their own best
+			-- with a worse number a fraction of a second before deciding to buy.
+			local snap = reviveSnapshot[player.UserId]
+			if snap and snap.model == model then
+				snap.hp = math.min(snap.hp, health)
+				snap.t = now
+			else
+				reviveSnapshot[player.UserId] = {
+					model = model, hp = health, max = boss.health, draw = drawHealth,
+					name = boss.emoji .. " " .. boss.name, t = now,
+				}
+			end
 		end
 
 		-- flinch off the torso's own dimensions: a rig body is a slab or an egg, not the cube the
@@ -2323,6 +2364,13 @@ local function spawnBoss(zone)
 			burstOnDeath(bossesFolder, zone, boss, body.Position)
 			hitHandlers[model] = nil
 			hurt[model] = nil
+			-- A dead boss is nobody's saved progress. Swept for every player, not just the killer: the
+			-- ones who softened it up hold snapshots too, and a charge spent on a corpse is a refund
+			-- request. (The model check in TryConsumeRevive would catch it a moment later anyway --
+			-- this is the same answer arrived at deliberately rather than by accident.)
+			for userId, snap in pairs(reviveSnapshot) do
+				if snap.model == model then reviveSnapshot[userId] = nil end
+			end
 			model:Destroy()
 			task.delay(boss.respawnDelay or 45, function()
 				spawnBoss(zone)
@@ -2622,6 +2670,71 @@ local function driveCountdown()
 	end
 end
 
+-- ===== SPENDING A REVIVE =====
+--
+-- Returns true only when a charge was actually spent on a restore that actually happened. Every
+-- other answer leaves the charge in the player's pocket, which is what makes the product safe to
+-- sell against an unreliable receipt: the worst case is "saved for your next attempt", never a
+-- purchase that evaporated.
+--
+-- Called from two places -- the client's revive button, and RobuxShopService the instant a receipt
+-- lands, so a purchase made mid-fight applies without the player pressing anything.
+function BossService.TryConsumeRevive(player)
+	local data = PlayerDataService.Get(player)
+	if not data then return false, "nodata" end
+	if (data.BossRevives or 0) <= 0 then return false, "nocharge" end
+
+	local snap = reviveSnapshot[player.UserId]
+	if not snap then return false, "nosnapshot" end
+	if not snap.model or not snap.model.Parent then
+		reviveSnapshot[player.UserId] = nil
+		return false, "gone"
+	end
+	if os.clock() - snap.t > GameConfig.BossReviveTTL then
+		reviveSnapshot[player.UserId] = nil
+		return false, "expired"
+	end
+
+	-- ONLY EVER LOWER. If the boss is already at or below where this player left it -- because it
+	-- has not healed yet, or because someone else has been hitting it since -- there is nothing to
+	-- restore, so nothing is charged. This single comparison is what stops a revive being usable as
+	-- a heal on another player's fight.
+	local current = snap.model:GetAttribute("Health") or snap.max
+	if snap.hp >= current then return false, "nothingtorestore" end
+
+	-- spent before the effect and with no yield in between, so two clicks in the same frame cannot
+	-- both pass the check above
+	data.BossRevives -= 1
+
+	local now = os.clock()
+	local restored = math.floor(snap.hp)
+	snap.model:SetAttribute("Health", restored)
+	local entry = hurt[snap.model]
+	if entry then
+		entry.hp = snap.hp
+		entry.lastHit = now
+		entry.frozenUntil = now + GameConfig.BossReviveFreeze
+	else
+		hurt[snap.model] = {
+			max = snap.max, hp = snap.hp, lastHit = now, draw = snap.draw,
+			frozenUntil = now + GameConfig.BossReviveFreeze,
+		}
+	end
+	snap.draw(restored)
+
+	-- the screen-space bar, the same payload a landed blow sends, so the number the buyer is
+	-- looking at moves at the moment they pay for it
+	CombatFx:FireClient(player, { k = "bossBar", name = snap.name, hp = restored, max = snap.max })
+	PlayerDataService.PushToClient(player)
+	Remotes.Notify:FireClient(player, {
+		kind = "bossRevive",
+		name = snap.name,
+		pct = math.floor(restored / math.max(snap.max, 1) * 100 + 0.5),
+		left = data.BossRevives,
+	})
+	return true
+end
+
 function BossService.Init()
 	for _, existing in ipairs(bossesFolder:GetChildren()) do
 		existing:Destroy()
@@ -2650,6 +2763,61 @@ function BossService.Init()
 		if not hrp then return end
 		if (hrp.Position - entry.body.Position).Magnitude > entry.reach then return end
 		entry.fn(player)
+	end)
+
+	UseBossRevive.OnServerEvent:Connect(function(player)
+		local ok, why = BossService.TryConsumeRevive(player)
+		if ok then return end
+		-- Only the two answers a player can act on are worth a message. "nosnapshot" and "gone" mean
+		-- the button was pressed with no fight behind it, which is not an error worth interrupting
+		-- anyone over.
+		if why == "nocharge" then
+			Remotes.Notify:FireClient(player, { kind = "error", message = "You have no Boss Revive!" })
+		elseif why == "nothingtorestore" then
+			Remotes.Notify:FireClient(player, { kind = "error", message = "That boss hasn't healed yet -- keep hitting it!" })
+		end
+	end)
+
+	-- ===== THE ONE MOMENT THE OFFER MAKES SENSE =====
+	--
+	-- Nothing on this server watched a player die before this line -- there was no Humanoid.Died
+	-- connection anywhere in the game. It is added here rather than somewhere more general because
+	-- this is the only feature that needs it, and because the answer is only interesting when a
+	-- snapshot is standing behind it: a player who dies to a creature, or to a boss they never hurt,
+	-- is shown nothing at all. An offer that appears on every death is an advertisement; one that
+	-- appears when you actually lost something is a service.
+	local function watchCharacter(player, character)
+		local humanoid = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 10)
+		if not humanoid then return end
+		humanoid.Died:Connect(function()
+			local snap = reviveSnapshot[player.UserId]
+			if not snap or not snap.model or not snap.model.Parent then return end
+			if os.clock() - snap.t > GameConfig.BossReviveTTL then return end
+			local data = PlayerDataService.Get(player)
+			CombatFx:FireClient(player, {
+				k = "reviveOffer",
+				name = snap.name,
+				pct = math.floor(snap.hp / math.max(snap.max, 1) * 100 + 0.5),
+				held = (data and data.BossRevives) or 0,
+			})
+		end)
+	end
+	local function watchPlayer(player)
+		-- task.spawn because watchCharacter can yield on WaitForChild, and a yielding CharacterAdded
+		-- handler holds up every other listener on that signal
+		if player.Character then task.spawn(watchCharacter, player, player.Character) end
+		player.CharacterAdded:Connect(function(character)
+			task.spawn(watchCharacter, player, character)
+		end)
+	end
+	for _, plr in ipairs(Players:GetPlayers()) do watchPlayer(plr) end
+	Players.PlayerAdded:Connect(watchPlayer)
+
+	-- A snapshot is a live model reference and a leaving player will never spend it. The CHARGE is
+	-- in data.BossRevives and saves normally, which is the other half of why the product is a
+	-- counted item: nothing paid for is tied to this table's lifetime.
+	Players.PlayerRemoving:Connect(function(player)
+		reviveSnapshot[player.UserId] = nil
 	end)
 
 	-- The event clock. Deliberately started a short way in rather than at a full interval: a server
