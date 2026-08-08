@@ -26,6 +26,7 @@ local SeasonPassService = require(ServerScriptService.SeasonPassService)
 local CodesService = require(ServerScriptService.CodesService)
 local OfflineService = require(ServerScriptService.OfflineService)
 local LeaderboardService = require(ServerScriptService.LeaderboardService)
+local StatsService = require(ServerScriptService.StatsService)
 
 -- ===== STREAMING =====
 -- The two radii that decide how much world a client is holding. Roblox's defaults (min 64,
@@ -99,6 +100,7 @@ CodesService.Init()
 -- after ZoneBuilder.Build() above, which is what puts the Forest ground the signs stand on there.
 -- It builds its own furniture rather than going through ZoneBuilder -- see the note in that file.
 LeaderboardService.Init()
+StatsService.Init()
 -- LAST, and after DNAService in particular: the offline payout is DNAService.GetAutoCollectAmount
 -- multiplied by a bounded number of seconds, so it has to run once the income stack it reads is
 -- fully wired. It hooks PlayerAdded itself rather than being called from the block below, because

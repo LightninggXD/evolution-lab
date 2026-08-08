@@ -3831,6 +3831,51 @@ characterLayout.SortOrder = Enum.SortOrder.LayoutOrder
 characterLayout.Parent = characterScroll
 
 local characterCells = {}  -- [key] = { cell, icon, nameLabel, lock, strokeInst }
+
+-- ===== HOW MANY PLAYERS OWN THIS ONE (Phase 5.7) =====
+--
+-- Read from `ReplicatedStorage.GlobalStats`, a StringValue the server republishes -- no remote, no
+-- request handler, and a client that joins late gets the current value for free. `JSONDecode` is
+-- local parsing, not a web call, so this works with HTTP requests switched off.
+--
+-- Decoded on demand and CACHED AGAINST THE RAW STRING, so clicking through a hundred discs costs
+-- one decode rather than a hundred -- the payload is a ~200-key table.
+--
+-- Returns "" when the server has published nothing, which is what it does until MIN_SAMPLE players
+-- exist. With four players on the board every owned character reads "100% own it", which is true
+-- and worthless, so on a young game the Journal simply says nothing about rarity.
+local statsRaw, statsTable = nil, nil
+local function ownershipText(key)
+	local holder = RS:FindFirstChild("GlobalStats")
+	local raw = holder and holder.Value or ""
+	if raw == "" then return "" end
+	if raw ~= statsRaw then
+		statsRaw = raw
+		local ok, decoded = pcall(function()
+			return game:GetService("HttpService"):JSONDecode(raw)
+		end)
+		statsTable = ok and decoded or nil
+	end
+	local players = statsTable and tonumber(statsTable.players) or 0
+	if players <= 0 then return "" end
+	local owners = tonumber((statsTable.chars or {})[key]) or 0
+	-- NOBODY owning it is not "<0.1%", it is nothing to say. Running it through the brackets below
+	-- printed "<0.1% own it" for a character with zero owners, which claims somebody has one --
+	-- caught by running this function against a zero.
+	if owners <= 0 then return "" end
+	local pct = math.clamp(owners / players * 100, 0, 100)
+	local shown
+	if pct >= 10 then
+		shown = ("%d%%"):format(math.floor(pct + 0.5))
+	elseif pct >= 0.1 then
+		shown = ("%.1f%%"):format(pct)
+	else
+		-- never "0.0%": somebody owns it, and rounding that to zero is the one thing a rarity line
+		-- must not do
+		shown = "<0.1%"
+	end
+	return ("  \u{2022}  %s own it"):format(shown)
+end
 local characterRows = {}   -- [stageIndex] = { row, headerLabel }
 
 -- How many cells stand side by side. The rest wrap onto another line of the same stage's row --
@@ -4147,6 +4192,7 @@ local CHAR_LINE_H = 132
 
 		local owned = currentData and currentData.Characters and currentData.Characters[entry.key] == true
 		local stage = GameConfig.Stages[entry.stage]
+		local rarityLine = ownershipText(entry.key)
 		-- ONE worn character, wherever the player is standing -- see GameConfig.GetWornCharacter
 		local equipped = currentData and currentData.WornCharacter == entry.key
 		local wornEntry = currentData and GameConfig.GetWornCharacter(currentData)
@@ -4154,8 +4200,8 @@ local CHAR_LINE_H = 132
 
 		dName.Text = owned and entry.name or "???"
 		dName.TextColor3 = owned and (entry.color or Color3.fromRGB(46, 54, 74)) or Color3.fromRGB(150, 158, 178)
-		dSub.Text = ("%s %s  \u{2022}  #%d of %d"):format(stage and stage.emoji or "", stage and stage.name or "",
-			GameConfig.GetCharacterIndex(entry), #GameConfig.GetCharactersForStage(entry.stage))
+		dSub.Text = ("%s %s  \u{2022}  #%d of %d%s"):format(stage and stage.emoji or "", stage and stage.name or "",
+			GameConfig.GetCharacterIndex(entry), #GameConfig.GetCharactersForStage(entry.stage), rarityLine)
 		dStatLabel.Text = ("\u{2694}\u{FE0F}  +%d%% Damage"):format(GameConfig.GetCharacterDamagePct(entry))
 
 		equipButton.Visible = owned

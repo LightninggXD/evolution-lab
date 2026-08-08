@@ -127,6 +127,13 @@ local function defaultData()
 		-- exactly once -- by Load, before it is overwritten -- to work out how long the player was away.
 		-- See OfflineService.
 		LastSeen = 0,
+		-- What StatsService has ALREADY counted this save for (5.7), and whether it has counted the
+		-- save itself toward the denominator. Permanent and never cleared -- that is the whole point:
+		-- a rebirth wipes `Characters` and the collection is re-granted, and without a separate record
+		-- the same player would be counted again on every rebirth. Written by StatsService, read by
+		-- nothing else.
+		CountedCharacters = {},
+		CountedPlayer = false,
 		-- Per-player audio levels (4.6): a master fader plus one per SoundGroup, each 0..1, pushed
 		-- onto the groups by SoundLibrary.Init on the client's first data payload. In the SAVE rather
 		-- than in a client-side setting for the obvious reason -- a player who turned the music off did
