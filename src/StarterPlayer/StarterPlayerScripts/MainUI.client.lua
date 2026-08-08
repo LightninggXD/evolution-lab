@@ -5473,6 +5473,20 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 			potion and potion.emoji or "\u{1F9EA}",
 			potion and potion.effectText or "Potion used",
 			remaining // 60, remaining % 60), (potion and potion.color) or Color3.fromRGB(120, 255, 180))
+	elseif payload.kind == "offline" then
+		-- A card, not a toast: this is the first thing a returning player sees and it is the entire
+		-- argument for having come back. `away` and `capped` are computed server-side (see
+		-- OfflineService) so the two sides cannot drift on how long "8h 20m" is, and the cap is stated
+		-- rather than hidden -- crediting eight hours while implying it paid for three days is the
+		-- kind of small lie players check.
+		-- SHORT ON PURPOSE, and measured rather than guessed. `celebratePurchase` draws a 330x74 card
+		-- whose label is 300x56, wrapped, and themeLabel floors text at 14px -- so a long second line
+		-- does not shrink, it wraps to a third row and pins at that floor. "+1.48M DNA while you were
+		-- away (8h) - max" is 41 characters and did exactly that; this is 29 at its longest, the same
+		-- order as the rebirth and boss cards that already share this function.
+		celebratePurchase(("\u{1F4A4} WELCOME BACK!\n+%s DNA earned in %s%s"):format(
+			formatNumber(payload.amount or 0), payload.away or "?",
+			payload.capped and " (max)" or ""), Color3.fromRGB(150, 190, 255))
 	elseif payload.kind == "playtimeGift" then
 		showNotification("⏰ Playtime Gift (" .. payload.minutes .. " min)! Reward claimed!", Color3.fromRGB(255, 150, 90))
 	elseif payload.kind == "bossRevive" then

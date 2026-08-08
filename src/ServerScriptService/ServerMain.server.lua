@@ -23,6 +23,8 @@ local PassService = require(ServerScriptService.PassService)
 local RobuxShopService = require(ServerScriptService.RobuxShopService)
 local PlaytimeGiftService = require(ServerScriptService.PlaytimeGiftService)
 local SeasonPassService = require(ServerScriptService.SeasonPassService)
+local CodesService = require(ServerScriptService.CodesService)
+local OfflineService = require(ServerScriptService.OfflineService)
 
 -- ===== STREAMING =====
 -- The two radii that decide how much world a client is holding. Roblox's defaults (min 64,
@@ -92,6 +94,12 @@ PassService.Init()
 RobuxShopService.Init()
 PlaytimeGiftService.Init()
 SeasonPassService.Init()
+CodesService.Init()
+-- LAST, and after DNAService in particular: the offline payout is DNAService.GetAutoCollectAmount
+-- multiplied by a bounded number of seconds, so it has to run once the income stack it reads is
+-- fully wired. It hooks PlayerAdded itself rather than being called from the block below, because
+-- it needs its own wait-for-data anyway and folding it in there would make that block do two jobs.
+OfflineService.Init()
 
 -- Hook evolution -> zone unlock checks + visual update (kept out of DNAService to avoid circular requires)
 DNAService.OnEvolve = function(player, data)

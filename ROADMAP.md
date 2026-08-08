@@ -230,10 +230,10 @@ kind that can be chosen on evidence rather than on its name.
 
 ## Phase 5 — Retention and marketing systems
 
-| ID | | Task | Why |
+| ID | | Task | Why / verified how |
 |---|---|---|---|
-| 5.1 | `[ ]` | 🎟️ **Codes system** — `GameConfig.Codes`, `Remotes.RedeemCode`, `data.RedeemedCodes`, redeem panel (register-cap rule applies) | Dexerto / Gamerant / Game.Guide publish code articles monthly. Cheapest traffic channel in the genre and the game has none |
-| 5.2 | `[ ]` | 💤 **Offline earnings** — `data.LastSeen`, capped accrual off `DNAService.GetAutoCollectAmount`, "Welcome back" card | strongest single reason to return; the auto-collect rate is already capped in units of clicks, so the maths is safe |
+| 5.1 | `[~]` | 🎟️ **Codes** — `GameConfig.Codes` (6 rows), `NormaliseCode` / `GetCode` / `IsCodeExpired`, `data.RedeemedCodes` as a set, new `CodesService` and `Remotes.RedeemCode`. **Unlike every other id table in this project a code is MEANT to be invented** — it only becomes real when the owner publishes it, so edit the list freely. Rewards reuse `DailyRewards`' field names, so the grant is the same four lines `RewardService` already had, and `dna` goes through `ScaleReward`. **`RedeemedCodes` is marked before the grant and nothing between them yields** — that gap is the whole double-redeem exploit. **STILL OPEN: the redeem panel.** There is no way for a player to type a code yet, so the system works and is unreachable | live end-to-end through the real remote: `"  lAuNcH  "` normalised and paid **+98,962 🧬 / +10 💎 / +2 🧪** (1,500 authored, scaled to the save's stage); the same code again refused with no change; an unknown code refused; **two fired on the same frame paid the first and rate-limited the second**; `12345` and a table were ignored without reaching the limiter. Config: 6 rows, 0 duplicates, over-length and 4,000-char strings rejected |
+| 5.2 | `[x]` | 💤 **Offline earnings** — `data.LastSeen` stamped on **every** save (a crashed server never runs its leave-save), elapsed measured in `Load` **before anything overwrites it** and held in `PlayerDataService.OfflineSeconds` **in memory, never in the save** — a pending payout that survives a crash is a payout collected twice. New `OfflineService` pays `GetAutoCollectAmount × seconds × 0.5`, capped at 8h, with a 120s floor so a rejoin does not pop a card. **A player with no AutoCollect earns nothing, and that is the design**: this feature *is* that upgrade continuing while you are away | arithmetic exact on six trials (1h, 8h, at the rate cap, over it, at zero, and at stage 20) — every payout matched its independently computed expectation, and **the second call always paid 0**, so the consume-once guard holds. Ordering preserved by construction: idling 102.9 DNA/s, offline 51.5 DNA/s, 8h max = **17,280 clicks**. Card verified drawn twice, capped and uncapped, at **2 lines**. Its second line was shortened 41 → 29 chars first: `celebratePurchase`'s label is 300x56 wrapped and `themeLabel` floors at 14px, so a long line wraps to a third row and pins at the floor instead of shrinking. **`TextFits` could not be read** — the Play viewport reports 1x1, which shrinks every panel and makes that property meaningless |
 | 5.3 | `[ ]` | 🏆 **Global leaderboards** — `OrderedDataStore` for Rebirths / DNA / Kills, physical podiums in the Forest spawn | none exist today |
 | 5.4 | `[ ]` | 📢 **Cross-server announcements** — `MessagingService` on Legendary hatches and Colosseum kills | players advertise the eggs for you |
 | 5.5 | `[ ]` | 👥 **Group / Like / Favourite rewards** | grows the group, which is the update-notification channel |
@@ -311,6 +311,32 @@ Gathered 2026-08-07/08 while writing this plan.
 ---
 
 ## Changelog
+
+- **2026-08-08** — **Phase 5 started: 5.2 done, 5.1 needs only its panel.** Two new services,
+  `CodesService` and `OfflineService`, and the config and save fields behind them.
+  **The one thing worth carrying forward is where the offline seconds live.** They are computed in
+  `PlayerDataService.Load` — before `LastSeen` is overwritten — and kept in
+  `PlayerDataService.OfflineSeconds`, a plain in-memory table, then *consumed before the payout is
+  computed*. Every other shape was worse: a field on `data` is written by the 60-second autosave, so
+  a crash between that write and the payout is a payout collected twice; reading the seconds and
+  clearing them afterwards leaves a window that a double `PlayerAdded` walks straight through. The
+  same reasoning made `LastSeen` stamp on **every** save rather than only the leave-save — a server
+  that dies never runs its leave-save, and its players would each come back owed eight hours.
+  Offline income is safe to build on this codebase only because `GetAutoCollectAmount` is already
+  expressed as a fraction of one click per second and capped at 1.2 (see the note over it, which
+  exists because idle income once paid eighty clicks a second). Offline is that capped rate × bounded
+  seconds × 0.5, so **playing > idling > being away** holds by construction rather than by tuning.
+  Codes are the opposite of every other id table here: `RobuxProducts` and `GamePasses` hold ids that
+  must never be invented, while a code is invented on purpose and only becomes real when it is
+  published. The one thing that needed care is that `RedeemedCodes` is marked **before** the grant
+  with no yield in between — that gap is the entire double-redeem exploit.
+  Two verification notes for the next session. **Order the probes recorder-first**: firing from the
+  Server datamodel and *then* installing a Client watcher loses the event, because the tool
+  round-trip is longer than any delay worth setting — install a listener that writes into a
+  `StringValue`, fire, then read it. And the **Play viewport reports 1x1**, so `TextFits` and every
+  `AbsoluteSize` inside a panel are meaningless; the welcome-back card's line length had to be
+  checked by counting characters against `celebratePurchase`'s 300x56 label and `themeLabel`'s 14px
+  floor instead.
 
 - **2026-08-08** — **Phase 4: the game has audio.** It had exactly one `Sound` in the whole place;
   it now has 26 catalogued entries across combat, economy, interface and ambience, and **every asset

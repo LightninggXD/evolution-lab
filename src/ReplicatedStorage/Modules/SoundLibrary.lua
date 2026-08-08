@@ -430,6 +430,9 @@ local NOTIFY_SOUND = {
 	potion = "collect",          playtimeGift = "purchase",   bossRevive = "purchase",
 	spin = "purchase",           robuxPurchase = "purchase",  reward = "purchase",
 	bossDefeated = "bossDeath",  error = "error",
+	-- the welcome-back card (5.2). The rising chime rather than the cash register: this is the
+	-- first sound of a session and it is announcing that being away paid, not that money changed hands
+	offline = "levelUp",
 }
 
 function SoundLibrary.PlayNotify(payload)

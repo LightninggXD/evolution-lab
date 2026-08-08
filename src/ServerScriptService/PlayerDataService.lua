@@ -10,6 +10,10 @@ local DataStore = DataStoreService:GetDataStore("EvolutionLab_v1")
 local PlayerDataService = {}
 PlayerDataService.Cache = {} -- [userId] = dataTable
 
+-- [userId] = seconds of absence this session is owed a payout for, already capped by
+-- GameConfig.GetOfflineSeconds. IN MEMORY, NEVER IN THE SAVE -- see the note where it is written.
+PlayerDataService.OfflineSeconds = {}
+
 -- ===== THE TWO WAYS A SAVE GETS DESTROYED, AND WHAT STOPS THEM =====
 --
 -- 1. A FAILED READ THAT LOOKS LIKE A NEW PLAYER. `GetAsync` was pcall'd, the failure only warned,
@@ -107,6 +111,14 @@ local function defaultData()
 		-- in memory because a table cleared on leave hands the whole ladder back on every rejoin --
 		-- see PlaytimeGiftService. Shaped and reset by that service, so {} is the right start.
 		PlaytimeClaims = {},
+		-- Codes already redeemed, as a SET of normalised code strings (GameConfig.NormaliseCode). A set
+		-- rather than a list because the only question ever asked of it is "has this one been used",
+		-- and a list would be a linear scan over something that only ever grows.
+		RedeemedCodes = {},
+		-- os.time() of the last save. Written by Save on every autosave and on the leave-save, and read
+		-- exactly once -- by Load, before it is overwritten -- to work out how long the player was away.
+		-- See OfflineService.
+		LastSeen = 0,
 		-- Per-player audio levels (4.6): a master fader plus one per SoundGroup, each 0..1, pushed
 		-- onto the groups by SoundLibrary.Init on the client's first data payload. In the SAVE rather
 		-- than in a client-side setting for the obvious reason -- a player who turned the music off did
@@ -258,6 +270,7 @@ function PlayerDataService.Load(player)
 		-- this is the guard for one written as something else, and it restores every fader at once
 		-- rather than leaving a half-populated table for the client to index
 		if type(data.AudioVolumes) ~= "table" then data.AudioVolumes = def.AudioVolumes end
+		if type(data.RedeemedCodes) ~= "table" then data.RedeemedCodes = {} end
 		if not data.DiamondUpgrades then data.DiamondUpgrades = {} end
 		for k, v in pairs(def.DiamondUpgrades) do
 			if data.DiamondUpgrades[k] == nil then
@@ -279,6 +292,19 @@ function PlayerDataService.Load(player)
 	-- duration of every autosave.
 	data.Passes = {}
 
+	-- ===== HOW LONG THEY WERE GONE, MEASURED BEFORE ANYTHING OVERWRITES IT =====
+	--
+	-- Held in memory rather than written onto `data`, and that is the whole point: the autosave loop
+	-- runs every 60 seconds and would cheerfully persist a pending-payout field, so a crash between
+	-- that write and the payout becomes a payout the player collects again on their next join. A
+	-- number that only ever describes THIS session has no business in a DataStore.
+	--
+	-- A negative elapsed (two servers whose clocks disagree, or a save stamped in the future) clamps
+	-- to zero inside GetOfflineSeconds rather than paying out backwards.
+	local lastSeen = tonumber(data.LastSeen) or 0
+	PlayerDataService.OfflineSeconds[player.UserId] =
+		GameConfig.GetOfflineSeconds(lastSeen > 0 and (os.time() - lastSeen) or 0)
+
 	-- Reads yield, and a player can leave during one. Caching them then leaves an entry for
 	-- somebody who is gone -- which never gets cleared (PlayerRemoving already ran) and is handed
 	-- to them stale if they rejoin this same server.
@@ -298,6 +324,10 @@ function PlayerDataService.Save(player, release)
 
 	data.__sessionJobId = release and nil or JOB_ID
 	data.__sessionAt = os.time()
+	-- Stamped on EVERY save, not just the leave-save: a server that crashes never gets to run its
+	-- leave-save, and a LastSeen that only moved on a clean exit would pay that player eight hours
+	-- for a crash they did not choose.
+	data.LastSeen = os.time()
 
 	local ok, err = pcall(function()
 		DataStore:SetAsync("Player_" .. player.UserId, data)
@@ -387,6 +417,7 @@ function PlayerDataService.Init()
 	Players.PlayerRemoving:Connect(function(player)
 		PlayerDataService.Save(player, true)
 		PlayerDataService.Cache[player.UserId] = nil
+		PlayerDataService.OfflineSeconds[player.UserId] = nil
 		loadFailed[player.UserId] = nil
 	end)
 
