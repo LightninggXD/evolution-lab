@@ -237,7 +237,7 @@ kind that can be chosen on evidence rather than on its name.
 | 5.3 | `[ ]` | 🏆 **Global leaderboards** — `OrderedDataStore` for Rebirths / DNA / Kills, physical podiums in the Forest spawn | none exist today |
 | 5.4 | `[ ]` | 📢 **Cross-server announcements** — `MessagingService` on Legendary hatches and Colosseum kills | players advertise the eggs for you |
 | 5.5 | `[ ]` | 👥 **Group / Like / Favourite rewards** | grows the group, which is the update-notification channel |
-| 5.6 | `[ ]` | 🎡 **Daily free spin + Rewarded Ads** | revenue from players who never buy |
+| 5.6 | `[~]` | 🎡 **Free daily spin** — done. `data.LastFreeSpin`, `RewardService.GetFreeSpinStatus` / `HandleFreeSpin`, `Remotes.ClaimFreeSpin`, and a gold button in the Daily panel that becomes a countdown. **It calls `RobuxShopService.GrantSpin`, which Phase 3 made public for exactly this** — the wheel is luck-shifted, its weights are normalised by segment count and its expected value sits below the 99 R$ flat pack, and a second copy here would be a second thing to keep balanced. Same UTC day boundary as the login reward, so both roll over together. **The stamp is written before the grant** with no yield between, the rule the code redemption follows. Rewarded Ads are the other half and are 👤 OWNER | live: button read **FREE SPIN!**, a claim rolled a real segment (`🧬 DNA Surge`), stamped `LastFreeSpin` and flipped the button to **`🎡 5h 11m`**; a second claim the same day was refused and did **not** re-roll. Geometry at authored size: streak card x22..262, button x458..678, day grid from y=100 — no collision, nothing clipped. The countdown ticks only while the panel is open |
 | 5.7 | `[ ]` | 📖 **Journal rarity percentages** ("0.3% of players own this") via a global counter | the Journal grid already exists; this is a data layer on top |
 
 ---
@@ -285,6 +285,8 @@ Collect these once; each one blocks agents until it exists.
 
 | | Action | Blocks |
 |---|---|---|
+| `[ ]` | Roblox group id, for the Group / Like / Favourite rewards | 5.5 |
+| `[ ]` | Rewarded Ads set up on the dashboard (the free spin half of 5.6 is done) | 5.6 |
 | `[x]` | Save the place into the repo (binary `.rbxl` is fine — `tools/rbxl_extract.py` reads it) | 0.1 — done 2026-08-08 |
 | `[ ]` | `StreamingMinRadius` / `TargetRadius` / `IntegrityMode` in Properties | 0.4 |
 | `[ ]` | Create the 7 existing developer products, paste ids | 1.7 |

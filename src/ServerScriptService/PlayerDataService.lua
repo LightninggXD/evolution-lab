@@ -64,6 +64,9 @@ local function defaultData()
 		EvolutionShards = 0,
 		LastRewardClaim = 0,
 		RewardStreak = 0,
+		-- os.time() of the last free daily spin (5.6). Compared by UTC day number, the same boundary
+		-- LastRewardClaim uses, so the login reward and the free spin roll over together.
+		LastFreeSpin = 0,
 		-- Both string-keyed. `Potions` is potion id -> how many bottles held ('dna_s' -> 3);
 		-- `PotionBoosts` is potion KIND -> { untilTs, mult | luckAdd } for the one bottle of that
 		-- kind currently running. See the POTIONS block in GameConfig.

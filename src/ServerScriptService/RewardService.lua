@@ -3,6 +3,9 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+-- for the free daily spin only. No cycle: RobuxShopService reaches PlayerDataService, SeasonPass
+-- Service and DNAService, and none of those reaches back here.
+local RobuxShopService = require(script.Parent.RobuxShopService)
 
 local RewardService = {}
 local SECONDS_PER_DAY = 86400
@@ -75,9 +78,61 @@ function RewardService.HandleClaim(player)
 	})
 end
 
+-- ===== THE FREE DAILY SPIN (Phase 5.6) =====
+--
+-- Revenue from players who never buy, and it costs nothing to build because Phase 3 already made
+-- `RobuxShopService.GrantSpin` public for exactly this. That matters for more than tidiness: the
+-- wheel is bent by the spinner's own luck, its weights are normalised by segment count, and its
+-- expected value was deliberately set below the flat 99 R$ DNA pack. A second copy of that here
+-- would be a second thing to keep balanced, and it would drift the first time either was touched.
+--
+-- Same day boundary as the login reward above -- `dayNumber` on the UTC clock -- so a player has
+-- one free spin and one login reward per day and both roll over together, rather than the game
+-- keeping two different ideas of when tomorrow starts.
+
+-- Returns (isReady, secondsUntilReady). The countdown is to the next day boundary rather than 24h
+-- from the last spin, which is what makes "tomorrow" mean the same thing to everyone.
+function RewardService.GetFreeSpinStatus(data)
+	local now = os.time()
+	local today = dayNumber(now)
+	local ready = today > dayNumber(data and data.LastFreeSpin)
+	if ready then return true, 0 end
+	return false, math.max((today + 1) * SECONDS_PER_DAY - now, 0)
+end
+
+-- Returns a status string, so this is testable without a mouse -- see CodesService for the same
+-- reasoning.
+function RewardService.HandleFreeSpin(player)
+	local data = PlayerDataService.Get(player)
+	if not data then return "nodata" end
+
+	if not RewardService.GetFreeSpinStatus(data) then
+		Remotes.Notify:FireClient(player, { kind = "error", message = "Your free spin isn't ready yet!" })
+		return "notready"
+	end
+
+	-- STAMPED BEFORE THE GRANT, and nothing between them yields -- the same rule the code redemption
+	-- follows. GrantSpin rolls, pays, pushes and notifies; if the stamp came after it, two clicks on
+	-- consecutive frames would both find the spin ready.
+	data.LastFreeSpin = os.time()
+	RobuxShopService.GrantSpin(player)
+	return "ok"
+end
+
 function RewardService.Init()
 	Remotes.ClaimDailyReward.OnServerEvent:Connect(function(player)
 		RewardService.HandleClaim(player)
+	end)
+
+	-- created on demand, like every remote added since the place was last saved by hand
+	local freeSpin = Remotes:FindFirstChild("ClaimFreeSpin")
+	if not freeSpin then
+		freeSpin = Instance.new("RemoteEvent")
+		freeSpin.Name = "ClaimFreeSpin"
+		freeSpin.Parent = Remotes
+	end
+	freeSpin.OnServerEvent:Connect(function(player)
+		RewardService.HandleFreeSpin(player)
 	end)
 end
 

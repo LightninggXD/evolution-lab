@@ -2654,6 +2654,70 @@ local function dayNumber(timestamp)
 	return math.floor((timestamp or 0) / SECONDS_PER_DAY)
 end
 
+-- ================= THE FREE DAILY SPIN (Phase 5.6) =================
+--
+-- Placed HERE rather than beside the rest of the Daily panel further up, and the reason is a Lua
+-- one: `dayNumber` is declared a few lines above, so a closure written earlier in the file would
+-- not have it in scope. The button is still parented to `rewardPanel`, which has existed since
+-- line ~2351.
+--
+-- It reads the SAME day boundary the server does (RewardService.GetFreeSpinStatus) off the same
+-- field, so the button can never offer a spin the server will refuse -- the property the evolve
+-- button already has against GetEvolveStep.
+;(function()
+	local button = UITheme.Button(rewardPanel, {
+		name = "FreeSpin", text = "\u{1F3A1} FREE SPIN", color = UITheme.Color.Gold,
+		size = UDim2.new(0, 220, 0, 42), position = UDim2.new(1, -22, 0, 54),
+		anchorPoint = Vector2.new(1, 0), radius = 14,
+		zIndex = rewardPanel.ZIndex + 1, maxTextSize = 22,
+	})
+
+	-- "7h 12m", "12m", "45s" -- the same shape the offline card uses, for the same reason: the
+	-- player is reading it for "roughly when", not for the exact second.
+	local function countdown(seconds)
+		seconds = math.max(math.floor(seconds), 0)
+		local h = seconds // 3600
+		local m = (seconds % 3600) // 60
+		if h > 0 then return ("%dh %dm"):format(h, m) end
+		if m > 0 then return ("%dm"):format(m) end
+		return ("%ds"):format(seconds)
+	end
+
+	local function refresh()
+		if not currentData then return end
+		local ready = dayNumber(os.time()) > dayNumber(currentData.LastFreeSpin)
+		if ready then
+			UITheme.SetColor(button, UITheme.Color.Gold)
+			UITheme.SetText(button, "\u{1F3A1} FREE SPIN!")
+		else
+			-- colour AND wording, like the Auto tile and the mute button: a control that only changes
+			-- hue leaves the player guessing whether it is off or just decorated
+			UITheme.SetColor(button, UITheme.Color.Locked)
+			UITheme.SetText(button, "\u{1F3A1} " .. countdown((dayNumber(os.time()) + 1) * SECONDS_PER_DAY - os.time()))
+		end
+	end
+
+	button.MouseButton1Click:Connect(function()
+		local remote = Remotes:FindFirstChild("ClaimFreeSpin")
+		if remote then
+			remote:FireServer()
+		end
+	end)
+
+	-- Ticked only while the panel is actually open. A countdown nobody is looking at is a string
+	-- rebuild and two property writes a second, forever, on every client in the server.
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			if rewardPanel.Visible then
+				refresh()
+			end
+		end
+	end)
+
+	hudRefs.refreshFreeSpin = refresh
+end)()
+
 local function refreshRewardPanel()
 	if not currentData then return end
 	local data = currentData
@@ -5400,6 +5464,7 @@ Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 	if hudRefs.refreshPassShop then hudRefs.refreshPassShop() end
 	if hudRefs.refreshAudioPanel then hudRefs.refreshAudioPanel(data) end
 	if hudRefs.refreshCodes then hudRefs.refreshCodes(data) end
+	if hudRefs.refreshFreeSpin then hudRefs.refreshFreeSpin() end
 	-- the DNA tiles are priced in the player's own stage, so they move when the player does
 	if hudRefs.refreshRobuxShop then hudRefs.refreshRobuxShop() end
 	refreshRebirthPanel()
