@@ -73,6 +73,13 @@ end
 -- twenty-zone pet progression bypassed in one remote call. There was no cooldown either, and no
 -- ceiling on how many pets a save may hold -- and a save that grows past the DataStore's 4 MB
 -- limit stops saving, forever, with nothing but a warning in the log.
+local function eggByKey(key)
+	for _, e in ipairs(GameConfig.Eggs) do
+		if e.key == key then return e end
+	end
+	return nil
+end
+
 local EGG_INTERVAL = 0.35   -- comfortably faster than the hatch animation, far slower than a loop
 local MAX_PETS = 600
 local lastEgg = {}          -- [userId] = os.clock()
@@ -84,13 +91,7 @@ function PetService.HandleBuyEgg(player, eggKey)
 	local now = os.clock()
 	if lastEgg[player.UserId] and now - lastEgg[player.UserId] < EGG_INTERVAL then return end
 
-	local eggDef
-	for _, e in ipairs(GameConfig.Eggs) do
-		if e.key == eggKey then
-			eggDef = e
-			break
-		end
-	end
+	local eggDef = eggByKey(eggKey)
 	if not eggDef then return end
 
 	-- the zone this egg belongs to has to be one the player has actually unlocked
@@ -306,10 +307,28 @@ function PetService.HandleFuse(player, petKey, tier)
 	})
 end
 
+-- ===== AUTO HATCH =====
+-- Every egg prompt in the world, collected once by WireKiosks so the driver below does not walk
+-- twenty zone models every tick. Rebuilt from scratch on each wiring pass, like the connections are.
+local autoEggPoints = {}
+
+-- A ProximityPrompt hangs off either a part or an attachment on one, and which one is ZoneBuilder's
+-- business, not this file's.
+local function promptAnchor(prompt)
+	local parent = prompt.Parent
+	if not parent then return nil end
+	if parent:IsA("BasePart") then return parent end
+	if parent:IsA("Attachment") and parent.Parent and parent.Parent:IsA("BasePart") then
+		return parent.Parent
+	end
+	return nil
+end
+
 -- Scans every zone's Pet Shop (3 eggs, each its own ProximityPrompt tagged with an
 -- EggKey attribute) and wires purchases. Runs fresh on every server start so it never
 -- depends on a stale connection from a previous session.
 function PetService.WireKiosks()
+	table.clear(autoEggPoints)
 	local zonesFolder = workspace:FindFirstChild("Zones")
 	if not zonesFolder then return end
 	for _, zoneModel in ipairs(zonesFolder:GetChildren()) do
@@ -322,6 +341,68 @@ function PetService.WireKiosks()
 						prompt.Triggered:Connect(function(player)
 							PetService.HandleBuyEgg(player, eggKey)
 						end)
+						local anchor = promptAnchor(prompt)
+						if anchor then
+							-- The prompt's OWN activation distance, not a constant: it is the distance the
+							-- player can see they are in range at, so auto-hatch starting anywhere else
+							-- would read as the pass firing at random.
+							table.insert(autoEggPoints, {
+								part = anchor,
+								eggKey = eggKey,
+								reach = prompt.MaxActivationDistance,
+							})
+						end
+					end
+				end
+			end
+		end
+	end
+end
+
+-- The Auto Hatch pass: keep buying from whichever egg the player is standing at.
+--
+-- ONE loop for the whole server rather than one per player, and it only ever touches players who
+-- actually hold the pass -- the same shape the creature and boss drivers use, for the same reason.
+--
+-- IT GOES THROUGH HandleBuyEgg, which is the entire point: the rate limit, the zone-unlock check,
+-- the 600-pet cap, the cost, the roll, the Season Pass counter and the notification are all already
+-- there and all still apply. An auto-hatch that bought eggs by its own path would be a second
+-- implementation of the shop that could drift from the real one.
+--
+-- The affordability and capacity checks are REPEATED here, silently, before the call. HandleBuyEgg
+-- answers those two with a Notify, which is right for a player pressing a button and wrong two
+-- times a second -- an empty wallet would bury the notification stack in "Not enough DNA".
+--
+-- DriveAutoHatch is public for the same reason PassService.GrantVipDaily is: every passId is still
+-- 0, so nothing can make the real loop see the pass as owned, and a feature verified only by
+-- reading is not verified.
+local AUTO_HATCH_TICK = 0.5
+
+function PetService.DriveAutoHatch()
+	for _, player in ipairs(game.Players:GetPlayers()) do
+		local data = PlayerDataService.Get(player)
+		if data and GameConfig.OwnsPass(data, "AutoHatch") and #data.Pets < MAX_PETS then
+			local character = player.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			if root then
+				local here = root.Position
+				-- Explicitly initialised: `local a, b` with no `=` registers only the first name with
+				-- tools/luanames.py, and a clean lint baseline is worth more than two words of brevity.
+				local best, bestDist = nil, nil
+				for _, point in ipairs(autoEggPoints) do
+					if point.part.Parent then
+						local dist = (point.part.Position - here).Magnitude
+						if dist <= point.reach and (not bestDist or dist < bestDist) then
+							best, bestDist = point, dist
+						end
+					end
+				end
+				-- Nearest egg wins. Three stand within a few studs of each other on every podium, so
+				-- "the one you walked up to" has to be a distance and not the first match in the list.
+				if best then
+					local eggDef = eggByKey(best.eggKey)
+					if eggDef and data.DNA >= eggDef.cost then
+						PetService.HandleBuyEgg(player, best.eggKey)
 					end
 				end
 			end
@@ -331,6 +412,15 @@ end
 
 function PetService.Init()
 	PetService.WireKiosks()
+
+	task.spawn(function()
+		while true do
+			task.wait(AUTO_HATCH_TICK)
+			-- pcall'ed because an unattended loop gets no second chance: one error inside it and
+			-- auto-hatch is dead for the rest of the server's life with no symptom anyone could name.
+			pcall(PetService.DriveAutoHatch)
+		end
+	end)
 
 	game.Players.PlayerRemoving:Connect(function(player)
 		lastEgg[player.UserId] = nil

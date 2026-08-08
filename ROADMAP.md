@@ -139,15 +139,20 @@ cheap entry pass → core multipliers → premium bundle.
   than a new panel — no new registers, and no `RIGHT_COUNT` bump (it is at 7, `MainUI:756`).
 - An owned pass renders an `OWNED` state, not a buy button.
 
-Eight of the nine passes are **complete and verified**. What is left in this phase is Auto Hatch
-(the one pass that needs a new loop rather than a multiplier) and the two UI jobs — both of which
-touch `MainUI`, so read the register-cap rule below before starting either.
+**All nine passes are complete and verified.** What is left in this phase is the two UI jobs — both
+touch `MainUI`, so read the register-cap rule below before starting either — plus the owner's
+dashboard step and the stacked-balance check.
+
+Two functions were deliberately made public so the features could be **tested rather than read**:
+`PassService.GrantVipDaily` and `PetService.DriveAutoHatch`. With every `passId` still 0 there is no
+way to make the real code paths see a pass as owned, and once 2.11 lands they can go back to being
+local if anyone cares.
 
 | ID | | Task | Verified how |
 |---|---|---|---|
 | 2.1 | `[x]` | 🏃 2x Speed — `EvolutionVisuals.applyMastery`. **The pass also lifts the cap** (`walkCap = 260` + new `GameConfig.GetPassMax`): against the normal 150 it delivered 1.18x at stage 20 and was a true 2x only through stage 7 of 20 | measured 2.00x at stages 1 / 7 / 14 / 20; a non-owner at stage 20 is still 127.2 |
 | 2.2 | `[x]` | ⭐ 2x XP — extracted `GameConfig.GetXPMult(data)`, now the single XP multiplier, used by both `CreatureService` and `BossService` | `GetXPMult` x1.00 → x2.00; nothing else moves |
-| 2.3 | `[ ]` | 🥚 Auto Hatch — server loop + client trigger | stand at a podium with 0 DNA: nothing hatches, no error spam |
+| 2.3 | `[x]` | 🥚 Auto Hatch — one server loop for the whole server (not one per player), going **through `HandleBuyEgg`** so the rate limit, zone-unlock check, 600-pet cap, cost, roll and Season Pass counter all still apply. Affordability and capacity are re-checked **silently** first, because `HandleBuyEgg` answers those with a Notify and twice a second that buries the notification stack. Range comes from each prompt's own `MaxActivationDistance`, and the **nearest** egg wins — three sit within a few studs on every podium | 60 of 60 egg prompts have a usable anchor. Live: 4 ticks → 4 pets, 500 DNA each; empty wallet → unchanged, no spam; no pass → unchanged |
 | 2.4 | `[x]` | 🧬 2x DNA — `DNAService.GetIncomeMult`, added last so it multiplies the whole stack | income x1.00 → x2.00, damage unchanged at 62 |
 | 2.5 | `[x]` | ⚔️ 2x Damage — `DNAService.GetCombatDamage`. Raises damage **dealt** only; the incoming-damage cap is untouched | damage 62 → 124, income unchanged at x1.00 |
 | 2.6 | `[x]` | ⚡ Fast Auto Attack — `CombatClient` reads an `AutoSpeedMult` **player attribute** the server stamps, so the client never learns what a pass is. Floored at `SWING_TIME` | attribute reads 1 for a non-owner; x1.70 with the pass; free auto-attack untouched |
@@ -278,6 +283,11 @@ Gathered 2026-08-07/08 while writing this plan.
 
 ## Changelog
 
+- **2026-08-08** — **All nine passes done.** VIP's visible half (aura, [VIP] chat tag, 5 Diamonds a
+  day) and Auto Hatch landed. The aura is particles and a light, never a `Highlight` — CreatureService
+  rents 14 of the ~31 Roblox renders and one per VIP would strip every creature outline in the world.
+  Auto Hatch reuses `HandleBuyEgg` rather than reimplementing the shop. Only the two `MainUI` jobs
+  (2.9b, 2.10), the owner's dashboard step (2.11) and the balance check (2.12) remain in Phase 2.
 - **2026-08-08** — **Phase 2: all seven multiplier passes hooked and measured.** 2x DNA, 2x Damage,
   2x XP, Lucky, +3 Pet Slots, Fast Auto Attack and 2x Speed all move their own stat and nothing
   else — isolation checked pass by pass in Play. Two decisions the owner made along the way:
