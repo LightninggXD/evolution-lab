@@ -3410,8 +3410,29 @@ local CHAR_LINE_H = 132
 	-- line was also Cream on PanelWhite -- the exact white-on-white trap this file warns about
 	-- twenty lines above.
 
+	-- The twenty stage rows, PLUS ONE MORE at the end for the VIP skin.
+	--
+	-- It is built by exactly the same code as every other disc, which is the point: it locks,
+	-- unlocks, previews, selects and wears with no special case anywhere, and a later change to how
+	-- a cell looks reaches it for free. What it is NOT is part of a stage -- it never enters
+	-- CHARACTERS_BY_STAGE, so the collection count, the evolve chain and the rank ladder cannot see
+	-- it. See GameConfig.VipCharacter for why that separation is load-bearing.
+	local sections = {}
 	for stageIndex, stage in ipairs(GameConfig.Stages) do
-		local entries = GameConfig.GetCharactersForStage(stageIndex)
+		table.insert(sections, {
+			index = stageIndex,
+			stage = stage,
+			entries = GameConfig.GetCharactersForStage(stageIndex),
+		})
+	end
+	table.insert(sections, {
+		index = #GameConfig.Stages + 1,
+		stage = { emoji = GameConfig.VipCharacter.emoji, name = "VIP Exclusive" },
+		entries = { GameConfig.VipCharacter },
+	})
+
+	for _, section in ipairs(sections) do
+		local stageIndex, stage, entries = section.index, section.stage, section.entries
 		local lineCount = math.max(1, math.ceil(#entries / CHAR_PER_LINE))
 
 		-- The number under each disc is WHAT IT DOES. It used to be the chance of rolling it, and
@@ -3493,7 +3514,12 @@ local CHAR_LINE_H = 132
 			damageLabel.Size = UDim2.new(1, 24, 0, 24)
 			damageLabel.Position = UDim2.new(0, -12, 1, -6)
 			damageLabel.BackgroundTransparency = 1
-			damageLabel.Text = ("\u{2694}\u{FE0F} +%d%%"):format(damagePct)
+			-- The VIP skin has NO rung on the ladder -- it scores as whatever the wearer's best earned
+			-- skin scores (GameConfig.GetEffectiveRank), so any fixed percentage printed here would be
+			-- a lie in one direction or the other depending on how far the collection has got. It says
+			-- what it actually is instead.
+			damageLabel.Text = entry.vip and "\u{2694}\u{FE0F} = best"
+				or ("\u{2694}\u{FE0F} +%d%%"):format(damagePct)
 			damageLabel.ZIndex = cell.ZIndex + UITheme.Z.Badge
 			damageLabel.Parent = cell
 			themeLabel(damageLabel, 17, Color3.fromRGB(58, 66, 88))
@@ -3731,7 +3757,11 @@ local CHAR_LINE_H = 132
 		if owned then
 			-- no part cap here: this is the one place a player is actually looking at the build, so
 			-- it gets every rivet the body in the world has
-			bigRig = CharacterPreview.Build(bigArt, entry.stage, entry)
+			-- The VIP skin belongs to no stage: it is a gold version of whatever the player currently
+			-- IS, so it previews at their stage rather than at a fixed one. (Build returns nil for a
+			-- nil stage rather than erroring, so this is a correctness fix, not a crash fix.)
+			local previewStage = (entry.vip and currentData and currentData.StageIndex) or entry.stage
+			bigRig = CharacterPreview.Build(bigArt, previewStage, entry)
 			if bigRig then
 				CharacterPreview.Frame(bigArt, bigRig, { zoom = 1.06, pitch = 0.12 })
 				bigPivot = bigRig:GetPivot()
@@ -3778,7 +3808,9 @@ local CHAR_LINE_H = 132
 			if owned[key] and inView then
 				if not refs.rig and budget > 0 then
 					budget -= 1
-					refs.rig = CharacterPreview.Build(refs.art, refs.entry.stage, refs.entry, { maxParts = 26 })
+					-- same rule as the detail card: the VIP skin previews at the player's own stage
+					local previewStage = (refs.entry.vip and currentData.StageIndex) or refs.entry.stage
+					refs.rig = CharacterPreview.Build(refs.art, previewStage, refs.entry, { maxParts = 26 })
 					if refs.rig then
 						CharacterPreview.Frame(refs.art, refs.rig, { zoom = 1.16 })
 						refs.art.Visible = true
