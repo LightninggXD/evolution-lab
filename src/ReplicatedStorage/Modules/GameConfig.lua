@@ -439,6 +439,21 @@ GameConfig.PetRarities = {
 
 GameConfig.PetRarityOrder = { "Common", "Uncommon", "Rare", "Epic", "Legendary" }
 
+-- Which rarities are worth a 420-stud pillar of light and everybody's attention (Phase 6.2's beam,
+-- and 5.4's cross-server toast when that unblocks). A set rather than a threshold on
+-- `PetRarityOrder`, because the question "is this announceable" is not the same question as "is this
+-- high up the ladder" -- a future event species could be worth announcing without being a Legendary.
+--
+-- ONE ROW IS DELIBERATE. Epic is a 42/1600 roll, i.e. one hatch in 38 before luck; adding it here
+-- would mean a beam every few seconds in a busy server, and a beam that common announces nothing.
+GameConfig.BeaconRarities = {
+	Legendary = true,
+}
+
+function GameConfig.IsBeaconRarity(name)
+	return GameConfig.BeaconRarities[name] == true
+end
+
 function GameConfig.GetRarity(name)
 	for _, r in ipairs(GameConfig.PetRarities) do
 		if r.name == name then return r end
@@ -1607,7 +1622,11 @@ end
 -- forever -- and a third XP source added later would have quietly missed both. Everything that
 -- scales XP goes through here now.
 function GameConfig.GetXPMult(data)
+	-- The event multiplier lands here too, and this is the extraction paying for itself a second
+	-- time: the weekend's double XP reached the creature kill AND the boss kill by being written
+	-- once, in the one function both of them already went through.
 	return GameConfig.GetPotionMult(data, "xp") * GameConfig.GetPassMult(data, "xpMult")
+		* GameConfig.GetEventMult("xpMult")
 end
 
 -- ===== GAME PASSES =====
@@ -1728,6 +1747,282 @@ function GameConfig.GetPassAdd(data, field)
 end
 
 -- ============================================================================
+-- LIMITED-TIME EVENTS
+-- ============================================================================
+-- A window in time during which the rules are different for EVERYONE on the server at once. The
+-- genre runs on these -- Grow a Garden and Steal a Brainrot are both driven by them -- and this
+-- game had no concept anywhere in it of "right now is different from yesterday".
+--
+-- =========================================================================================
+-- AN EVENT IS A FUNCTION OF THE CLOCK. IT IS NEVER A FIELD IN A SAVE.
+-- =========================================================================================
+-- Pass ownership is cached into `data.Passes` because it comes from a web call that can fail, so
+-- the answer has to be kept somewhere. An event is arithmetic on a timestamp: it cannot fail, it
+-- cannot disagree between two servers, and every reader works it out for itself without asking.
+--
+-- Storing it in a save would break at both ends of the window. A player online when it closes keeps
+-- the boost until something remembers to refresh them, and a player who logged off inside the
+-- window carries a stale multiplier into next week -- which is the free-pass bug `data.Passes` is
+-- reset on every load to prevent, except that here there is nothing to reset because nothing was
+-- ever written.
+--
+-- =========================================================================================
+-- EVERY WINDOW IS UTC, AND THE `!` IS THE WHOLE FEATURE
+-- =========================================================================================
+-- `os.date("*t")` is the machine's local time; `os.date("!*t")` is UTC. A live Roblox server runs
+-- UTC, so the two agree there and the mistake is invisible in production -- but a Studio session
+-- runs on whatever the developer's machine says, and that is the only machine this ever gets tested
+-- on. A weekend authored against local time starts two hours early here and on time in production:
+-- it looks correct in exactly the place where it is wrong.
+--
+-- =========================================================================================
+-- EFFECTS REUSE THE GAME PASS FIELD NAMES
+-- =========================================================================================
+-- `incomeMult`, `xpMult`, `damageMult`, `luckAdd` -- the same names GetPassMult and GetPassAdd
+-- read. So DNAService.GetIncomeMult gained one line directly beneath its pass line and learned
+-- nothing about what an event is, and a new effect is a field on both sides rather than a call site.
+GameConfig.Weekday = { Sun = 1, Mon = 2, Tue = 3, Wed = 4, Thu = 5, Fri = 6, Sat = 7 }
+
+local EVENT_DAY = 86400
+local EVENT_WEEK = 7 * EVENT_DAY
+
+local eventClockOffset = 0
+
+-- THE ONE CLOCK EVERY WINDOW IN THIS SECTION IS MEASURED AGAINST.
+--
+-- On the server it is `os.time()` exactly -- a Roblox server's clock is UTC and authoritative, and
+-- the offset stays 0 forever.
+--
+-- On a client it is the SERVER's clock, learned from the payload EventService publishes. A player
+-- whose machine is set a day fast would otherwise be shown a weekend that is not running, count
+-- down to the wrong minute, and conclude the HUD is lying when their DNA arrives at the normal
+-- rate. The client never decides what is live; it is only told, and this is where it keeps the
+-- answer.
+--
+-- It is also the single seam a test moves: shifting it forward makes a future window live without
+-- editing an authored date, which is the only way to exercise a launch festival before the launch.
+function GameConfig.SetEventClock(serverNow)
+	eventClockOffset = (tonumber(serverNow) or os.time()) - os.time()
+	return eventClockOffset
+end
+
+function GameConfig.GetEventClockOffset()
+	return eventClockOffset
+end
+
+function GameConfig.EventNow()
+	return os.time() + eventClockOffset
+end
+
+-- How far this machine's clock is from UTC at `at`, measured rather than assumed.
+--
+-- Roblox reads the table form of `os.time` as UTC, in which case this returns 0 and the correction
+-- below is a no-op. Standard Lua reads it as local time, in which case this returns exactly the
+-- offset needed to undo that. The same expression is right in both worlds, which is why it is a
+-- measurement and not a branch -- a branch here would have to guess which host it is running on.
+local function utcOffsetAt(at)
+	local u = os.date("!*t", at)
+	u.isdst = false
+	return at - os.time(u)
+end
+
+-- {year, month, day, hour, min} read as UTC -> a timestamp. A plain number passes through, so a
+-- window can be authored either way.
+local function utcTimestamp(spec)
+	if type(spec) == "number" then return spec end
+	local naive = os.time({
+		year = spec[1], month = spec[2], day = spec[3],
+		hour = spec[4] or 0, min = spec[5] or 0, sec = 0,
+	})
+	return naive + utcOffsetAt(naive)
+end
+GameConfig.UtcTimestamp = utcTimestamp
+
+-- ===== THE EVENTS =====
+--
+-- `recurring` = { wday, hour, hours } in UTC, repeating every week.
+-- `fixed`     = { from = {y,m,d,h,mi}, to = {...} } in UTC, happening once.
+--
+-- WHY THE WEEKEND IS NOT DOUBLE DAMAGE. It doubles what an hour of play PAYS, and leaves how hard
+-- a creature hits alone. Damage is the pacing of the game -- how many swings a zone takes is what
+-- makes one zone feel different from the last -- and 2.12 already measured that a damage multiplier
+-- mostly removes wasted swings anyway, because BOSS_MIN_HITS caps a single blow at a share of the
+-- target's health. An event should make the grind worth more, not make it disappear.
+--
+-- The weekend runs from 00:00 UTC on Saturday for 48 hours. That is Friday evening to Sunday
+-- evening in the Americas and the whole of Saturday and Sunday in Europe -- there is no single
+-- window that is a weekend everywhere, and UTC is at least the one every server agrees on.
+GameConfig.Events = {
+	{
+		key = "Weekend2x",
+		name = "Weekend Rush",
+		emoji = "\u{1F525}",
+		blurb = "Double DNA and double XP for everyone",
+		color = Color3.fromRGB(255, 138, 76),
+		recurring = { wday = GameConfig.Weekday.Sat, hour = 0, hours = 48 },
+		effects = { incomeMult = 2, xpMult = 2 },
+	},
+	-- The launch festival, and the one event carrying an exclusive skin.
+	--
+	-- 👤 OWNER: these two dates are a DESIGN DECISION, not an id -- unlike a product or a pass there
+	-- is nothing to paste from the dashboard, so they are authored here and are safe to edit. Set
+	-- them to the real launch weekend before publishing. Nothing breaks if they stay: the window is
+	-- simply in the past or the future, GetEventWindow says so, and no effect and no skin is handed
+	-- out until the moment named below.
+	{
+		key = "PrismFest",
+		name = "Prism Festival",
+		emoji = "\u{1F308}",
+		blurb = "+50% luck, and the Prism Herald skin for everyone who shows up",
+		color = Color3.fromRGB(158, 120, 255),
+		fixed = { from = { 2026, 9, 4, 12, 0 }, to = { 2026, 9, 7, 12, 0 } },
+		effects = { luckAdd = 50 },
+		-- Granted while the window is open and NEVER taken back -- see GameConfig.EventCharacters.
+		reward = { characterKey = "event_prism" },
+	},
+}
+
+function GameConfig.GetEvent(key)
+	for _, event in ipairs(GameConfig.Events) do
+		if event.key == key then return event end
+	end
+	return nil
+end
+
+-- The occurrence of `event` that matters at `now`: when it started (or starts), when it ends,
+-- whether it is live, and when the next one begins if it is not. ONE SHAPE FOR BOTH KINDS OF
+-- WINDOW, so nothing downstream ever branches on which sort of event it is holding.
+function GameConfig.GetEventWindow(event, now)
+	if not event then return nil end
+	now = now or GameConfig.EventNow()
+
+	if event.fixed then
+		local startTs = utcTimestamp(event.fixed.from)
+		local endTs = utcTimestamp(event.fixed.to)
+		return {
+			startTs = startTs,
+			endTs = endTs,
+			active = (now >= startTs and now < endTs),
+			-- A one-off that has finished has NO next occurrence, and saying nil rather than a date
+			-- is what lets the countdown board fall through to whatever is actually coming instead
+			-- of counting down to something in the past.
+			nextStart = (now < startTs) and startTs or nil,
+		}
+	end
+
+	local r = event.recurring
+	if not r then return nil end
+
+	local t = os.date("!*t", now)
+	local midnight = now - (t.hour * 3600 + t.min * 60 + t.sec)   -- 00:00 UTC today
+	local startTs = midnight - ((t.wday - r.wday) % 7) * EVENT_DAY + (r.hour or 0) * 3600
+	-- Today IS the day, but the hour has not come round yet: the occurrence that matters is last
+	-- week's, which may or may not still be running. Without this line an event whose hour is later
+	-- today reads as having started this morning.
+	if startTs > now then startTs -= EVENT_WEEK end
+
+	local endTs = startTs + (r.hours or 24) * 3600
+	local active = (now < endTs)
+	return {
+		startTs = startTs,
+		endTs = endTs,
+		active = active,
+		nextStart = (not active) and (startTs + EVENT_WEEK) or nil,
+	}
+end
+
+-- Every event live at `now`, each paired with its own window so a caller that also wants the
+-- countdown does not compute it a second time.
+function GameConfig.GetActiveEvents(now)
+	now = now or GameConfig.EventNow()
+	local out = {}
+	for _, event in ipairs(GameConfig.Events) do
+		local window = GameConfig.GetEventWindow(event, now)
+		if window and window.active then
+			table.insert(out, { event = event, window = window })
+		end
+	end
+	return out
+end
+
+-- The soonest thing that has not started yet, for the board to count down to when nothing is on.
+function GameConfig.GetNextEvent(now)
+	now = now or GameConfig.EventNow()
+	local best
+	for _, event in ipairs(GameConfig.Events) do
+		local window = GameConfig.GetEventWindow(event, now)
+		if window and window.nextStart and (not best or window.nextStart < best.window.nextStart) then
+			best = { event = event, window = window }
+		end
+	end
+	return best
+end
+
+-- The product of `field` across every live event, or 1 so a caller can multiply unconditionally.
+--
+-- IT TAKES NO `data`, AND THAT IS THE DIFFERENCE BETWEEN AN EVENT AND A PASS IN ONE LINE: an event
+-- is the same for everybody on the server, so there is nothing about a player it could depend on.
+function GameConfig.GetEventMult(field, now)
+	local mult = 1
+	for _, live in ipairs(GameConfig.GetActiveEvents(now)) do
+		local value = live.event.effects and live.event.effects[field]
+		if type(value) == "number" then mult *= value end
+	end
+	return mult
+end
+
+-- Additive points, for luck -- the one stat in this game every source adds to rather than scales.
+function GameConfig.GetEventAdd(field, now)
+	local add = 0
+	for _, live in ipairs(GameConfig.GetActiveEvents(now)) do
+		local value = live.event.effects and live.event.effects[field]
+		if type(value) == "number" then add += value end
+	end
+	return add
+end
+
+-- "2d 4h" / "5h 12m" / "48m 09s" / "30s". Shared by the countdown board and the HUD chip so the two
+-- can never disagree about how long is left.
+function GameConfig.FormatDuration(seconds)
+	seconds = math.max(0, math.floor(tonumber(seconds) or 0))
+	local d = math.floor(seconds / EVENT_DAY)
+	local h = math.floor((seconds % EVENT_DAY) / 3600)
+	local m = math.floor((seconds % 3600) / 60)
+	local s = seconds % 60
+	if d > 0 then return ("%dd %dh"):format(d, h) end
+	if h > 0 then return ("%dh %02dm"):format(h, m) end
+	if m > 0 then return ("%dm %02ds"):format(m, s) end
+	return ("%ds"):format(s)
+end
+
+-- One line for the HUD and the board: what is running and how long is left, or what is next.
+-- Returns nil when there is neither, which is a state the board draws rather than hides.
+function GameConfig.GetEventHeadline(now)
+	now = now or GameConfig.EventNow()
+	local active = GameConfig.GetActiveEvents(now)
+	if #active > 0 then
+		local live = active[1]
+		return {
+			event = live.event,
+			live = true,
+			seconds = live.window.endTs - now,
+			text = ("%s  %s"):format(live.event.emoji, GameConfig.FormatDuration(live.window.endTs - now)),
+		}
+	end
+	local upcoming = GameConfig.GetNextEvent(now)
+	if upcoming then
+		return {
+			event = upcoming.event,
+			live = false,
+			seconds = upcoming.window.nextStart - now,
+			text = ("%s  in %s"):format(upcoming.event.emoji,
+				GameConfig.FormatDuration(upcoming.window.nextStart - now)),
+		}
+	end
+	return nil
+end
+
+-- ============================================================================
 -- SEASON PASS
 -- ============================================================================
 -- A thirty-level track that fills with Season XP, and Season XP comes from ONE place: completing
@@ -1742,14 +2037,69 @@ end
 -- over on their next join -- see SeasonPassService, which migrates lazily rather than needing a
 -- scheduled job or a live server at the moment a season turns over.
 GameConfig.Season = {
-	id = "S1",
-	name = "Season 1: First Light",
+	-- `id` and `name` USED TO LIVE HERE and are derived now -- see GetCurrentSeason below (7.3).
+	-- What is left in this table is the SHAPE of a pass, which every season shares. The emoji is
+	-- the fallback for a caller that wants a season marker without asking which season it is.
 	emoji = "\u{1F39F}\u{FE0F}",
 	maxLevel = 30,
 	-- flat, not a curve. A rising per-level cost makes the back half of a pass feel like a wall,
 	-- and the quests already scale the income side.
 	xpPerLevel = 1500,
 }
+
+-- ===== THE SEASON TURNS OVER ON ITS OWN (7.3) =====
+--
+-- `Season.id` used to be a hand-edited string, and the comment above said "bump it and every
+-- player's progress starts over". That is a live-ops job nobody can do at 3am on the day it is due,
+-- and a season that only rotates when somebody remembers is not a season -- it is a permanent pass
+-- with an optimistic name.
+--
+-- It is derived from the clock instead, exactly like an event window, and for exactly the same
+-- reasons: two servers cannot disagree, a restart cannot lose it, and there is no scheduled job to
+-- miss. SeasonPassService already resets LAZILY off a mismatch in this id, so making the id a
+-- function of the date is the entire feature -- that file's reset logic did not change at all.
+--
+-- THE EPOCH IS CHOSEN SO THAT TODAY IS STILL SEASON 1, and the id it generates for the first
+-- season is the string "S1" -- byte for byte what every existing save already holds. So this update
+-- rotates nothing: no player loses the pass progress they had when it shipped. Getting that wrong
+-- is a wipe, not a bug report.
+--
+-- THEMES CYCLE, NUMBERS DO NOT. Season 7 is "Season 7: <the 7th theme>", and once the list is
+-- exhausted it starts round again while the number keeps climbing -- so the table never runs out
+-- and no season is ever nameless. Add a row and the rotation is longer; nothing else changes.
+GameConfig.SeasonEpoch = { 2026, 8, 1, 0, 0 }   -- UTC, the moment Season 1 opened
+GameConfig.SeasonLengthDays = 30
+
+GameConfig.SeasonThemes = {
+	{ name = "First Light",    emoji = "\u{1F39F}\u{FE0F}" },
+	{ name = "Deep Currents",  emoji = "\u{1F30A}" },
+	{ name = "Ashfall",        emoji = "\u{1F30B}" },
+	{ name = "Frostbloom",     emoji = "\u{2744}\u{FE0F}" },
+	{ name = "Starfall",       emoji = "\u{1F320}" },
+	{ name = "Overgrowth",     emoji = "\u{1F33F}" },
+}
+
+-- The season `now` falls in. Everything about it is generated, so there is no list to keep in step
+-- with the calendar and no season that can be reached before someone has written it down.
+function GameConfig.GetCurrentSeason(now)
+	now = now or GameConfig.EventNow()
+	local epoch = GameConfig.UtcTimestamp(GameConfig.SeasonEpoch)
+	local length = GameConfig.SeasonLengthDays * 86400
+	-- clamped at 1: a clock reading before the epoch is a broken clock, not season zero, and it
+	-- must not produce an id no save has ever seen
+	local index = math.max(1, math.floor((now - epoch) / length) + 1)
+	local startTs = epoch + (index - 1) * length
+	local theme = GameConfig.SeasonThemes[((index - 1) % #GameConfig.SeasonThemes) + 1]
+	return {
+		index = index,
+		id = "S" .. index,
+		name = ("Season %d: %s"):format(index, theme.name),
+		emoji = theme.emoji,
+		startTs = startTs,
+		endTs = startTs + length,
+		secondsLeft = math.max(0, startTs + length - now),
+	}
+end
 
 -- Level from total XP. Level 1 is the floor -- a pass at 0 XP is "Level 1, 0/1500", never level 0.
 function GameConfig.GetSeasonLevel(xp)
@@ -2322,8 +2672,55 @@ GameConfig.VipCharacter = {
 	rarity = "Legendary",
 	color = Color3.fromRGB(255, 205, 74),
 	vip = true,
+	-- See the note over GameConfig.EventCharacters: `offLadder` is what the rank arithmetic reads,
+	-- `vip` is what the pass sync and the Journal's section title read. They were one field until
+	-- there was a second kind of skin that is not on the ladder.
+	offLadder = true,
 }
 CHARACTER_BY_KEY[GameConfig.VipCharacter.key] = GameConfig.VipCharacter
+
+-- ===== EVENT-EXCLUSIVE SKINS: THE SAME SEPARATION, WITH ONE DIFFERENCE =====
+--
+-- Registered in CHARACTER_BY_KEY and never in CHARACTERS_BY_STAGE, for every reason written over
+-- GameConfig.VipCharacter above -- the collection count, the evolve chain and the rank ladder must
+-- not be able to see them, or the Journal could never read 200/200 again.
+--
+-- `offLadder = true` is the field the rank functions test. It used to be `vip`, which was fine
+-- while there was exactly one skin outside the ladder; a second one would have had to be called
+-- VIP to score correctly, and the next reader would have believed it.
+--
+-- THE DIFFERENCE IS THAT THESE ARE NEVER TAKEN BACK. The VIP skin is synced to a pass and revoked
+-- the moment it lapses, because it is a subscription's badge. An event skin is a receipt for having
+-- been there, and the only thing that makes a limited item worth owning is that the window it came
+-- from is shut. EventService grants it while the window is open and nothing anywhere removes it --
+-- not a rebirth, which clears data.Characters wholesale and is healed by the same sweep the VIP
+-- skin uses, and not the event ending.
+--
+-- There is no generated SkinMesh for these and that is intended: SkinMesh.Has() falls through to
+-- StageCostume painted in the colour below, i.e. a Prism version of whatever stage you are standing
+-- at -- which is also why they preview at the player's own stage in the Journal rather than at a
+-- stage of their own.
+GameConfig.EventCharacters = {
+	{
+		key = "event_prism",
+		name = "Prism Herald",
+		emoji = "\u{1F308}",
+		rarity = "Legendary",
+		color = Color3.fromRGB(158, 120, 255),
+		event = "PrismFest",
+		offLadder = true,
+	},
+}
+for _, c in ipairs(GameConfig.EventCharacters) do
+	CHARACTER_BY_KEY[c.key] = c
+end
+
+function GameConfig.GetEventCharacter(key)
+	for _, c in ipairs(GameConfig.EventCharacters) do
+		if c.key == key then return c end
+	end
+	return nil
+end
 
 function GameConfig.GetCharacter(key)
 	return key and CHARACTER_BY_KEY[key] or nil
@@ -2394,10 +2791,10 @@ end
 -- not silently shift everything after it.
 function GameConfig.GetCharacterRank(entry)
 	if not entry then return 0 end
-	-- The VIP skin has no rung on the ladder -- it is not in CHARACTERS_BY_STAGE and counting it as
-	-- one would put it either at the bottom (worthless) or the top (bought power). What it is worth
-	-- is decided per WEARER instead; see GetEffectiveRank.
-	if entry.vip then return 0 end
+	-- An off-ladder skin -- the VIP one, an event one -- has no rung. It is not in CHARACTERS_BY_STAGE
+	-- and counting it as one would put it either at the bottom (worthless) or the top (bought or
+	-- date-of-birth power). What it is worth is decided per WEARER instead; see GetEffectiveRank.
+	if entry.offLadder then return 0 end
 	local rank = 0
 	for stageIndex = 1, (entry.stage or 1) - 1 do
 		rank += #(CHARACTERS_BY_STAGE[stageIndex] or {})
@@ -2433,7 +2830,7 @@ function GameConfig.GetBestOwnedRank(data)
 	local best = 0
 	for key in pairs((data and data.Characters) or {}) do
 		local entry = CHARACTER_BY_KEY[key]
-		if entry and not entry.vip then
+		if entry and not entry.offLadder then
 			local rank = GameConfig.GetCharacterRank(entry)
 			if rank > best then best = rank end
 		end
@@ -2442,7 +2839,7 @@ function GameConfig.GetBestOwnedRank(data)
 end
 
 function GameConfig.GetEffectiveRank(data, entry)
-	if entry and entry.vip then return GameConfig.GetBestOwnedRank(data) end
+	if entry and entry.offLadder then return GameConfig.GetBestOwnedRank(data) end
 	return GameConfig.GetCharacterRank(entry)
 end
 
@@ -2497,13 +2894,42 @@ function GameConfig.SyncVipCharacter(data)
 		local best, bestRank = nil, -1
 		for owned in pairs(data.Characters) do
 			local entry = GameConfig.GetCharacter(owned)
-			if entry and not entry.vip then
+			-- offLadder rather than vip: an event skin also scores 0 here, so falling back onto one
+			-- would put the player in a costume that is not the best thing they earned.
+			if entry and not entry.offLadder then
 				local rank = GameConfig.GetCharacterRank(entry)
 				if rank > bestRank then best, bestRank = owned, rank end
 			end
 		end
 		data.WornCharacter = best
 	end
+end
+
+-- ===== AN EVENT SKIN HAS TO SURVIVE A REBIRTH, AND data.Characters DOES NOT =====
+--
+-- `RebirthService` clears `data.Characters` wholesale and the collection is then re-granted from
+-- the stage lists. The VIP skin survives that because SyncVipCharacter puts it back from the pass,
+-- which is a live fact that can be re-asked at any time. An event skin has no such source: the
+-- window it came from is shut, so once it is gone it is gone -- a player who rebirths in October
+-- would silently lose a September festival skin and nothing anywhere could give it back.
+--
+-- So `data.EventCharacters` is the permanent record and `data.Characters` is only ever the working
+-- copy. Same shape and same reasoning as StatsService's `CountedCharacters`: a set that no reset
+-- touches, from which the thing a reset destroys is rebuilt. Called on the rebirth hook beside
+-- SyncVipCharacter and by EventService's own sweep, and it is idempotent, so extra calls are free.
+function GameConfig.SyncEventCharacters(data)
+	if not data then return 0 end
+	data.Characters = data.Characters or {}
+	local restored = 0
+	for key, earned in pairs(data.EventCharacters or {}) do
+		-- only keys that still resolve: a skin removed from the table in a later build must not
+		-- reappear on a body as a nil entry the costume code then tries to paint with
+		if earned == true and CHARACTER_BY_KEY[key] and not data.Characters[key] then
+			data.Characters[key] = true
+			restored += 1
+		end
+	end
+	return restored
 end
 
 -- THE NEXT ONE TO HAND OVER: the first entry of this stage the player does not already own.

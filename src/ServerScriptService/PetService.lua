@@ -5,6 +5,7 @@ local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local SeasonPassService = require(script.Parent.SeasonPassService)
+local AnnounceService = require(script.Parent.AnnounceService)
 
 local PetService = {}
 
@@ -152,6 +153,12 @@ function PetService.HandleBuyEgg(player, eggKey)
 		tier = "Normal",
 		rarity = petDef.rarity,
 	})
+
+	-- After the payout and after the client push, because a beam that goes up before the pet is in
+	-- the inventory is announcing something that has not happened yet. Called on EVERY hatch: the
+	-- rarity rule and the rate limit both live in AnnounceService, so no publisher has to know what
+	-- counts as rare. See its header for why that is a service rather than an `if` here.
+	AnnounceService.PetHatched(player, petDef)
 end
 
 function PetService.HandleEquip(player, petId)

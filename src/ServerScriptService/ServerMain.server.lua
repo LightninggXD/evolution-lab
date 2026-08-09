@@ -10,6 +10,7 @@ local ZoneBuilder = require(ServerScriptService.ZoneBuilder)
 local ZoneService = require(ServerScriptService.ZoneService)
 local EvolutionVisuals = require(ServerScriptService.Systems.EvolutionVisuals)
 local VFXService = require(ServerScriptService.Systems.VFXService)
+local AnnounceService = require(ServerScriptService.AnnounceService)
 local PetService = require(ServerScriptService.PetService)
 local PetFollowService = require(ServerScriptService.PetFollowService)
 local MachineService = require(ServerScriptService.MachineService)
@@ -27,6 +28,7 @@ local CodesService = require(ServerScriptService.CodesService)
 local OfflineService = require(ServerScriptService.OfflineService)
 local LeaderboardService = require(ServerScriptService.LeaderboardService)
 local StatsService = require(ServerScriptService.StatsService)
+local EventService = require(ServerScriptService.EventService)
 
 -- ===== STREAMING =====
 -- The two radii that decide how much world a client is holding. Roblox's defaults (min 64,
@@ -78,6 +80,9 @@ EvolutionVisuals.Init()
 -- before BossService: it owns the proximity gate the boss auras register themselves with, and
 -- Init() wipes the previous run's ZoneVFX folder
 VFXService.Init()
+-- before PetService, which publishes to it on the very first hatch: Init() is what puts
+-- Remotes.RarityBeam there, and the client waits on that remote by name
+AnnounceService.Init()
 PetService.Init()
 PetFollowService.Init()
 MachineService.Init()
@@ -101,6 +106,10 @@ CodesService.Init()
 -- It builds its own furniture rather than going through ZoneBuilder -- see the note in that file.
 LeaderboardService.Init()
 StatsService.Init()
+-- after ZoneBuilder.Build() for the same reason the leaderboards are -- it stands its own sign on
+-- the Forest ground -- and after AnnounceService, which is what it announces an opening window
+-- through. It reads no other service's state: whether an event is live is arithmetic on the clock.
+EventService.Init()
 -- LAST, and after DNAService in particular: the offline payout is DNAService.GetAutoCollectAmount
 -- multiplied by a bounded number of seconds, so it has to run once the income stack it reads is
 -- fully wired. It hooks PlayerAdded itself rather than being called from the block below, because
@@ -111,6 +120,15 @@ OfflineService.Init()
 DNAService.OnEvolve = function(player, data)
 	ZoneService.CheckUnlocks(player, data)
 	EvolutionVisuals.ApplyStage(player, data.StageIndex, { animate = true, burst = true })
+	-- THE FIRST EVOLVE IS WHAT ENDS THE FIRST-JOIN SEQUENCE (6.3), and it is marked here, on the
+	-- server, rather than by the client saying it has finished. The whole guide exists to get a new
+	-- player to this exact line; reaching it is the completion, and a client that could report it
+	-- could also report it having never played. The client draws the guide purely off this flag, so
+	-- the push below is what takes it off the screen.
+	if not data.TutorialDone then
+		data.TutorialDone = true
+		PlayerDataService.PushToClient(player)
+	end
 end
 
 -- Stage Mastery raises walk speed and max health, which live on the Humanoid -- push them onto
@@ -153,6 +171,10 @@ RebirthService.OnRebirth = function(player, data)
 	-- pass is untouched. Put it back BEFORE the body is rebuilt, or a VIP who rebirths while wearing
 	-- it respawns in a skin the save no longer lists.
 	GameConfig.SyncVipCharacter(data)
+	-- The same wipe takes any event-exclusive skin with it, and unlike the VIP one there is nothing
+	-- live to re-grant it from once the window has shut -- so it is restored from the permanent
+	-- record instead. See GameConfig.SyncEventCharacters.
+	GameConfig.SyncEventCharacters(data)
 	EvolutionVisuals.ApplyStage(player, data.StageIndex, { animate = true, burst = true })
 end
 

@@ -164,6 +164,13 @@ local S = {
 	levelUp    = { id = 99980076888596, len = 1.7, vol = 0.45, speed = 1.0, group = "UI" },
 	-- the hatch base; PlayHatch below is what makes it rarity-scaled
 	hatch      = { id = 4612374495, len = 1.5, vol = 0.50, speed = 1.0, group = "UI" },
+	-- The Legendary beam (6.2). Same asset as `evolve`, pitched down and played POSITIONALLY at
+	-- 600 studs -- the precedent is `open`/`close`, which are the swing whoosh at another speed. A
+	-- fanfare slowed down is what a distant, bigger version of the same event sounds like, and it is
+	-- one fewer 200 KB download than a sound nobody could describe the difference of. Positional and
+	-- SFX-grouped, not UI: this one belongs to a place in the world, and everybody in the server
+	-- hears it from wherever that place is.
+	beacon     = { id = 74787957961284, len = 2.2, vol = 0.65, speed = 0.82, dist = 600 },
 
 	-- ===== interface (4.4) =====
 	click      = { id = 15051647685, len = 0.2, vol = 0.30, speed = 1.0, vary = 0.05, group = "UI", minGap = 0.04 },

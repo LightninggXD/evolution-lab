@@ -50,7 +50,10 @@ end
 
 local function freshSeason()
 	return {
-		id = GameConfig.Season.id,
+		-- DERIVED FROM THE CLOCK now (7.3), not an authored constant. Nothing else in this file
+		-- changed to get seasonal rotation: the lazy reset below was already comparing the save's id
+		-- against "the current one", and the only thing that was static was the answer.
+		id = GameConfig.GetCurrentSeason().id,
 		xp = 0,
 		premium = false,
 		claimedFree = {},
@@ -73,7 +76,7 @@ end
 -- Call before ANY read of data.Season. Returns the table, having reset it first if the season
 -- turned over while this player was away.
 function SeasonPassService.GetSeason(data)
-	if type(data.Season) ~= "table" or data.Season.id ~= GameConfig.Season.id then
+	if type(data.Season) ~= "table" or data.Season.id ~= GameConfig.GetCurrentSeason().id then
 		data.Season = freshSeason()
 	else
 		-- a save written by an older build can be missing a sub-table the rest of this file indexes
@@ -135,6 +138,14 @@ local function shortNumber(n)
 	if n < 1000 then return tostring(n) end
 	local mag = 0
 	while n >= 1000 and mag < #REWARD_SUFFIX do
+		n = n / 1000
+		mag += 1
+	end
+	-- THE ROUNDING CARRIES past the loop, which has already stopped looking: 999,999 divides once to
+	-- 999.999, is accepted, and "%.2f" prints "1000.00K" for a number one short of a million. 999.995
+	-- and not 999.95 because this prints TWO decimals -- the constant has to match the precision it
+	-- guards, or it fires a place too early.
+	if n >= 999.995 and mag < #REWARD_SUFFIX then
 		n = n / 1000
 		mag += 1
 	end
@@ -309,7 +320,7 @@ function SeasonPassService.HandleClaimSeasonReward(player, level, track)
 	PlayerDataService.PushToClient(player)
 	Remotes.Notify:FireClient(player, {
 		kind = "reward",
-		message = ("%s Level %d %s reward\n%s"):format(GameConfig.Season.emoji, level,
+		message = ("%s Level %d %s reward\n%s"):format(GameConfig.GetCurrentSeason().emoji, level,
 			(track == "premium") and "Premium" or "Free", rewardText(reward, data)),
 	})
 end
@@ -327,7 +338,7 @@ function SeasonPassService.GrantPremium(player)
 	Remotes.Notify:FireClient(player, {
 		kind = "reward",
 		message = ("%s PREMIUM PASS UNLOCKED!\nEvery premium reward you have already reached is ready to claim.")
-			:format(GameConfig.Season.emoji),
+			:format(GameConfig.GetCurrentSeason().emoji),
 	})
 	return true
 end

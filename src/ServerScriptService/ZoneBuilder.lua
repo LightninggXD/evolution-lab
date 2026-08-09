@@ -28,7 +28,11 @@ local ZoneBuilder = {}
 -- parallel lines), the treads are densely planted with mushrooms/tufts/crystals/conifers, the
 -- boulders became faceted chunks instead of spheres, and the egg stall was rebuilt to the
 -- reference: slate pedestals, a pill price plate, a white EGGS panel, no crack on the shells.
-local BUILD_VERSION = 115
+-- 116: the 26 free-floating "glint coins" a zone got a plinth and a post to stand on, and came
+-- down to 12. They were the "something yellow and round hanging in the air" in the bug report.
+-- 117: the terraces got a flight of stairs per tier per side, so the shelves are somewhere a
+-- player can actually go -- which is what the raised Brutes and Elites in CreatureService need.
+local BUILD_VERSION = 117
 
 -- The Colosseum carries its own stamp. Bumping BUILD_VERSION drops all 21 zones and rebuilds
 -- ~60,000 parts, which takes long enough that Studio regularly loses the connection partway (see
@@ -1313,16 +1317,40 @@ local function addZoneProps(model, zone, cx)
 		addLight(knob, accent, 18, 1.4)
 	end
 
-	-- spinning DNA pickups: pure decoration, but a moving highlight at eye height everywhere you
-	-- look is the difference between a diorama and a live map
-	for i = 1, 26 do
-		-- coins float at eye height, so they read as inside a plinth rather than under it
-		local x, z = scatterPoint(cx, 310, 390, 8)
-		reserveScatter(x, z, 8)
-		local y = 6 + math.random(0, 5)
-		local base = CFrame.new(x, y, z) * CFrame.Angles(0, math.rad(math.random(0, 180)), math.rad(90))
-		local coin = newPart({ Name = "GlintCoin", Shape = Enum.PartType.Cylinder, Size = Vector3.new(1.2, 7, 7), CFrame = base, Color = i % 3 == 0 and accent or Color3.fromRGB(255, 214, 74), Material = Enum.Material.Neon, CanCollide = false, CastShadow = false, Parent = model })
-		addLight(coin, coin.Color, 14, 1.2)
+	-- ===== SPINNING DNA SPECIMENS -- ON A PLINTH, NOT HANGING IN MID-AIR =====
+	--
+	-- These were 26 free-floating neon discs a zone, dropped at a random 6 to 11 studs off the
+	-- ground with nothing whatsoever underneath them. The intent was right and is kept -- a moving
+	-- highlight at eye height everywhere you look is the difference between a diorama and a live
+	-- map -- but the read was wrong in two separate ways, and both were reported from a screenshot:
+	--
+	--   * "there is something yellow and round just hanging in the air". A 7-stud glowing disc with
+	--     no support does not read as decoration, it reads as a prop whose stand failed to load.
+	--     Nothing in this world may float unless something VISIBLE is holding it up -- the same
+	--     rule the zone signs learned when they stopped being billboards.
+	--   * a glowing disc at chest height in a game full of collectables promises a pickup. This one
+	--     cannot be picked up, so every player walks into it once and learns the world lies.
+	--
+	-- Now it is a specimen on display: a stone pad, a post, and the coin turning just above the
+	-- top of it. The count comes down 26 -> 12 because this is three parts each instead of one and
+	-- because 26 of them was never sparkle, it was litter -- twelve on stands read as more.
+	local stone = zone.groundColor:Lerp(Color3.fromRGB(232, 228, 220), 0.62)
+	for i = 1, 12 do
+		local x, z = scatterPoint(cx, 310, 390, 9)
+		reserveScatter(x, z, 9)
+		local color = i % 3 == 0 and accent or Color3.fromRGB(255, 214, 74)
+		-- the post is what carries the eye up to the coin, so its height is what varies, not the
+		-- coin's distance from nothing
+		local postH = math.random(7, 11)
+
+		newPart({ Name = "GlintPlinth", Size = Vector3.new(7, 2.4, 7), CFrame = CFrame.new(x, 1.2, z) * CFrame.Angles(0, math.rad(math.random(0, 45)), 0), Color = stone, Material = Enum.Material.Slate, Parent = model })
+		newPart({ Name = "GlintPost", Size = Vector3.new(1.8, postH, 1.8), CFrame = CFrame.new(x, 2.4 + postH / 2, z), Color = woodDark, Material = Enum.Material.Wood, CanCollide = false, Parent = model })
+
+		-- 3.4 clears the coin's own 3.5-stud radius off the top of the post by a hair, so it turns
+		-- just above it rather than through it
+		local base = CFrame.new(x, 2.4 + postH + 3.4, z) * CFrame.Angles(0, math.rad(math.random(0, 180)), math.rad(90))
+		local coin = newPart({ Name = "GlintCoin", Shape = Enum.PartType.Cylinder, Size = Vector3.new(1.2, 7, 7), CFrame = base, Color = color, Material = Enum.Material.Neon, CanCollide = false, CastShadow = false, Parent = model })
+		addLight(coin, color, 14, 1.2)
 		spinForever(coin, base, 180, 3.2)
 	end
 
@@ -3374,6 +3402,39 @@ local function buildValleySide(model, zone, cx, side, p)
 	end
 	local function segZ(i) return -halfZ + segLen * (i - 0.5) end
 
+	-- ===== WHICH SEGMENT EACH FLIGHT OF STAIRS CLIMBS =====
+	--
+	-- Decided HERE, before a single prop is placed, and that ordering is the whole point: the crags,
+	-- boulders and conifers below all have to know where the stairs are going to be. Built later
+	-- (which is where this started) they were placed into rock -- a screenshot of the first pass
+	-- showed a flight of steps and two rails driven straight through a crag, reading as a pile of
+	-- slabs rather than as a way up.
+	--
+	-- SPREAD ACROSS THE RING, NOT STEPPED BY A CONSTANT. The first version picked `tier * 3 + hash`,
+	-- and on a zone with six segments that is 3, 0, 3, 0 -- tiers 1 and 3 landed on the SAME segment
+	-- and built two flights at two pitches through each other. Dividing the ring by the tier count
+	-- cannot do that: with at most 4 tiers against at least 5 segments, every flight gets its own.
+	local stairSeg = {}
+	for tier = 1, p.tiers do
+		stairSeg[tier] = (math.floor((tier - 1) * SEGMENTS / p.tiers) + keyHash + (side > 0 and 1 or 0)) % SEGMENTS + 1
+	end
+	-- Half the flight's 30-stud width plus a margin, measured from the middle of its segment.
+	--
+	-- TWO FLIGHTS TOUCH ANY GIVEN SHELF, and the first version of this only knew about one of them
+	-- -- which is why a rebuild still came back with 22 crags, 13 buttresses and 9 boulders standing
+	-- in a staircase. Tier N's flight STANDS ON tier N-1's tread and ARRIVES AT tier N's, so
+	-- anything placed on tread T has to keep clear of flight T (which lands on it at the inner lip)
+	-- and of flight T+1 (which runs right across it). `stairSeg[tier + 1]` is nil on the top shelf,
+	-- where there is no flight above -- that is the loop's own terminator, not a special case.
+	local STAIR_HALF_Z = 26
+	local function inStairwell(tier, z)
+		for _, t in ipairs({ tier, tier + 1 }) do
+			local i = stairSeg[t]
+			if i and math.abs(z - segZ(i)) < STAIR_HALF_Z then return true end
+		end
+		return false
+	end
+
 	for tier = 1, p.tiers do
 		local top = treadY(tier)
 
@@ -3520,7 +3581,15 @@ local function buildValleySide(model, zone, cx, side, p)
 			-- reads as a buttress broken out of the cliff, which is what it was always meant to be.
 			for j = 1, 2 do
 				local z = zc + span(-segLen / 2 + 20, segLen / 2 - 20)
+				-- A buttress stands at this tier's inner edge and hangs BELOW its tread, which is the
+				-- exact volume the top half of this tier's flight occupies -- 13 of them were found
+				-- driven through a staircase. Pushed clear along z rather than dropped: the buttresses
+				-- are what stop the cliff face reading as a painted board, and a bare segment would
+				-- undo that everywhere the stairs happen to be.
 				local w = math.random(22, 52)
+				if inStairwell(tier, z) or inStairwell(tier, z + w / 2) or inStairwell(tier, z - w / 2) then
+					z = zc + (z < zc and 1 or -1) * (STAIR_HALF_Z + w / 2 + math.random(6, 20))
+				end
 				local h = p.rise * math.random(50, 92) / 100
 				local d = math.random(9, 17)
 				newPart({ Name = "CliffJut", Size = Vector3.new(d, h, w),
@@ -3560,8 +3629,16 @@ local function buildValleySide(model, zone, cx, side, p)
 				local tx, tz = spot()
 				tuft(tx, top, tz, math.random(14, 24), accent, Enum.Material.Neon)
 			end
+			-- A CONIFER IS THE ONE PLANT BIG ENOUGH TO BLOCK THE WAY UP. The grass, mushrooms and
+			-- crystals above are 7 to 24 studs and non-colliding, so a few of them standing beside the
+			-- steps is dressing; an 80-stud tree growing out of the middle of a flight is not. Nudged
+			-- to the far side of the segment rather than dropped -- the shelves are planted densely on
+			-- purpose and a bald segment would read as the one place the world forgot.
 			if p.trees and math.random() < p.trees then
 				local tx, tz = spot()
+				if inStairwell(tier, tz) then
+					tz = zc + (tz < zc and 1 or -1) * (STAIR_HALF_Z + math.random(6, 18))
+				end
 				conifer(tx, top, tz, math.random(46, 80))
 			end
 
@@ -3574,11 +3651,24 @@ local function buildValleySide(model, zone, cx, side, p)
 			-- `innerX + band * 0.4` put it once the tiers stopped being evenly spaced -- it is a grey
 			-- slab standing in a field with nothing to explain it. A dark scree pad underneath is what
 			-- makes it sit ON the grass instead of being stabbed into it.
+			-- ...and NEVER standing in a flight of stairs. A crag is the biggest thing on a tread and
+			-- it is CanCollide, so one in the way is not dressing, it is a wall.
+			--
+			-- TESTED ON ITS OWN z, NOT ON ITS SEGMENT INDEX, and the difference is not academic: a
+			-- crag's z is `zc + span(-segLen/2 + 20, ...)`, so it may wander to within TWENTY studs of
+			-- the NEXT segment's centre. Skipping stair segments still left three flights across the
+			-- world with a spire in the middle of them, every one of them belonging to the segment
+			-- next door. The band is what matters, so the band is what is asked.
 			if i % 2 == 1 then
 				local h = math.random(math.floor(p.rise * 1.5), math.floor(p.rise * 2.8))
 				local w = math.random(22, 40)
 				local sx = cx + side * span(innerX + (treadOut - innerX) * 0.55, treadOut - 16)
 				local sz = zc + span(-segLen / 2 + 20, segLen / 2 - 20)
+				-- half the spire's own width on top of the stairwell, so it clears the flight by its
+				-- edge rather than by its centre
+				if inStairwell(tier, sz) or inStairwell(tier, sz + w / 2) or inStairwell(tier, sz - w / 2) then
+					sz = zc + (sz < zc and 1 or -1) * (STAIR_HALF_Z + w / 2 + math.random(4, 16))
+				end
 				local yaw = math.rad(math.random(0, 360))
 				local lean = math.rad(side * -math.random(2, 6))
 				-- barely proud of the grass: this is a contact shadow, not a paving slab. At 2.2 studs
@@ -3600,10 +3690,111 @@ local function buildValleySide(model, zone, cx, side, p)
 		end
 	end
 
+	-- ===== A WAY UP. THE SHELVES WERE SCENERY BECAUSE NOTHING COULD REACH THEM =====
+	--
+	-- The comment further down calls the terraces GROUND rather than scenery, and the collision on
+	-- them says the same -- but a riser is 20 to 50 studs of sheer rock and the player's jump clears
+	-- about six at stage 1 and thirteen at stage 3. Nobody has ever stood on one. That was survivable
+	-- while the band was only a horizon; it stops being survivable the moment anything worth walking
+	-- to is put up there, which is what the raised Brutes and Elites in CreatureService now are.
+	--
+	-- One flight per tier per side, each in its own segment (see `stairSeg`, worked out before any
+	-- prop was placed so the crags and boulders could be kept out of the way). Scattering them is
+	-- the interesting half: reaching the top shelf means climbing, walking along the tread to find
+	-- the next flight, and climbing again. A single stack of flights one above the other would be a
+	-- staircase with a view; this is a route.
+	--
+	-- ===== THE COLLISION IS A RAMP; THE STEPS ARE PAINT =====
+	--
+	-- Cut as real steps this was 6-18 parts per tier per side -- roughly 1,900 across the strip --
+	-- and every one of them would have had to be pinned into WorldShell, because a walkable surface
+	-- allowed to stream out is a hole a player falls through while they are standing on it. The
+	-- shell is 2,493 parts today; a 76% increase in the set that is replicated to every client at
+	-- join, forever, is not worth a staircase.
+	--
+	-- So the thing you stand on is ONE slab lying at the pitch of the climb -- 1 pinned part per
+	-- flight, ~126 across the world -- and the steps are non-colliding faces laid on top of it that
+	-- stream like any other decoration. Lose them to streaming and the route still works; you are
+	-- walking up the same ramp either way. Humanoid.MaxSlopeAngle is 89 by default, so every pitch
+	-- these profiles can produce (25 to 59 degrees) is walked up without a single jump.
+	--
+	-- The flight runs INWARD from the riser it climbs and stands on the tread below it. `backstop`
+	-- is a hard limit and not a style choice: past the inner edge of the shelf underneath, there is
+	-- nothing under the ramp but the valley floor thirty studs down.
+	do
+		for tier = 1, p.tiers do
+			local i = stairSeg[tier]
+			local outer = edges[tier][i] + 1     -- a stud INTO the riser, so no two faces are coplanar
+			local bottom = (tier > 1) and treadY(tier - 1) or 0
+			local top = treadY(tier)
+			local backstop = (tier > 1) and edges[tier - 1][i] or (TERRAIN_INNER - 46)
+			local run = math.max(20, outer - backstop)
+			local zc = segZ(i)
+
+			-- world ends of the climb. `side` is which half of the zone this is, so the whole flight
+			-- mirrors with it and the maths below never has to know which one it is on.
+			local footX = cx + side * (outer - run)
+			local headX = cx + side * outer
+			local steps = math.clamp(math.floor(run / 5.5), 4, 12)
+			local riser = (top - bottom) / steps
+
+			-- ---- THE STEPS, WHICH ARE THE THING YOU SEE. Each one is a solid block standing on the
+			-- tread below and reaching its own height, so its top is horizontal, its front face is the
+			-- riser, and nothing about it floats -- the first cut laid thin plates along the pitch of
+			-- the ramp instead, which from the side read as slats nailed to a plank.
+			for k = 1, steps do
+				local h = riser * k
+				local sx = footX + (headX - footX) * ((k - 0.5) / steps)
+				newPart({ Name = "TerraceStairFace", Size = Vector3.new((run / steps) * 1.02, h, 30),
+					Position = Vector3.new(sx, bottom + h / 2, zc),
+					Color = (k % 2 == 0) and rockLit or rock, Material = Enum.Material.Rock,
+					CanCollide = false, CastShadow = false, Parent = model })
+			end
+
+			-- ---- AND THE THING YOU STAND ON, SUNK HALF A STEP INTO THEM.
+			--
+			-- lookAt puts the part's -Z on the top end, so the slab's LENGTH is its Z and the pitch
+			-- falls out of the two end points rather than out of a trig call that would need its sign
+			-- corrected per side. The slab is 4 thick and both ends are given as its CENTRE line, so
+			-- every height below is the surface the player walks MINUS 2.
+			--
+			-- THE TOP END IS THE ONE THAT HAS TO BE EXACT: `top - 2` puts the walking surface flush
+			-- with the shelf, so arriving is a step onto level ground rather than a lip to be jumped.
+			-- The bottom end is half a riser up, which sinks the slab into the mass of the steps and
+			-- hides it; the six studs of extra length then carry that end down below the tread it
+			-- starts from, so setting off is a slope and not a kerb either.
+			local from = Vector3.new(footX, bottom + riser * 0.5 - 2, zc)
+			local to = Vector3.new(headX, top - 2, zc)
+			local ramp = newPart({ Name = "TerraceRamp", Size = Vector3.new(28, 4, (to - from).Magnitude + 6),
+				CFrame = CFrame.lookAt(from:Lerp(to, 0.5), to), Color = rock,
+				Material = Enum.Material.Rock, Parent = model })
+
+			-- a kerb down each side, so the flight reads as cut into the hill rather than as a stack
+			-- of slabs that happens to be climbable. Chunky on purpose: at 3 studs it was a pencil
+			-- line, and the outline is what the whole art direction here is carried by.
+			for _, sz in ipairs({ -1, 1 }) do
+				newPart({ Name = "TerraceStairRail", Size = Vector3.new(4.5, 7, ramp.Size.Z),
+					CFrame = ramp.CFrame * CFrame.new(sz * 16, 3, 0),
+					Color = rockDark, Material = Enum.Material.Rock,
+					CanCollide = false, CastShadow = false, Parent = model })
+			end
+		end
+	end
+
 	-- ---- boulders, sitting ON whichever shelf they land on rather than at y = 0
 	for _ = 1, p.rocks do
 		local tier = math.random(1, p.tiers)
 		local z = math.random(-halfZ + 40, halfZ - 40)
+		-- a 48-stud boulder parked on the steps is the same problem the crags had. This one is drawn
+		-- from the whole depth rather than from inside a segment, so rerolling is cheaper than
+		-- reasoning about where else it could go -- and the edges are tested, not just the centre,
+		-- for the same reason the crags are.
+		local half = p.rockSize[2] / 2
+		for _ = 1, 4 do
+			if not (inStairwell(tier, z) or inStairwell(tier, z + half) or inStairwell(tier, z - half)) then break end
+			z = math.random(-halfZ + 40, halfZ - 40)
+		end
+		if inStairwell(tier, z) then continue end
 		-- edgeAt, not riserX: the segment under this z may have pulled back forty studs, and a
 		-- boulder placed off the nominal edge would be standing in the air over the tier below.
 		-- Bounded on the far side by the NEXT tier's edge for the same reason the plants are -- past
@@ -7346,6 +7537,12 @@ local ALWAYS_LOADED = {
 	-- nothing stands on them.
 	TerraceTop = true,
 	CliffJut = true,
+	-- and the ramps that reach them, for exactly the same reason: a walkable surface that streams
+	-- out while a player is halfway up it drops them off the side of the hill, and it is the ONE
+	-- route onto a shelf. This is why the flight's collision is a single slab and its steps are
+	-- non-colliding paint (see the note where they are built) -- one part per tier per side, ~126
+	-- across the world, against ~1,900 if the steps themselves had had to be pinned.
+	TerraceRamp = true,
 }
 
 local function keepShellLoaded(zonesFolder)

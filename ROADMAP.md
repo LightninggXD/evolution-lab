@@ -247,20 +247,32 @@ kind that can be chosen on evidence rather than on its name.
 | ID | | Task | Verified how |
 |---|---|---|---|
 | 6.1 | `[x]` | **Hatch sequence** — new `HatchReveal.client.lua`: the egg shakes with a climbing amplitude, cracks (white flash + drop), bursts in the **rolled rarity's colour**, and the actual pet rig rises out of it spinning, then a card names it. Its own LocalScript like `EvolveReveal`, so the whole hatch presentation lives in one file — MainUI's `pet` branch is now deliberately silent and `SoundLibrary.PlayNotify` no longer handles `pet`, because only this file knows when the reveal moment is (the notification lands the instant the server pays, a second before the egg has moved). The server now sends the pet **key** so the rig is the real species, not a lookup by display name. **The egg is a replicated object being moved locally**, so the whole animation is `PivotTo` against one saved pivot with a restore on every path — a client-side CFrame the server never corrects is permanently wrong on that one screen. `busy` keeps one sequence per egg, because Auto Hatch buys twice a second and an overlap would save an already-shaken pivot as "home" | live: shake reached **16.4°**, crack dropped **0.55 studs**, the **26-part** rig appeared, card and particle burst both drew, the hatch sting played at **speed 0.76** (Legendary). Afterwards the egg was back to **0.0000 studs / 0.0000°** off, shell colour restored, and **0** objects left in the local fx folder |
-| 6.2 | `[ ]` | **Rarity beam** into the sky on Legendary, paired with 5.4 | visible from across the platform |
-| 6.3 | `[ ]` | **First-join sequence**: camera pan → "TAP TO EVOLVE" arrow → first evolve celebrated. Zones 1–2 are already designed as the tutorial stretch but nothing guides the player | fresh save in Play |
-| 6.4 | `[ ]` | **Boost strip with timers** — extend the potion strip (`hudRefs.potionTimers`, `MainUI:1298`) with pass icons and countdowns | `loadstring` OK + capture |
+| 6.2 | `[x]` | **Rarity beam** into the sky on Legendary — new `AnnounceService` (server) + `RarityBeam.client`. Fired at **every** client, not drawn locally by the hatcher: a celebration only the celebrant can see is a card, not an event. **The announcement is split along the axis each half is good at** — a 420-stud column carries across the platform, and the WORDS are a HUD toast, because a `BillboardGui` shrinks with distance whether its size is authored in studs or in pixels (measured: a 320x96 card renders ~100 px wide at 177 studs, a smudge at the 500 studs this feature exists for). That toast is also the "one client toast" 5.4 asks for, and a cross-server message — which has no position and therefore no beam — lands in it unchanged. Policy lives in the service, not at the call site: `GameConfig.BeaconRarities` is one row (Epic is 1 hatch in 38, and a beam that common announces nothing) and a **6-second per-player cooldown** stops Auto Hatch holding a permanent column over one podium. No `Highlight` anywhere — CreatureService rents 14 of the ~31 outline renders and one per beam would strip creature outlines across the world | live end-to-end through the real chain: **15 real `ForestPremiumEgg` buys** (no stub on the path — real remote, real cost, real cooldown, real roll; the mix came out Uncommon 2 / Rare 7 / Epic 5 / **Legendary 1**, against the egg's advertised 3.76%) and the Legendary fired the beam. Sampled from the world every 0.45 s: 6 parts, **height 420**, colour `(1, 0.745, 0.235)` = Legendary's own RGB(255,190,60) exactly, fade beginning at t≈4.6 s, and **0 parts left** afterwards. Policy: Common and Epic sent **nothing**; a second Legendary in the same second was swallowed by the cooldown; `nil` player and `nil` def both refused without erroring. Screen-captured at 160 and 200 studs — a bold gold column with the ground rings rippling out — and the toast stack verified drawing **above an open HUD panel**, capped at **3 cards**, cleaning itself to 0 |
+| 6.3 | `[x]` | **First-join sequence** — new `FirstJoin.client.lua`, one save field and one hook. A camera pan framed off the **character's own facing** (a pan written against +Z breaks the day the spawn turns), a banner naming the next thing to do, an arrow at the EVOLVE button, and the first evolve — which `EvolveReveal` already celebrates, so this adds **one line about what to do next** rather than a second card. **The gate is `data.TutorialDone`, a real field, flipped by the SERVER on the first evolve** — not "is this player at stage 1" (a rebirth resets StageIndex, so that replays the whole tutorial for a veteran every reset) and not a client saying it finished. The **migration is the part that needed care**: the generic backfill in `Load` copies the default `false` onto every save ever written, so an explicit repair marks any save with progress (stage > 1 or any rebirth) as done — otherwise the update hands a tutorial to players with a thousand hours. The banner names the gate that is **actually short**, XP or DNA, because being told to farm DNA while the XP bar is the empty one teaches players to stop reading hints. Camera restore runs on **every** path, including the skip: any input at all skips the pan | server half verified by **extracting the shipped source and running it** (5.7's technique, since no fresh save exists here): the migration passed all five cases — fresh stays `false`, stage 5 → `true`, **rebirthed-back-to-stage-1 → `true`**, already-true unchanged, a field-less old save stays `false` — and the flip pushed **exactly once** across two evolves. Client half live: pan went `Scriptable` → `Custom` in **3.41 s** (authored 3.4) and restored; XP short drew `⚔️ Click a creature to attack it`, XP paid/DNA short drew `🧬 Beat creatures for DNA to evolve`, both gates paid drew `⭐ You are ready! Press EVOLVE` with the arrow; completion turned the banner green and hid it after **3.9 s** (authored 4.0); the real `TutorialDone = true` save leaves everything hidden. **Two bugs only the capture and the arithmetic found**: the arrow sat exactly one 58 px GUI inset high (an `AbsolutePosition` is reported below the topbar while a Position offset in an inset-ignoring ScreenGui is measured from the screen top — matching MainUI's `IgnoreGuiInset` is the wrong fix), and once placed it **covered the "120 / 120 DNA" bar** that explains why the player is being told to press, so it moved beside the button |
+| 6.4 | `[x]` | **Boost strip with timers** — the potion strip gained a permanent half. **The task asked for "pass icons and countdowns" and there is no countdown to give them: all nine passes are permanent.** A clock on a number that never falls is worse than none — it invites the player to wonder when the thing they bought forever expires. So the strip is split the way the boosts are: a potion is a **card** with a bar and a clock because it is running out, a pass is a **chip** because it is not. Nine chips in a `UIGridLayout` (a row cannot hold nine 34 px chips across 244 px; a grid wraps itself, and a tenth pass costs nothing), built **once** and shown or hidden like the three potion rows — ownership changes a handful of times a session, and rebuilding nine frames four times a second to say the same thing would be the HUD's most expensive idle loop. Reads `data.Passes`, which `PassService` recomputes on every load and never trusts from the save, so a chip is a live ownership answer. **MainUI gained zero top-level locals** (181 before and after) — it all went inside the existing `;(function() … end)()` | live, driven by pushed payloads (every `passId` is still 0, so no pass can be genuinely owned — same wall 2.10 hit): the real save with **no** passes builds 9 chips and shows **none**; `{VIP, DNA2x, Lucky}` lights **exactly those three**, card 42 px, one row; all nine gives **two rows** and a card of **81 px** = `8 + 2×34 + 5` exactly, sitting y=430..511 against the potion row's 517 — **6 px clear, no collision**; with two potions running both halves draw together. Stopping the injection returned it to hidden on its own. **18 labels, 0 clipped** by the engine's own `TextFits` (the viewport reported a real 1546×793 this session, so that property was meaningful). **The capture earned its place again**: the first build made the chips `Gold` on a card `styleCard` had painted gold, and they came out as pale marks that had to be hunted for — they are now dark discs on gold, the potion row inverted, re-shot at 2.2× with all nine emoji legible |
 | 6.5 | `[ ]` | **👤 OWNER** Game icon and thumbnail — chunky character, big number, high contrast. Decides ~70% of clicks and is not code | uploaded |
 
 ---
 
 ## Phase 7 — Live ops
 
-| ID | | Task |
-|---|---|---|
-| 7.1 | `[ ]` | Limited-time event framework: a window, an exclusive skin/pet, a countdown board |
-| 7.2 | `[ ]` | Weekend server-wide 2x events (reuses the potion multiplier plumbing) |
-| 7.3 | `[ ]` | Seasonal rotation for the Season Pass (`SeasonPassService` already resets by clock) |
+The three rows turned out to be **one idea used three times**: a thing that is true right now and
+will not be later, derived from the clock and never stored. 7.2 is a single row in
+`GameConfig.Events`, and 7.3 is `Season.id` becoming a function of the date — `SeasonPassService`'s
+reset logic did not change by a line.
+
+**Nothing about an event is ever written to a save.** Pass ownership is cached into `data.Passes`
+because it comes from a web call that can fail; an event is arithmetic on a timestamp, so caching it
+would break at both ends of the window — a player online when it shuts keeps the boost, and one who
+logged off inside it carries a stale multiplier into next week. The single exception is the earned
+skin, and that is a receipt rather than a state.
+
+| ID | | Task | Verified how |
+|---|---|---|---|
+| 7.1 | `[x]` | **Event framework** — `GameConfig.Events` (two window shapes: `recurring` weekday/hour/duration, `fixed` from/to), `GetEventWindow` / `GetActiveEvents` / `GetNextEvent` / `GetEventMult` / `GetEventAdd`, new `EventService`, and a countdown board in Forest. **Effects reuse the game-pass field names** (`incomeMult`, `xpMult`, `damageMult`, `luckAdd`) so each hook gained one line beside its pass line and learned nothing about what an event is — `damageMult` is wired although no event sets it, so a future one is a row and not an edit. `GetEventMult` takes **no `data`**, which is the difference between an event and a pass in one line. **Transitions are polled every 5s, never scheduled**: a `task.delay` to the end of a window is lost on restart, fires once, drifts across 48 hours, and is never set at all on a server that booted mid-window. **`wasLive` is seeded at Init**, or every server restart would announce a weekend that has been running for a day. The exclusive skin (`event_prism`, "Prism Herald") follows 2.9a exactly — `CHARACTER_BY_KEY` only, never `CHARACTERS_BY_STAGE` — with one difference: it is **never revoked**, so it needs `data.EventCharacters`, a permanent record a rebirth cannot touch (`RebirthService` clears `data.Characters` wholesale and there is nothing live to re-grant an ended event from). `vip` split into `vip` + **`offLadder`**, the field the rank arithmetic now tests | window math swept **504 hours, 0 wrong**, both edges exact (half-open), and the "the hour has not come round today" branch correct in both directions. Live: board built at (150, 23, 215) v4, `LiveEvents` published, income **×2.0000 at stages 1/7/14/20**, XP ×2.0000, damage and luck untouched. Skin: granted once inside the window and **0 on the second call**, an unknown reward key writes nothing, survives a wiped `data.Characters` **and** survives it again with 0 events live, rank **0** / effective **27 = best owned 27** / damage **×1.81 identical to the real skin**, collection still **100** collectible. Transitions walked across two weeks: opens, the overlap, the two closing separately, the weekly one returning — and no repeat while both stayed on. HUD card live: 🔥 Weekend Rush / 5h 39m / "x2 DNA  x2 XP", nothing clipped, **MainUI still 181 top-level locals (0 added)** |
+| 7.2 | `[x]` | **Weekend 2x** — `{ recurring = { wday = Sat, hour = 0, hours = 48 } }`, `incomeMult 2`, `xpMult 2`. **Deliberately not double damage:** damage is the pacing of the game, and 2.12 already measured that a damage multiplier mostly removes wasted swings because `BOSS_MIN_HITS` caps a blow at a share of the target's health. An event should make an hour of play worth more, not make the fight disappear. **Offline earnings are excluded** — `DNAService.GetIncomeMult(data, excludeEvents)`, one caller, `OfflineService`: that rate is multiplied by up to eight hours of *absence*, so a weekend running at the moment of the rejoin would pay double for hours slept through midweek | the window resolved Sat 00:00 → Mon 00:00 UTC and was **live during the session**, so every figure above is the real thing rather than a simulation. Offline: ratio **exactly 2.0000** at AutoCollect 5/20/50, and the 8h payout came back to 32.4B instead of 64.9B at level 20. Control on a Wednesday: event multiplier **×1.00**, so `excludeEvents` subtracts nothing that was never added |
+| 7.3 | `[x]` | **Season rotation** — `GameConfig.SeasonEpoch` + `SeasonLengthDays` + a cycling `SeasonThemes` list, and `GetCurrentSeason(now)` generating `{ index, id, name, emoji, startTs, endTs }`. `Season.id` and `.name` were hand-edited constants; a season that only turns over when somebody remembers is a permanent pass with an optimistic name. **`SeasonPassService` did not change its reset logic at all** — it was already comparing the save's id against "the current one", and only the answer was static. **The epoch is chosen so that today is still `S1`**, byte for byte what every existing save holds, so the update rotates nothing and no player loses the progress they had. Themes cycle while numbers climb, so the table can never run out or leave a season nameless. MainUI's panel title is re-read on every refresh rather than frozen at build | today reads **`S1` / "Season 1: First Light"**, 2026-08-01 → 08-31. Fourteen months walked: ids strictly increasing, **0 gaps**, themes cycling back at S7. Boundary exact — `end-1s = S1`, `end = S2` — and a clock a year before the epoch **clamps to S1** rather than inventing an id no save has seen. Static shape intact (maxLevel 30, xpPerLevel 1500, 30 reward rows, level-30 diamonds still 5); `Season.id` is gone as a field |
+| 7.4 | `[ ]` | **👤 OWNER** Set the Prism Festival's two dates in `GameConfig.Events` to the real launch weekend. **Not an id — a design decision, and safe to edit** (see 5.1's note on codes). Nothing breaks if they stay: the window simply sits in the future and nothing is granted until it opens | the board counts down to it, and the skin arrives for anyone online inside it |
 
 ---
 
@@ -294,6 +306,7 @@ Collect these once; each one blocks agents until it exists.
 | `[ ]` | Create the 9 game passes, paste ids | 2.11 |
 | `[ ]` | Create the 10 new developer products, paste ids (the shop is 17 rows now — see 3.8) | 3.8 |
 | `[ ]` | Game icon and thumbnail | 6.5 |
+| `[ ]` | Prism Festival dates in `GameConfig.Events` — a design decision, not an id, so edit freely | 7.4 |
 
 ---
 
@@ -314,6 +327,104 @@ Gathered 2026-08-07/08 while writing this plan.
 ---
 
 ## Changelog
+
+- **2026-08-09** — **Phase 7 is code-complete: 7.1, 7.2 and 7.3, all verified live. Only 7.4
+  (owner, two dates) is left.** The three rows collapsed into one idea used three times — something
+  that is true right now, derived from the clock and never stored — so 7.2 is a single row in a
+  config table and 7.3 changed no reset logic whatsoever.
+  **The UTC trap is the one worth carrying.** `os.date("*t")` is local time and `os.date("!*t")` is
+  UTC. A Roblox server runs UTC, so the two agree in production and a window written against local
+  time is wrong **only in Studio** — i.e. only on the machine anyone ever tests on, where this one
+  measured two hours out. Everything here is `!`. And rather than assume which way Roblox reads
+  `os.time(table)`, the offset is **measured** with an expression that is correct whether it is read
+  as UTC (it is: verified, so the correction is 0) or as local — a branch there would have had to
+  guess which host it was on.
+  **Two things a probe cannot see, and one it wrongly reported.** The board's first home passed a
+  centre-count occupancy scan and was wrong: a brazier bowl from the boss-gate idol pad **overlapped
+  the top of the panel by 4.1 studs** and the posts stood on that pad at y=7 rather than on the
+  floor. A cell-occupancy count cannot see a big part whose centre is in the next cell. The spot was
+  then *searched for* rather than chosen — every 5-stud position scored by separating-axis gap
+  against 612 anchored parts, plus a downward ray demanding `Floor` — and the first pass of that
+  scored 2.2 studs against a `head_geom`, because **creatures walk and a clearance measured against
+  one is not a fact about a place**. Anchored parts only.
+  **And the capture lied first this time.** The photograph appeared to show the sign printing
+  "Double DNA and double XP everyone" with a word missing — the word was behind the HUD's DNA
+  capsule. Worth recording because the reflex by now is to trust the picture over the probe: the
+  fix was a second capture from an angle the HUD did not cover, not an edit. What the picture *did*
+  find was real, though — the layout used 440 of 720 pixels and left the bottom third of the board
+  blank, with every label reporting `TextFits = true`.
+  **The migration was the dangerous half again**, as in 6.3. Two of them: `data.EventCharacters`
+  defaults to `{}`, which is true of every save ever written and therefore needs no repair beside it
+  — but the skin it protects would otherwise be destroyed by a rebirth, because `data.Characters` is
+  cleared wholesale and an ended event has nothing live to re-grant from. And the season epoch is
+  picked so that today still generates the id **`S1`**, byte for byte what every existing save holds:
+  a different answer there is a wipe, not a bug report.
+
+- **2026-08-09** — **6.3, the first-join sequence. Phase 6 is code-complete; only 6.5 (owner) is
+  left.** The game now explains itself: a camera pan, a banner that names the next thing to do, an
+  arrow at the EVOLVE button, and an ending that says what comes after.
+  **The dangerous part was not the tutorial, it was the migration.** `Load`'s generic backfill copies
+  every new default onto every save ever written, so shipping `TutorialDone = false` would have
+  handed the first-join sequence to every existing player at once. A save with progress is repaired
+  to `true` explicitly — and the flag has to be a **field**, because the obvious test ("stage 1")
+  is exactly what a rebirth produces, and a veteran would get the tutorial again on every reset.
+  **Two layout facts worth keeping.** `AbsolutePosition` is reported **below the topbar**, while a
+  Position offset inside a ScreenGui with `IgnoreGuiInset = true` is measured **from the top of the
+  screen** — the two differ by the inset (58 px here), so mixing them puts an element exactly one
+  inset out. Matching MainUI's `IgnoreGuiInset` is the intuitive fix and the wrong one; leaving it
+  false is what makes the arithmetic agree. And the capture earned its keep for the third time this
+  phase: the arrow, correctly placed above the button, **covered the DNA bar that explains why the
+  player is being told to press it**. It points from the side now.
+  Verification note: with no fresh save available, the server half was proved by **pulling the
+  shipped lines out of `.Source` and running them** — 5.7's technique, and the reason it is worth
+  repeating is that a test that reimplements the rule can agree with itself while the real one is
+  wrong.
+
+- **2026-08-09** — **6.4, the boost strip.** The row as written asked for "pass icons and
+  countdowns", and **half of that request was wrong about this game**: every pass is permanent, so
+  there is no countdown to draw and a clock on one would invite the player to worry about an expiry
+  that does not exist. It shipped as a split strip — cards with bars and clocks for the things that
+  are running out, chips for the things that are not — which is the third time this phase's premise
+  has had to be checked against the code before building it (see 3.5 and 6.2).
+  **Two verification notes worth reusing.** The injected-payload technique from 2.10 needs a rate:
+  the real service pushes `DataUpdate` about every three seconds and **the last payload to arrive is
+  what the HUD holds**, so a probe reading a single instant kept catching the real one and reporting
+  nothing. Pushing at 0.15 s made the injection 36 pushes to 2 over six seconds, and the probe
+  **samples across three seconds and keeps the strongest state seen** rather than trusting one read.
+  And `TextFits` was meaningful this session — the viewport reported a real 1546×793, not the 1×1
+  the earlier notes warn about — so it is worth *checking* the viewport before dismissing that
+  property rather than assuming it is useless.
+  **The capture found the bug the probe could not, again**: `styleCard` paints a card in whatever
+  colour it is handed, so gold chips on a gold card were structurally perfect and visually invisible.
+  Dark discs on gold now, which is the potion row inverted — and the inversion carries meaning, one
+  glance says these two rows are different kinds of thing.
+
+- **2026-08-09** — **6.2, the Legendary beam.** Two new files, `AnnounceService` on the server and
+  `RarityBeam.client`, plus one row in `GameConfig` and one in `SoundLibrary`. Nothing in `MainUI`.
+  **The lesson worth carrying: a `BillboardGui` shrinks with distance no matter how its size is
+  authored.** The first build put the naming on a 320x96 card floating on the column, on the
+  reasoning that offset units are pixels — and at 177 studs it measured about a hundred pixels wide,
+  which at the 500-stud range the feature exists for is a smudge. There is no constant-screen-size
+  mode for a billboard. So the announcement was split along the axis each half is good at: the
+  **column** is a physical object and reads from anywhere, the **words** are a HUD toast and are the
+  same size for everyone in the server. That toast is exactly the "one client toast" 5.4 needs, and
+  it is where a cross-server message — which has no position and therefore no beam — will land.
+  **Two Studio facts confirmed the hard way, both worth remembering.** First, `require` from
+  `execute_luau` in **Play** returns a *different* module instance from the one the running scripts
+  hold, and that is true for `ReplicatedStorage` modules too, not only services: a stub pushed onto
+  `GameConfig.RollPetForEgg` had no effect whatsoever on the running `PetService`, which went on
+  rolling normally. Anything that must exercise the live game has to go through a **remote**.
+  Second, `screen_capture`'s `camera_position` override does **not** survive in Play — the game snaps
+  the camera back to the player before the frame is taken. Put the thing being photographed where the
+  player is already looking, and read `workspace.CurrentCamera.CFrame` from the **Client** datamodel
+  first to find out where that is.
+  Because of the first fact, 6.2 was verified by **buying fifteen real Forest Premium eggs** through
+  the real remote until a Legendary came up (it took 15; the egg advertises 3.76%). **Side effect on
+  the owner's save, recorded here rather than hidden: 15 junk Forest pets (34 → 49 of 600), about
+  68,000 DNA of 3.9T, and +15 on the Season Pass egg counter.** A third, smaller trap: a `[==[ ]==]`
+  literal already drops the newline after its opening bracket, so the `:sub(2)` used when pushing a
+  file into Studio ate the first character of two scripts. Both compiled clean only after it was put
+  back — always `loadstring` the result.
 
 - **2026-08-09** — **Phase 6 opens with 6.1, the hatch sequence.** The most repeated purchase in the
   game had a small card over the player's head and the egg they were looking at did not react.

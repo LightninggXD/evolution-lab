@@ -9,7 +9,7 @@ local DNAService = {}
 DNAService.OnEvolve = nil -- optional callback(player, data) set by ServerMain to avoid circular requires
 
 -- ===== STAT CALCULATIONS =====
-function DNAService.GetIncomeMult(data)
+function DNAService.GetIncomeMult(data, excludeEvents)
 	local incomeLevel = data.Upgrades.Income
 	local mult = 1 + incomeLevel * 0.12
 	-- mutation bonus: best-one-applies, NOT the product of every mutation ever rolled -- see
@@ -33,6 +33,18 @@ function DNAService.GetIncomeMult(data)
 	-- `incomeMult` field) -- this function never learns any pass by name. Because this is the single
 	-- income multiplier, the pass reaches clicks, kill payouts and idle auto-collect at once.
 	mult = mult * GameConfig.GetPassMult(data, "incomeMult")
+	-- ...and any live server-wide event, last of all (Phase 7.1). It takes no `data`, which is the
+	-- difference between an event and a pass written out: an event is the same for everybody on the
+	-- server, so a weekend cannot be something one player has and another does not.
+	--
+	-- `excludeEvents` has exactly ONE caller and it is not a special case for its own sake: the
+	-- offline payout is this rate multiplied by up to eight hours of ABSENCE, so a weekend that
+	-- happens to be running at the moment the player logs back in would pay double for hours they
+	-- slept through on a Thursday. Everything earned in real time -- clicks, kills, idle collection
+	-- while online -- passes nothing and gets the boost, which is the entire point of it.
+	if not excludeEvents then
+		mult = mult * GameConfig.GetEventMult("incomeMult")
+	end
 	return mult
 end
 
@@ -47,6 +59,9 @@ function DNAService.GetLuckPercent(data)
 	return data.Upgrades.Luck * 2 + PetService.GetEquippedBonus(data).luckAdd + megaLuckAdd
 		+ GameConfig.GetPotionLuckAdd(data) -- each upgrade level = +2% luck, plus pets and potions
 		+ GameConfig.GetPassAdd(data, "luckAdd")
+		-- ...and any live event, in points for the same reason everything else here is. A festival
+		-- that multiplied luck would pay nothing at all to the player who has never bought any.
+		+ GameConfig.GetEventAdd("luckAdd")
 end
 
 function DNAService.GetClickAmount(data)
@@ -86,6 +101,10 @@ function DNAService.GetCombatDamage(data)
 	-- cap in CreatureService/BossService is a fraction of the player's own health and is untouched,
 	-- so a pass makes fights shorter without making the player unkillable.
 	mult = mult * GameConfig.GetPassMult(data, "damageMult")
+	-- The event hook exists here even though NO event currently sets `damageMult` -- the weekend
+	-- deliberately does not, see the note over GameConfig.Events. It is here so that the day one
+	-- does, it is a row in that table and not an edit in this file: the same rule the passes follow.
+	mult = mult * GameConfig.GetEventMult("damageMult")
 	return math.floor(base * mult)
 end
 
@@ -113,13 +132,15 @@ end
 -- always out-earns a player who is not. It still scales with the stage and with the income stack,
 -- so it never becomes dead weight late on -- that was the real complaint the `level * 1.6` was
 -- written to answer, and the stage curve alone answers it.
-function DNAService.GetAutoCollectAmount(data)
+-- `excludeEvents` is passed straight through to GetIncomeMult and is used by OfflineService alone;
+-- the reasoning is written out there and at the hook itself.
+function DNAService.GetAutoCollectAmount(data, excludeEvents)
 	local level = data.Upgrades.AutoCollect
 	if level <= 0 then return 0 end
 	-- 0.04 a level, capped at 1.2 -- i.e. levels 1..30 buy the curve and 30 is the ceiling
 	local rate = math.min(level * 0.04, 1.2)
 	local base = rate * GameConfig.GetClickBase(data.StageIndex)
-	return base * DNAService.GetIncomeMult(data)
+	return base * DNAService.GetIncomeMult(data, excludeEvents)
 end
 
 function DNAService.GetMutationChancePerRoll(data)

@@ -23,6 +23,15 @@ local function formatNumber(n)
 		n = n / 1000
 		mag += 1
 	end
+	-- THE ROUNDING CARRIES, and the loop above has already stopped looking. 999,999 divides once to
+	-- 999.999, which is under the loop's threshold and so is accepted -- and "%.2f" then prints it
+	-- as "1000.00", i.e. "1000.00K" for a number one short of a million. The threshold is 999.995
+	-- and not 999.95 because this one prints TWO decimals; the carry happens wherever the format
+	-- rounds up to 1000, so the constant has to match the precision beside it.
+	if n >= 999.995 and mag < #suffixes then
+		n = n / 1000
+		mag += 1
+	end
 	return string.format("%.2f%s", n, suffixes[mag])
 end
 
@@ -1294,7 +1303,10 @@ local hudRefs = {}
 ;(function()
 	local stack = Instance.new("Frame")
 	stack.Name = "PotionTimers"
-	stack.Size = UDim2.new(0, 250, 0, 162)
+	-- 250 tall, not 162: three potion cards are 156 and the pass grid adds up to another 81 (6.4).
+	-- The layout aligns to the BOTTOM of this frame, so the extra height is headroom upward and the
+	-- strip still sits exactly 170 px off the bottom whether there is one boost or twelve.
+	stack.Size = UDim2.new(0, 250, 0, 250)
 	-- directly above the currency stack, which is 140 tall sitting 22 off the bottom
 	stack.Position = UDim2.new(0, 20, 1, -170)
 	stack.AnchorPoint = Vector2.new(0, 1)
@@ -1388,6 +1400,167 @@ local hudRefs = {}
 		rows[kind] = { card = card, effect = effect, clock = clock, fill = fill }
 	end
 
+	-- ============================================================================
+	-- THE PERMANENT HALF OF THE STRIP (6.4)
+	-- ============================================================================
+	-- Roadmap 6.4 asks for "pass icons and countdowns". THERE IS NO COUNTDOWN TO GIVE THEM: all nine
+	-- passes are permanent, and a clock on a number that never falls is worse than no clock at all --
+	-- it invites the player to wonder when the thing they bought forever runs out. So the strip is
+	-- split the way the boosts themselves are. A potion is a CARD with a bar and a clock because it is
+	-- running out; a pass is a CHIP because it is not, and the chip's whole message is "this is on".
+	--
+	-- Built once and shown or hidden, exactly like the three potion rows above and for the same
+	-- reason: ownership changes at most a handful of times in a session, and rebuilding nine frames
+	-- four times a second to say the same thing would be the most expensive idle loop in the HUD.
+	--
+	-- A GRID rather than a row, because nine 34 px chips do not fit across 244 px and a grid wraps by
+	-- itself -- a tenth pass costs nothing here. Invisible children are skipped by the layout, so the
+	-- rows close up on their own as passes are hidden.
+	local PASS_CELL, PASS_PAD, PASS_COLS = 34, 5, 6
+	local passChips = {}
+
+	local passCard = Instance.new("Frame")
+	passCard.Name = "PassBoosts"
+	passCard.Size = UDim2.new(0, 244, 0, PASS_CELL + 8)
+	passCard.LayoutOrder = 0                  -- above the potion cards; the stack aligns to the bottom
+	passCard.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
+	passCard.Visible = false
+	passCard.ZIndex = UITheme.Z.Content + 1
+	passCard.Parent = stack
+	styleCard(passCard, UITheme.Color.Gold, UDim.new(0, 12), 3)
+
+	local passGrid = Instance.new("Frame")
+	passGrid.Name = "Chips"
+	passGrid.Size = UDim2.new(1, -12, 1, -8)
+	passGrid.Position = UDim2.new(0, 6, 0, 4)
+	passGrid.BackgroundTransparency = 1
+	passGrid.ZIndex = passCard.ZIndex + 1
+	passGrid.Parent = passCard
+
+	local passLayout = Instance.new("UIGridLayout")
+	passLayout.CellSize = UDim2.new(0, PASS_CELL, 0, PASS_CELL)
+	passLayout.CellPadding = UDim2.new(0, PASS_PAD, 0, PASS_PAD)
+	passLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	passLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	passLayout.Parent = passGrid
+
+	for order, pass in ipairs(GameConfig.GamePasses) do
+		local chip = Instance.new("TextLabel")
+		chip.Name = pass.key
+		chip.LayoutOrder = order
+		-- DARK DISC ON A GOLD CARD, and the first build got this backwards. `styleCard` paints the
+		-- whole card in the colour it is handed, so gold chips on a gold card came out as pale marks
+		-- that had to be hunted for. This is the potion row inverted -- there a coloured disc sits on a
+		-- dark card -- and the inversion is the point: one glance says these two rows are different
+		-- kinds of thing, a permanent one and a running-out one.
+		chip.BackgroundColor3 = UITheme.Color.Outline
+		chip.Text = pass.emoji
+		chip.Visible = false
+		chip.ZIndex = passGrid.ZIndex + 1
+		chip.Parent = passGrid
+		corner(chip, UDim.new(0.5, 0))
+		themeLabel(chip, 19)
+		passChips[#passChips + 1] = { key = pass.key, frame = chip }
+	end
+
+	-- ============================================================================
+	-- THE EVENT HALF OF THE STRIP (7.1)
+	-- ============================================================================
+	-- A server-wide event is a boost that is running out, so by 6.4's own rule it is a CARD with a
+	-- clock and not a chip. It sits above the pass chips because it is the only thing here that is
+	-- true of everybody in the server at once, and it is the only one with a deadline.
+	--
+	-- WHY THIS EXISTS AT ALL when there is already a board in Forest: the board is read by a player
+	-- who walks past it. Somebody who joins in the middle of a weekend, spawns, and goes straight to
+	-- a zone would otherwise never learn that their DNA is doubled -- which is most of the value of
+	-- running an event in the first place.
+	--
+	-- THE CLOCK COMES FROM THE SERVER, and this is the one place that matters on the client. Every
+	-- window in GameConfig is measured against GameConfig.EventNow(), which is os.time() plus an
+	-- offset -- and the offset is learned here, from the payload EventService publishes. A player
+	-- whose machine is a day fast would otherwise be shown a weekend that is not running and a
+	-- countdown to the wrong minute, and would then watch their DNA arrive at the ordinary rate.
+	--
+	-- Synced on `Changed` rather than on a poll of the value: the payload carries the moment it was
+	-- WRITTEN, so reading it late means adopting a clock as stale as the read. Changed fires at the
+	-- write, and the initial read below is corrected by the first refresh 30 seconds later.
+	do
+		local liveEvents = RS:FindFirstChild("LiveEvents")
+		local HttpService = game:GetService("HttpService")
+		local function adopt(value)
+			if type(value) ~= "string" or value == "" then return end
+			local ok, payload = pcall(function() return HttpService:JSONDecode(value) end)
+			if ok and type(payload) == "table" and tonumber(payload.now) then
+				GameConfig.SetEventClock(payload.now)
+			end
+		end
+		if liveEvents then
+			adopt(liveEvents.Value)
+			liveEvents.Changed:Connect(adopt)
+		else
+			-- the server creates it in EventService.Init; a client that got here first waits rather
+			-- than deciding for itself what time it is
+			task.spawn(function()
+				local sv = RS:WaitForChild("LiveEvents", 30)
+				if sv then
+					adopt(sv.Value)
+					sv.Changed:Connect(adopt)
+				end
+			end)
+		end
+	end
+
+	local eventCard = Instance.new("Frame")
+	eventCard.Name = "EventBoost"
+	eventCard.Size = UDim2.new(0, 244, 0, 48)
+	eventCard.LayoutOrder = -1                -- above the pass chips, which are 0
+	eventCard.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
+	eventCard.Visible = false
+	eventCard.ZIndex = UITheme.Z.Content + 1
+	eventCard.Parent = stack
+	styleCard(eventCard, UITheme.Color.Coral, UDim.new(0, 12), 3)
+
+	local eventBadge = Instance.new("TextLabel")
+	eventBadge.Name = "Badge"
+	eventBadge.Size = UDim2.new(0, 36, 0, 36)
+	eventBadge.Position = UDim2.new(0, 6, 0, 6)
+	eventBadge.BackgroundColor3 = UITheme.Color.Coral
+	eventBadge.Text = "\u{1F525}"
+	eventBadge.ZIndex = eventCard.ZIndex + 1
+	eventBadge.Parent = eventCard
+	corner(eventBadge, UDim.new(0.5, 0))
+	themeLabel(eventBadge, 20)
+
+	local eventName = Instance.new("TextLabel")
+	eventName.Name = "EventName"
+	eventName.Size = UDim2.new(1, -132, 0, 20)
+	eventName.Position = UDim2.new(0, 50, 0, 4)
+	eventName.BackgroundTransparency = 1
+	eventName.TextXAlignment = Enum.TextXAlignment.Left
+	eventName.ZIndex = eventCard.ZIndex + 1
+	eventName.Parent = eventCard
+	themeLabel(eventName, 17)
+
+	local eventClock = Instance.new("TextLabel")
+	eventClock.Name = "Clock"
+	eventClock.Size = UDim2.new(0, 76, 0, 20)
+	eventClock.Position = UDim2.new(1, -82, 0, 4)
+	eventClock.BackgroundTransparency = 1
+	eventClock.TextXAlignment = Enum.TextXAlignment.Right
+	eventClock.ZIndex = eventCard.ZIndex + 1
+	eventClock.Parent = eventCard
+
+	local eventEffects = Instance.new("TextLabel")
+	eventEffects.Name = "Effects"
+	eventEffects.Size = UDim2.new(1, -62, 0, 18)
+	eventEffects.Position = UDim2.new(0, 50, 1, -20)
+	eventEffects.BackgroundTransparency = 1
+	eventEffects.TextXAlignment = Enum.TextXAlignment.Left
+	eventEffects.ZIndex = eventCard.ZIndex + 1
+	eventEffects.Parent = eventCard
+	themeLabel(eventEffects, 15)
+	themeLabel(eventClock, 17)
+
 	-- x2 stays "x2"; x1.5 becomes "x1.5" rather than taking the thread down. See the note below.
 	local function formatMult(m)
 		m = tonumber(m) or 1
@@ -1433,7 +1606,50 @@ local hudRefs = {}
 					row.card.Visible = false
 				end
 			end
-			stack.Visible = any
+
+			-- The pass half. `data.Passes` is recomputed on every load and never trusted from the save
+			-- (see PassService), so a chip here is a live ownership answer rather than a stale one.
+			local passes = currentData and currentData.Passes
+			local owned = 0
+			for _, chip in ipairs(passChips) do
+				local on = passes and passes[chip.key] == true
+				chip.frame.Visible = on
+				if on then owned += 1 end
+			end
+			local used = math.max(1, math.ceil(owned / PASS_COLS))
+			passCard.Size = UDim2.new(0, 244, 0, 8 + used * PASS_CELL + (used - 1) * PASS_PAD)
+			passCard.Visible = owned > 0
+
+			-- The event half (7.1). Driven off the shared config against the SERVER's clock, not off
+			-- the payload's own text, so the seconds fall between publishes instead of jumping every
+			-- thirty. Only the first live event is drawn: two at once is possible (a festival can
+			-- overlap a weekend) and a second card would push the strip up over the potion rows for
+			-- the one player in a hundred who sees it. The clock is the reason to look; the effects
+			-- line says what it is worth.
+			local live = GameConfig.GetActiveEvents()[1]
+			if live then
+				local left = live.window.endTs - GameConfig.EventNow()
+				eventCard.Visible = true
+				eventBadge.Text = live.event.emoji
+				eventBadge.BackgroundColor3 = live.event.color
+				eventName.Text = live.event.name
+				eventClock.Text = GameConfig.FormatDuration(left)
+				local bits = {}
+				for field, label in pairs({ incomeMult = "DNA", xpMult = "XP", damageMult = "Damage" }) do
+					local v = live.event.effects and live.event.effects[field]
+					if v then table.insert(bits, ("x%s %s"):format(formatMult(v), label)) end
+				end
+				local luck = live.event.effects and live.event.effects.luckAdd
+				if luck then table.insert(bits, ("+%d%% Luck"):format(math.floor(luck))) end
+				table.sort(bits)
+				eventEffects.Text = table.concat(bits, "   ")
+			else
+				eventCard.Visible = false
+			end
+
+			-- `any OR owned OR an event`: a player with passes and no potion still has a strip worth
+			-- showing, and one with none of the three still gets nothing rather than an empty box
+			stack.Visible = any or owned > 0 or eventCard.Visible
 			task.wait(0.25)
 		end
 	end)
@@ -4480,7 +4696,13 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 	title.Position = UDim2.new(0, 18, 0, 10)
 	title.BackgroundTransparency = 1
 	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Text = SEASON.emoji .. " " .. SEASON.name
+	-- The live season, not the authored one: 7.3 made the id and the name functions of the date, so
+	-- a title written once at build time would name last month's season for the whole of this one.
+	-- `refresh` re-reads it below, which also covers a session that spans the turnover.
+	do
+		local season = GameConfig.GetCurrentSeason()
+		title.Text = season.emoji .. " " .. season.name
+	end
 	title.Parent = panel
 	themeLabel(title, 30)
 
@@ -4824,6 +5046,11 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 
 	local function refresh()
 		if not currentData then return end
+		-- the season can turn over mid-session (7.3), so the header is re-read rather than assumed
+		do
+			local current = GameConfig.GetCurrentSeason()
+			title.Text = current.emoji .. " " .. current.name
+		end
 		local season = currentData.Season or {}
 		local xp = season.xp or 0
 		local level = GameConfig.GetSeasonLevel(xp)

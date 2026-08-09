@@ -71,7 +71,11 @@ function OfflineService.Grant(player)
 	PlayerDataService.OfflineSeconds[player.UserId] = nil
 	if seconds <= 0 then return 0, 0 end
 
-	local perSecond = DNAService.GetAutoCollectAmount(data)
+	-- WITHOUT THE EVENT MULTIPLIER, and that `true` is load-bearing. This rate is multiplied by up
+	-- to eight hours of absence: if a weekend happens to be running at the moment of the rejoin, the
+	-- unmodified figure pays double for hours the player slept through midweek. Time spent offline
+	-- was not spent inside the window, so it is not paid at the window's rate.
+	local perSecond = DNAService.GetAutoCollectAmount(data, true)
 	if perSecond <= 0 then return 0, seconds end
 
 	local amount = math.floor(perSecond * seconds * GameConfig.OfflineRate)

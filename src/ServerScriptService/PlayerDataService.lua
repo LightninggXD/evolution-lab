@@ -134,12 +134,30 @@ local function defaultData()
 		-- nothing else.
 		CountedCharacters = {},
 		CountedPlayer = false,
+		-- Event-exclusive skins this save has EARNED (7.1). Permanent and never cleared, for the same
+		-- reason CountedCharacters above is: a rebirth wipes `Characters`, and an event skin has no
+		-- live source to be re-granted from once its window has shut. `Characters` is the working
+		-- copy; this is the record. See GameConfig.SyncEventCharacters.
+		--
+		-- An empty table is the right default for every save ever written -- "has earned none" is
+		-- true of all of them -- so unlike TutorialDone (6.3) this one needs no repair beside it.
+		EventCharacters = {},
 		-- Per-player audio levels (4.6): a master fader plus one per SoundGroup, each 0..1, pushed
 		-- onto the groups by SoundLibrary.Init on the client's first data payload. In the SAVE rather
 		-- than in a client-side setting for the obvious reason -- a player who turned the music off did
 		-- not ask for it back on their next join -- and it is the one field in here the client is
 		-- allowed to set directly, because nothing about it is worth anything to cheat.
 		AudioVolumes = { Master = 1, SFX = 1, UI = 1, Ambience = 1 },
+		-- Has this save been walked through the first-join sequence (6.3)? Flipped to true by the
+		-- FIRST EVOLVE, on the server, in ServerMain's OnEvolve hook -- never by the client, and never
+		-- by the client reporting that it finished. A player who quits halfway through gets the guide
+		-- again on their next join, which is the behaviour that costs nothing and helps somebody.
+		--
+		-- A REBIRTH MUST NEVER CLEAR THIS. It resets StageIndex to 1, so any tutorial gate written as
+		-- "is this player at stage 1" would replay the whole sequence for a veteran on every rebirth --
+		-- which is why this is a field of its own and not an inference. RebirthService resets a named
+		-- list and this is deliberately not on it.
+		TutorialDone = false,
 		-- Game pass ownership, as a set of pass keys. RUNTIME ONLY: PassService writes it from the
 		-- Roblox ownership API on join, and Load below clears it unconditionally, so whatever ends up
 		-- in the DataStore is never read back. Declared here only so nothing ever indexes a nil.
@@ -236,6 +254,16 @@ function PlayerDataService.Load(player)
 		-- it last logged out -- so nobody's appearance changes under them on the update.
 		if data.WornCharacter == nil then
 			data.WornCharacter = data.EquippedCharacters[tostring(data.StageIndex or 1)]
+		end
+		-- EVERY EXISTING SAVE HAS ALREADY DONE THE TUTORIAL, and the generic backfill above cannot
+		-- know that: it copies the default `TutorialDone = false` onto every save written before the
+		-- field existed, which would hand the first-join sequence to players with a thousand hours.
+		-- Progress is the evidence -- past stage 1, or having rebirthed at all, means the player has
+		-- evolved and needs no arrow pointing at the button they used to do it. Written as a repair
+		-- rather than a one-time flag so it is idempotent: a fresh save is stage 1 with no rebirths
+		-- and correctly stays false.
+		if not data.TutorialDone and ((data.StageIndex or 1) > 1 or (data.Rebirths or 0) > 0) then
+			data.TutorialDone = true
 		end
 	-- ===== HEALING A SAVE WRITTEN UNDER THE OLD RULE =====
 	--

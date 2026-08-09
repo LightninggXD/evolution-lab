@@ -101,6 +101,14 @@ local function shorten(n)
 		n = n / 1000
 		mag += 1
 	end
+	-- THE ROUNDING CARRIES past the loop, which has already stopped looking: 999,999 divides once to
+	-- 999.999, is accepted, and "%.1f" prints "1000.0K" for a number one short of a million. On a
+	-- board that is read at a glance that is worse than the long form, because it looks like a real
+	-- reading. 999.95 matches the ONE decimal this one prints.
+	if n >= 999.95 and mag < #SUFFIX then
+		n = n / 1000
+		mag += 1
+	end
 	return ("%.1f%s"):format(n, SUFFIX[mag])
 end
 

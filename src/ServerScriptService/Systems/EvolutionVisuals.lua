@@ -1,4 +1,5 @@
 local RS = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local GameConfig = require(RS.Modules.GameConfig)
 local StageCostume = require(RS.Modules.StageCostume)
@@ -210,6 +211,58 @@ local function applyScale(character, targetScale, animate, healthMult)
 	end
 end
 
+-- ===== THE COSTUME CANNOT BE BUILT ON A BODY THAT IS STILL CHANGING SIZE =====
+--
+-- This is the "I spawn in looking wrong, then I change skin and it is fine, and switching back to
+-- the FIRST skin now also looks fine" bug, and the asymmetry is the whole clue: changing a skin
+-- happens on a body that has been standing there for minutes, spawning happens on one that is
+-- still being assembled.
+--
+-- Both halves of the wardrobe are sized and welded against the R15 limbs as they measure AT THE
+-- MOMENT OF THE CALL. StageCostume reads `torso.Size` / `head.Size` for every shell; SkinMesh
+-- scales the whole generated model by the limb bounding box's height and then welds each segment
+-- with `C0 = host.CFrame:Inverse() * part.CFrame`. A weld keeps the offset it was given -- so if
+-- the limbs move or resize afterwards, the pieces keep the arrangement they were welded at while
+-- their hosts travel out from under them. That is exactly what the screenshot shows: the skin's
+-- head floating clear of a body it is no longer attached to the top of.
+--
+-- Two things resize the limbs a few frames AFTER CharacterAdded, and both land on a spawn only:
+--
+--   * `applyScale` above writes BodyHeightScale / BodyWidthScale / BodyDepthScale / HeadScale.
+--     Those are NumberValues -- the engine acts on them on a later simulation step, not on the
+--     assignment. At stage 3 that is a 1.0 body becoming a 2.6 one, under a costume already built.
+--   * Roblox is still applying the player's own HumanoidDescription (their avatar's body parts and
+--     packages), which it finishes at its own pace after the character has been parented in.
+--
+-- So the fix is not a fixed delay -- it is to WAIT UNTIL THE BODY HAS STOPPED MOVING. Two
+-- consecutive Heartbeats with identical limb measurements means whatever was going to resize has
+-- resized. In the common case that is three or four frames, which nobody sees; the timeout is
+-- there so a character that never settles (an avatar that failed to load) still gets dressed.
+local function bodyProbe(character)
+	local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
+	local head = character:FindFirstChild("Head")
+	if not (torso and head) then return nil end
+	-- the three axes and both limbs, weighted by primes so two different bodies cannot sum equal
+	return torso.Size.X + torso.Size.Y * 3 + torso.Size.Z * 5 + head.Size.X * 7 + head.Size.Y * 11
+end
+
+local function waitForBodySettled(character, timeout)
+	local waited, stable, last = 0, 0, nil
+	timeout = timeout or 2
+	while waited < timeout do
+		local probe = bodyProbe(character)
+		if not probe then return end
+		if last and math.abs(probe - last) < 1e-4 then
+			stable += 1
+			if stable >= 2 then return end
+		else
+			stable = 0
+		end
+		last = probe
+		waited += RunService.Heartbeat:Wait()
+	end
+end
+
 -- ===== PUBLIC API =====
 
 -- Applies the full visual package (scale + aura) for a player's current stage.
@@ -264,15 +317,20 @@ function EvolutionVisuals.ApplyStage(player, stageIndex, opts)
 	-- The stage's costume. Every piece of it is welded and sized off the limb it hangs on, so it
 	-- has to be rebuilt AFTER the body has finished changing size -- a weld keeps the offset it
 	-- was given, and a costume built mid-tween stays the size the body was passing through.
-	-- applyScale tweens over 0.6s (see SCALE_PROPS), hence the wait when animating.
-	if opts.animate then
-		task.delay(0.7, function()
-			if character.Parent and player.Character == character then
-				StageCostume.Apply(character, lookIndex, lookStage, entry)
-			end
-		end)
-	else
+	-- applyScale tweens over 0.6s (see SCALE_PROPS), hence the delay when animating; the settle
+	-- wait above covers the un-animated path, where the resize is instant to us and several frames
+	-- away as far as the engine is concerned.
+	local function dress()
+		if not (character.Parent and player.Character == character) then return end
+		waitForBodySettled(character)
+		if not (character.Parent and player.Character == character) then return end
 		StageCostume.Apply(character, lookIndex, lookStage, entry)
+	end
+
+	if opts.animate then
+		task.delay(0.7, dress)
+	else
+		task.spawn(dress)
 	end
 
 	if opts.burst then

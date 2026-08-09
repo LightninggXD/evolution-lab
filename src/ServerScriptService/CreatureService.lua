@@ -68,13 +68,38 @@ local function broadcastFx(payload)
 	end
 end
 
--- 1 200 -> "1.2K". A health bar that reads "24187 / 31000" at 14 px is a smear.
+-- 24 187 -> "24.2K". A health bar that reads "24187 / 31000" at 14 px is a smear.
+--
+-- Below 10 000 the number is printed exactly, which is deliberate and is why the cutoff is 1e4 and
+-- not 1e3: a Swarmer with 1 500 health should say so.
+--
+-- The three-branch ladder this replaces (K / M / B, and nothing above) was ADEQUATE for the range
+-- it is actually given: an Elite in the last zone has 294 000 health, so nothing here has ever got
+-- past "K". It is replaced anyway for two reasons, neither of them a live bug --
+--
+--   * the carry below. "%.1f" of 999.999 prints "1000.0", so 999 999 would read "1000.0K". Out of
+--     range today, and it is the same defect that WAS visible on the DNA counter.
+--   * it is now the same loop and the same suffix table as every other readout in the game, so a
+--     later bump to `mobHealthMult` cannot quietly run a plate off the end of the ladder.
+--
+-- If you are looking for the numbers that genuinely need the tail of the table, they are DNA
+-- (trillions, see MainUI) rather than anything on a creature.
+local SHORT_SUFFIX = { "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp" }
 local function shortNumber(n)
-	n = math.floor(n + 0.5)
-	if n >= 1e9 then return string.format("%.1fB", n / 1e9) end
-	if n >= 1e6 then return string.format("%.1fM", n / 1e6) end
-	if n >= 1e4 then return string.format("%.1fK", n / 1e3) end
-	return tostring(n)
+	n = math.floor((tonumber(n) or 0) + 0.5)
+	if n < 1e4 then return tostring(n) end
+	local mag = 0
+	while n >= 1000 and mag < #SHORT_SUFFIX do
+		n = n / 1000
+		mag += 1
+	end
+	-- and the rounding carries past the loop, which has already stopped looking: 999,999 divides
+	-- once to 999.999, is accepted, and "%.1f" prints "1000.0K" one short of a million.
+	if n >= 999.95 and mag < #SHORT_SUFFIX then
+		n = n / 1000
+		mag += 1
+	end
+	return string.format("%.1f%s", n, SHORT_SUFFIX[mag])
 end
 
 -- ===== base tier definitions (Forest baseline -- scaled per zone by mobHealthMult/
@@ -240,12 +265,19 @@ local function pointIsClear(x, z, placed, minGap)
 	return true
 end
 
+-- THE VALLEY, NOT THE WHOLE PLATFORM. ZoneBuilder's flat ground ends at TERRAIN_INNER = 415 and
+-- everything past it is terraced cliff, so the scatter used to reach 155 studs into a hillside it
+-- knew nothing about. The floor tiers are now kept inside the valley with 20 studs of margin; the
+-- band beyond it belongs to the raised Brutes and Elites placed in Init, which resolve their own
+-- ground height because they are placed after the world exists and can simply ask it.
+local VALLEY_X = 395
+
 local function scatterPoints(count, minGap, placed)
 	local out = {}
 	local guard = 0
 	while #out < count and guard < count * 400 do
 		guard += 1
-		local x = SPAWN_RNG:NextNumber(-570, 570)
+		local x = SPAWN_RNG:NextNumber(-VALLEY_X, VALLEY_X)
 		local z = SPAWN_RNG:NextNumber(-492, 492)
 		if pointIsClear(x, z, placed, minGap) then
 			local v = Vector3.new(math.floor(x), 0, math.floor(z))
@@ -268,8 +300,23 @@ do
 	-- every rig in the world at once (only the CLIENT is spared by streaming), and 960 was the last
 	-- count this ran comfortably at. 1400 is the step being taken; if it costs frames, this is the
 	-- line to walk back.
-	RELATIVE_SPAWN_POINTS.Elite = scatterPoints(6, 200, placed)
-	RELATIVE_SPAWN_POINTS.Brute = scatterPoints(12, 130, placed)
+	-- ===== THE HEAVY TIERS ARE SPLIT BETWEEN THE FLOOR AND THE CLIFFS =====
+	--
+	-- The zone laid every tier out on one flat plane, so the only thing separating a Swarmer from an
+	-- Elite was which direction you happened to walk. Nothing about the map said "that one is
+	-- dangerous" before you were already in range of it.
+	--
+	-- Height says it before anything else does. Half the Brutes and two thirds of the Elites now
+	-- stand up on the terraced shelves in the outer band -- see RAISED below, which picks their spots
+	-- in Init once the terrain actually exists -- and they are ranked by altitude, so the Elites take
+	-- the top shelf and the Brutes the ones under it. You can see them from the valley, you have to
+	-- walk up to reach them, and the climb is a decision rather than a wall.
+	--
+	-- Deliberately NOT all of them. A cliff line of nothing but Elites is a raid boss row and it
+	-- empties the valley of anything worth hitting; six Brutes and two Elites stay down on the flat
+	-- so the ground floor is still a place where a fight happens.
+	RELATIVE_SPAWN_POINTS.Elite = scatterPoints(2, 200, placed)
+	RELATIVE_SPAWN_POINTS.Brute = scatterPoints(6, 130, placed)
 	RELATIVE_SPAWN_POINTS.Critter = scatterPoints(22, 78, placed)
 
 	local swarm = {}
@@ -311,6 +358,24 @@ local sceneryParams = OverlapParams.new()
 sceneryParams.FilterType = Enum.RaycastFilterType.Exclude
 sceneryParams.MaxParts = 12
 
+-- ===== HOW HIGH THE GROUND ACTUALLY IS AT A POINT =============================
+--
+-- Everything in this file used to assume the floor was at y = 0, and for a long time it was:
+-- ZoneBuilder keeps the middle of every zone dead flat on purpose, precisely so that props
+-- scattered onto it can be placed without asking what is underneath.
+--
+-- The OUTER band is not flat. It is two to four terraced shelves climbing 20 to 128 studs (see
+-- TERRAIN_INNER / TERRAIN_PROFILE in ZoneBuilder), and the spawn scatter has always been allowed
+-- out to |x| = 575 -- well inside it. Every creature that landed there was built at valley height,
+-- which is to say inside the cliff, and its ground ring was drawn at y = 0.35 out in the open air
+-- under the shelf. One ray answers it for any point and is what the elevated tiers below stand on.
+--
+-- `RespectCanCollide` is the load-bearing flag here: nearly every piece of dressing in a zone is
+-- CanCollide = false, so without it a creature gets stood on top of a banner cloth or a fern.
+local groundParams = RaycastParams.new()
+groundParams.FilterType = Enum.RaycastFilterType.Exclude
+groundParams.RespectCanCollide = true
+
 local function refreshSceneryFilter()
 	local skip = { creaturesFolder }
 	local bosses = workspace:FindFirstChild("Bosses")
@@ -318,8 +383,25 @@ local function refreshSceneryFilter()
 	local pets = workspace:FindFirstChild("EquippedPets")
 	if pets then table.insert(skip, pets) end
 	sceneryParams.FilterDescendantsInstances = skip
+	-- the same exclusions: a creature must never be stood on another creature's shoulders, and a
+	-- boss rig is 75-121 studs of "ground" that walks away when it dies
+	groundParams.FilterDescendantsInstances = skip
 end
 refreshSceneryFilter()
+
+-- Starts at 300, which clears the tallest thing standing inside a zone (the portal keystone, at
+-- 166) and stays under the boundary wall's 180 without ever beginning inside anything. Falls back
+-- to the caller's own guess rather than to 0 -- a ray that hits nothing means the point is off the
+-- platform, and dropping such a creature to y = 0 would be a worse answer than leaving it be.
+--
+-- Returns WHAT it landed on as well as how high. Every caller but one ignores the second value;
+-- the one that does not is raisedSpots, which has to tell a terrace shelf apart from the top of a
+-- rock spire, and no height on its own can say which of those a surface is.
+local function floorAt(x, z, fallback)
+	local hit = workspace:Raycast(Vector3.new(x, 300, z), Vector3.new(0, -320, 0), groundParams)
+	if not hit then return (fallback or 0), nil end
+	return hit.Position.Y, hit.Instance
+end
 
 -- The box is measured in tier size, which is the rig's UNIT and not its extents: a Critter is 10
 -- units and stands 22 studs tall with its horns, ears and paws well outside a 10-wide column. So
@@ -2195,7 +2277,7 @@ local function angleDelta(a, b)
 	return (b - a + math.pi) % (math.pi * 2) - math.pi
 end
 
-local function registerCreature(model, body, position, attachments, size, homeYaw, tierName, ring, zoneX, hitbox, hitboxOffset)
+local function registerCreature(model, body, position, attachments, size, homeYaw, tierName, ring, zoneX, hitbox, hitboxOffset, floorY)
 	-- Built once. Every attachment is listed, moving or not: the whole rig rides the body's bob and
 	-- sway, so a part with no motion of its own still has to be re-placed against the new base.
 	local parts = { body }
@@ -2227,6 +2309,10 @@ local function registerCreature(model, body, position, attachments, size, homeYa
 		origin = position, -- kept for the proximity test, which measures from the spawn point
 		ring = ring,
 		ringIndex = ringIndex,
+		-- the height of the ground THIS creature is standing on. Not derivable from `pos`, which is
+		-- the body centre and moves with the tier's size, and not a constant, because half the heavy
+		-- tiers now live twenty to a hundred studs up on the terraces.
+		floorY = floorY or 0,
 		hitboxIndex = hitboxIndex,
 		-- where the box sits in the BODY's frame, so it follows the bob, the turn, the flinch and
 		-- the lunge without any of that being recomputed for it
@@ -2365,9 +2451,19 @@ local function driveCreatures(dt)
 							local cx = rig.home.X + math.cos(a) * r
 							local cz = rig.home.Z + math.sin(a) * r
 							-- the rules say where it MAY go; the overlap query says what is actually
-							-- standing there. Only run when a target is picked (every few seconds, and
-							-- only for creatures near a player), never per frame.
-							if not insideKeepOut(cx - rig.zoneX, cz) and not blockedAt(cx, rig.home.Y, cz, rig.size) then
+							-- standing there; the ray says whether it is the same FLOOR. Only run when a
+							-- target is picked (every few seconds, and only for creatures near a player),
+							-- never per frame.
+							--
+							-- The floor test is what keeps a shelf creature on its shelf. `pos.Y` never
+							-- changes while roaming -- the rigs are anchored and walked by hand, they do not
+							-- fall -- so a target one tread over means an Elite strolling off a 30-stud drop
+							-- and standing in mid-air, or wading through the shelf above it up to its chest.
+							-- Two studs of tolerance covers the ground's own small dressing, nothing more.
+							-- Cheapest test first: a ray costs less than the box query behind it.
+							if not insideKeepOut(cx - rig.zoneX, cz)
+								and math.abs(floorAt(cx, cz, rig.floorY) - rig.floorY) <= 2
+								and not blockedAt(cx, rig.home.Y, cz, rig.size) then
 								newTarget = Vector3.new(cx, rig.home.Y, cz)
 								break
 							end
@@ -2497,8 +2593,9 @@ local function driveCreatures(dt)
 					end
 				end
 				if rig.ringIndex then
-					-- follows on the ground, inherits neither the bob nor the yaw
-					cframes[rig.ringIndex] = CFrame.new(rig.pos.X, 0.35, rig.pos.Z) * CFrame.Angles(0, 0, math.rad(90))
+					-- follows on the ground, inherits neither the bob nor the yaw. `floorY` rather than a
+					-- constant: a creature up on a shelf has to drag its disc up there with it.
+					cframes[rig.ringIndex] = CFrame.new(rig.pos.X, rig.floorY + 0.35, rig.pos.Z) * CFrame.Angles(0, 0, math.rad(90))
 				end
 				if rig.hitboxIndex then
 					-- the opposite of the ring: the box IS the rig as far as the mouse is concerned,
@@ -2687,6 +2784,12 @@ local function spawnCreature(position, tierName, zone)
 	-- before anything is built: the rig, the ground ring, the hit box and the roam home are all
 	-- placed from this one point, so moving it afterwards would mean moving all four
 	position = clearOfScenery(position, base.size, zone.offset)
+	-- ...and clearOfScenery can walk a point up to 110 studs sideways to get it out of a boulder,
+	-- which for anything standing on a shelf is easily far enough to walk it off the edge. So the
+	-- ground is asked AFTER the point is final, never before. Every rig reaches about half its size
+	-- below the body centre, so 0.56 of the tier size is where the feet meet whatever is down there.
+	local floorY = floorAt(position.X, position.Z, position.Y - base.size * 0.56)
+	position = Vector3.new(position.X, floorY + base.size * 0.56, position.Z)
 	-- effective (zone-scaled) stats for this specific spawn
 	local tier = {
 		health = math.floor(base.health * zone.mobHealthMult),
@@ -2773,7 +2876,11 @@ local function spawnCreature(position, tierName, zone)
 	ring.Name = "GroundRing"
 	ring.Shape = Enum.PartType.Cylinder
 	ring.Size = Vector3.new(0.4, tier.size * 1.45, tier.size * 1.45)
-	ring.CFrame = CFrame.new(position.X, 0.35, position.Z) * CFrame.Angles(0, 0, math.rad(90))
+	-- ON THIS CREATURE'S OWN FLOOR, not on y = 0.35. Hard-coding the valley height put a 38-stud
+	-- gold disc out in mid-air below every creature standing on a shelf -- "something yellow and
+	-- round hanging in the air", reported from a screenshot, and the ring is one of the two things
+	-- that was.
+	ring.CFrame = CFrame.new(position.X, floorY + 0.35, position.Z) * CFrame.Angles(0, 0, math.rad(90))
 	ring.Color = ringColor
 	ring.Material = Enum.Material.Neon
 	ring.Transparency = 0.4
@@ -2879,7 +2986,7 @@ local function spawnCreature(position, tierName, zone)
 	-- the wave goes BETWEEN pivot and rest, so a leg swings from the hip instead of
 	-- spinning around its own middle. `orbit` is the one continuous kind -- it ignores
 	-- amp and revolves at `speed` (signed, so counter-rotating rings read as two shells).
-	registerCreature(model, body, position, attachments, tier.size, homeYaw, tierName, ring, zone.offset, hitbox, hitboxOffset)
+	registerCreature(model, body, position, attachments, tier.size, homeYaw, tierName, ring, zone.offset, hitbox, hitboxOffset, floorY)
 
 	local lastHitByPlayer = {}
 	local dead = false
@@ -3110,6 +3217,101 @@ local function spawnCreature(position, tierName, zone)
 	return model
 end
 
+-- ===== WHERE THE CLIFF DWELLERS STAND =========================================
+--
+-- Found rather than declared. The terraces are cut per zone with a meandering inner edge and a
+-- per-zone tier count and rise (ZoneBuilder's `edges` / TERRAIN_PROFILE), so there is no table of
+-- shelf coordinates to read and copying the generator here would be a second copy to keep in step.
+-- Sampling the band with the same downward ray everything else uses costs a few hundred rays once
+-- at boot and cannot drift out of agreement with the terrain, because it IS the terrain.
+local RAISED_COUNT = { Elite = 4, Brute = 6 }
+-- inside the band (TERRAIN_INNER is 415) and inside the spawn keep-out's own 575 edge limit
+local RAISED_IN, RAISED_OUT = 432, 566
+local FLAT_PROBE = { Vector2.new(13, 0), Vector2.new(-13, 0), Vector2.new(0, 13), Vector2.new(0, -13) }
+
+local function raisedSpots(zone)
+	-- Its own generator, seeded off the zone, rather than SPAWN_RNG -- that one is consumed at
+	-- module load and drawing from it here would make the layout depend on when Init happened. Two
+	-- servers of the same place have to lay their creatures out identically.
+	local rng = Random.new(20260809 + math.floor(zone.offset))
+	local found, guard = {}, 0
+
+	while #found < 24 and guard < 1500 do
+		guard += 1
+		local rel = (rng:NextInteger(1, 2) == 1 and -1 or 1) * rng:NextNumber(RAISED_IN, RAISED_OUT)
+		local z = rng:NextNumber(-470, 470)
+		if insideKeepOut(rel, z) then continue end
+
+		local x = zone.offset + rel
+		local y, on = floorAt(x, z, 0)
+		-- 12 is above anything the valley floor does to itself (a pool lip, a ground patch) and below
+		-- the shortest terrace rise in the game, which is 20. Under it, this point is not on a shelf.
+		if y < 12 then continue end
+
+		-- IT HAS TO BE A SHELF, AND NOTHING ELSE WILL DO. Height plus flatness is not enough, and
+		-- the first run proved it: of 202 raised creatures, 14 came out standing on the CAP OF A ROCK
+		-- SPIRE, on a boulder, or in the middle of a staircase. A 40-stud crag base passes a flatness
+		-- probe taken at 13 studs perfectly well -- it is genuinely flat, it is simply not a floor --
+		-- and a creature balanced on a spire is exactly the "why is that up there" this whole pass
+		-- exists to remove. Naming the one part that IS the tread cannot be fooled by any of them.
+		if not (on and on.Name == "TerraceTop") then continue end
+
+		-- and there has to be enough of it to stand on. The treads run 30 to 54 studs deep and a rig
+		-- set down at the lip is half out over the drop, so all four sides are probed at 13 studs --
+		-- half an Elite, which is the widest thing sent up here.
+		local flat = true
+		for _, d in ipairs(FLAT_PROBE) do
+			if math.abs(floorAt(x + d.X, z + d.Y, -999) - y) > 1.5 then
+				flat = false
+				break
+			end
+		end
+		if not flat then continue end
+
+		-- NOT ON THE STAIRS. The flight is the only way onto the shelf, and its top steps ARE at
+		-- tread height, so a spot at the head of one passes every test above and then parks an Elite
+		-- across the single route up. Named rather than inferred, and queried only for a candidate
+		-- that has already survived everything else -- roughly thirty times a zone, once at boot.
+		local onStairs = false
+		for _, part in ipairs(workspace:GetPartBoundsInBox(CFrame.new(x, y, z), Vector3.new(64, 40, 64))) do
+			if part.Name == "TerraceRamp" then
+				onStairs = true
+				break
+			end
+		end
+		if onStairs then continue end
+
+		-- Tested here as well as in spawnCreature, and that is not belt-and-braces. clearOfScenery
+		-- walks a blocked point up to 110 studs sideways to get it out of a boulder or off a ramp,
+		-- which from a 30-to-54-stud tread is easily far enough to walk it clean off the shelf --
+		-- and the ground query afterwards would then honestly report the valley floor. Rejecting the
+		-- spot outright and taking the next one keeps the creature up where it was put.
+		local x2 = zone.offset + rel
+		if blockedAt(x2, y + 26 * 0.56, z, 26) then continue end
+
+		local clear = true
+		for _, p in ipairs(found) do
+			if (Vector2.new(rel, z) - Vector2.new(p.rel, p.z)).Magnitude < 90 then
+				clear = false
+				break
+			end
+		end
+		if clear then
+			table.insert(found, { rel = rel, z = z, y = y })
+		end
+	end
+
+	-- Highest first, and that ordering is the whole feature: the Elites take the top shelf and the
+	-- Brutes the ones under them, so the danger climbs with the altitude and is legible from the
+	-- valley floor before you are anywhere near it. Ties broken on z so the sort is stable -- whole
+	-- shelves are exactly level with each other and there are a lot of ties.
+	table.sort(found, function(a, b)
+		if a.y == b.y then return a.z < b.z end
+		return a.y > b.y
+	end)
+	return found
+end
+
 function CreatureService.Init()
 	for _, existing in ipairs(creaturesFolder:GetChildren()) do
 		existing:Destroy()
@@ -3124,13 +3326,33 @@ function CreatureService.Init()
 	-- order decides which rigs land in the Creatures folder first -- worth keeping deterministic
 	-- so two servers of the same place look the same.
 	for _, zone in ipairs(GameConfig.Zones) do
+		-- Resolved here and not at module load, because it needs the terrain to be standing:
+		-- ZoneBuilder.Build() runs before CreatureService.Init (see ServerMain).
+		local raised = raisedSpots(zone)
+		local taken = 0
+
 		for _, tierName in ipairs({ "Swarmer", "Critter", "Brute", "Elite" }) do
 			for _, rel in ipairs(RELATIVE_SPAWN_POINTS[tierName] or {}) do
-				-- The Y column in the table is ignored. Every rig reaches about half its size below
-				-- the body centre, so standing height follows the tier's size -- hard-coding it
-				-- meant raising a size buried the creature to its shoulders in the floor.
+				-- The Y column in the table is ignored, and so is the one passed here: spawnCreature
+				-- asks the ground how high it is once the point is final. Every rig reaches about half
+				-- its size below the body centre, which is where the 0.56 comes from.
 				local pos = Vector3.new(zone.offset + rel.X, TIERS[tierName].size * 0.56, rel.Z)
 				spawnCreature(pos, tierName, zone)
+			end
+		end
+
+		-- ...and then the cliffs, Elites first so that they get the highest ground there is.
+		for _, tierName in ipairs({ "Elite", "Brute" }) do
+			for _ = 1, RAISED_COUNT[tierName] do
+				taken += 1
+				local spot = raised[taken]
+				-- A zone whose shelves are all too narrow or too full of boulders simply gets fewer
+				-- creatures up high. Backfilling onto the valley floor is the wrong answer: those
+				-- points are already claimed, and two Elites in one spot is worse than one missing.
+				if not spot then break end
+				spawnCreature(
+					Vector3.new(zone.offset + spot.rel, spot.y + TIERS[tierName].size * 0.56, spot.z),
+					tierName, zone)
 			end
 		end
 	end

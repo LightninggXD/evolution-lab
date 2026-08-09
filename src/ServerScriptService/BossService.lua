@@ -131,6 +131,14 @@ local function formatNumber(n)
 		n = n / 1000
 		mag += 1
 	end
+	-- THE ROUNDING CARRIES past the loop, which has already stopped looking: 999,999 divides once to
+	-- 999.999, is accepted, and "%.2f" prints "1000.00K" for a number one short of a million. 999.995
+	-- and not 999.95 because this prints TWO decimals -- the constant has to match the precision it
+	-- guards, or it fires a place too early.
+	if n >= 999.995 and mag < #suffixes then
+		n = n / 1000
+		mag += 1
+	end
 	return string.format("%.2f%s", n, suffixes[mag])
 end
 

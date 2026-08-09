@@ -423,6 +423,39 @@ end
 -- the creature it belongs to.
 local NUMBER_TIME = 0.85
 
+-- 10000 IS NOT A NUMBER ANYBODY READS IN 0.85 SECONDS.
+--
+-- Damage carries the zone multiplier, the stage, the worn skin's rank and every upgrade on top, so
+-- a mid-game hit is five digits and a late one is eight. "12000000" thrown off a creature for less
+-- than a second is a smear of noughts -- the player sees that a number happened and nothing else.
+--
+-- One decimal, and only where it earns its place: 10000 -> "10K", 12500 -> "12.5K", 12000000 ->
+-- "12M". The trailing ".0" is TRIMMED rather than formatted away, because the choice is per value
+-- (the same call has to produce both "12.5M" and "12M") and "%g" would hand back "1.2e+07".
+--
+-- Every number this file draws goes through here -- the damage you deal, the damage you take, the
+-- DNA a kill pays and the boss bar -- so no two of them can ever disagree about how a number looks.
+local SUFFIX = { "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp" }
+local function shortNumber(n)
+	n = math.floor((tonumber(n) or 0) + 0.5)
+	if n < 1000 then return tostring(n) end
+	local mag = 0
+	while n >= 1000 and mag < #SUFFIX do
+		n = n / 1000
+		mag += 1
+	end
+	-- THE ROUNDING CAN PUSH IT BACK OVER, and the loop above has already stopped looking. 999,999
+	-- divides once to 999.999, which is under the loop's threshold and so is accepted -- and then
+	-- "%.1f" prints it as "1000.0", i.e. "1000K" for a number one short of a million. Caught here
+	-- rather than by rounding first, because the carry can only ever happen at this one boundary.
+	if n >= 999.95 and mag < #SUFFIX then
+		n = n / 1000
+		mag += 1
+	end
+	local body = string.format("%.1f", n):gsub("%.0$", "")
+	return body .. SUFFIX[mag]
+end
+
 local function popNumber(position, text, color, big)
 	local host = invisibleHost(CFrame.new(position))
 
@@ -642,7 +675,7 @@ local function attachHealthPlate(character)
 			-- only real damage. A heal is a rise, and a sub-1 drop is rounding, not a hit.
 			if lost >= 1 and health > 0 then
 				local at = head.Position + Vector3.new(0, head.Size.Y * 1.1, 0)
-				popNumber(at, "-" .. math.floor(lost + 0.5), Color3.fromRGB(255, 116, 108), false)
+				popNumber(at, "-" .. shortNumber(lost), Color3.fromRGB(255, 116, 108), false)
 				-- guarded by the same local-player check the number is, and for the same reason: every
 				-- hit every other player takes is someone else's fight reported in your ears
 				SoundLibrary.Play("hurt", head)
@@ -929,20 +962,17 @@ end
 -- stop, so it is never chrome sitting on the screen while you farm creatures.
 local BOSS_BAR_HOLD = 5
 
--- Boss health reaches the trillions. Its own copy rather than MainUI's `formatNumber`: that one is
--- a local in a 4500-line LocalScript and this file cannot see it, and a boss bar reading
--- "1284000000000 / 1284000000000" is not a readout of anything.
-local BAR_SUFFIX = { "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp" }
-local function barNumber(n)
-	n = math.floor(n or 0)
-	if n < 1000 then return tostring(n) end
-	local mag = 0
-	while n >= 1000 and mag < #BAR_SUFFIX do
-		n = n / 1000
-		mag += 1
-	end
-	return string.format("%.1f%s", n, BAR_SUFFIX[mag])
-end
+-- The last zone's boss has 68 800 000 health, so a bar printed raw reads "68800000 / 68800000" --
+-- eight digits twice over, in a strip a few hundred pixels wide. (The comment this replaces said
+-- "trillions" and quoted 1 284 000 000 000; the real ladder runs 800 in Forest to 68.8M in
+-- AbsolutePlane, which is four orders short. Worth abbreviating either way, but the figure was
+-- wrong and someone would have sized something against it.)
+--
+-- It shares `shortNumber` with the damage numbers rather than keeping its own copy: the bar and the
+-- number coming off the boss are the same fight, so they have to abbreviate the same way. (MainUI's
+-- `formatNumber` is a local in a 6000-line LocalScript this file cannot see, which is why neither
+-- of them is used from there.)
+local barNumber = shortNumber
 
 local bossBar, bossBarFill, bossBarLabel, bossBarName
 local bossBarUntil = 0
@@ -1158,9 +1188,9 @@ CombatFx.OnClientEvent:Connect(function(fx)
 
 	if mine then
 		if kill and fx.dna then
-			popNumber(fx.p, "+" .. fx.dna .. " \u{1F9EC}", UITheme.Color.Mint, true)
+			popNumber(fx.p, "+" .. shortNumber(fx.dna) .. " \u{1F9EC}", UITheme.Color.Mint, true)
 		elseif fx.d and fx.d > 0 then
-			popNumber(fx.p, "-" .. fx.d, Color3.fromRGB(255, 236, 168), false)
+			popNumber(fx.p, "-" .. shortNumber(fx.d), Color3.fromRGB(255, 236, 168), false)
 		end
 		cameraKick(kill and 1.5 or 0.7)
 	end
