@@ -44,6 +44,14 @@ Created 2026-08-08 from a gap analysis of the live Studio datamodel against the 
   text cuts the overflow instead of shrinking it, and reports nothing wrong.
 - Structural checks: `C:\Python313\python.exe tools/luastruct.py` and `tools/luanames.py`.
   The `python` on PATH is the Microsoft Store stub and exits 49.
+- **`luanames` baseline is 9 files, not the 6 recorded at 0.3** (checked 2026-08-09). It grew with
+  the phases and every one is the same false positive — a local referenced from a function defined
+  after it, which is a legal upvalue: `LoadingScreen` (modules, bar), `SoundLibrary` (flatCache),
+  `StatsService` (publish), `ZoneBuilder_pre_gate_axis` (scatterPoint, makeSign — an archived file),
+  `Type` and `LightConfig` (Game), `HatchReveal` (bestDist), `MainUI` (animatePanel), `RarityBeam`
+  (toastSeq). All nine sit in code that has been demonstrated to run. **Compare against 9, and read
+  the WHOLE output** — `luanames` prints its warnings interleaved with the OK lines, so tailing the
+  last 30 lines silently hides the first half of the list, which is how the 6 got believed twice.
 
 ---
 
@@ -281,13 +289,30 @@ skin, and that is a receipt rather than a state.
 Highest-value retention system in the genre and the largest exploit surface in it. Gated
 deliberately.
 
-| ID | | Task |
-|---|---|---|
-| 8.1 | `[ ]` | Trade request / accept flow with a proximity requirement |
-| 8.2 | `[ ]` | Two-sided confirm with a lock-and-recheck step (both inventories re-validated server-side at commit) |
-| 8.3 | `[ ]` | Duplication defence: server-authoritative pet ids, atomic swap, both saves written before either is acknowledged |
-| 8.4 | `[ ]` | Trade log for support, and a per-player rate limit |
-| 8.5 | `[ ]` | Anti-scam: 3-second confirm hold and a final "you are giving / you are getting" summary |
+**The gate is respected and the phase is half done, on purpose.** What is written is
+`TradeService` — the server core, which is the exploit surface the gate is actually about, and the
+half that can be **proven right now** against two save tables on one server with no second client.
+What is not written is every part that needs two real clients to mean anything: the remotes, the
+trade window, the 3-second hold and the summary card.
+
+**Nothing can reach it.** `ServerMain` does not require `TradeService`, `Init()` is never called,
+and no remote is created — so the file compiles, is tested, and is inert. Wiring it up is the
+deliberate act that ends the gate, and it is one require plus one `Init()`.
+
+**Only pets are tradeable, and that is a design decision worth not re-litigating.** DNA is scaled to
+the holder's stage everywhere in this game, so "10,000 DNA" is not a quantity two players can agree
+on; Diamonds and Shards are the deliberately un-inflatable currencies and trading them makes each
+one a bot's day job. A pet is the one thing in a save that is a discrete object with no exchange
+rate.
+
+| ID | | Task | Verified how |
+|---|---|---|---|
+| 8.1 | `[~]` | Request / accept with a **proximity requirement**. Server half done: one live trade per player, a 4s request cooldown, a 40-stud reach checked at the request **and again at the commit** (a window that survives one player walking to another zone is a trade with somebody who is not in front of you), and only the *receiver* may accept. **The UI half is deliberately not written** — and no client message is sent from `Request` either, because "somebody wants to trade" is a prompt that has to be answerable, and routing it through the error channel because that channel happens to exist is how a UI ends up shaped by its plumbing | refusals returned as text, so a test reads what the player would: self-trade, an unknown player, a second trade while already in one, and the 4s cooldown all refused with their own reason |
+| 8.2 | `[x]` | **Two-sided confirm with lock-and-recheck.** Every offered id is re-resolved against the owner's *current* `data.Pets` at commit time, because a pet can be fused away between the offer and the confirm — and the reservation deliberately does **not** stop an owner destroying their own pet, since being locked out of your inventory because a stranger opened a window at you is worse than a refused trade | a pet removed behind the trade's back after one side had confirmed: refused with "One of those pets is gone" and **both inventories unchanged, A=2 B=2 before and after**. One-sided confirm moves nothing; a direct `Commit` refuses with "Both sides must confirm" |
+| 8.3 | `[x]` | **Duplication defence — and the row's own premise was wrong about Roblox.** It asked for "both saves written before either is acknowledged", which is a two-phase commit no DataStore offers: `SetAsync` yields, and any yield between the two writes is a window in which the pets exist twice. So the argument is built the other way round and needs four properties: both players are **on one server** (the proximity rule is what guarantees it, so "trade with yourself across two servers" cannot be expressed), a pet can be in **one live trade** (`reserved[petId]`, released on every exit path), **the swap does not yield** (validation and both table mutations run with no wait, no SetAsync and no event between them), and **the save happens after** — in-memory `Cache` is the authority for a live session, so a failed write cannot duplicate, only lose, and losing is the only acceptable direction to fail in. Both writes are still issued, both are checked, and a failure is recorded on the log entry rather than swallowed | **conservation measured: started 5 pets, ended 5, 0 duplicated, 0 lost**, and each of the three traded ids in exactly the opposite inventory. Reservations: held while an offer stands (`reservedPets 1`) and **0 after cancel, after commit, and at the end of every run**. Collection cap: 600+1 refused with nothing moved, an **even** swap at exactly 600 allowed. Equipped pets refused at the offer, with a second guard at the commit for the phantom-bonus case |
+| 8.4 | `[x]` | **Trade log and rate limit.** The log keeps 50 in memory for a live investigation and writes to its own `EvolutionLab_TradeLog_v1`, keyed by UTC day, appended with `UpdateAsync` (not `SetAsync`, or two servers trading in the same minute overwrite each other) and capped at 400 a day — past a DataStore value's size limit the writes stop entirely, which loses the newest entries, i.e. the ones an investigation is about. The rate limit is **two taps**: a 4s request cooldown bounds pestering strangers, and 6 completed trades a minute bounds what a bot farm cares about | **11 entries actually persisted and read back** from the store, matching the last trade's ids and counts. Rate limit: trades 1–6 went through and **#7 refused** with "Too many trades". The log's human line resolves a real pet: `🪨 Rainbow Pebble` |
+| 8.5 | `[~]` | **Anti-scam.** The server half is done and it is the load-bearing half: **any change to either offer clears BOTH confirmations, unconditionally.** That is the oldest scam in the genre — both sides confirm, then the scammer swaps the good item in the half-second before commit — and it is three lines. The 3-second confirm hold and the "you are giving / you are getting" summary are the UI half and wait for a second client; `MAX_OFFER = 10` is already in place for the summary's sake, since a window holding forty pets is a window nobody reads | A confirms (`a=true b=false`), A switches its offer → **`a=false b=false`**; A re-confirms and **B** changes its side → both false again. The reset fires from either direction |
+| 8.6 | `[ ]` | Wire it up: the remotes, the trade window, the confirm hold and the summary. **Needs two clients**, and therefore a published test place — the same wall as 5.4 | two players in one server complete a trade and both saves survive a rejoin |
 
 ---
 
@@ -297,7 +322,7 @@ Collect these once; each one blocks agents until it exists.
 
 | | Action | Blocks |
 |---|---|---|
-| `[ ]` | Publish a test place — `MessagingService` cannot be exercised from Studio at all | 5.4 |
+| `[ ]` | Publish a test place — `MessagingService` cannot be exercised from Studio at all, and neither can two clients trading | 5.4, 8.6 |
 | `[ ]` | Roblox group id, for the Group / Like / Favourite rewards | 5.5 |
 | `[ ]` | Rewarded Ads set up on the dashboard (the free spin half of 5.6 is done) | 5.6 |
 | `[x]` | Save the place into the repo (binary `.rbxl` is fine — `tools/rbxl_extract.py` reads it) | 0.1 — done 2026-08-08 |
@@ -327,6 +352,34 @@ Gathered 2026-08-07/08 while writing this plan.
 ---
 
 ## Changelog
+
+- **2026-08-09** — **Phase 8's server core: 8.2, 8.3 and 8.4 done and verified, 8.1 and 8.5 half
+  done, and the gate is still shut.** `TradeService` exists, compiles and is tested, and **nothing
+  can reach it** — ServerMain does not require it, `Init()` is never called, no remote is created.
+  The half that was written is the half the gate is actually about (the exploit surface) and the
+  half that can be proven without a second client; the half that was not is everything needing two
+  real clients, which is the same wall 5.4 hit.
+  **8.3's own premise turned out to be wrong about Roblox, which is the fourth time this has
+  happened (3.5, 6.4, 7.1).** The row asked for "both saves written before either is acknowledged".
+  That is a two-phase commit, and no DataStore offers one: `SetAsync` yields, so any gap between the
+  two writes is a window in which the pets exist in both inventories. The argument had to be built
+  the other way round — **in-memory `Cache` is the authority for a live session and the DataStore is
+  a backup of it**, so the swap is made atomically in memory (no wait, no SetAsync, no event between
+  validation and the two mutations) and the writes follow. A failed write cannot then duplicate
+  anything; it can only lose, and losing is the only acceptable direction to fail in.
+  **The proximity requirement turns out to be load-bearing twice.** It reads as an anti-scam rule,
+  and it is one — but it is also what guarantees both save tables are on the same machine, which is
+  what makes the whole "trade with yourself across two servers" class inexpressible rather than
+  guarded against.
+  **And the anti-scam rule that matters is three lines.** Any change to either offer clears BOTH
+  confirmations. The 3-second hold and the summary card everyone thinks of as the anti-scam feature
+  are decoration on top of that line.
+  Verified against two synthetic saves (negative user ids — Roblox ids are positive, so the owner's
+  save could not be touched, and with no Player object on either side `PlayerDataService.Save` was
+  never reached): **5 pets in, 5 out, 0 duplicated, 0 lost**, reservations back to 0 on every exit
+  path, a pet destroyed mid-trade refused with both inventories unmoved, the cap refusing 600+1 while
+  allowing an even swap at 600, the 7th trade in a minute refused, and 11 log entries actually read
+  back out of the DataStore.
 
 - **2026-08-09** — **Phase 7 is code-complete: 7.1, 7.2 and 7.3, all verified live. Only 7.4
   (owner, two dates) is left.** The three rows collapsed into one idea used three times — something
