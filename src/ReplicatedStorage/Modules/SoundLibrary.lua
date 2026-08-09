@@ -437,10 +437,10 @@ local NOTIFY_SOUND = {
 
 function SoundLibrary.PlayNotify(payload)
 	if type(payload) ~= "table" then return nil end
-	-- the one kind whose sound depends on its payload rather than on its name
-	if payload.kind == "pet" then
-		return SoundLibrary.PlayHatch(payload.rarity)
-	end
+	-- `pet` is handled by HatchReveal instead (Phase 6.1), which is the only thing that knows WHEN
+	-- the hatch happens: the notification arrives the instant the server pays out, but the sting
+	-- belongs on the crack about a second later. Firing it from here as well put the sound before
+	-- the egg had moved.
 	local name = NOTIFY_SOUND[payload.kind]
 	if name then
 		return SoundLibrary.PlayLocal(name)

@@ -143,6 +143,10 @@ function PetService.HandleBuyEgg(player, eggKey)
 	PlayerDataService.PushToClient(player)
 	Remotes.Notify:FireClient(player, {
 		kind = "pet",
+		-- the KEY, not just the name: HatchReveal rebuilds the actual pet rig out of the egg
+		-- (Phase 6.1) and PetModel.Build is keyed, so without this the client would have to search
+		-- the zone tables by display name and hope two species never share one
+		key = petDef.key,
 		name = petDef.name,
 		emoji = petDef.emoji,
 		tier = "Normal",

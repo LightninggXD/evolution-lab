@@ -5645,12 +5645,11 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 	elseif payload.kind == "zone" then
 		showNotification("🗺️ NEW ZONE UNLOCKED: " .. payload.emoji .. " " .. payload.name .. "!", Color3.fromRGB(60, 160, 220))
 	elseif payload.kind == "pet" then
-		-- A hatch happens AT the egg you are standing in front of, so that is where it is drawn --
-		-- a card across the middle of the screen covered the one thing the player had just walked
-		-- over to look at. Tinted by what was actually rolled, so a Legendary does not slide past
-		-- looking like every other hatch.
-		local rarity = GameConfig.GetRarity(payload.rarity)
-		worldPopup(payload.emoji .. " " .. payload.name, rarity.name, rarity.color)
+		-- Deliberately silent here now. The whole hatch -- the egg shaking, cracking, the rarity
+		-- flash, the pet rising out of it and the card naming what it is -- belongs to HatchReveal
+		-- (Phase 6.1), which is the only thing that knows when the reveal moment actually is. This
+		-- branch used to draw the card immediately, which is a second before the egg had finished
+		-- moving. Same reasoning as `creature` and `playerHurt` above.
 	elseif payload.kind == "fuse" then
 		local rarity = GameConfig.GetRarity(payload.rarity)
 		worldPopup(payload.emoji .. " " .. payload.name, "FUSED → " .. payload.tier, rarity.color)

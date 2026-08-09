@@ -246,7 +246,7 @@ kind that can be chosen on evidence rather than on its name.
 
 | ID | | Task | Verified how |
 |---|---|---|---|
-| 6.1 | `[ ]` | **Hatch sequence**: egg shakes → cracks → rarity flash → pet rises. Currently a popup card; reuse `worldPopup` / `celebratePurchase` | screen capture |
+| 6.1 | `[x]` | **Hatch sequence** — new `HatchReveal.client.lua`: the egg shakes with a climbing amplitude, cracks (white flash + drop), bursts in the **rolled rarity's colour**, and the actual pet rig rises out of it spinning, then a card names it. Its own LocalScript like `EvolveReveal`, so the whole hatch presentation lives in one file — MainUI's `pet` branch is now deliberately silent and `SoundLibrary.PlayNotify` no longer handles `pet`, because only this file knows when the reveal moment is (the notification lands the instant the server pays, a second before the egg has moved). The server now sends the pet **key** so the rig is the real species, not a lookup by display name. **The egg is a replicated object being moved locally**, so the whole animation is `PivotTo` against one saved pivot with a restore on every path — a client-side CFrame the server never corrects is permanently wrong on that one screen. `busy` keeps one sequence per egg, because Auto Hatch buys twice a second and an overlap would save an already-shaken pivot as "home" | live: shake reached **16.4°**, crack dropped **0.55 studs**, the **26-part** rig appeared, card and particle burst both drew, the hatch sting played at **speed 0.76** (Legendary). Afterwards the egg was back to **0.0000 studs / 0.0000°** off, shell colour restored, and **0** objects left in the local fx folder |
 | 6.2 | `[ ]` | **Rarity beam** into the sky on Legendary, paired with 5.4 | visible from across the platform |
 | 6.3 | `[ ]` | **First-join sequence**: camera pan → "TAP TO EVOLVE" arrow → first evolve celebrated. Zones 1–2 are already designed as the tutorial stretch but nothing guides the player | fresh save in Play |
 | 6.4 | `[ ]` | **Boost strip with timers** — extend the potion strip (`hudRefs.potionTimers`, `MainUI:1298`) with pass icons and countdowns | `loadstring` OK + capture |
@@ -314,6 +314,25 @@ Gathered 2026-08-07/08 while writing this plan.
 ---
 
 ## Changelog
+
+- **2026-08-09** — **Phase 6 opens with 6.1, the hatch sequence.** The most repeated purchase in the
+  game had a small card over the player's head and the egg they were looking at did not react.
+  **The bug this cost an hour to find is worth remembering: `RunService.RenderStepped:Wait()` never
+  returns on a client that is not rendering.** The three animation loops used it, the whole sequence
+  hung inside its own `pcall`, and every outward sign — no error, no warning, no output, script
+  present and enabled, handler demonstrably receiving the event — was of code that had simply decided
+  not to run. It took a `print` at each step to see that execution stopped at the first `:Wait()`.
+  **Use `Heartbeat` for anything that must not wedge**; it runs on the simulation step, is
+  independent of rendering, and is just as smooth at 60 Hz. This is the same root cause as the 1x1
+  viewport that makes `TextFits` meaningless and stops TweenService stepping in probes — that Studio
+  client is not drawing anything.
+  Two shape notes. The hatch presentation now lives in **one** file: MainUI's `pet` branch is silent
+  and `SoundLibrary.PlayNotify` no longer handles `pet`, because only `HatchReveal` knows when the
+  reveal moment is — the notification arrives the instant the server pays out, which is a second
+  before the egg has finished moving. And because the egg is a **replicated** object being animated
+  locally, the whole thing is one `PivotTo` against one saved pivot with a restore on every path: a
+  client-side CFrame change is never corrected by the server, so a failure halfway leaves that egg
+  permanently crooked for that player and nobody else.
 
 - **2026-08-09** — **Phase 5 closes at 5.1, 5.2, 5.3, 5.6a and 5.7 — all verified live. 5.4 is
   deferred on purpose.** `MessagingService` cannot be exercised from Studio: there is no second
