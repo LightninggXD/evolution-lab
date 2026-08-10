@@ -53,7 +53,11 @@ local function describe(granted)
 		table.insert(parts, ("+%d \u{1F48E}"):format(granted.diamonds))
 	end
 	if granted.shards and granted.shards > 0 then
-		table.insert(parts, ("+%d \u{1F52E}"):format(granted.shards))
+		-- \u{1F31F} 🌟, THE MARK SHARDS ACTUALLY CARRY. This line printed \u{1F52E} 🔮, a crystal
+		-- ball, which is the Mystery Potion shop's glyph and nothing to do with shards -- so a code
+		-- that paid shards told the player it had paid them something the game does not have. The
+		-- three lines around it all use the real currency mark, which is what made it stand out.
+		table.insert(parts, ("+%d \u{1F31F}"):format(granted.shards))
 	end
 	if granted.potions and granted.potions > 0 then
 		table.insert(parts, ("+%d \u{1F9EA}"):format(granted.potions))
