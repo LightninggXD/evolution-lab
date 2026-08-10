@@ -189,6 +189,115 @@ local function findEvolveButton()
 end
 
 -- ============================================================================
+-- POINTING AT SOMETHING IN THE WORLD (9.10)
+-- ============================================================================
+-- The banner could always say "click a creature"; it could never say WHICH. On a street with
+-- fourteen of them walking past, an instruction with no target is still a wall of text -- the row's
+-- own complaint. So the guide gets one marker it can hang over any object, and one Highlight to
+-- pick that object out of the crowd.
+--
+-- ONE OF EACH, RE-ADORNED, never one per target. Roblox draws about 31 Highlights at once and
+-- CreatureService already rents fourteen of them to the creatures nearest the player (see its
+-- outline pool); a guide that created its own per candidate would quietly push that budget over and
+-- take outlines off the creatures it is pointing at.
+--
+-- The marker is a BillboardGui rather than a beam or a part: it is always the right way up, it
+-- cannot be walked behind, and it needs no per-frame CFrame maths on the client.
+local marker = Instance.new("BillboardGui")
+marker.Name = "GuideMarker"
+marker.Size = UDim2.new(0, 96, 0, 96)
+marker.AlwaysOnTop = true
+marker.LightInfluence = 0
+marker.Enabled = false
+marker.Parent = gui
+
+local markerLabel = Instance.new("TextLabel")
+markerLabel.Size = UDim2.new(1, 0, 1, 0)
+markerLabel.BackgroundTransparency = 1
+markerLabel.Font = UITheme.Font.Display
+markerLabel.TextScaled = true
+markerLabel.Text = "\u{2B07}\u{FE0F}"
+markerLabel.TextColor3 = UITheme.Color.White
+markerLabel.TextStrokeColor3 = UITheme.Color.Outline
+markerLabel.TextStrokeTransparency = 0
+markerLabel.Parent = marker
+
+local pointHL = Instance.new("Highlight")
+pointHL.Name = "GuideHighlight"
+pointHL.FillTransparency = 0.72
+pointHL.FillColor = UITheme.Color.Sunny
+pointHL.OutlineColor = UITheme.Color.White
+pointHL.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+pointHL.Enabled = false
+pointHL.Parent = gui
+
+-- `height` is how far above the target's own top the marker floats, so it clears a Swarmer and a
+-- Guardian alike without being told how big either is.
+local function pointAt(target, height)
+	if not target then
+		marker.Enabled = false
+		pointHL.Enabled = false
+		pointHL.Adornee = nil
+		marker.Adornee = nil
+		return
+	end
+	local adornee = target
+	if target:IsA("Model") then
+		adornee = target.PrimaryPart or target:FindFirstChildWhichIsA("BasePart")
+	end
+	if not adornee then return end
+	local _, size = pcall(function() return target:IsA("Model") and select(2, target:GetBoundingBox()) or target.Size end)
+	local top = (typeof(size) == "Vector3" and size.Y or 6) * 0.5
+	marker.Adornee = adornee
+	marker.StudsOffsetWorldSpace = Vector3.new(0, top + (height or 5), 0)
+	marker.Enabled = true
+	pointHL.Adornee = target
+	pointHL.Enabled = true
+end
+
+-- The nearest LIVE creature. Two traps, both already paid for elsewhere in this game and both silent
+-- if ignored: `workspace.Creatures` holds loose `Part`s (`DeathBurst`) as well as rigs, so anything
+-- that assumes a Model errors on a bare part; and a creature's health is a replicated ATTRIBUTE, not
+-- a Humanoid -- asking for `Humanoid.Health` reports zero live creatures in a world holding hundreds,
+-- which reads exactly like an empty street rather than like a wrong question.
+local function nearestCreature()
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	local folder = workspace:FindFirstChild("Creatures")
+	if not root or not folder then return nil end
+	local best, bestD = nil, 260
+	for _, m in ipairs(folder:GetChildren()) do
+		if m:IsA("Model") and (m:GetAttribute("Health") or 0) > 0 then
+			local part = m.PrimaryPart
+			if part then
+				local d = (part.Position - root.Position).Magnitude
+				if d < bestD then best, bestD = m, d end
+			end
+		end
+	end
+	return best
+end
+
+-- The nearest way UP. The flights live in `WorldShell` rather than in the zone folder, because
+-- `TerraceRamp` is in ZoneBuilder's ALWAYS_LOADED set -- walkable ground that is allowed to stream
+-- out is a hole to fall through. Looking for them in the zone finds nothing and looks exactly like
+-- the ramps never having been built.
+local function nearestRamp()
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	local shell = workspace:FindFirstChild("WorldShell")
+	if not root or not shell then return nil end
+	local best, bestD = nil, 900
+	for _, d in ipairs(shell:GetChildren()) do
+		if d.Name == "TerraceRamp" then
+			local dist = (d.Position - root.Position).Magnitude
+			if dist < bestD then best, bestD = d, dist end
+		end
+	end
+	return best
+end
+
+-- ============================================================================
 -- WHAT THE PLAYER IS BEING ASKED TO DO
 -- ============================================================================
 -- Two steps, and which one is showing is derived from the save every tick rather than remembered.
@@ -216,6 +325,10 @@ local function textFor(which, data)
 	-- and would be a lie if it fired: an evolve costs XP and nothing else.
 	return "⚔️ Click a creature to attack it"
 end
+
+-- Forward-declared: `runGuide` calls this and Lua binds an upvalue where a function is WRITTEN, so
+-- without the name in scope here the call below would resolve to a nil global.
+local runClimbBeat
 
 local function runGuide()
 	if state.running then return end
@@ -251,12 +364,23 @@ local function runGuide()
 				else
 					arrow.Visible = false
 				end
+
+				-- AND THE OTHER HALF OF THE INSTRUCTION (9.10). "Click a creature" names the verb;
+				-- the marker names the noun. Re-targeted every tick rather than locked on: the chosen
+				-- creature is walking, can be killed by somebody else, and can stream out -- a guide
+				-- pinned to one target ends up pointing at nothing and telling the player to hit it.
+				if which == "fight" then
+					pointAt(nearestCreature(), 6)
+				else
+					pointAt(nil)
+				end
 				STEP:Wait()
 			end
 		end)
 
 		banner.Visible = false
 		arrow.Visible = false
+		pointAt(nil)
 		state.running = false
 		if not ok then
 			warn("[FirstJoin] guide failed: " .. tostring(err))
@@ -271,8 +395,47 @@ local function runGuide()
 			banner.Visible = true
 			task.delay(DONE_BANNER_TIME, function()
 				banner.Visible = false
+				runClimbBeat()
 			end)
 		end
+	end)
+end
+
+-- ============================================================================
+-- THE FOURTH BEAT: CLIMB (9.10)
+-- ============================================================================
+-- attack -> reward -> evolve are the first three and were already here. The row asks for a fourth,
+-- and it is the one piece of this world nobody discovers on their own: the terraces carry the
+-- stronger creatures and the shard drops, and the flights up them stand 400+ studs off the street.
+-- A player who is never told looks at a valley and assumes that is the game.
+--
+-- SHOWN ONCE, AFTER THE EVOLVE, and driven by nothing that persists. There is no save field for it
+-- and there should not be: a field means a migration and a repair for every existing save (6.3's
+-- `TutorialDone` needed exactly that), for a banner that costs nothing if it is occasionally missed.
+-- A session flag is the honest weight for a one-line hint.
+local CLIMB_BEAT_TIME = 7.0
+
+runClimbBeat = function()
+	if state.climbShown then return end
+	state.climbShown = true
+	task.spawn(function()
+		local ramp = nearestRamp()
+		-- No flight within range is a normal answer, not a failure: the arena and the Colosseum have
+		-- no terraces at all. Say nothing rather than pointing at the horizon.
+		if not ramp then return end
+		banner.BackgroundColor3 = UITheme.Color.Aqua
+		bannerText.Text = "\u{26F0}\u{FE0F} Climb up there -- tougher creatures, better drops"
+		banner.Visible = true
+		pointAt(ramp, 10)
+		local t0 = os.clock()
+		-- the pointer is kept alive on its own loop rather than left adorned: the ramp is persistent
+		-- geometry, but the player is walking, and a marker that stops updating while its target
+		-- streams in and out flickers
+		while os.clock() - t0 < CLIMB_BEAT_TIME do
+			STEP:Wait()
+		end
+		banner.Visible = false
+		pointAt(nil)
 	end)
 end
 
