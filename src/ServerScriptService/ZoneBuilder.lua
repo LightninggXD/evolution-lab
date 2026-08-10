@@ -32,7 +32,7 @@ local ZoneBuilder = {}
 -- down to 12. They were the "something yellow and round hanging in the air" in the bug report.
 -- 117: the terraces got a flight of stairs per tier per side, so the shelves are somewhere a
 -- player can actually go -- which is what the raised Brutes and Elites in CreatureService need.
-local BUILD_VERSION = 117
+local BUILD_VERSION = 118
 
 -- The Colosseum carries its own stamp. Bumping BUILD_VERSION drops all 21 zones and rebuilds
 -- ~60,000 parts, which takes long enough that Studio regularly loses the connection partway (see
@@ -171,6 +171,48 @@ local ACTIVE_FRAME = nil
 -- nothing in the log. Same trap, same fix, as the `addLight, scatterPoint` forward declarations.
 local ACTIVE_ZONE_KEY = nil
 
+-- ===== SHADOWS ARE DECIDED BY SIZE, IN ONE PLACE =====
+--
+-- `CastShadow = false` appears at **104 call sites** in this file and `CastShadow = true` at none:
+-- the world cast no shadows at all, on purpose, for draw cost. That is the single biggest reason
+-- the ground reads as a flat coloured plane -- a shadow is what plants an object ON a surface, and
+-- without one every prop hovers over its own footprint. Measured in Forest: 2,430 of 3,904 parts
+-- had it off, and **537 of those were big** (volume > 400) -- the stall deck, the barrels, the
+-- crates, the signs, exactly the things whose shadow the eye looks for.
+--
+-- Turning it on wholesale is the wrong answer at 83,000 parts, and turning it on at 104 call sites
+-- by hand is 104 chances to disagree. So the decision moves HERE and is made from the part's own
+-- dimensions, which is a fact the call site does not have to remember:
+--
+--   long  >= 3.5   a thing, not a pebble. Below this the shadow is smaller than the softness.
+--   short >= 0.5   NOT a decal. Ground rings, painted patches and water planes are flat by design;
+--                  their shadow lands inside themselves and is pure cost.
+--   vol   <= 200k   NOT the backdrop. A 49x186x99 mesa's shadow is a dark band across a whole
+--                  district, and it stands outside the play area anyway.
+--
+-- Neon and anything half-transparent are skipped: a glow that casts a hard shadow reads as a solid
+-- object pretending to be light.
+--
+-- MEASURED, not assumed: this rule turns on 1,367 parts per zone and leaves ~2,500 off. Verified by
+-- eye at ground level -- the fence, the lamp posts and the zone sign all plant properly -- and the
+-- wide shot is unchanged, because Roblox stops drawing shadows past its own distance limit long
+-- before the far wall.
+local SHADOW_MIN_LONG = 3.5
+local SHADOW_MIN_SHORT = 0.5
+local SHADOW_MAX_VOL = 200000
+
+local function shouldCastShadow(p)
+	if p.Transparency >= 0.5 or p.Material == Enum.Material.Neon then
+		return false
+	end
+	local s = p.Size
+	local long = math.max(s.X, s.Y, s.Z)
+	local short = math.min(s.X, s.Y, s.Z)
+	return long >= SHADOW_MIN_LONG
+		and short >= SHADOW_MIN_SHORT
+		and (s.X * s.Y * s.Z) <= SHADOW_MAX_VOL
+end
+
 local function newPart(props)
 	local p = Instance.new("Part")
 	p.Anchored = true
@@ -185,6 +227,11 @@ local function newPart(props)
 		-- by now, whichever of them the caller used
 		p.CFrame = ACTIVE_FRAME * p.CFrame
 	end
+	-- LAST, and deliberately overriding the caller. The 104 `CastShadow = false` props in this file
+	-- all predate the rule above and none of them is a considered decision about *that* part -- they
+	-- are one blanket policy typed out 104 times. Leaving them to win would mean the rule only
+	-- applied to parts nobody had gotten round to.
+	p.CastShadow = shouldCastShadow(p)
 	return p
 end
 
@@ -7675,12 +7722,63 @@ end
 local FOG_START = 1100
 local FOG_END = 1900
 
+-- ===== AND THE REST OF THE LIGHT, WHICH USED TO LIVE NOWHERE =====
+--
+-- Everything below was a PLACE PROPERTY and nothing else: not one line in `src/` set `Ambient`,
+-- `OutdoorAmbient`, `Brightness` or the colour grade, so the entire look of the world existed only
+-- inside the .rbxl and could be lost by a bad save with no diff to show for it. It is code now for
+-- that reason alone, before any question of what the values should be.
+--
+-- WHAT WAS ACTUALLY WRONG. Measured across Forest's 3,520 solid parts: mean saturation **0.301**,
+-- mean value 0.676, with 44% of parts below 0.25 saturation. That is a pastel world, and the first
+-- instinct -- push the part colours -- is the wrong lever: it makes the ground, which is the single
+-- biggest surface in frame, MORE dominant rather than less. The cause was the light.
+--
+-- `Ambient` was (104, 110, 122). Ambient is the fill that reaches surfaces the sun does not, so a
+-- high ambient means a shadow is barely darker than a lit face -- every object loses its shaded
+-- side and the whole world flattens into painted cardboard. Dropping it is what gives all 83,000
+-- parts a light side and a dark side at once, without touching a single colour.
+--
+-- `ClockTime` was 13.6, i.e. the sun almost overhead, which is the one angle that casts no usable
+-- shadow at all. 15.8 rakes it low enough to throw a long shadow off every prop.
+--
+-- The grade (`ToonPunch`) then does the last of it. Contrast and saturation are pushed rather than
+-- the part colours, because a grade cannot make one surface louder than another -- it lifts the
+-- bunting and the boss and the sky together and leaves their relationship intact.
+--
+-- Haze came down 1.10 -> 0.55. The distance fog above is what hides the neighbouring zone; haze on
+-- top of it was washing out the player's OWN zone at 300 studs, which is inside the platform.
+local WORLD_AMBIENT = Color3.fromRGB(52, 56, 72)
+local WORLD_OUTDOOR_AMBIENT = Color3.fromRGB(112, 122, 144)
+local WORLD_CLOCK = 15.8
+local WORLD_HAZE = 0.55
+
 local function applyDistanceFog()
 	local Lighting = game:GetService("Lighting")
 	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
 	Lighting.FogColor = atmosphere and atmosphere.Color or Color3.fromRGB(199, 215, 235)
 	Lighting.FogStart = FOG_START
 	Lighting.FogEnd = FOG_END
+
+	Lighting.Ambient = WORLD_AMBIENT
+	Lighting.OutdoorAmbient = WORLD_OUTDOOR_AMBIENT
+	Lighting.ClockTime = WORLD_CLOCK
+	Lighting.GlobalShadows = true
+	if atmosphere then
+		atmosphere.Haze = WORLD_HAZE
+	end
+	-- The grade is created if it is missing, so a place that lost it still comes up looking right.
+	local grade = Lighting:FindFirstChild("ToonPunch")
+	if not grade then
+		grade = Instance.new("ColorCorrectionEffect")
+		grade.Name = "ToonPunch"
+		grade.TintColor = Color3.fromRGB(255, 252, 246)
+		grade.Parent = Lighting
+	end
+	grade.Contrast = 0.26
+	grade.Saturation = 0.38
+	grade.Brightness = 0
+	grade.Enabled = true
 end
 
 function ZoneBuilder.Build()
