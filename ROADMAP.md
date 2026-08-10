@@ -365,7 +365,7 @@ Ordered so each row is testable against a game whose numbers already move.
 | 10.15 | `[x]` | **Quest claimable-first sort + the Season-bar report + the "bottom CTA".** Three findings: (a) claimable quests now sort to the top of their own category, banded claimable → running → claimed, stable inside each band so nothing shuffles under the cursor; (b) **the Season bar was never broken** — `SeasonPassService.Track` pays quest XP *pro rata as the quest advances* (deliberate, so the bar is not frozen while you do the work), so by the claim it is all already paid and the claim adds nothing. The row's "+1200 Season XP" beside a Claim button was the lie; it now reads `Claim: +2 💎 / 1200 Season XP as you go`; (c) **there is no stray CTA to remove** — enumerated live, `QuestPage` has exactly one child (`QuestScroll`). The only button that could read as "random" is `Get Premium`, which is on the Season Pass tab and sells the premium track | live, real `ClaimQuest` remote fired from the Client datamodel against the real save: `d_creatures` claimed → its row went **2 → 5**, the bottom of the daily band, and the daily header/weekly header stayed at 1 and 6 so the two categories never interleaved; `d_eggs` claimed → **2 → 5** likewise; `w_bosses` claimed → **7 → 9** and **Diamonds 71 → 74**, exactly its 3. `panel.Visible` was `true` before and after every claim, `QuestPage` still has exactly one child, and the row text reads `250 Season XP as you go` (a daily, which pays no diamonds) vs `Claim: +2 💎 / 1200 Season XP as you go` — the honest split |
 | 10.16 | `[x]` | **Duplicate currency displays removed.** The Potion modal's whole `Resources` section is gone (a 💎 `x0` card duplicating the always-on-screen HUD capsule, and a 🧪 `x0` card that was just the sum of the nine bottles listed directly above it), and the top-right `DNACard` is gone in favour of the bottom-left currency stack — which is where this HUD decided currencies live: all three together, with 3.7's `+` shop buttons on two of them. The top bar keeps the Stage card | **MainUI 181 → 173 top-level locals**, i.e. 8 registers *returned* to a file at Luau's 200 cap. Live in a running client: `InventoryPanel` now holds exactly one section (`Section_Potions`, `PotionScroll`, `PotionEmpty`) and **no `Resource*` child at all**, and a `GetDescendants` sweep of the whole `PlayerGui` finds **zero** instances named `DNACard`. `luastruct` clean, `luanames` at its 9-file baseline |
 | 10.17-blk | `[x]` | **Studio's script push was wedged; a restart cleared it.** `ScriptEditorService:UpdateSourceAsync` hung past 120 s on four separate calls last session while `HttpService:GetAsync` from the same place returned in 0.02 s, and the fallback (direct `.Source` assignment) is **hard-capped at 200,000 characters** (measured: `Provided string length (292351) is greater than or equal to max length (200000)`) against a 292 KB MainUI. Not a code row — a session state, kept because the diagnosis is reusable | after the restart all six pending files pushed in **two calls, no timeout**, and every one came back byte-identical to `src/`. Full sweep: **49/49 scripts identical**, MainUI `loadstring`s clean |
-| 10.17 | `[ ]` | **Active Effects redesigned, bounded** — 9.7 measured 297 px of content in a 250 px frame with clipping off | at 1280x720 with every boost running, the Rebirth tile is fully clickable |
+| 10.17 | `[x]` | **Active Effects redesigned, bounded.** Two faults, not one. (a) **The strip shared the left tile column's lane** — both start at x = 20 — so its overflow grew straight up over the buttons; live at 1546x793 the gold pass card covered the Rebirth tile *whole* (tile y 289..371, content began at 322). It sits **beside** the column now, at `20 + tileWidth + 14` read from the tile's own live `AbsoluteSize` rather than from a second copy of the responsive pass's arithmetic — the tiles shrink 82 → 40 on a short viewport, and a hard-coded 82 would put the strip back over the column on exactly the screens that are tightest. (b) **The height is a budget**: from the frame's own bottom edge up to `TOP_CLEAR` (121, the same figure the tile columns respect), computed in authored offsets off `ViewportSize` — never from `AbsolutePosition`, which this ScreenGui reports 58 px up from where offsets are measured. When content still exceeds it, **whole cards are hidden lowest-urgency-first** (passes → event → potions by most time remaining); clipping was rejected because a sliced card reads as a broken HUD and the slice lands on the stroke `styleCard` draws outside the frame | driven live with all 9 passes and 3 potions injected. **At exactly 1280x720: 4 cards shown, none dropped, and `strip cards over the Rebirth tile: NONE`** — `GetGuiObjectsAtPosition` at the tile's centre returns its own `Label / IconShadow / Body / RebirthButton / Shadow` and nothing else, i.e. fully clickable. Budget there is 419 against a 297 px worst case, so the event card fits too. At a 345 px viewport the floor engages and the drop order is visible working: passes and event gone, and the **one** card kept is Luck at 2:35 — the most urgent of the three (DNA 30:47, XP 10:23). MainUI still compiles and is still at **173** top-level locals; the whole change lives inside the existing immediately-called function |
 | 10.18 | `[ ]` | **HUD hierarchy** — shape by function, controlled rounding, readable text and icons | |
 | 10.19 | `[ ]` | **Leaderboard presentation + a #1 statue** (9.8) | board and statue agree after a refresh |
 | 10.20 | `[ ]` | **Emoji → cartoon icon layer.** Zero `ImageLabel`/`rbxassetid` in the HUD today; four sites in `UITheme` decide it (9.9) | every tile, pill and header renders art |
@@ -408,6 +408,37 @@ Gathered 2026-08-07/08 while writing this plan.
 ---
 
 ## Changelog
+
+- **2026-08-10** — **10.17: the boost strip was not too tall, it was in the wrong lane.** 9.7 had
+  measured the fault as 297 px of content in a 250 px frame with clipping off, and that framing is
+  what made it look like a sizing problem. It is two problems, and the bigger one is horizontal: the
+  strip and the left tile column both start at **x = 20**, the strip is bottom-aligned so its
+  overflow grows *upward*, and upward is where the buttons are. Seen live at 1546x793 with every
+  boost running, the gold pass card did not merely clip the Rebirth tile — it **covered it whole**,
+  and Rebirth is the only way into that panel. No amount of shrinking cards fixes a strip that is
+  standing on top of a button.
+  So the strip moved **beside** the column instead, and the x is read from the tile's own live
+  `AbsoluteSize`. That last detail is the real lesson: the responsive pass at the bottom of MainUI
+  shrinks the tiles from 82 px to as little as 40 on a short viewport, so a hard-coded 82 would have
+  restored the overlap on precisely the screens that were already worst off. **Ask the object, do not
+  recompute what another pass already decided.**
+  The height is now a budget rather than a constant — bottom edge up to `TOP_CLEAR`, the same 121 the
+  tile columns respect — and it is computed in **authored offsets off `ViewportSize`, never from
+  `AbsolutePosition`**, which in this ScreenGui reports 58 px up from where offsets are measured.
+  When the content still does not fit, whole cards are hidden **lowest urgency first**: passes (a
+  pass is permanent, it has nothing to miss), then the event (server-wide and announced elsewhere),
+  then potions with the most time left, so the last card standing is always the one about to expire.
+  **Clipping was the obvious alternative and is worse** — a card sliced in half reads as a broken
+  HUD, and the slice would fall on the stroke `styleCard` draws *outside* the frame.
+  Verified at exactly 1280x720 (the row's own check): four cards, none dropped, nothing over the
+  tile, and `GetGuiObjectsAtPosition` at the tile's centre returns only the tile's own children. Then
+  verified at a 345 px viewport, where the drop order is visible doing its job: passes and event
+  gone, and the single card kept is Luck at 2:35 against DNA at 30:47 and XP at 10:23.
+  Two things worth reusing beyond this row. **Injecting a payload is how you reach a state the save
+  cannot produce** — nine owned passes and three running potions, pushed at 0.15 s so the probe wins
+  the race against the real 3 s service push (6.4's technique, unchanged). And **resizing the Studio
+  window is how you test a responsive layout**: `MoveWindow` to a chosen height, measure, restore.
+  A viewport is not something to reason about from a spreadsheet when it can be produced.
 
 - **2026-08-10** — **10.14: the mountain creatures were never missing, they were lying in the
   valley — and an absolute altitude had been hiding inside a relative offset since the meshes

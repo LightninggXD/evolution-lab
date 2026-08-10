@@ -1310,11 +1310,13 @@ local hudRefs = {}
 ;(function()
 	local stack = Instance.new("Frame")
 	stack.Name = "PotionTimers"
-	-- 250 tall, not 162: three potion cards are 156 and the pass grid adds up to another 81 (6.4).
-	-- The layout aligns to the BOTTOM of this frame, so the extra height is headroom upward and the
-	-- strip still sits exactly 170 px off the bottom whether there is one boost or twelve.
+	-- BOTH OF THESE ARE RECOMPUTED EVERY TICK NOW (10.17); these are only the first-frame values.
+	-- The height was a fixed 250 that up to 297 px of content overflowed upward into the left tile
+	-- column, and the x was that column's own 20 -- see the fit pass at the bottom of the refresh
+	-- loop for both. The layout aligns to the BOTTOM of this frame, which is what makes a height
+	-- change headroom rather than movement: the strip stays 170 px off the bottom (clearing the
+	-- currency stack, 140 tall and 22 up) whether it is holding one boost or twelve.
 	stack.Size = UDim2.new(0, 250, 0, 250)
-	-- directly above the currency stack, which is 140 tall sitting 22 off the bottom
 	stack.Position = UDim2.new(0, 20, 1, -170)
 	stack.AnchorPoint = Vector2.new(0, 1)
 	stack.BackgroundTransparency = 1
@@ -1666,9 +1668,93 @@ local hudRefs = {}
 				eventCard.Visible = false
 			end
 
+			-- ================================================================================
+			-- BOUNDED, AND OUT FROM UNDER THE BUTTONS (10.17)
+			-- ================================================================================
+			-- Measured before this existed: the strip is a 250 px frame with `ClipsDescendants`
+			-- false holding up to 297 px of content -- an event card (48), the pass card (81 when
+			-- nine chips wrap to two rows) and three potion cards (48 each) with 6 px between them.
+			-- It is bottom-aligned, so the excess grows UPWARD into the left tile column, which
+			-- starts at the same x = 20. Live at 1546x793 with every boost running, the gold pass
+			-- card covered the Rebirth tile whole: the tile occupies y 289..371 and the strip's
+			-- content began at 322. Not a near miss and not only on small screens -- the third
+			-- button in the column was simply gone, and it is the one that opens Rebirth.
+			--
+			-- TWO SEPARATE FIXES, because the overlap and the overflow are two different faults.
+			--
+			-- 1. THE STRIP MOVES OUT OF THE COLUMN'S LANE. It is beside the buttons now rather than
+			--    on top of them, so nothing it does can ever cover one again. The x is read from the
+			--    tile's own live `AbsoluteSize` instead of being computed a second time -- the
+			--    responsive pass at the bottom of this file shrinks the tiles from 82 to as little
+			--    as 40 on a short viewport, and a hard-coded 82 here would put the strip back over
+			--    the column on exactly the screens that are already tightest.
+			--
+			-- 2. THE HEIGHT IS A BUDGET, NOT A GUESS. The frame may reach from its own bottom edge
+			--    (170 off the bottom of the screen) up to TOP_CLEAR, the same 121 the tile columns
+			--    respect for the topbar and stage card. Computed in AUTHORED OFFSETS off
+			--    ViewportSize, never from AbsolutePosition -- this ScreenGui reports absolutes 58 px
+			--    up from where offsets are measured (the topbar inset), and mixing the two is how
+			--    an element lands exactly one inset out of place.
+			--
+			-- WHEN IT STILL DOES NOT FIT, WHOLE CARDS GO, LOWEST URGENCY FIRST -- clipping was the
+			-- other option and it is worse: a card sliced in half reads as a broken HUD, and the
+			-- slice would land on the stroke `styleCard` draws OUTSIDE the frame. The order is the
+			-- honest one: the pass card first, because a pass is permanent and has nothing to miss;
+			-- then the event, which is server-wide and announced elsewhere; then potions longest
+			-- remaining first, so what survives to the last row is always the boost about to expire.
+			-- At 793 the budget is 492 against 297 of content, so nothing is ever dropped on a
+			-- desktop; a 420 px phone viewport gets 119 and keeps the two most urgent potions.
+			local tileW = rebirthButton.AbsoluteSize.X
+			if tileW > 0 then
+				stack.Position = UDim2.new(0, 20 + tileW + 14, 1, -170)
+			end
+			-- Read fresh every tick rather than captured once: `CurrentCamera` is nil for the first
+			-- frames of a join, and the viewport changes when the window is resized.
+			local viewportY = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.Y or 720
+			local budget = math.max(viewportY - 170 - 121 - 10, 96)
+			stack.Size = UDim2.new(0, 250, 0, budget)
+
+			-- Each card is measured with its stroke: `styleCard` draws 3 px outside the frame on
+			-- every side, so two stacked cards cost 6 px more than their own heights claim.
+			local function fits()
+				local total, n = 0, 0
+				for _, c in ipairs(stack:GetChildren()) do
+					if c:IsA("GuiObject") and c.Visible then
+						n += 1
+						total += c.AbsoluteSize.Y + 6
+					end
+				end
+				return total + math.max(n - 1, 0) * 6 <= budget
+			end
+			if not fits() then
+				-- longest remaining last, so the first potion dropped is the one with most time left
+				local order = { passCard, eventCard }
+				local byTime = {}
+				for _, kind in ipairs(KINDS) do
+					local b = boosts and boosts[kind]
+					if rows[kind].card.Visible then
+						table.insert(byTime, { card = rows[kind].card, left = b and ((b.untilTs or 0) - now) or 0 })
+					end
+				end
+				table.sort(byTime, function(a, b) return a.left > b.left end)
+				for _, e in ipairs(byTime) do
+					table.insert(order, e.card)
+				end
+				for _, card in ipairs(order) do
+					if fits() then break end
+					card.Visible = false
+				end
+			end
+
 			-- `any OR owned OR an event`: a player with passes and no potion still has a strip worth
-			-- showing, and one with none of the three still gets nothing rather than an empty box
-			stack.Visible = any or owned > 0 or eventCard.Visible
+			-- showing, and one with none of the three still gets nothing rather than an empty box.
+			-- Read off what SURVIVED the fit pass, not off the three flags above -- on a viewport
+			-- short enough to drop everything, an empty box is exactly what those flags would draw.
+			local shown = false
+			for _, c in ipairs(stack:GetChildren()) do
+				if c:IsA("GuiObject") and c.Visible then shown = true break end
+			end
+			stack.Visible = shown
 			task.wait(0.25)
 		end
 	end)
