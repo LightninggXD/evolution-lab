@@ -380,6 +380,26 @@ function DNAService.HandleEvolve(player)
 		end
 	end
 
+	-- ===== THE TUTORIAL ENDS ON THE FIRST EVOLVE, NOT ON THE FIRST STAGE =====
+	--
+	-- This flag used to be set in `ServerMain`'s `DNAService.OnEvolve` hook, which is only called
+	-- when `step.advancesStage` is true. That was correct when it was written and 9.5 quietly broke
+	-- it: every skin is its own evolve now, so a stage advance is every FIFTH press. A new player
+	-- was therefore told "⭐ You are ready! Press EVOLVE", pressed it, evolved -- and the banner and
+	-- the arrow stayed on screen telling them to press it again, four more times. That is the
+	-- reported "the tutorial does not properly disappear", and it is a granularity bug rather than a
+	-- persistence one: the save field, the migration and the client gate were all already right.
+	--
+	-- 10.10 made it worse in passing: with auto-evolve the player is not pressing anything, so the
+	-- arrow would hang over a button nobody needs to touch until the fifth rung went by.
+	--
+	-- Marked HERE, where "an evolve succeeded" is actually known, and still on the server -- a client
+	-- that could report this could also report it having never played. It stays one line and it is
+	-- idempotent; the push below carries it to the client, which is what takes the guide off screen.
+	if not data.TutorialDone then
+		data.TutorialDone = true
+	end
+
 	PlayerDataService.UpdateLeaderstats(player)
 	PlayerDataService.PushToClient(player)
 

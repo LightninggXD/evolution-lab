@@ -359,12 +359,12 @@ Ordered so each row is testable against a game whose numbers already move.
 | 10.9 | `[x]` | **Creature HP grows +5% per clearance, capped at x2.0; payout flat.** `generation` rides the respawn call the way `raised` does — a property of the SPAWN POINT, not of the player, because health is one number every player in the zone is looking at | live at one spawn point: **408 → 428 → 489**, exactly `base x1.05` and `base x1.20`. Structural proof that nothing else moves: of the 13 per-spawn `tier` fields, **only `health`** references the generation (`dnaMult`, `xp` and 10 others do not), and neither payout line mentions it. `data.Kills` is **written in 3 places and read in none** — a leaderboard counter, not a reward term. Cap reached at clearance 20 and holds at x2.00 for 40 and 500 |
 | 10.10 | `[x]` | **Automatic evolution** — `DNAService.AutoEvolveIfReady`, called from the **two** places XP can enter a save (`CreatureService` kill, `BossService` kill) rather than from a poll: XP arrives nowhere else, so a timer would ask a question whose answer changes only at those two sites and land the evolve up to a second late. Loops (bounded at 25) so a save that banked XP before this existed does not evolve once per kill for twenty kills. Each step goes **through `HandleEvolve`**, so the XP charge, skin grant, stage advance, zone unlock, costume rebuild and reveal all still apply — the "short burst" the row asks for is `EvolveReveal`'s, inherited rather than written a second time | fixtures (copies of the real save, in a sandbox cache the live server cannot see): one XP short → **0 steps, nothing moves**; exactly enough → 1 step, XP → 0, rank 45→46, stage 9→10, **damage 9275 → 9856**; overkill +7 → 1 step and **the 7 carried**; 6x a rung → 4 steps, settling below the next cost; 1e12 XP → **exactly 25, the bound**; all 200 characters at stage 20 → `isMax`, **0 steps on two consecutive calls, XP untouched**. **END TO END ON THE LIVE SERVER, which the fresh-require trap does not actually block** — drive the REAL remotes and read the REAL payloads, and no sandbox cache is involved at any point: `TeleportToZone` to Multiverse, then **only `AutoAttack` fired, never `Evolve`** — 14 hits in 16 s took XP 1320 → 1783 → 1849 → 1882 → 1915 → 1948 → **2414 → 15**, and the evolve arrived unprompted (`stage=Cosmic Being advanced=true step=1/5`), rank 45→46, worn skin now `cos_dust`. The carry is visible in that trace: the crossing kill paid ~66 XP and **2480 − 2465 = 15** is what stayed. HUD capture agrees — title "Cosmic Being", XP bar reset and refilling, next step "Cometborn (2/5)". **The rig itself was not photographed** (Studio returned to Edit first); the body evidence is the worn-skin switch plus the stage advance driving the already-verified costume path |
 | 10.11 | `[x]` | **Spawn hook missed players already in the game.** `EvolutionVisuals.Init` connected `PlayerAdded` and nothing else, so a player who was *already present* when it ran never got `CharacterAdded` connected — every spawn and respawn for that session arrives as a bare Roblox avatar, which is the reported symptom. Not theoretical: `ServerMain` initialises a dozen services and `ZoneBuilder` rebuilds twenty zones first, and the player who wins that race is the **first** one into a fresh server. Fixed with the standard shape — connect, then sweep `GetPlayers()` | the costume path itself was verified working on a save with progress: **6 SkinMesh segments, 15/15 stock limbs hidden, 3 accessories hidden, `CharacterKey = ali_progenitor`**, and identical after a real death and respawn. Two suspects cleared on the way: `BUILD` is populated by 20 later assignments (not empty), and **all 100 characters have a generated mesh**, so the primitive-builder fallback is dead code rather than a hole |
-| 10.12 | `[ ]` | **Tutorial ends once and stays ended.** Gate and migration are already right; completion currently fires only on a **stage** advance, i.e. every 5th evolve since 9.5 | fresh save is led attack → reward → evolve; rejoin shows nothing |
+| 10.12 | `[x]` | **Tutorial ends on the first evolve, not the fifth.** A granularity bug, not a persistence one — the save field, the migration and the client gate were all already right. `TutorialDone` was flipped inside `ServerMain`'s `DNAService.OnEvolve` hook, which only runs when `step.advancesStage` is true; 9.5 made every skin its own evolve, so that became **every fifth press**. Moved into `DNAService.HandleEvolve`, where "an evolve succeeded" is actually known, still server-side and still one line | live on a fresh-save fixture: `advancesStage=false` on the first press (the bug in one value), and after that press **`TutorialDone=true`**. The old rule was measured against the same fixture and needed **5 presses**. Idempotent (an already-done save is undisturbed by later evolves), `RebirthService` never touches the flag so a veteran is not re-tutorialised, and 6.3's `Load` migration is intact |
 | 10.13 | `[ ]` | **Collision audit** — 417 `CanCollide = false` sites in `ZoneBuilder` to triage against what should be solid | rocks and walls stop the player; intentional walk-throughs still work |
 | 10.14 | `[ ]` | **Mountain creatures visible and real** (9.6's other half) | every health plate has a body under it |
-| 10.15 | `[!]` | **Quest claimable-first sort + the Season-bar report + the "bottom CTA".** Written, lint-clean, **BLOCKED on pushing to Studio** (see 10.17 note). Three findings: (a) claimable quests now sort to the top of their own category, banded claimable → running → claimed, stable inside each band so nothing shuffles under the cursor; (b) **the Season bar was never broken** — `SeasonPassService.Track` pays quest XP *pro rata as the quest advances* (deliberate, so the bar is not frozen while you do the work), so by the claim it is all already paid and the claim adds nothing. The row's "+1200 Season XP" beside a Claim button was the lie; it now reads `Claim: +2 💎 / 1200 Season XP as you go`; (c) **there is no stray CTA to remove** — enumerated live, `QuestPage` has exactly one child (`QuestScroll`). The only button that could read as "random" is `Get Premium`, which is on the Season Pass tab and sells the premium track | to verify once pushed: complete a quest → its row jumps to the top of its category; claim → diamonds land, row sinks to the bottom, panel never closed |
-| 10.16 | `[!]` | **Duplicate currency displays removed.** Written, lint-clean, **BLOCKED on the same push**. The Potion modal's whole `Resources` section is gone (a 💎 `x0` card duplicating the always-on-screen HUD capsule, and a 🧪 `x0` card that was just the sum of the nine bottles listed directly above it), and the top-right `DNACard` is gone in favour of the bottom-left currency stack — which is where this HUD decided currencies live: all three together, with 3.7's `+` shop buttons on two of them. The top bar keeps the Stage card | **MainUI 181 → 173 top-level locals**, i.e. 8 registers *returned* to a file at Luau's 200 cap. `luastruct` clean, `luanames` at its 9-file baseline |
-| 10.17 | `[!]` | **👤 OWNER — restart Studio.** `ScriptEditorService:UpdateSourceAsync` is wedged in this session: it hung past 120 s on four separate calls while `HttpService:GetAsync` from the same place returned in 0.02 s. Direct `.Source` assignment is the fallback and works — but it is **hard-capped at 200,000 characters** (measured: `Provided string length (292351) is greater than or equal to max length (200000)`), and MainUI is 292 KB. So MainUI specifically cannot be pushed until Studio is restarted; every other file in the repo is under the cap and unaffected. Closing the MainUI script tab before restarting is worth doing — an open editor is the usual cause | after a restart, push MainUI and re-run the 10.15 / 10.16 checks |
+| 10.15 | `[x]` | **Quest claimable-first sort + the Season-bar report + the "bottom CTA".** Three findings: (a) claimable quests now sort to the top of their own category, banded claimable → running → claimed, stable inside each band so nothing shuffles under the cursor; (b) **the Season bar was never broken** — `SeasonPassService.Track` pays quest XP *pro rata as the quest advances* (deliberate, so the bar is not frozen while you do the work), so by the claim it is all already paid and the claim adds nothing. The row's "+1200 Season XP" beside a Claim button was the lie; it now reads `Claim: +2 💎 / 1200 Season XP as you go`; (c) **there is no stray CTA to remove** — enumerated live, `QuestPage` has exactly one child (`QuestScroll`). The only button that could read as "random" is `Get Premium`, which is on the Season Pass tab and sells the premium track | live, real `ClaimQuest` remote fired from the Client datamodel against the real save: `d_creatures` claimed → its row went **2 → 5**, the bottom of the daily band, and the daily header/weekly header stayed at 1 and 6 so the two categories never interleaved; `d_eggs` claimed → **2 → 5** likewise; `w_bosses` claimed → **7 → 9** and **Diamonds 71 → 74**, exactly its 3. `panel.Visible` was `true` before and after every claim, `QuestPage` still has exactly one child, and the row text reads `250 Season XP as you go` (a daily, which pays no diamonds) vs `Claim: +2 💎 / 1200 Season XP as you go` — the honest split |
+| 10.16 | `[x]` | **Duplicate currency displays removed.** The Potion modal's whole `Resources` section is gone (a 💎 `x0` card duplicating the always-on-screen HUD capsule, and a 🧪 `x0` card that was just the sum of the nine bottles listed directly above it), and the top-right `DNACard` is gone in favour of the bottom-left currency stack — which is where this HUD decided currencies live: all three together, with 3.7's `+` shop buttons on two of them. The top bar keeps the Stage card | **MainUI 181 → 173 top-level locals**, i.e. 8 registers *returned* to a file at Luau's 200 cap. Live in a running client: `InventoryPanel` now holds exactly one section (`Section_Potions`, `PotionScroll`, `PotionEmpty`) and **no `Resource*` child at all**, and a `GetDescendants` sweep of the whole `PlayerGui` finds **zero** instances named `DNACard`. `luastruct` clean, `luanames` at its 9-file baseline |
+| 10.17-blk | `[x]` | **Studio's script push was wedged; a restart cleared it.** `ScriptEditorService:UpdateSourceAsync` hung past 120 s on four separate calls last session while `HttpService:GetAsync` from the same place returned in 0.02 s, and the fallback (direct `.Source` assignment) is **hard-capped at 200,000 characters** (measured: `Provided string length (292351) is greater than or equal to max length (200000)`) against a 292 KB MainUI. Not a code row — a session state, kept because the diagnosis is reusable | after the restart all six pending files pushed in **two calls, no timeout**, and every one came back byte-identical to `src/`. Full sweep: **49/49 scripts identical**, MainUI `loadstring`s clean |
 | 10.17 | `[ ]` | **Active Effects redesigned, bounded** — 9.7 measured 297 px of content in a 250 px frame with clipping off | at 1280x720 with every boost running, the Rebirth tile is fully clickable |
 | 10.18 | `[ ]` | **HUD hierarchy** — shape by function, controlled rounding, readable text and icons | |
 | 10.19 | `[ ]` | **Leaderboard presentation + a #1 statue** (9.8) | board and statue agree after a refresh |
@@ -408,6 +408,101 @@ Gathered 2026-08-07/08 while writing this plan.
 ---
 
 ## Changelog
+
+- **2026-08-10** — **Studio had silently lost four files' worth of shipped work, and `src/` is what
+  got it back.** Studio came up in Edit with the place at an older state than the repo: a
+  hash sweep of all **49** mirrored scripts found **six** different, and a per-line
+  prefix/suffix compare proved every one of them was Studio == `src/` *minus* a contiguous block —
+  i.e. `src/` ahead, nothing authored in Studio that was not on disk. Two of the six were the
+  uncommitted 10.12 / 10.15 / 10.16 work, which is expected. **The other four were not**:
+  `BossService`, `CreatureService`, `EvolutionVisuals` and `DNAService` were behind **HEAD** — Studio
+  was missing `DNAService.AutoEvolveIfReady` **entirely** along with both of its call sites and
+  10.11's spawn-hook sweep. That is 10.10 and 10.11, both marked `[x]` after live verification, both
+  absent from the place. The place file had never been saved after those sessions;
+  `MainUI` and `ServerMain` matched HEAD byte for byte, so the loss was partial rather than a clean
+  revert to an old file.
+  **The lesson is the one [[evolution-lab-studio-work-is-volatile]] already states and this is the
+  first time it cost shipped rows: a push into Studio is not persistence.** Ctrl+S is. The
+  countermeasure that actually worked is the mirror — `src/` was complete and current, so recovery
+  was two `UpdateSourceAsync` batches and a hash check rather than a re-implementation.
+  **Never assume a hash difference means Studio is ahead.** Direction was proved before anything was
+  overwritten, by the longest-common-prefix/suffix test on per-line hashes: a `studioBlock` of 0
+  (BossService, CreatureService) is proof the push is purely additive, and a small non-zero one
+  (ServerMain 9 → 6, EvolutionVisuals 8 → 28) matches a known rewrite in the diff. Serving `src/`
+  and a generated line-hash file over two `python -m http.server` ports makes the whole comparison
+  three `execute_luau` calls and no script bodies in context.
+
+- **2026-08-10** — **10.15 and 10.16 verified live and closed; 10.17's blocker is gone.** Both had
+  been written and left `[!]` because the push was wedged; a Studio restart cleared it, all six files
+  went in with no timeout, and both rows were then driven through the real game rather than read.
+  The quest sort was tested by **firing the real `ClaimQuest` remote from the Client datamodel** —
+  10.10's rule again, that a sandbox which cannot reach the server's cache can still play the game —
+  and reading `LayoutOrder` off the live rows: a claimed daily fell 2 → 5, a claimed weekly 7 → 9,
+  the two headers never moved off 1 and 6, the panel stayed open, and Diamonds went 71 → 74 for a
+  weekly worth exactly 3. **A daily paying no diamonds is not a bug** — `QuestPool`'s dailies carry
+  only `xp`, which is why the first claim showed no diamond change and why the row correctly prints
+  `250 Season XP as you go` with no `Claim:` half. 10.16 was verified structurally in the same
+  session: `InventoryPanel` holds one section and no `Resource*` child, and a full `PlayerGui` sweep
+  finds no `DNACard`.
+
+- **2026-08-10** — **10.12: the tutorial ended on the fifth evolve, and it was 9.5's fault.** The
+  report was "the tutorial does not properly disappear", which sounds like a persistence problem and
+  is not one: the save field, the `Load` migration and the client's gate were all correct and all
+  stay untouched. `TutorialDone` was simply flipped in the wrong place — `ServerMain`'s
+  `DNAService.OnEvolve` hook, which only fires when an evolve **advances the stage**.
+  That was right when 6.3 wrote it. Then 9.5 made every skin its own evolve, and a stage advance
+  became every *fifth* press. So a new player was told "⭐ You are ready! Press EVOLVE", pressed it,
+  evolved — and the banner and the arrow stayed on screen telling them to press it four more times.
+  Measured on a fresh-save fixture: `advancesStage` is **false** on the first press, and the old rule
+  did not end the guide until press **5**.
+  **10.10 was about to make it worse**, which is the argument for fixing it now rather than later:
+  with auto-evolve the player is not pressing anything, so the arrow would have hung over a button
+  nobody needs to touch while the rungs went by on their own.
+  Moved into `DNAService.HandleEvolve`, where "an evolve succeeded" is actually known — still on the
+  server, because a client that could report this could also report having never played, and still
+  one line. Verified live: the flag is `true` after the first evolve, an already-done save is
+  undisturbed by later evolves, `RebirthService` never touches the flag (so a veteran who rebirths
+  back to stage 1 is not handed the first-join guide again — the same trap 6.3's migration exists
+  for), and that migration is intact.
+
+- **2026-08-10** — **10.15 and 10.16 are written and cannot be shipped: Studio's script-push is
+  wedged (10.17).** Both are lint-clean on disk; neither has been seen running, so both stay `[!]`.
+  **The Season Pass bar was never broken, and that is the whole of 10.15's second half.**
+  `SeasonPassService.Track` pays a quest's Season XP **pro rata as the quest advances** — an earlier
+  deliberate fix, because the XP used to arrive in one lump at the button and the level bar sat
+  frozen for the entire time the player was doing the work. The consequence nobody wrote down: by
+  the time a quest is claimable, every point of its XP has already been paid, so the claim adds
+  nothing to the bar **and cannot be made to without paying twice**. The bar was telling the truth.
+  What lied was the row, which printed `+1200 Season XP` beside a Claim button — a sentence any
+  player reads as "press this to get 1200". It now says where each half really comes from:
+  `Claim: +2 💎` and `1200 Season XP as you go`. That is the honest fix and it costs nothing; moving
+  the payment back to the button would re-break the thing the pro-rata change fixed.
+  **The "random CTA at the bottom of the Quest UI" does not exist**, and it was worth enumerating
+  rather than guessing: `QuestPage` has exactly one child, `QuestScroll`. Nothing was removed. The
+  only button in that panel that could read as unexplained is `Get Premium`, which lives on the
+  Season Pass tab and sells the premium track — a real purpose, so it stays.
+  **Claimable-first sorting is banded rather than sorted by one key**: claimable → still running →
+  claimed, with the authored order preserved *inside* each band. That last part matters more than
+  the sort does — rows are re-placed on every data push, and a comparator that could reorder within
+  a band would shuffle the list under the player's cursor several times a second. A claimed quest
+  sinks to the bottom, because it is the one row with nothing left to do. `LayoutOrder` is measured
+  from each period's own header (`periodBase`), so daily rows land at 2–5 and weekly at 7–9 and the
+  two categories can never interleave however their contents move.
+  **10.16 returned eight registers to a file that is short of them.** The Potion modal's `Resources`
+  section held a 💎 `x0` card duplicating the HUD capsule that is permanently on screen — diamonds
+  are not a potion ingredient and nothing in that panel spends one — and a 🧪 `x0` card that was
+  simply the sum of the nine bottles listed directly above it, each with its own count. A sum of the
+  rows you are already looking at is arithmetic, not a resource. The top-right `DNACard` went the
+  same way: the bottom-left stack is where this HUD decided currencies live (all three in one
+  column, with 3.7's `+` shop buttons on two), and the card was a leftover from when DNA was the
+  only currency — same number, different shape, opposite corner, nothing to press. **MainUI went 181
+  → 173 top-level locals**, the first time this phase a change has *paid registers back*.
+  **10.17 is the blocker and it is the owner's to clear.** `UpdateSourceAsync` hung past 120 s on
+  four consecutive calls this session while a plain `GetAsync` from the same place returned in
+  0.02 s. The fallback — assigning `.Source` directly — works and is now the routine for every other
+  file, but it is **hard-capped at 200,000 characters**, measured exactly: `Provided string length
+  (292351) is greater than or equal to max length (200000)`. MainUI is 292 KB, so it is the one file
+  in the repo that has no route in until Studio is restarted.
 
 - **2026-08-10** — **10.10 closes: the fresh-require trap does not block an end-to-end test, and
   `UpdateSourceAsync` was never hanging.** Two corrections to the entry below, both worth more than

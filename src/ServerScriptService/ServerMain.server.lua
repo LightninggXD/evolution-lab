@@ -120,15 +120,12 @@ OfflineService.Init()
 DNAService.OnEvolve = function(player, data)
 	ZoneService.CheckUnlocks(player, data)
 	EvolutionVisuals.ApplyStage(player, data.StageIndex, { animate = true, burst = true })
-	-- THE FIRST EVOLVE IS WHAT ENDS THE FIRST-JOIN SEQUENCE (6.3), and it is marked here, on the
-	-- server, rather than by the client saying it has finished. The whole guide exists to get a new
-	-- player to this exact line; reaching it is the completion, and a client that could report it
-	-- could also report it having never played. The client draws the guide purely off this flag, so
-	-- the push below is what takes it off the screen.
-	if not data.TutorialDone then
-		data.TutorialDone = true
-		PlayerDataService.PushToClient(player)
-	end
+	-- THE TUTORIAL FLAG MOVED OUT OF THIS HOOK (10.12) and the reason is worth keeping here, because
+	-- this is where anyone would look for it. This function only runs when an evolve ADVANCES THE
+	-- STAGE, and since 9.5 made every skin its own evolve that is every fifth press -- so marking
+	-- the tutorial done here left a new player being told to press EVOLVE for four presses after
+	-- they already had. It is set in `DNAService.HandleEvolve` now, on the first evolve of any kind,
+	-- which is where "an evolve succeeded" is actually known. Still server-side, still one line.
 end
 
 -- Stage Mastery raises walk speed and max health, which live on the Humanoid -- push them onto

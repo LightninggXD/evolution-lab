@@ -336,17 +336,18 @@ local stageCard = UITheme.Card(topBar, {
 })
 local stageLabel = stageCard.Label
 
-local dnaCard = UITheme.Card(topBar, {
-	name = "DNACard",
-	text = "🧬 0 DNA",
-	color = UITheme.Color.Blue,
-	size = UDim2.new(0, 300, 0, 74),
-	position = UDim2.new(1, -20, 0, 12),
-	anchorPoint = Vector2.new(1, 0),
-	radius = 18,
-	maxTextSize = 36,
-})
-local dnaLabel = dnaCard.Label
+-- ===== THE SECOND DNA READOUT IS GONE (10.16) =====
+--
+-- DNA was drawn twice: a 300x74 card here in the top-right, and a pill in the bottom-left currency
+-- stack. Keeping the pill and dropping the card is not a coin toss -- the stack is where this HUD
+-- decided currencies live. It holds all three of them (DNA, Diamonds, Shards) in one consistent
+-- column, and 3.7 put the `+` shop buttons on two of those pills, so the stack is both the readout
+-- AND the way to act on it. The card was a leftover from when DNA was the only currency in the
+-- game: it said the same number, in a different shape, in the opposite corner, with nothing to
+-- press. Two places to look for one figure is one place too many, and the top bar keeps the Stage
+-- card, which is the thing that corner is actually for.
+--
+-- Two more top-level locals paid back to a file at 181 of Luau's 200.
 
 -- ===== Center hint: how to get DNA now =====
 -- It teaches the one thing a player who has just landed does not know, and then it goes. It used
@@ -3433,7 +3434,8 @@ UITheme.IconifyLabel(inventoryTitle)
 -- INK on white, and passed EXPLICITLY -- themeLabel only rescues a dark colour to white when no
 -- colour was given at all, so an explicit dark one survives, which is the whole point here.
 local INK_ON_WHITE = Color3.fromRGB(108, 116, 140)
-for _, sec in ipairs({ { "Potions", 112 }, { "Resources", 368 } }) do
+-- One heading now, not two: "Resources" titled a section that no longer exists (10.16).
+for _, sec in ipairs({ { "Potions", 112 } }) do
 	local head = Instance.new("TextLabel")
 	head.Name = "Section_" .. sec[1]
 	head.Size = UDim2.new(1, -36, 0, 30)
@@ -3454,36 +3456,24 @@ for _, sec in ipairs({ { "Potions", 112 }, { "Resources", 368 } }) do
 	end
 end
 
--- ===== RESOURCES =====
--- An icon with a count stuck on it, not a captioned card. The card version spent 66px of height
--- and a full caption line to say "DIAMONDS 0"; a diamond with x0 on it says the same thing in a
--- square, which is what leaves room for the potion shelf above to be worth scrolling.
-local diamondCard = Instance.new("Frame")
-diamondCard.Name = "DiamondCard"
-diamondCard.Size = UDim2.new(0, 92, 0, 92)
-diamondCard.Position = UDim2.new(0, 26, 0, 410)
-diamondCard.Parent = inventoryPanel
-styleCard(diamondCard, UITheme.Color.SkyBlue, UDim.new(0, 20), 4)
-
-local diamondCaption = Instance.new("TextLabel")
-diamondCaption.Name = "Caption"
-diamondCaption.Size = UDim2.new(1, -10, 1, -22)
-diamondCaption.Position = UDim2.new(0, 5, 0, 4)
-diamondCaption.BackgroundTransparency = 1
-diamondCaption.Text = "\u{1F48E}"
-diamondCaption.Parent = diamondCard
-themeLabel(diamondCaption, 44)
-
-local diamondCountLabel = Instance.new("TextLabel")
-diamondCountLabel.Name = "DiamondCount"
-diamondCountLabel.Size = UDim2.new(1, 0, 0, 26)
-diamondCountLabel.Position = UDim2.new(0, 0, 1, -26)
-diamondCountLabel.BackgroundTransparency = 1
-diamondCountLabel.Text = "x0"
-diamondCountLabel.ZIndex = diamondCard.ZIndex + UITheme.Z.Badge
-diamondCountLabel.Parent = diamondCard
-themeLabel(diamondCountLabel, 24)
-
+-- ===== THE RESOURCES SECTION IS GONE (10.16) =====
+--
+-- It held two square cards under a "Resources" heading: a diamond reading `x0` and a green bottle
+-- reading `x0`. Both were duplicates, and both cost the player something to read.
+--
+-- The DIAMOND is drawn permanently on the HUD's own capsule, bottom-left, with a `+` that opens the
+-- shop -- so this was a second, worse copy of a number that is always on screen anyway, sitting
+-- inside a modal that is not about diamonds. Diamonds are not a potion ingredient; nothing in this
+-- panel spends one.
+--
+-- The BOTTLE COUNT was a total of the nine bottles listed on the shelf DIRECTLY ABOVE IT, each with
+-- its own count, its effect and its duration. A sum of the rows you are already looking at is not a
+-- resource, it is arithmetic -- and "🧪 x0" beside a shelf that says "you have no potions" is the
+-- same sentence twice.
+--
+-- Six top-level locals went with them, which this file feels: it sits at 181 of Luau's 200-register
+-- ceiling, and a panel that has now paid six back is a panel that stopped costing the HUD anything.
+--
 -- THE POTION SHELF.
 --
 -- There used to be one potion, held as a single integer, and this panel was a card reading
@@ -3493,32 +3483,6 @@ themeLabel(diamondCountLabel, 24)
 --
 -- All nine rows are built ONCE here and only their text, colour and button state are written on
 -- refresh. Rebuilding rows on every DataUpdate is what made the pet list flicker.
-local potionCard = Instance.new("Frame")
-potionCard.Name = "PotionCard"
-potionCard.Size = UDim2.new(0, 92, 0, 92)
-potionCard.Position = UDim2.new(0, 132, 0, 410)
-potionCard.Parent = inventoryPanel
-styleCard(potionCard, UITheme.Color.Green, UDim.new(0, 20), 4)
-
-local potionCaption = Instance.new("TextLabel")
-potionCaption.Name = "Caption"
-potionCaption.Size = UDim2.new(1, -10, 1, -22)
-potionCaption.Position = UDim2.new(0, 5, 0, 4)
-potionCaption.BackgroundTransparency = 1
-potionCaption.Text = "\u{1F9EA}"
-potionCaption.Parent = potionCard
-themeLabel(potionCaption, 44)
-
-local potionCountLabel = Instance.new("TextLabel")
-potionCountLabel.Name = "PotionCount"
-potionCountLabel.Size = UDim2.new(1, 0, 0, 26)
-potionCountLabel.Position = UDim2.new(0, 0, 1, -26)
-potionCountLabel.BackgroundTransparency = 1
-potionCountLabel.Text = "x0"
-potionCountLabel.ZIndex = potionCard.ZIndex + UITheme.Z.Badge
-potionCountLabel.Parent = potionCard
-themeLabel(potionCountLabel, 24)
-
 local BOOST_STRIP_H = 30
 
 local boostStrip = Instance.new("Frame")
@@ -3657,10 +3621,10 @@ end
 
 local function refreshInventoryPanel()
 	if not currentData then return end
-	-- the icon is drawn on the tile now, so the label is the COUNT and nothing else
-	diamondCountLabel.Text = "x" .. (currentData.Diamonds or 0)
+	-- The two resource counts that used to be written here are gone with the cards -- see the
+	-- RESOURCES note above. `totalPotions` stays because the shelf below still needs it to decide
+	-- between the nine rows and the single "you have none" line.
 	local totalPotions = GameConfig.CountPotions(currentData)
-	potionCountLabel.Text = "x" .. totalPotions
 
 	local held = currentData.Potions
 	if type(held) ~= "table" then held = {} end
@@ -5350,12 +5314,17 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 
 	local questRows = {}   -- [period .. "|" .. key] = refs
 	local periodHeaders = {} -- [period] = label, for the countdown
+	-- [period] = the LayoutOrder of that period's header. The rows below it are re-ordered on every
+	-- refresh (claimable first -- see the sort in `refresh`), so their order is a function of state
+	-- rather than of the order they were built in, and it has to be measured from something fixed.
+	local periodBase = {}
 	local questOrder = 0
 
 	for _, period in ipairs({ "daily", "weekly" }) do
 		local periodDef = GameConfig.QuestPeriods[period]
 
 		questOrder += 1
+		periodBase[period] = questOrder
 		local header = Instance.new("Frame")
 		header.Name = period .. "Header"
 		header.Size = UDim2.new(1, -10, 0, 40)
@@ -5403,15 +5372,28 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 				zIndex = row.ZIndex + UITheme.Z.Content,
 			})
 
-			-- what completing it pays, spelled out rather than left to the toast afterwards
+			-- ===== WHAT THE CLAIM BUTTON ACTUALLY PAYS, WHICH IS NOT THE SEASON XP =====
+			--
+			-- This row used to read "+1200 Season XP" beside a Claim button, and that is the whole
+			-- "the Season Pass bar does not go up when I claim" report -- the bar is right and the
+			-- label was wrong. `SeasonPassService.Track` pays the XP **pro rata as the quest
+			-- advances** (deliberately: it used to arrive in one lump at the button, so the level bar
+			-- was frozen for the entire time the player was doing the work). By the time a quest is
+			-- claimable the player has already been paid every point of its XP, so the claim adds
+			-- nothing to the bar and cannot be made to without paying twice.
+			--
+			-- So the label says where each half really comes from: the XP is earned as you go, and
+			-- the button hands over the diamonds. A quest with no diamonds says so plainly rather
+			-- than promising a number that has already landed.
 			local payLabel = Instance.new("TextLabel")
 			payLabel.Size = UDim2.new(0, 220, 1, -16)
 			payLabel.Position = UDim2.new(0, 360, 0, 8)
 			payLabel.BackgroundTransparency = 1
 			payLabel.TextXAlignment = Enum.TextXAlignment.Left
 			payLabel.TextWrapped = true
-			payLabel.Text = ("+%d Season XP%s"):format(quest.xp,
-				quest.diamonds and (("\n+%d \u{1F48E}"):format(quest.diamonds)) or "")
+			payLabel.Text = quest.diamonds
+				and ("Claim: +%d \u{1F48E}\n%d Season XP as you go"):format(quest.diamonds, quest.xp)
+				or ("%d Season XP as you go"):format(quest.xp)
 			payLabel.Parent = row
 			themeLabel(payLabel, 18, UITheme.Color.Cream)
 
@@ -5432,6 +5414,9 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 			questRows[period .. "|" .. quest.key] = {
 				quest = quest, period = period, rowStroke = rowStroke,
 				barFill = barFill, barLabel = barLabel, claimBtn = claimBtn,
+				-- `row` so refresh can re-order it; `bornOrder` so rows inside one band keep the
+				-- order they were authored in instead of coming out of `pairs` differently each time
+				row = row, bornOrder = questOrder,
 			}
 		end
 	end
@@ -5508,6 +5493,13 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 		end
 
 		local held = currentData.Quests or {}
+		-- ===== A CLAIMABLE QUEST GOES TO THE TOP OF ITS OWN CATEGORY =====
+		--
+		-- Collected here so the sort below has every row's state before any of them are placed. Rows
+		-- keep their authored order inside each band, so nothing shuffles under the cursor while the
+		-- player is reaching for a button -- only crossing a band moves a row, and that only happens
+		-- on a completion or a claim, which the player just caused.
+		local banded = { daily = {}, weekly = {} }
 		for _, refs in pairs(questRows) do
 			local quest = refs.quest
 			local periodData = held[refs.period] or {}
@@ -5521,21 +5513,45 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 			refs.barFill.Size = UDim2.new(math.clamp(done / quest.target, 0, 1), 0, 1, 0)
 			refs.barLabel.Text = ("%d / %d"):format(math.min(done, quest.target), quest.target)
 
+			-- band 1 claimable, 2 still running, 3 finished with. A claimed quest sinks to the
+			-- bottom rather than staying where it was: it is the one row on the board with nothing
+			-- left to do, and it is exactly what the player has just stopped caring about.
+			local band
 			if claimed then
+				band = 3
 				refs.claimBtn.Text = "\u{2705} Done"
 				setButtonColor(refs.claimBtn, UITheme.Color.Locked)
 				refs.rowStroke.Color = OUTLINE_COLOR
 				refs.rowStroke.Thickness = 4
 			elseif done >= quest.target then
+				band = 1
 				refs.claimBtn.Text = "CLAIM!"
 				setButtonColor(refs.claimBtn, UITheme.Color.Green)
 				refs.rowStroke.Color = READY_RIM
 				refs.rowStroke.Thickness = 5
 			else
+				band = 2
 				refs.claimBtn.Text = "Claim"
 				setButtonColor(refs.claimBtn, UITheme.Color.Locked)
 				refs.rowStroke.Color = OUTLINE_COLOR
 				refs.rowStroke.Thickness = 4
+			end
+			local bucket = banded[refs.period]
+			if bucket then
+				table.insert(bucket, { refs = refs, band = band, born = refs.bornOrder })
+			end
+		end
+
+		-- ...and place them. LayoutOrder is measured from each period's own header, so the two
+		-- categories can never interleave however their rows are re-ordered inside themselves.
+		for period, rows in pairs(banded) do
+			table.sort(rows, function(a, b)
+				if a.band ~= b.band then return a.band < b.band end
+				return a.born < b.born
+			end)
+			local base = periodBase[period] or 0
+			for i, entry in ipairs(rows) do
+				entry.refs.row.LayoutOrder = base + i
 			end
 		end
 	end
@@ -6007,7 +6023,8 @@ local function refreshUI()
 	-- never written to again, so a Star Weaver with 5.8T DNA still read "Cell / 0 / 50" all session.
 	-- The (n/5) is where you stand INSIDE the stage: five skins is five evolves.
 	evolveStageLabel.Text = ("\u{2B50} %s  (%d/%d)"):format(stage.name, step.have, step.stageTotal)
-	dnaLabel.Text = "\u{1F9EC} " .. formatNumber(data.DNA) .. " DNA"
+	-- (the top-right DNA card's write used to be here -- see the note at its former home. The pill
+	-- in the currency stack below is the one readout now.)
 
 	-- THE BOTTOM-LEFT CURRENCY STACK, WHICH NOTHING HAD EVER WRITTEN TO.
 	--
