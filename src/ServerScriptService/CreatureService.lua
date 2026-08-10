@@ -2203,7 +2203,18 @@ local ANIMATE_RADIUS = 220
 -- smaller than ANIMATE_RADIUS: the far half of the animated set keeps bobbing and keeps facing the
 -- middle of its zone, so the platform reads as inhabited from the gate, and only what you are
 -- actually near singles you out.
-local LOOK_RADIUS = 120
+--
+-- 32, DOWN FROM 120, and 120 was most of the visible platform. Every creature within two thirds of
+-- a screen turned to stare the moment a player entered the zone, so the whole population tracked
+-- one walking player at once -- which reads as the map watching you rather than as a creature
+-- noticing you, and it removed any sense that walking up to something was an event.
+--
+-- Sized against the numbers that already exist rather than picked: the client's auto-attack scan is
+-- 34 studs and the server validates a blow at `max(clickReach, 34) + tier.size`. At 32 a creature
+-- turns onto you just BEFORE you are close enough to hit it, which is the order those two things
+-- have to happen in -- a creature that noticed you only once you were already swinging would look
+-- oblivious, and one that noticed you at 120 was never not looking.
+local LOOK_RADIUS = 32
 -- Radians a second. Fast enough that circling a Brute keeps its glare on you, slow enough that the
 -- turn is something you watch happen instead of a snap.
 local TURN_RATE = math.rad(200)
@@ -2431,7 +2442,22 @@ local function driveCreatures(dt)
 				local want = rig.homeYaw
 				local moving = false
 
-				if closest and closestDist <= LOOK_RADIUS then
+				-- ===== MEASURED FROM THE BODY, NOT FROM THE SPAWN POINT =====
+				--
+				-- `closestDist` above is the distance to `rig.origin`, which is where this creature was
+				-- placed rather than where it is standing -- it roams up to `roamRadius` away from it.
+				-- That was harmless at LOOK_RADIUS 120, where a roam is a rounding error, and is not at
+				-- 32, where it is most of the radius: measured live, a creature 28 studs from the player
+				-- kept facing its idle direction because its ORIGIN was further off, so the reaction
+				-- distance the player actually experienced was neither 32 nor consistent between two
+				-- creatures standing side by side.
+				--
+				-- The animate gate above deliberately keeps using `origin`: it decides whether to run
+				-- this rig at all, wants to be stable as the creature wanders, and is checked against a
+				-- radius seven times larger. Only the look test needs the live position, and it costs
+				-- one subtraction on rigs that are already near a player.
+				local lookDist = closest and (Vector3.new(closest.X, rig.pos.Y, closest.Z) - rig.pos).Magnitude or math.huge
+				if closest and lookDist <= LOOK_RADIUS then
 					-- someone is close: stop wandering, square up to them, and do not set off again
 					-- until they have been gone a moment
 					want = yawToward(rig.pos.X, rig.pos.Z, closest.X, closest.Z)
@@ -2779,7 +2805,40 @@ local TIER_RING = {
 	Elite = Color3.fromRGB(255, 205, 70),
 }
 
-local function spawnCreature(position, tierName, zone)
+-- `raised` marks a cliff-dweller: one of the Brutes and Elites that Init puts on the terrace
+-- shelves rather than on the valley floor. It decides exactly one thing -- whether this creature
+-- can drop an Evolution Shard (9.4) -- and it is carried on the spawn rather than worked out from
+-- the position, because the two are the same rig at the same tier and nothing about the creature
+-- itself knows which loop placed it. It has to be threaded through the respawn below as well, or
+-- the shelves would pay shards exactly once per server and never again.
+-- ===== A CREATURE THAT HAS BEEN KILLED BEFORE COMES BACK TOUGHER =====
+--
+-- `generation` is how many times this spawn point has been cleared. It rides the respawn call the
+-- same way `raised` does, and for the same reason: it belongs to the SPAWN, not to the creature
+-- object, which stops existing every time it dies.
+--
+-- IT IS A PROPERTY OF THE PLACE, NOT OF THE PLAYER, and it has to be -- health is one number on one
+-- model that every player in the zone is looking at, so there is no per-player version of this that
+-- is not a lie to everyone else standing there.
+--
+-- ===== AND THE PAYOUT DELIBERATELY DOES NOT MOVE =====
+--
+-- DNA and XP per kill are untouched by this, on the owner's decision (2026-08-10). The pull was
+-- between two rules that point opposite ways: "the same creature should get stronger" and "a kill
+-- must never pay more just because you have killed more" -- and paying more for a tougher creature
+-- is exactly the auto-increment the second rule exists to remove, however it is dressed up. So
+-- farming one spot gets slowly worse and moving up a zone is always the better play, which is the
+-- pressure the growth is FOR. There is no hidden reward ramp anywhere in the kill path.
+local HEALTH_GROWTH = 0.05   -- +5% of base per clearance
+local HEALTH_GROWTH_MAX = 2.0  -- ...and never more than double, however long a spot is farmed
+
+-- Kept as a function rather than inlined so the cap is stated once and the HUD, a test or a future
+-- Journal line can ask the same question and get the same answer.
+local function generationHealthMult(generation)
+	return math.min(1 + (generation or 0) * HEALTH_GROWTH, HEALTH_GROWTH_MAX)
+end
+
+local function spawnCreature(position, tierName, zone, raised, generation)
 	local base = TIERS[tierName]
 	-- before anything is built: the rig, the ground ring, the hit box and the roam home are all
 	-- placed from this one point, so moving it afterwards would mean moving all four
@@ -2792,7 +2851,10 @@ local function spawnCreature(position, tierName, zone)
 	position = Vector3.new(position.X, floorY + base.size * 0.56, position.Z)
 	-- effective (zone-scaled) stats for this specific spawn
 	local tier = {
-		health = math.floor(base.health * zone.mobHealthMult),
+		-- ...times how many times this spot has been cleared, capped at x2 -- see generationHealthMult.
+		-- Floored to at least 1: a rounding path that produced a 0-health creature would be dead on
+		-- arrival and respawn forever.
+		health = math.max(1, math.floor(base.health * zone.mobHealthMult * generationHealthMult(generation))),
 		hitCooldown = base.hitCooldown,
 		respawnDelay = base.respawnDelay,
 		dnaMult = base.dnaMult * zone.mobDnaMult,
@@ -2810,7 +2872,10 @@ local function spawnCreature(position, tierName, zone)
 	}
 	-- derived from the SCALED health, so the cap is worth more in a late zone exactly as the
 	-- creature is: the hit count stays the same everywhere, which is the point of it
-	tier.damageCap = math.max(1, tier.health / (base.minHits or 4))
+	-- `damageCap` used to live here and is deliberately gone: it clamped every outgoing blow to
+	-- `health / minHits`, which made the number over a creature a constant per tier and hid the
+	-- entire evolution ladder behind it. `minHits` itself stays -- it is still what bounds the
+	-- damage the creature deals BACK (see hurtPlayer), which is a different and still-valid guard.
 
 	local model = Instance.new("Model")
 	model.Name = tierName
@@ -3051,11 +3116,13 @@ local function spawnCreature(position, tierName, zone)
 		end
 		lastHitByPlayer[player.UserId] = now
 
-		-- player's outgoing damage scales with their evolution stage -- stronger stage,
-		-- stronger hits, which is what lets them keep pace with tougher zone creatures
-		-- capped so no tier can be one-shot however far past this zone the player is -- see the note
-		-- above TIERS. Applied to the number the FX carries as well, because it IS the damage now.
-		local playerDamage = math.min(DNAService.GetCombatDamage(data), tier.damageCap)
+		-- THE REAL NUMBER, UNCLAMPED. This used to be `math.min(..., tier.damageCap)`, and that
+		-- single `min` was the whole "evolving does nothing" report: the cap is `tier.health /
+		-- minHits`, which in Forest is 4 on a Swarmer and 7 on a Critter -- and a brand new stage-1
+		-- save already hit for more than that on its first click. So every player, from their first
+		-- swing to their hundredth evolve, saw the same two numbers, and the FX below drew the cap
+		-- because the cap WAS the damage. See the DAMAGE LADDER block in GameConfig.
+		local playerDamage = DNAService.GetCombatDamage(data)
 		local health = math.max((model:GetAttribute("Health") or tier.health) - playerDamage, 0)
 		model:SetAttribute("Health", health)
 		drawHealth(health)
@@ -3149,6 +3216,19 @@ local function spawnCreature(position, tierName, zone)
 				data.Diamonds = (data.Diamonds or 0) + gems
 			end
 
+			-- EVOLUTION SHARDS, AND ONLY FROM UP HERE (9.4). `raised` is the flag the spawner set on
+			-- the cliff-dwellers; RollShardDrop returns 0 for anything without it, so a creature on
+			-- the valley floor never pays one however long it is farmed. That is the whole mechanic:
+			-- the terraces are the only place in the game that mints this currency, so the climb the
+			-- shelves were built for finally has something on the other end of it.
+			--
+			-- Credited beside the diamond and for the same reason -- it rides out on the PushToClient
+			-- below rather than costing a second replication on the most frequent event in the game.
+			local shards = GameConfig.RollShardDrop(tierName, raised)
+			if shards > 0 then
+				data.EvolutionShards = (data.EvolutionShards or 0) + shards
+			end
+
 			-- CHARACTERS COME FROM FIGHTING NOW. One per evolve could never keep up with the stage --
 			-- twenty evolves against a hundred characters -- so a stage's list is finished by playing
 			-- that stage instead. RollCharacter is the same ordered hand-over the evolve uses and it
@@ -3183,6 +3263,13 @@ local function spawnCreature(position, tierName, zone)
 			-- Deliberately NOT reset by a rebirth -- a lifetime board that a rebirth zeroed would rank
 			-- players by how recently they reset rather than by how much they have played.
 			data.Kills = (data.Kills or 0) + 1
+			-- ...and if that XP filled the bar, evolve NOW rather than waiting for a button press
+			-- (10.10). Placed before the push below so the payload the client receives already carries
+			-- the new rung -- otherwise the HUD would draw the old one for a frame and then correct
+			-- itself, which reads as a flicker on the most important moment in the game. HandleEvolve
+			-- pushes and celebrates on its own; this does nothing at all when the bar is not full,
+			-- which is the overwhelmingly common case.
+			DNAService.AutoEvolveIfReady(player)
 			PlayerDataService.UpdateLeaderstats(player)
 			PlayerDataService.PushToClient(player)
 			Remotes.Notify:FireClient(player, { kind = "creature", amount = math.floor(amount) })
@@ -3199,11 +3286,20 @@ local function spawnCreature(position, tierName, zone)
 				s = tier.size,
 				c = ringColor,
 				n = knockDir,
+				-- The shard is DRAWN WHERE IT WAS EARNED and gets no HUD toast (the diamond has one,
+				-- and this is the exception on purpose): a crystal that tears out of the creature and
+				-- flies into you says both what dropped and what killed it, and a banner in the corner
+				-- of the screen says only the first. `sh` reaches every client inside FX range but only
+				-- the killer's draws it -- the same `mine` test the DNA pop already uses -- and it is
+				-- nil on the ordinary kill, so the commonest payload in the game is not a field wider
+				-- for everybody.
+				sh = shards > 0 and shards or nil,
 			})
 
 			playDeath(model, rig, tier.size, knockDir, ringColor)
 			task.delay(tier.respawnDelay, function()
-				spawnCreature(position, tierName, zone)
+				-- one clearance older, so the next one standing here is a little harder to put down
+				spawnCreature(position, tierName, zone, raised, (generation or 0) + 1)
 			end)
 		end
 	end
@@ -3350,9 +3446,11 @@ function CreatureService.Init()
 				-- creatures up high. Backfilling onto the valley floor is the wrong answer: those
 				-- points are already claimed, and two Elites in one spot is worse than one missing.
 				if not spot then break end
+				-- ...and the `true` is what makes this creature able to drop an Evolution Shard. It is
+				-- the only difference between the two spawn loops in this function.
 				spawnCreature(
 					Vector3.new(zone.offset + spot.rel, spot.y + TIERS[tierName].size * 0.56, spot.z),
-					tierName, zone)
+					tierName, zone, true)
 			end
 		end
 	end

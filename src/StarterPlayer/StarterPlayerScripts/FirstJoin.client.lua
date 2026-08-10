@@ -198,7 +198,10 @@ local function stepFor(data)
 	if not data then return nil end
 	local step = GameConfig.GetEvolveStep(data)
 	if step.isMax then return nil end
-	if (data.DNA or 0) >= step.cost and (data.XP or 0) >= step.xpCost then
+	-- XP alone, because XP alone is what the server checks now -- see DNAService.HandleEvolve. The
+	-- DNA half of this test would have told a new player they were not ready while the button they
+	-- are being pointed at was already green.
+	if (data.XP or 0) >= step.xpCost then
 		return "evolve"
 	end
 	return "fight"
@@ -208,14 +211,10 @@ local function textFor(which, data)
 	if which == "evolve" then
 		return "⭐ You are ready! Press EVOLVE"
 	end
-	local step = GameConfig.GetEvolveStep(data)
-	-- Names the gate that is actually short. Both are needed to evolve, and being told to collect
-	-- DNA while the XP bar is the empty one is the sort of wrong hint that teaches a player to stop
-	-- reading them.
-	if (data.XP or 0) < step.xpCost then
-		return "⚔️ Click a creature to attack it"
-	end
-	return "🧬 Beat creatures for DNA to evolve"
+	-- ONE HINT, BECAUSE THERE IS ONE GATE. This used to branch between "attack" and "collect DNA"
+	-- depending on which of the two requirements was short, and the DNA branch is now unreachable
+	-- and would be a lie if it fired: an evolve costs XP and nothing else.
+	return "⚔️ Click a creature to attack it"
 end
 
 local function runGuide()

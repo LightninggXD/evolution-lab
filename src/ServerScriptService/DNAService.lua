@@ -20,8 +20,12 @@ function DNAService.GetIncomeMult(data, excludeEvents)
 	mult = mult * (1 + zoneBonusPct / 100)
 	-- equipped pet bonuses
 	mult = mult * PetService.GetEquippedBonus(data).incomeMult
-	-- permanent Evolution Shard bonus from past Rebirths
-	mult = mult * (1 + GameConfig.GetShardIncomeBonusPct(data.EvolutionShards) / 100)
+	-- THE SHARD BALANCE IS DELIBERATELY NOT READ HERE ANY MORE (9.4). It used to be, at +2% each,
+	-- which was harmless only while nothing in the game could spend a shard. Now that the wheel takes
+	-- them, a line here would mean every spin permanently cut the spinner's income -- so the optimal
+	-- play would be to never use the sink at all. See the note in GameConfig where the function used
+	-- to live. The rebirth counter below is where the income a rebirth used to pay in Shards lives.
+	mult = mult * GameConfig.GetRebirthIncomeMult(data)
 	-- temporary DNA Potion (see PotionService). Returns 1 when none is running, and checks its own
 	-- expiry, so a boost that ran out while the player was offline needs no cleanup anywhere.
 	mult = mult * GameConfig.GetPotionMult(data, "dna")
@@ -81,19 +85,24 @@ function DNAService.GetClickAmount(data)
 	return amount, false
 end
 
--- How much damage this player deals per click/hit against creatures and bosses.
--- Scales with evolution stage (and a little with Income level), so evolving makes you
--- meaningfully stronger -- matching how much stronger the creatures get zone by zone.
+-- ===== THE ONE PLACE DAMAGE IS DECIDED =====
+--
+-- Every blow in the game is this number: creature clicks, auto-attack, boss hits, and the figure
+-- the Journal prints under a rung. Nothing anywhere else computes damage, and nothing may clamp
+-- what comes out of here -- `CreatureService`'s `tier.damageCap` and `BossService`'s
+-- `BOSS_MIN_HITS` both used to, and between them they were the whole "evolving changes nothing"
+-- bug: they replaced this number with a constant per target and then the FX drew the constant.
+-- See the DAMAGE LADDER block in GameConfig for the measurements.
+--
+-- The base is the player's rung on the 100-step character ladder, geometric, tuned so that kills
+-- per creature stay flat across all twenty zones. Everything below is a multiplier on it, ordered
+-- so that anything bought applies to everything climbed rather than to the bare base.
 function DNAService.GetCombatDamage(data)
-	local stageIndex = data.StageIndex or 1
-	local base = 8 + (stageIndex - 1) * 6
+	local base = GameConfig.GetBaseDamage(data)
 	local mult = 1 + (data.Upgrades.Income or 0) * 0.01
 	mult = mult * PetService.GetEquippedBonus(data).damageMult
 	-- permanent Stage Mastery unlocks, bought with Diamonds and kept through Rebirth
 	mult = mult * GameConfig.GetStageMasteryBonus(data).damageMult
-	-- and the character being worn. Characters used to be pure skins; they are a damage ladder now
-	-- -- position in the stage's list is the tier -- which is what the Journal prints under each one.
-	mult = mult * GameConfig.GetCharacterDamageMult(data)
 	-- and every rebirth the player has ever done. This is what a rebirth buys -- see the note over
 	-- GameConfig.GetRebirthDamageMult for why it is damage and not income.
 	mult = mult * GameConfig.GetRebirthDamageMult(data)
@@ -255,7 +264,10 @@ function DNAService.RollCharacter(player, data, stageIndex)
 		key = rolled.key,   -- the client tints the reveal with the character's own colour
 		name = rolled.name,
 		emoji = rolled.emoji,
-		damagePct = GameConfig.GetCharacterDamagePct(rolled),
+		-- What the rung is worth, as the damage it puts on the body rather than a percentage of a
+		-- base nobody can see. The ladder is geometric now, so "+297%" was both unreadable and, once
+		-- the rung stopped being a costume stat, untrue -- see GameConfig.GetProgressRank.
+		damage = math.floor(GameConfig.GetRankDamage(GameConfig.GetCharacterRank(rolled))),
 		isNew = isNew,
 	})
 	return rolled, isNew
@@ -278,7 +290,6 @@ function DNAService.HandleEquipCharacter(player, key)
 		return
 	end
 
-	local wasPct = GameConfig.GetCharacterDamagePct(GameConfig.GetWornCharacter(data))
 	data.WornCharacter = key
 	PlayerDataService.PushToClient(player)
 
@@ -287,26 +298,14 @@ function DNAService.HandleEquipCharacter(player, key)
 		DNAService.OnCharacterChanged(player, data)
 	end
 
-	-- SAY WHAT IT COST OR PAID. Wearing something from earlier in the collection is a real trade
-	-- and the player has to be told which way it went, or a quiet drop in damage reads as the game
-	-- breaking rather than as the price of the skin they chose.
-	local nowPct = GameConfig.GetCharacterDamagePct(entry)
-	local delta = nowPct - wasPct
-	local tail
-	if delta ~= 0 then
-		-- Health moves with damage now (1% a rung against damage's 3%), so the message has to name
-		-- both or the trade is only half stated -- a player dropping back for a skin they like is
-		-- giving up survivability as well as output, and being told about one and not the other is
-		-- how a deliberate choice starts reading as the game breaking.
-		local hpDelta = math.floor(delta * GameConfig.CharacterHealthPerRank
-			/ GameConfig.CharacterDamagePerRank + (delta > 0 and 0.5 or -0.5))
-		tail = ("  (%+d%% damage, %+d%% health)"):format(delta, hpDelta)
-	else
-		tail = ""
-	end
+	-- THERE IS NO LONGER A TRADE TO REPORT, AND THAT IS THE CHANGE. This used to append
+	-- "(-150% damage, -50% health)" when you picked something from earlier in the collection,
+	-- because the rung you WORE was the rung you fought at. With the ladder geometric that same
+	-- choice would cost a factor of forty, which no cosmetic is worth -- so damage and health both
+	-- read the best rung OWNED (GameConfig.GetProgressRank) and a costume is free.
 	Remotes.Notify:FireClient(player, {
 		kind = "reward",
-		message = ("%s Now wearing %s!%s"):format(entry.emoji, entry.name, tail),
+		message = ("%s Now wearing %s!"):format(entry.emoji, entry.name),
 		color = entry.color or GameConfig.GetRarity(entry.rarity).color,
 	})
 end
@@ -332,11 +331,24 @@ function DNAService.HandleEvolve(player)
 		return
 	end
 
+	-- ===== XP IS THE ONLY GATE, AND DNA IS NOT ASKED FOR AT ALL =====
+	--
+	-- An evolve used to cost BOTH, and two gates on one button is one gate too many: whichever ran
+	-- out first was the real requirement and the other was noise, so the button could refuse for a
+	-- reason the player was not watching. Worse, they pull in opposite directions -- DNA is *earned*
+	-- by the same kills that pay XP AND by idle collection, so a player who stood still could unblock
+	-- an evolve without fighting, which is the exact opposite of what the loop is meant to teach.
+	--
+	-- One currency, one sentence: **fight -> XP -> evolve -> stronger**. DNA keeps every other sink
+	-- it already had (upgrades, eggs, potions, the zone shops), so it is still worth having; it is
+	-- simply no longer able to stand between a player and the next rung.
+	--
+	-- The pacing does not change with it, because XP was already the binding half at every stage:
+	-- `xpCost` is 50 * 1.55^(i-1) * (1 + (i-1)*0.06) and `zone.mobXpMult` is 1.55^(i-1), the SAME
+	-- constant on purpose -- so kills per evolve stay roughly flat (about 25 Critters at stage 1 and
+	-- 54 at stage 20, the drift being the ramp term) instead of exploding the way a cost curve
+	-- without a matching income curve does. See the XP block in GameConfig.
 	local xp = data.XP or 0
-	if data.DNA < step.cost then
-		Remotes.Notify:FireClient(player, { kind = "error", message = "Not enough DNA to evolve!" })
-		return
-	end
 	if xp < step.xpCost then
 		Remotes.Notify:FireClient(player, { kind = "error", message = string.format(
 			"Not enough XP to evolve! (%d/%d) Fight creatures to earn XP.",
@@ -344,7 +356,6 @@ function DNAService.HandleEvolve(player)
 		return
 	end
 
-	data.DNA -= step.cost
 	-- XP IS SPENT, and that is the whole point of it: `xpCost` is what ONE level costs, not a
 	-- lifetime total to reach, so the bar empties here and fills again for the next skin.
 	-- Subtracted rather than zeroed so overkill carries forward -- a player who banked 90 XP
@@ -397,6 +408,49 @@ function DNAService.HandleEvolve(player)
 	end
 end
 
+
+-- ===== EVOLVING IS NO LONGER A BUTTON YOU HAVE TO FIND =====
+--
+-- The moment the XP bar fills, the evolve happens. The button stays -- it is how a player who is
+-- watching makes it happen a beat sooner, and it is what the tutorial points at -- but nothing is
+-- gated on pressing it any more.
+--
+-- WHY THIS IS CHECKED WHERE XP IS PAID, and not on a loop. XP enters a save in exactly two places
+-- (a creature kill and a boss kill) and cannot arrive any other way -- there is no idle XP, no
+-- offline XP, no XP purchase. So a poll would be a timer asking a question whose answer only ever
+-- changes at two call sites, and would land the evolve up to a second late for no benefit. Called
+-- from there, the reveal fires on the same frame as the kill that earned it.
+--
+-- IT LOOPS, and that matters on the first call of an old save: a player who banked XP before this
+-- existed, or who is handed a large reward, can cover several rungs at once, and stopping after one
+-- would leave them evolving once per kill for the next twenty kills. Bounded hard at 25 -- a
+-- non-terminating condition here would hang the server inside a kill handler, and the bound is the
+-- difference between "several rungs" and "a bug that eats the frame".
+--
+-- Each step goes through HandleEvolve, which is the whole point: the XP charge, the character
+-- grant, the stage advance, the zone unlock, the costume rebuild and the reveal are all already
+-- there and all still apply. An auto-evolve with its own copy of that would be a second
+-- implementation of the most important transition in the game.
+local AUTO_EVOLVE_MAX_STEPS = 25
+
+function DNAService.AutoEvolveIfReady(player)
+	local data = PlayerDataService.Get(player)
+	if not data then return 0 end
+
+	local steps = 0
+	while steps < AUTO_EVOLVE_MAX_STEPS do
+		local step = GameConfig.GetEvolveStep(data)
+		-- max rank, or the bar is not full: nothing to do, and this is the common case by far
+		if step.isMax or (data.XP or 0) < step.xpCost then break end
+		DNAService.HandleEvolve(player)
+		-- HandleEvolve refuses on its own terms too (max rank, not enough XP). If the save did not
+		-- move, stopping is the only safe answer -- anything else is a loop that cannot end.
+		local after = GameConfig.GetEvolveStep(data)
+		if after.entry == step.entry and (data.XP or 0) >= step.xpCost then break end
+		steps += 1
+	end
+	return steps
+end
 
 function DNAService.RollMutationForPlayer(player)
 	local data = PlayerDataService.Get(player)

@@ -85,12 +85,88 @@ GameConfig.FinalStageStepXp = math.floor(GameConfig.XpPerLevelStart
 	* GameConfig.XpPerLevelGrowth ^ (#GameConfig.Stages - 1)
 	* (1 + (#GameConfig.Stages - 1) * GameConfig.XpPerLevelRamp))
 
+-- ===== THE DAMAGE LADDER: ONE CURVE, AND IT IS THE EVOLUTION CHAIN ITSELF =====
+--
+-- WHAT WAS WRONG, MEASURED RATHER THAN GUESSED (2026-08-09). Damage was
+-- `8 + (stageIndex - 1) * 6` -- LINEAR, running 8 at stage 1 to 122 at stage 20, a factor of 15
+-- across the whole game. Creature health is GEOMETRIC: the tier base times `mobHealthMult`, which
+-- runs 1x in Forest to 1050x on the Absolute Plane. Fifteen against a thousand.
+--
+-- Both ends broke, in opposite directions, and the reported symptom was the first one:
+--
+--   * AT THE BOTTOM the player was already past the cap on the first click of a new save.
+--     `CreatureService` clamped a blow to `tier.health / minHits`, so in Forest that is 4 on a
+--     Swarmer and 7 on a Critter -- for a stage-1 player AND for a stage-20 one. The Journal
+--     promised more damage per evolution and the number over the creature never moved, because
+--     nothing the player did could push it below a ceiling they had already been over since their
+--     first swing. That is the "evolving does nothing" bug, and it was a display of the cap.
+--   * AT THE TOP the same linear curve fell 17x short of the health it was fighting, so the late
+--     zones were only passable through Rebirth damage. A mechanic meant to be a choice was load
+--     bearing, which is why "after rebirthing I progress far too slowly" kept coming back.
+--
+-- THE FIX IS TO MAKE DAMAGE GEOMETRIC IN THE ONE THING THE PLAYER IS ACTUALLY DOING: the 100-step
+-- character ladder. Rank 1 is the first Cell, rank 100 the last Absolute, five rungs to a stage,
+-- one rung per evolve. So `1.076^5 = 1.4425`, which is `mobHealthMult`'s own per-zone ratio
+-- (1050^(1/19) = 1.442, measured). The two curves are now the same curve.
+--
+-- What that buys, and it is the property worth protecting when tuning either constant: KILLS PER
+-- CREATURE ARE FLAT ACROSS THE WHOLE GAME. Checked at both ends --
+--
+--   zone  1, rank  1:  Swarmer 2.4 hits | Critter  6 hits | Brute 14 hits
+--   zone 20, rank 96:  Swarmer 2.4 hits | Critter  6 hits | Brute 14 hits
+--
+-- and inside one stage the five evolves cut a Critter from 6 hits to 4, which is the whole point:
+-- the step is felt, and then the next zone hands the difficulty back. This is exactly the shape
+-- `GetClickBase` already uses for DNA (see the INCOME CURVE block) -- one growth constant chosen so
+-- that a unit of progress means the same thing at every point on the curve.
+--
+-- Verify after changing either constant -- these must stay flat, not merely finite:
+--   hits(zone i, rank r) = TIERS[t].health * Zones[i].mobHealthMult / GetRankDamage(r)
+GameConfig.DamageBase = 5             -- what rank 1 hits for, bare: a 12hp Forest Swarmer in 3
+GameConfig.DamageGrowthPerRank = 1.076 -- ^5 = 1.4425 = the per-zone creature health ratio
+
+-- A boss is a gate, so it is priced in the same unit everything else is: how many honest blows it
+-- takes. 60 at the reference damage for its own zone -- roughly four times a Brute, about twenty
+-- seconds of swinging -- and every multiplier the player has bought or climbed to cuts into that.
+GameConfig.BossTargetHits = 60
+
+-- Raw damage at a rung of the ladder. Takes a NUMBER, not a save, so it is safe to call at module
+-- load (the boss table below does) and safe on the client (the Journal prints it under every
+-- entry). This is the single place the curve exists.
+function GameConfig.GetRankDamage(rank)
+	rank = math.max(1, math.floor(tonumber(rank) or 1))
+	return GameConfig.DamageBase * GameConfig.DamageGrowthPerRank ^ (rank - 1)
+end
+
+-- What a player standing at the front of zone `i` hits for, bare. Zone i unlocks at stage i and a
+-- stage is five rungs, so the first rung of stage i is rank 5(i-1)+1. Used to price the bosses and
+-- to sanity-check the creature tiers; nothing at runtime reads it.
+function GameConfig.GetZoneReferenceDamage(zoneIndex)
+	local i = math.max(1, math.floor(tonumber(zoneIndex) or 1))
+	return GameConfig.GetRankDamage((i - 1) * 5 + 1)
+end
+
 -- Mutations used to multiply together, and the list only ever grows -- one roll every 10s,
 -- forever, with nothing ever removed. A player who had been testing for a while accumulated
 -- enough that income was multiplied by ~5,000,000, and a single Forest creature paid 66.66M DNA
 -- at stage 4. Now only the BEST mutation applies in full; every other one contributes a small
 -- additive share, so a large collection is still worth having but can never compound.
 GameConfig.MutationStackBonus = 0.05
+
+-- ...AND THE TAIL IS CAPPED, WHICH IS THE OTHER HALF OF "EVERY CREATURE PAYS MORE THAN THE LAST".
+--
+-- Making the stack additive stopped it compounding, but it did not stop it GROWING: the roll fires
+-- every 10 seconds for as long as a player is online, nothing is ever removed, and each entry adds
+-- its own share of `MutationStackBonus` forever. An hour of play is ~360 rolls; at the Mutation
+-- upgrade's mid levels that is dozens of entries, and the tail alone was worth another +100% income
+-- with nothing the player did to earn it. It is not per-kill scaling -- there is no kill counter
+-- anywhere in the reward path -- but while you are playing it is indistinguishable from it, which
+-- is exactly how it was reported.
+--
+-- Capped at +1.0, i.e. the whole collection behind the best mutation can double the best one and
+-- never more. A big collection is still worth having, it reaches its ceiling in an evening, and
+-- after that a player's income moves only when the player does something.
+GameConfig.MutationStackCap = 1.0
 
 function GameConfig.GetMutationIncomeMult(mutationNames)
 	local best, rest = 1, 0
@@ -104,7 +180,7 @@ function GameConfig.GetMutationIncomeMult(mutationNames)
 		end
 	end
 	rest = rest - (best - 1) -- the best one is counted in full below, not twice
-	return best + rest * GameConfig.MutationStackBonus
+	return best + math.min(rest * GameConfig.MutationStackBonus, GameConfig.MutationStackCap)
 end
 
 -- ===== INCOME CURVE =====
@@ -377,6 +453,23 @@ end
 
 for i, zone in ipairs(GameConfig.Zones) do
 	zone.boss = GameConfig.ZoneBosses[zone.key]
+
+	-- ===== BOSS HEALTH IS DERIVED, NOT AUTHORED =====
+	--
+	-- The twenty numbers in `ZoneBosses` ran 500 to 43,000,000 -- a factor of 86,000 across the
+	-- strip, against creature health's 1,050 and the damage ladder's 1,394. Nothing could clear the
+	-- late ones: at the reference damage for its own zone, The Absolute took 8,160 blows. It was
+	-- passable only because `BossService` clamped every hit to `health / BOSS_MIN_HITS`, which meant
+	-- a boss died in exactly twelve blows in every zone from the first to the last -- the same
+	-- defect as the creature `damageCap`, and the same reason a boss never felt like it was being
+	-- worn down: the bar moved 1/12th whatever the player brought to it.
+	--
+	-- Priced in blows instead, off the same ladder as everything else, so a boss is four Brutes'
+	-- worth of fight in the zone it guards and stays that on every rung. The authored `health` is
+	-- now only a relative hint that nothing reads -- `dnaReward` keeps its own authored value and
+	-- its own scaling, because what a boss PAYS is a design decision and what it TAKES is arithmetic.
+	zone.boss.health = math.floor(GameConfig.BossTargetHits * GameConfig.GetZoneReferenceDamage(i))
+
 	-- Exactly HALF a level, in the currency of the stage this zone belongs to (zone i unlocks at
 	-- stage i, so the index is the same one the xpCost curve is written against). Boss XP used to be
 	-- a flat 25 everywhere, which was a third of the first level and a rounding error by the tenth.
@@ -410,6 +503,18 @@ function GameConfig.GetZoneByKey(key)
 		if zone.key == key then return zone end
 	end
 	return nil
+end
+
+-- The zone's POSITION, which is what the damage ladder is indexed by (GetZoneReferenceDamage) --
+-- `Zones` is an ordered array and zone i unlocks at stage i, so the index is the progression
+-- coordinate. Returns 1 for anything unknown rather than nil: every caller here is arithmetic, and
+-- a nil leaking into a multiplication is a hard error at a call site that cannot do anything
+-- useful about it anyway.
+function GameConfig.GetZoneIndex(key)
+	for i, zone in ipairs(GameConfig.Zones) do
+		if zone.key == key then return i end
+	end
+	return 1
 end
 
 function GameConfig.GetTotalZoneBonusPct(unlockedZoneKeys)
@@ -637,13 +742,95 @@ function GameConfig.GetPetDef(key)
 	return nil
 end
 
--- Base bonus a single Common, Normal-tier pet grants while equipped. Rarity and tier both
--- scale it -- see GetPetBonus.
-GameConfig.PetBaseBonus = { incomeMult = 1.4, luckAdd = 5, dnaMult = 2, damageMult = 1.3 }
+-- ===== WHAT A PET IS WORTH: DAMAGE AND LUCK, AND NOTHING ELSE =====
+--
+-- `incomeMult` and `dnaMult` are GONE from this table, and their removal is the single largest
+-- economy fix in this phase. They were 1.4 and 2 here, scaled by tier x rarity and then stacked
+-- MULTIPLICATIVELY across every equipped slot in PetService.GetEquippedBonus -- so one Legendary
+-- Normal pet was worth incomeMult 4.2 x dnaMult 9.0 = **x37.8 on every kill and every click**.
+-- That is the reported "DNA was ~60, then I got my first pet and it was ~1,000", and it is the
+-- same defect this repo has now corrected four times: a quantity that multiplies once per item,
+-- over a collection that only grows, is not a bonus, it is an exponential in the number of slots
+-- (see GetMutationIncomeMult, the idle-income cap, and the damage half of this same function in
+-- 9.1). The economy is now what it was tuned to be -- 14 to 20 kills per stage -- because that
+-- curve was authored against a player with no pets at all.
+--
+-- A pet pays DAMAGE, and the player earns more DNA because creatures die faster. That is the
+-- whole design: pets are a combat stat, not an income stat. `luckAdd` stays because luck is
+-- additive everywhere in this game and cannot compound.
+--
+-- `luckAdd` 5 -> 12, AND it is now scaled by the damage SHARE rather than by the raw tier x rarity
+-- product. That reads like a raise and is a large cut, and the live test is what found it.
+--
+-- With incomeMult and dnaMult gone, luck was the last surviving pet -> DNA channel and it was not a
+-- small one: luck feeds crit chance (`clamp(5 + luck * 0.5, 0, 75)` for a x5 payout), one Legendary
+-- paid 40 luck points, and five paid 180 -- which pins crit at its 75% cap and multiplies the mean
+-- click by 3.3x. Measured: with the multipliers already removed, the mean click still ran 3.38 ->
+-- 5.15 -> 10.40 DNA across zero, one and five pets. That is the reported bug arriving by a third
+-- route, quieter and bounded, but the same sentence: "I got a pet and my DNA jumped."
+--
+-- One pet was also worth 40 points against the 249 R$ Lucky pass's 50, so a free first hatch nearly
+-- matched a premium purchase and five of them beat it four times over -- out of band whatever it
+-- did to DNA. On the share scale a Legendary Normal is 9.6 points and a full first-egg team sits
+-- under one Lucky pass, while a maxed nine-slot endgame team reaches ~360, inside the worst honest
+-- case Phase 2.12 already swept and found bounded.
+GameConfig.PetBaseBonus = { luckAdd = 12, incomeMult = 1, dnaMult = 1 }
 
--- Fusing N copies of the same pet+tier produces one pet of the next tier, which
--- multiplies the base bonus by PetTierMultiplier.
+-- ===== EGG TIER x RARITY x PROGRESSION =====
+--
+-- A pet's damage contribution is a SHARE OF THE PLAYER'S OWN BARE DAMAGE, summed across the
+-- equipped slots. Expressing it as a share rather than as an absolute number is what makes the
+-- three axes composable and what keeps the whole team bounded however many slots open up.
+--
+-- Share per pet = PetRarityShare(rarity) x PetTierShare(tier) x zone factor.
+--
+-- PetRarityShare reuses the authored `bonusMult` ladder divided by ten, so rarity ordering has
+-- exactly one source of truth and a future rarity row needs no second edit here: Common 0.10 up
+-- to Legendary 0.80.
+GameConfig.PetRarityShareScale = 0.1
+
+-- ...and the tier ladder is 1 / 1.6 / 2.6 / 4.2 rather than the old 1 / 2 / 4 / 8. The old
+-- doubling was authored for a MULTIPLICATIVE stat, where a x8 top tier is one factor among
+-- several; against a SUM it would put nine max-tier Legendaries at x58 the player's own damage.
+-- The shape here is the rarity ladder's own, which keeps a fuse feeling like a real step (+60%
+-- of that pet's share) without the top of the ladder swallowing the game.
+GameConfig.PetTierShare = { Normal = 1, Golden = 1.6, Rainbow = 2.6, Celestial = 4.2 }
+
+-- THE PROGRESSION AXIS, and the reason an early Legendary is no longer a late Legendary.
+--
+-- GetPetBonus used to take only (tier, rarity), so a Forest Basic-egg Legendary and an Absolute
+-- Plane Premium-egg Legendary were byte-identical -- both +240% damage, at a 1.8e13x difference in
+-- egg price. The egg tier decided only WHICH rarities could roll, never what a rarity was worth.
+--
+-- The zone factor is the ratio of what the pet's own zone hits for to what the PLAYER hits for
+-- now, so a pet is at full strength in the zone it came from and fades as the player climbs past
+-- it. It needs NO new save field and NO migration: every species already carries `zone` (see the
+-- ZONE_PETS flatten above), so the zone of any pet ever hatched is recoverable from its key.
+--
+-- FLOORED at 0.25 rather than allowed to reach zero. An old pet that decayed to nothing would
+-- make a veteran's collection worthless overnight, which is the kind of change that reads as a
+-- broken save rather than as a rebalance -- the rule this repo already followed when the rebirth
+-- ladder grandfathered eight spent rebirths.
+--
+-- ===== BUT THE FLOOR IS APPROACHED, NEVER CLAMPED TO, AND THE TEST IS WHY =====
+--
+-- The first cut of this was `math.clamp(ratio, 0.25, 1)`, and the balance sweep found it wrong in
+-- exactly the place the whole rebalance exists to fix. Damage is geometric, so the ratio collapses
+-- fast: at rank 96 a zone-1 pet scores 0.0009 and a zone-10 pet 0.026 -- BOTH below the floor, so
+-- both clamped to 0.25 and an early-egg Legendary was worth precisely as much as a mid-game one.
+-- The brief's requirement is Early < Mid < Late, and a clamp satisfies it only until the floor is
+-- reached, after which it silently reintroduces the bug at the end of the game.
+--
+-- Compressed instead: floor + (1 - floor) * sqrt(ratio). Monotonic over the whole domain, so the
+-- ordering can never flatten however far apart the two zones are, while the square root keeps the
+-- decay gentle enough that walking into the next zone does not visibly weaken the team the player
+-- just built. At rank 96 that reads 0.27 / 0.37 / 1.00 for a zone-1 / zone-10 / zone-20 Legendary.
+GameConfig.PetZoneFloor = 0.25
+
 GameConfig.PetTiers = { "Normal", "Golden", "Rainbow", "Celestial" }
+-- Kept for PetModel, which sizes the rendered rig off it. Deliberately NOT used by any stat any
+-- more -- PetTierShare above is the stat ladder. A bigger Celestial is a visual promise, and the
+-- two numbers are allowed to disagree because they answer different questions.
 GameConfig.PetTierMultiplier = { Normal = 1, Golden = 2, Rainbow = 4, Celestial = 8 }
 GameConfig.PetTierColor = {
 	Normal = Color3.fromRGB(220, 220, 220),
@@ -653,6 +840,20 @@ GameConfig.PetTierColor = {
 }
 GameConfig.FuseRequirement = 4
 GameConfig.MaxEquippedPets = 3
+
+-- ===== HOW MANY PETS A SAVE MAY HOLD =====
+--
+-- 30, down from 600. The old ceiling was set to protect the DataStore (a save past 4 MB stops
+-- saving forever with nothing but a warning), not to shape play, and at 600 it did neither: a live
+-- save reached **207 pets**, which is not an inventory, it is a spreadsheet nobody scrolls. A cap
+-- the player bumps into is a real decision — fuse it, equip it, or let it go — and it is what makes
+-- a hatch worth watching.
+--
+-- IT LIVES HERE so `PetService`, `TradeService` and `MainUI` all read one number. Both services
+-- kept private copies before, deliberately, because "these two files must not require each other" —
+-- but they both already require GameConfig, so the shared dependency was always available and the
+-- duplication only bought a way for the two ceilings to drift apart.
+GameConfig.MaxOwnedPets = 30
 
 -- Each zone's Pet Shop sells 3 eggs -- Basic/Better/Premium -- built by tiering that
 -- zone's base cost/luckBonus (same numbers the old single-egg-per-zone design used).
@@ -716,15 +917,54 @@ function GameConfig.GetEggsForZone(zoneKey)
 	return list
 end
 
--- `rarity` is optional so old call sites keep working; omitted means Common.
-function GameConfig.GetPetBonus(tier, rarity)
-	local mult = (GameConfig.PetTierMultiplier[tier] or 1) * GameConfig.GetRarity(rarity).bonusMult
+-- HOW MUCH OF ITS SHARE THIS PET STILL DELIVERS, given where the player now stands.
+--
+-- 1.0 in the pet's own zone and falling as the player climbs past it, floored at PetZoneFloor.
+-- `data` is optional: with no save to compare against there is no progression axis to apply, so it
+-- returns 1 and the pet is quoted at full strength -- which is the right answer for the Journal and
+-- for any preview that is describing a species rather than a player's loadout.
+--
+-- Clamped at the TOP as well as the bottom. A pet from a zone ahead of the player cannot normally
+-- exist (HandleBuyEgg refuses an egg from a locked zone), but a trade, an old save or a future
+-- reward could hand one over, and a factor above 1 would make it pay more than its own zone's
+-- reference damage for as long as the player stayed behind it.
+function GameConfig.GetPetZoneFactor(petKey, data)
+	if not data then return 1 end
+	local def = GameConfig.GetPetDef(petKey)
+	if not def or not def.zone then return 1 end
+	local petRef = GameConfig.GetZoneReferenceDamage(GameConfig.GetZoneIndex(def.zone))
+	local playerDamage = GameConfig.GetRankDamage(GameConfig.GetProgressRank(data))
+	if playerDamage <= 0 then return 1 end
+	-- clamped to [0,1] FIRST -- a pet from a zone ahead of the player would otherwise push the root
+	-- above 1 and pay more than its own zone's reference damage
+	local ratio = math.clamp(petRef / playerDamage, 0, 1)
+	local floor = GameConfig.PetZoneFloor
+	return floor + (1 - floor) * math.sqrt(ratio)
+end
+
+-- `rarity` is optional so old call sites keep working; omitted means Common. `petKey` and `data`
+-- are both optional and are the progression axis -- pass them and the answer is what this pet is
+-- worth to THIS player right now; omit them and it is what the species is worth at its own zone.
+function GameConfig.GetPetBonus(tier, rarity, petKey, data)
+	local rarityShare = GameConfig.GetRarity(rarity).bonusMult * GameConfig.PetRarityShareScale
+	local tierShare = GameConfig.PetTierShare[tier] or 1
+	local zoneFactor = petKey and GameConfig.GetPetZoneFactor(petKey, data) or 1
+	local share = rarityShare * tierShare * zoneFactor
 	local base = GameConfig.PetBaseBonus
 	return {
-		incomeMult = 1 + (base.incomeMult - 1) * mult,
-		luckAdd = base.luckAdd * mult,
-		dnaMult = 1 + (base.dnaMult - 1) * mult,
-		damageMult = 1 + (base.damageMult - 1) * mult,
+		-- Both hard 1. Kept as fields rather than deleted so every existing call site keeps
+		-- reading a number instead of a nil -- and so that the day someone reaches for a pet
+		-- income bonus again, the one-line answer is here with the reasoning above it.
+		incomeMult = base.incomeMult,
+		dnaMult = base.dnaMult,
+		-- Luck rides the SAME share as damage -- see the note over PetBaseBonus for why it had to
+		-- come off the raw tier x rarity product. One number now moves a pet's whole contribution,
+		-- so a rebalance of the share ladder can never leave luck behind pointing somewhere else.
+		luckAdd = base.luckAdd * share,
+		damageMult = 1 + share,
+		-- exposed for the UI: the row prints the share, and the fusion/catalyst preview compares
+		-- two of them without having to re-derive the arithmetic
+		share = share,
 	}
 end
 
@@ -757,29 +997,41 @@ function GameConfig.GetNextTier(tier)
 end
 
 -- ===== HOW STRONG IS THIS PET =====
--- Every number GetPetBonus hands out is the same base bonus scaled by ONE product: the tier
--- multiplier times the rarity multiplier. So that product IS the pet's strength, and it is the
--- only honest key to rank a collection by. It lives here, once, because three call sites need the
--- same answer -- the row that prints "x12.8", the Equip Best that picks the top three, and the
--- fusion preview that shows what the next tier is worth -- and three private copies of it would
--- drift the first time the tier table changed.
+-- The pet's damage share -- i.e. exactly what GetPetBonus hands to the damage chain -- so the row
+-- that prints the power chip, the Equip Best that picks the top three and the fusion preview that
+-- shows what the next tier is worth can never disagree with what the pet actually does. It lives
+-- here, once; three private copies of it would drift the first time a ladder changed.
+--
+-- `data` IS LOAD-BEARING FOR EQUIP BEST and is why it was threaded through. Ranking without it
+-- ignores the zone axis, so a collection would be sorted as though every pet were still standing
+-- in the zone it hatched in -- and Equip Best would keep putting a Forest Legendary in a slot that
+-- a zone-matched Epic now beats four times over. Optional, because a species preview has no player
+-- to rank against; omitted, every pet is quoted at its own zone's full strength.
 -- Takes a SAVED pet ({ key, tier }), not a species def: tier is per-instance.
-function GameConfig.GetPetPower(pet)
+function GameConfig.GetPetPower(pet, data)
 	if not pet then return 0 end
 	local def = GameConfig.GetPetDef(pet.key)
-	return (GameConfig.PetTierMultiplier[pet.tier] or 1) * GameConfig.GetRarity(def and def.rarity).bonusMult
+	return GameConfig.GetPetBonus(pet.tier, def and def.rarity, pet.key, data).share
 end
 
 -- Strongest first. Ties are broken by key, then tier, then id -- not left to table.sort -- so a
 -- list of duplicates keeps the same order every refresh instead of shuffling under the cursor
 -- while the player is reaching for a button.
-function GameConfig.SortedPetsByPower(pets)
+function GameConfig.SortedPetsByPower(pets, data)
 	local list = table.create(#pets)
 	for _, p in ipairs(pets) do
 		table.insert(list, p)
 	end
+	-- Scored ONCE per pet before the sort rather than inside the comparator. GetPetPower walks the
+	-- species table and the rank ladder, and table.sort calls a comparator O(n log n) times -- at 30
+	-- pets that is ~150 calls against 30, and the trim in PlayerDataService runs it over a save that
+	-- can still hold 600.
+	local score = {}
+	for _, p in ipairs(list) do
+		score[p] = GameConfig.GetPetPower(p, data)
+	end
 	table.sort(list, function(a, b)
-		local pa, pb = GameConfig.GetPetPower(a), GameConfig.GetPetPower(b)
+		local pa, pb = score[a], score[b]
 		if pa ~= pb then return pa > pb end
 		if a.key ~= b.key then return a.key < b.key end
 		if a.tier ~= b.tier then return a.tier < b.tier end
@@ -857,16 +1109,25 @@ end
 -- ===== REBIRTH =====
 -- Rebirth unlocks every 5 stages (5, 10, 15, 20 -- "Tier" 1 through 4) instead of only at the
 -- very end: you can cash in early for a small reward, or push further for a much bigger one.
--- It resets DNA, stage, upgrades, mutations, zones and boss kills, but keeps Pets, and grants
--- permanent Evolution Shards which give a small permanent income bonus that stacks forever.
+-- It resets DNA, stage, upgrades, mutations, zones and boss kills, but keeps Pets. What it pays is
+-- permanent damage and permanent income, both read straight off the counter -- see
+-- GetRebirthDamageMult and GetRebirthIncomeMult. It pays no Evolution Shards at all.
 GameConfig.RebirthTierSize = 5
 GameConfig.RebirthRequirementStageIndex = GameConfig.RebirthTierSize -- stage 5 = earliest possible rebirth
 GameConfig.MaxRebirthTier = math.floor(#GameConfig.Stages / GameConfig.RebirthTierSize) -- 20 / 5 = 4
-GameConfig.ShardIncomeBonusPct = 2 -- each Evolution Shard = +2% income, forever
 
-function GameConfig.GetShardIncomeBonusPct(shards)
-	return (shards or 0) * GameConfig.ShardIncomeBonusPct
-end
+-- ===== WHY THERE IS NO GetShardIncomeBonusPct HERE ANY MORE (9.4) =====
+--
+-- A shard used to be worth +2% income forever, and 9.2 moved that income onto the rebirth counter
+-- (GetRebirthIncomeMult) when rebirth stopped paying shards. The function itself survived that move
+-- and was still multiplying DNAService.GetIncomeMult by the player's shard BALANCE, which was
+-- harmless only while nothing in the game could spend a shard -- and becomes a trap the moment
+-- something can. Every spin of the wheel would permanently cut the spinner's income, so the correct
+-- play would be to never touch the sink, and a sink nobody can afford to use is not a sink.
+--
+-- A shard is a spendable currency now and nothing else. That is also why the income it used to be
+-- worth was moved onto the counter rather than deleted: nothing was taken away from the rebirth,
+-- it was moved somewhere it cannot be spent away by accident.
 
 -- WHAT A REBIRTH IS ACTUALLY FOR.
 --
@@ -920,12 +1181,72 @@ function GameConfig.GetRebirthTierStageIndex(tier)
 	return math.clamp((tier or 1) * GameConfig.RebirthTierSize, 1, #GameConfig.Stages)
 end
 
--- Shards earned by rebirthing right now, given the stage reached and how many rebirths the
--- player already has. Reward scales with the SQUARE of the tier reached, so pushing from
--- tier 1 (stage 5) to tier 4 (stage 20) is dramatically more rewarding than rebirthing early.
-function GameConfig.GetRebirthShardReward(stageIndex, currentRebirths)
-	local tier = GameConfig.GetRebirthTier(stageIndex)
-	return tier * tier * 5 + (currentRebirths or 0) * 3
+-- ===== REBIRTH IS A LADDER OF FOUR MILESTONES, EACH SPENT ONCE =====
+--
+-- It used to be a repeatable reset: reach stage 5 and you could cash in as often as you liked, at
+-- whichever of the four statues you had earned, forever. That makes a rebirth a grind decision
+-- rather than an event -- there is no "next" to point at, nothing is ever unlocked, and the honest
+-- optimum is to farm the cheapest tier over and over, which is the least interesting thing the
+-- mechanic can do.
+--
+-- Four milestones now, strictly in order, each consumed permanently:
+--
+--   Rebirth 1 -> stage  5     Rebirth 2 -> stage 10
+--   Rebirth 3 -> stage 15     Rebirth 4 -> stage 20, and that is the last one.
+--
+-- IT NEEDS NO NEW SAVE FIELD, and that is deliberate -- `data.Rebirths` already counts exactly how
+-- many have been spent, and because they are consumed in order the count IS the position on the
+-- ladder. A separate "tiers used" set would be a second source of truth that could disagree with
+-- the counter, and every save in existence would need repairing to build it.
+--
+-- Saves that predate this carry more than four (the owner's test save has eight). They keep every
+-- point of what they earned -- GetRebirthDamageMult is unchanged and still reads the raw count --
+-- they simply have no milestone left to spend, which is what `GetNextRebirthTier` returning nil
+-- means. Never take something away to enforce a new rule.
+GameConfig.MaxRebirths = GameConfig.MaxRebirthTier
+
+-- The milestone this save may use next, or nil when the ladder is finished. Everything else about
+-- rebirth availability is derived from this one function, so the HUD, the shrine and the server can
+-- never disagree about which statue is live.
+function GameConfig.GetNextRebirthTier(data)
+	local done = (data and data.Rebirths) or 0
+	if done >= GameConfig.MaxRebirths then return nil end
+	return done + 1
+end
+
+-- The stage that milestone is gated behind (5, 10, 15, 20), or nil when there is none left.
+function GameConfig.GetNextRebirthStage(data)
+	local tier = GameConfig.GetNextRebirthTier(data)
+	return tier and GameConfig.GetRebirthTierStageIndex(tier) or nil
+end
+
+-- The single question the button asks. Returns `false, reason` so the UI never has to reconstruct
+-- why it is locked out of the numbers.
+function GameConfig.CanRebirthNow(data)
+	local tier = GameConfig.GetNextRebirthTier(data)
+	if not tier then return false, "done" end
+	if ((data and data.StageIndex) or 1) < GameConfig.GetRebirthTierStageIndex(tier) then
+		return false, "stage"
+	end
+	return true, "ready"
+end
+
+-- ===== WHAT A REBIRTH PAYS ON THE INCOME SIDE, NOW THAT IT PAYS NO SHARDS =====
+--
+-- Rebirth used to hand over Evolution Shards, worth +2% income each and kept forever. Shards are
+-- becoming a rare drop off the raised creatures with the wheel as their only sink (see 9.4), and a
+-- currency that is SPENT cannot also be a permanent stat -- so the income a rebirth was worth moves
+-- here, onto the counter, where it cannot be spent away by accident.
+--
+-- Linear at +150% a run against damage's accelerating curve, on purpose: income is the currency the
+-- upgrades, eggs and shops run on and it is already geometric in the stage, while damage is the one
+-- thing the late zones are actually short of. Four rebirths therefore end at x7 income and x8
+-- damage.
+GameConfig.RebirthIncomePct = 150
+
+function GameConfig.GetRebirthIncomeMult(data)
+	local r = (data and data.Rebirths) or 0
+	return 1 + r * GameConfig.RebirthIncomePct / 100
 end
 
 -- ===== DAILY REWARDS =====
@@ -1270,6 +1591,13 @@ GameConfig.SpinWheel = {
 -- take the wheel over.
 GameConfig.SpinLuckSpread = 1.2
 
+-- What one spin costs in Evolution Shards, for the door into this wheel that takes no Robux (9.4).
+-- 25 is exactly what the wheel's own `shards` segment pays, so 7 spins in 100 come back as the
+-- price of the next one and that segment needed no rebalancing to say so. Everything the 3.3
+-- balance pass measured about this wheel still holds unchanged: it is the same table, the same
+-- roll and the same luck bend, reached through a third door.
+GameConfig.SpinCostShards = 25
+
 -- Returns the winning SEGMENT TABLE, not an index or a key -- the caller grants straight off it, so
 -- there is no second lookup that could disagree with the roll.
 function GameConfig.RollSpin(luckPercent)
@@ -1364,6 +1692,39 @@ GameConfig.EventBossDiamondReward = { 12, 20 }
 
 function GameConfig.RollDiamondDrop(tierName)
 	local chance = GameConfig.DiamondDropChance[tierName or ""] or 0
+	return math.random() < chance and 1 or 0
+end
+
+-- ===== EVOLUTION SHARDS: THE ONE DROP YOU HAVE TO CLIMB FOR (9.4) =====
+--
+-- Shards had no gameplay source at all once 9.2 took them off the rebirth reward. What was left was
+-- three time gates (the Day 6/7 login reward, the Season Pass premium track, a 7% segment of the
+-- wheel) and a code -- not one of which is something a player can go and DO. They are a drop now.
+--
+-- And they are deliberately the only drop in this game with a PLACE attached: nothing standing on
+-- the valley floor ever pays one, however long it is farmed. Only the Brutes and Elites up on the
+-- terrace shelves do -- CreatureService's `raisedSpots`, which already ranks those spots by
+-- altitude and puts the Elites on the highest ground there is. So the currency is earned by
+-- climbing, which is the one thing the terraces were built for and the one thing nothing else in
+-- the game rewards.
+--
+-- Sized against its sink exactly the way DiamondDropChance was sized against the upgrades. A zone
+-- carries 4 raised Elites and 6 raised Brutes, so one full sweep of its shelves pays
+-- 4*0.25 + 6*0.12 = 1.72 shards, and one spin of the wheel costs 25 (SpinCostShards) -- roughly a
+-- quarter of an hour of deliberate cliff work per spin, against a 55-second Elite respawn. That is
+-- above the "is this mechanic even real" floor the diamond note describes and far enough below a
+-- diamond's rate that the two can never read as the same reward.
+GameConfig.ShardDropChance = {
+	Brute = 0.12,
+	Elite = 0.25,
+}
+
+-- `raised` is PASSED IN rather than inferred from anything on the creature. A Brute on the valley
+-- floor and a Brute on a shelf are the same tier, the same rig and the same table of stats; the
+-- only thing that tells them apart is which loop the spawner placed them from.
+function GameConfig.RollShardDrop(tierName, raised)
+	if not raised then return 0 end
+	local chance = GameConfig.ShardDropChance[tierName or ""] or 0
 	return math.random() < chance and 1 or 0
 end
 
@@ -2843,10 +3204,33 @@ function GameConfig.GetEffectiveRank(data, entry)
 	return GameConfig.GetCharacterRank(entry)
 end
 
-function GameConfig.GetCharacterDamageMult(data)
-	local entry = GameConfig.GetWornCharacter(data)
-	if not entry then return 1 end
-	return 1 + GameConfig.GetEffectiveRank(data, entry) * GameConfig.CharacterDamagePerRank / 100
+-- ===== HOW FAR UP THE LADDER THIS SAVE HAS CLIMBED =====
+--
+-- The rung the player's DAMAGE is read off. It is the best rung they OWN, not the one they have on
+-- -- and that is a deliberate reversal of the older rule, forced by the curve above.
+--
+-- Rank used to be worth a linear +3% each, so wearing something fifty rungs back cost 150% and was
+-- a real but survivable trade the Journal advertised honestly. Geometric, the same choice costs a
+-- factor of forty, and no cosmetic is worth that: it would not read as a trade, it would read as a
+-- broken save. The collection also fills strictly in order and every evolve auto-wears the newest
+-- entry, so the trade was one almost nobody was making on purpose in the first place.
+--
+-- So progress pays and appearance is free. Wear whatever you like; you keep what you climbed to.
+function GameConfig.GetProgressRank(data)
+	return math.max(1, GameConfig.GetBestOwnedRank(data))
+end
+
+-- THE BASE OF THE DAMAGE CHAIN, and the number the Journal prints beside the rung that grants it.
+-- Everything else in `DNAService.GetCombatDamage` is a multiplier on this.
+function GameConfig.GetBaseDamage(data)
+	return GameConfig.GetRankDamage(GameConfig.GetProgressRank(data))
+end
+
+-- Kept because saves, tools and the Journal's older rows still call it, and it is still true of
+-- what a rung is WORTH -- it just no longer decides what the body standing in the world hits for.
+-- Returns 1 unconditionally so the damage chain is unchanged by a costume.
+function GameConfig.GetCharacterDamageMult(_data)
+	return 1
 end
 
 -- ===== A SKIN GIVES HEALTH AS WELL AS DAMAGE =====
@@ -2867,10 +3251,13 @@ function GameConfig.GetCharacterHealthPct(entry)
 	return GameConfig.GetCharacterRank(entry) * GameConfig.CharacterHealthPerRank
 end
 
+-- Health follows damage onto the PROGRESS rung for the same reason (see GetProgressRank): the two
+-- have to agree about what the player is, or a costume would change how long they survive while
+-- leaving what they hit for alone. Still linear at 1% a rung -- health multiplies how long a fight
+-- lasts and damage how fast it ends, so this side deliberately does NOT go geometric; +99% at the
+-- top of the collection, against a damage ladder that has grown by a factor of 1,394.
 function GameConfig.GetCharacterHealthMult(data)
-	local entry = GameConfig.GetWornCharacter(data)
-	if not entry then return 1 end
-	return 1 + GameConfig.GetEffectiveRank(data, entry) * GameConfig.CharacterHealthPerRank / 100
+	return 1 + GameConfig.GetProgressRank(data) * GameConfig.CharacterHealthPerRank / 100
 end
 
 -- Grants or REVOKES the VIP skin so it always matches the pass. Called on every pass refresh and
@@ -3045,6 +3432,11 @@ function GameConfig.GetEvolveStep(data)
 	step.entryIndex = step.entry and GameConfig.GetCharacterIndex(step.entry) or stageTotal
 	step.entryTotal = #GameConfig.GetCharactersForStage(entryStage)
 
+	-- `step.cost` IS INFORMATIONAL NOW AND NOTHING GATES ON IT. An evolve costs XP and only XP -- see
+	-- DNAService.HandleEvolve for why two gates on one button is one gate too many. It is still
+	-- filled in because `stage.cost` doubles as the `math.huge` sentinel that marks the end of the
+	-- chain, and because a tool reading it should get the answer it always did. If you are adding a
+	-- check against it, you are re-adding the DNA gate.
 	if stage.cost == math.huge then
 		step.cost = GameConfig.FinalStageStepCost
 		step.xpCost = GameConfig.FinalStageStepXp

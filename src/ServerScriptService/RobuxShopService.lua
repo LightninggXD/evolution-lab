@@ -187,8 +187,67 @@ function RobuxShopService.GrantSpin(player)
 	return segment
 end
 
+-- ===== THE SAME WHEEL, PAID FOR IN EVOLUTION SHARDS (9.4) =====
+--
+-- Shards became a drop off the raised creatures and needed a sink; this is it, and it is
+-- deliberately not a second wheel. Same table, same roll, same luck bend, same grant: GrantSpin was
+-- already public for the free daily spin, and this is the third door into one implementation rather
+-- than a copy that would have to be balanced separately and would drift the first time either was
+-- touched. It is also why the 3.3 balance pass still describes this wheel exactly.
+--
+-- Returns a status string so it is testable without a mouse, the shape CodesService and
+-- RewardService.HandleFreeSpin both use.
+local SPIN_INTERVAL = 0.5
+local lastSpin = {}
+
+function RobuxShopService.SpendShardSpin(player)
+	local data = PlayerDataService.Get(player)
+	if not data then return "nodata" end
+
+	-- Not an anti-exploit measure -- the price is that -- but a spammed button would fire a spin
+	-- notification per frame until the balance ran out, and the wheel is a thing you watch.
+	local now = os.clock()
+	local previous = lastSpin[player.UserId]
+	if previous and (now - previous) < SPIN_INTERVAL then return "throttled" end
+
+	local cost = GameConfig.SpinCostShards
+	if (data.EvolutionShards or 0) < cost then
+		Remotes.Notify:FireClient(player, {
+			kind = "error",
+			message = ("You need %d \u{1F31F} Shards to spin -- beat the creatures up on the cliffs!"):format(cost),
+		})
+		return "poor"
+	end
+
+	lastSpin[player.UserId] = now
+	-- CHARGED BEFORE THE GRANT, WITH NO YIELD BETWEEN THEM -- the rule the code redemption and the
+	-- free spin both follow. GrantSpin reads the same table back out of the cache, rolls, pays,
+	-- pushes and notifies; nothing on that path yields, so there is no frame in which a second call
+	-- could see these shards still sitting there and spin twice off one balance.
+	data.EvolutionShards -= cost
+	RobuxShopService.GrantSpin(player)
+	return "ok"
+end
+
 function RobuxShopService.Init()
 	MarketplaceService.ProcessReceipt = processReceipt
+
+	-- created on demand, like every remote added since the place was last saved by hand
+	local shardSpin = Remotes:FindFirstChild("SpinWithShards")
+	if not shardSpin then
+		shardSpin = Instance.new("RemoteEvent")
+		shardSpin.Name = "SpinWithShards"
+		shardSpin.Parent = Remotes
+	end
+	shardSpin.OnServerEvent:Connect(function(player)
+		RobuxShopService.SpendShardSpin(player)
+	end)
+
+	-- the throttle stamp is the only thing this file holds per player, and it is keyed by user id
+	-- rather than by the Player object so that a rejoin cannot resurrect a stale entry
+	Players.PlayerRemoving:Connect(function(player)
+		lastSpin[player.UserId] = nil
+	end)
 
 	Remotes.PromptRobuxPurchase.OnServerEvent:Connect(function(player, productKey)
 		if typeof(productKey) ~= "string" then return end

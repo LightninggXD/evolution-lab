@@ -369,14 +369,34 @@ function EvolutionVisuals.Init()
 		end)
 	end
 
-	Players.PlayerAdded:Connect(function(player)
+	-- ===== A PLAYER WHO WAS ALREADY HERE GETS NO HOOK AT ALL =====
+	--
+	-- `PlayerAdded` only fires for players who join AFTER this line runs, and everything that dresses
+	-- a character hangs off it -- so a player already in the game when `Init()` is reached never has
+	-- `CharacterAdded` connected, and every spawn and respawn they make for the rest of that session
+	-- arrives as a bare Roblox avatar. That is exactly the reported "I spawn as my normal avatar".
+	--
+	-- It is not a theoretical race. `ServerMain` requires and initialises a dozen services in order,
+	-- and `ZoneBuilder` rebuilds twenty zones and pins 2,617 parts before this one is reached; the
+	-- first player into a fresh server routinely wins that. The player who hits it is the FIRST one,
+	-- which is also the one most likely to be a new player.
+	--
+	-- The standard shape fixes it: connect first, then sweep everyone already present. Connecting
+	-- before the sweep rather than after is what makes the two halves not have a gap between them --
+	-- a player joining mid-sweep is caught by the connection instead of being missed by both.
+	local function hook(player)
 		player.CharacterAdded:Connect(function(character)
 			onCharacterAdded(player, character)
 		end)
 		if player.Character then
 			onCharacterAdded(player, player.Character)
 		end
-	end)
+	end
+
+	Players.PlayerAdded:Connect(hook)
+	for _, player in ipairs(Players:GetPlayers()) do
+		hook(player)
+	end
 end
 
 return EvolutionVisuals

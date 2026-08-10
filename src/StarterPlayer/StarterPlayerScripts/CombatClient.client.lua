@@ -508,6 +508,107 @@ local function popNumber(position, text, color, big)
 end
 
 -- ============================================================================
+-- THE EVOLUTION SHARD PICKUP (9.4)
+-- ============================================================================
+--
+-- Drawn only on the killer's own screen. `sh` reaches every client inside FX range, but the handler
+-- tests `mine` before calling this -- the rule the DNA pop already follows. A drop belongs to one
+-- player, and a crystal tearing out of every creature on the platform is everybody else's clutter.
+--
+-- THE SHAPE IS THE HOUSE RECIPE FOR A CRYSTAL, the same two pieces ZoneBuilder cuts its geodes and
+-- egg shells from: a hard block body with a SMALLER, PALER TIP sitting on it. Roblox blocks do not
+-- taper, so that tip is the entire reason a rectangle reads as something faceted -- without it this
+-- is a floating brick. Gold, because the pill it lands in is a gold star and a pickup whose colour
+-- does not match its counter is a pickup nobody connects to their balance.
+--
+-- No Highlight anywhere near it: CreatureService rents 14 of the ~31 outline renders the engine
+-- has, and one per drop would strip the outlines off creatures across the world.
+local SHARD_RISE, SHARD_FLY = 0.42, 0.55
+
+local function shardPickup(position, size)
+	-- off the creature it fell out of: ~1.7 studs from a Brute, ~3.6 from an Elite, so it is
+	-- visible against the thing that dropped it rather than a constant speck beside a 26-stud rig
+	local u = math.clamp(size or 12, 6, 30) * 0.14
+
+	local crystal = Instance.new("Model")
+	crystal.Name = "ShardDrop"
+
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Size = Vector3.new(u, u * 1.7, u)
+	body.CFrame = CFrame.new(position)
+	body.Color = Color3.fromRGB(255, 206, 84)
+	body.Material = Enum.Material.Neon
+	body.Anchored, body.CanCollide, body.CanQuery, body.CanTouch, body.CastShadow = true, false, false, false, false
+	body.Parent = crystal
+	-- set BEFORE the tip is parented, so the model's pivot is the body rather than a bounding-box
+	-- centre that would move as the tip does
+	crystal.PrimaryPart = body
+
+	local tip = Instance.new("Part")
+	tip.Name = "Tip"
+	tip.Size = Vector3.new(u * 0.62, u * 0.72, u * 0.62)
+	tip.CFrame = CFrame.new(position + Vector3.new(0, u * 1.2, 0))
+	tip.Color = Color3.fromRGB(255, 248, 206)
+	tip.Material = Enum.Material.Neon
+	tip.Anchored, tip.CanCollide, tip.CanQuery, tip.CanTouch, tip.CastShadow = true, false, false, false, false
+	tip.Parent = crystal
+
+	local glow = Instance.new("PointLight")
+	glow.Color = Color3.fromRGB(255, 214, 120)
+	glow.Range = u * 7
+	glow.Brightness = 2.2
+	glow.Parent = body
+
+	crystal.Parent = fxFolder
+
+	local start = os.clock()
+	local from = position
+	local rise = Vector3.new(0, u * 3.4, 0)
+	local conn
+	conn = RunService.Heartbeat:Connect(function()
+		-- a connection rather than a loop that waits on a render step, and the parent check is the
+		-- reason: this is the one path that can outlive its own model (a respawn, a Debris sweep, the
+		-- player leaving), and a PivotTo against a destroyed model errors once a frame forever
+		if not crystal.Parent then
+			conn:Disconnect()
+			return
+		end
+		local t = os.clock() - start
+		local spin = t * 7
+		local character = player.Character
+		local hrp = character and character:FindFirstChild("HumanoidRootPart")
+
+		if t < SHARD_RISE then
+			-- out of the corpse and hanging for a beat: the player has to see WHAT dropped before it
+			-- starts moving, or the whole thing reads as one more spark off the death effect
+			local a = t / SHARD_RISE
+			crystal:PivotTo(CFrame.new(from + rise * (1 - (1 - a) ^ 2)) * CFrame.Angles(0, spin, math.rad(14)))
+		elseif hrp and t < SHARD_RISE + SHARD_FLY then
+			local a = (t - SHARD_RISE) / SHARD_FLY
+			-- THE TARGET IS RE-READ EVERY FRAME, not captured when the flight began. A player is
+			-- almost always walking when a creature dies, and a crystal that flies to where they were
+			-- half a second ago lands behind them and reads as a miss.
+			local target = hrp.Position + Vector3.new(0, 1.5, 0)
+			crystal:PivotTo(CFrame.new((from + rise):Lerp(target, a * a)) * CFrame.Angles(0, spin, math.rad(14)))
+		else
+			conn:Disconnect()
+			crystal:Destroy()
+			-- the number is drawn at the player, not at the kill: this is the moment the balance
+			-- actually changed, and it is where they are looking
+			if hrp then
+				popNumber(hrp.Position + Vector3.new(0, 3, 0), "+1 \u{1F31F}", Color3.fromRGB(255, 214, 120), false)
+				SoundLibrary.PlayLocal("collect")
+			end
+		end
+	end)
+
+	-- belt and braces against a disconnected client leaving a lit crystal in the world; the loop
+	-- above disposes of it a second earlier on every normal path
+	Debris:AddItem(crystal, SHARD_RISE + SHARD_FLY + 2)
+end
+
+-- ============================================================================
 -- CAMERA KICK
 -- ============================================================================
 --
@@ -814,11 +915,32 @@ local function nearestTarget()
 			-- loop on the first creature anyone anywhere in the server managed to kill.
 			for _, model in ipairs(folder:GetChildren()) do
 				if model:IsA("Model") then
-					local part = model.PrimaryPart or model:FindFirstChild("Body")
-					if part then
-						local d = (part.Position - at).Magnitude
-						if d <= reach and d < bestDist then
-							best, bestDist = model, d
+					-- ===== A CORPSE IS NEARER THAN THE THING THAT KILLED IT =====
+					--
+					-- This is the whole "auto-attack does nothing when I am standing right next to a
+					-- creature" report, and it is a targeting bug rather than a combat one. A dead
+					-- creature stays parented for its death animation, and `playDeath` has already
+					-- dropped it from `hitHandlers` -- so the server correctly discards every blow aimed
+					-- at it. Without a liveness test here the client kept picking it anyway, because it
+					-- is the NEAREST model: measured live in a three-creature cluster, **5 of 8 swings
+					-- went at a corpse 13.8 studs away while a live Swarmer stood at 20.7**, and the
+					-- player saw a creature in front of them losing no health at all.
+					--
+					-- `Health` is a replicated attribute, which is what makes this answerable on the
+					-- client at all. It also rejects two other things cheaply and correctly:
+					--   * the ~1,190 creature models whose parts are streamed out (attribute present,
+					--     no body) -- already skipped by the part test below, now skipped sooner
+					--   * anything in this folder that is not a creature. deathBurst parents its
+					--     confetti host and ground shockwave straight into workspace.Creatures, and
+					--     those carry no Health at all.
+					local hp = model:GetAttribute("Health")
+					if hp and hp > 0 then
+						local part = model.PrimaryPart or model:FindFirstChild("Body")
+						if part then
+							local d = (part.Position - at).Magnitude
+							if d <= reach and d < bestDist then
+								best, bestDist = model, d
+							end
 						end
 					end
 				end
@@ -1187,6 +1309,12 @@ CombatFx.OnClientEvent:Connect(function(fx)
 	end
 
 	if mine then
+		-- before the DNA pop, so the two numbers do not start on the same frame in the same place:
+		-- the crystal spends its first four tenths of a second climbing out of the corpse while the
+		-- DNA figure rises off it, and its own "+1" is drawn a second later at the player
+		if kill and fx.sh then
+			shardPickup(fx.p, fx.s)
+		end
 		if kill and fx.dna then
 			popNumber(fx.p, "+" .. shortNumber(fx.dna) .. " \u{1F9EC}", UITheme.Color.Mint, true)
 		elseif fx.d and fx.d > 0 then

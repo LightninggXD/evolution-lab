@@ -12,6 +12,7 @@
 
 local RunService = game:GetService("RunService")
 local SoundLibrary = require(script.Parent:WaitForChild("SoundLibrary"))
+local IconLibrary = require(script.Parent:WaitForChild("IconLibrary"))
 
 local UITheme = {}
 
@@ -389,6 +390,208 @@ local function buildSurface(inst, parent, opts, defaultRadius)
 	return color, base, press
 end
 
+-- ============================================================================
+-- ICONS (ROADMAP 9.9)
+-- ============================================================================
+--
+-- FOUR CALL SITES DECIDE WHAT AN ICON IS in this whole game -- Button, Card, IconTile and Pill --
+-- which is why 9.9 is one abstraction rather than a hundred and fifty edits. Every one of them
+-- routes through the two helpers below.
+--
+-- The contract is that an icon is DRAWN IF WE HAVE ONE and rendered as its emoji if we do not, so
+-- nothing can ever come out as an empty square. See the IconLibrary header for why the lookup key
+-- is the emoji itself.
+--
+-- `Image` is a property of TextLabel too, but a TextLabel cannot show one -- so an icon slot is an
+-- ImageLabel when there is art and a TextLabel when there is not, and `iconSlot` hands back
+-- whichever it built. Callers only ever set position and size on it, never `.Text`.
+
+-- Rendered a shade darker than the plate so a white icon on a pale tile still has a body. Not a
+-- UIStroke: an ImageLabel's stroke traces the IMAGE BOX, not the drawing inside it, so it would
+-- put a rectangle round every icon. The PNGs carry their own contour instead (see make_icons.py).
+local function iconSlot(parent, emoji, zIndex, minText, maxText)
+	local asset = IconLibrary.Resolve(emoji)
+	if asset then
+		local img = Instance.new("ImageLabel")
+		img.Name = "Icon"
+		img.BackgroundTransparency = 1
+		img.Image = asset
+		img.ScaleType = Enum.ScaleType.Fit -- never distort: the art is square and the slot may not be
+		img.ZIndex = zIndex
+		img.Parent = parent
+
+		-- ===== THE SAME-HUE PROBLEM, SOLVED ONCE INSTEAD OF PER TILE =====
+		--
+		-- Every icon carries its own dark contour, which is enough on a tile of a different colour
+		-- and is NOT enough when the two match: the gold shard on the gold Day 7 card came out as a
+		-- pale ghost, which is exactly the mistake 6.4 made with gold chips on a gold card. Tinting
+		-- an icon to fit its background would mean 44 icons x every tile colour they can land on.
+		--
+		-- A drop shadow fixes all of it with one instance and no knowledge of either colour: the
+		-- SAME image, tinted flat to the outline colour and offset down-right behind the real one.
+		-- Because it is the same PNG it is exactly the icon's silhouette, so the icon reads as a
+		-- solid object sitting ON the tile whatever the tile happens to be -- which is also the
+		-- hard-shadow rule every other surface in this kit already follows.
+		-- ...UNLESS THE PARENT IS RUNNING A LAYOUT. A UIListLayout or UIGridLayout gives every child
+		-- a cell, so a shadow sibling would not sit behind the icon -- it would be handed the NEXT
+		-- CELL and push everything after it along. That is the currency pills (icon then value in a
+		-- horizontal list), and they sit on the dark HUD backdrop where the contour is already
+		-- enough. Detected rather than passed in, so a layout added to some parent later cannot
+		-- quietly break its row.
+		local laidOut = parent:FindFirstChildWhichIsA("UIListLayout")
+			or parent:FindFirstChildWhichIsA("UIGridLayout")
+			or parent:FindFirstChildWhichIsA("UIPageLayout")
+			or parent:FindFirstChildWhichIsA("UITableLayout")
+		if laidOut then
+			return img, true
+		end
+
+		-- A SIBLING, NOT A CHILD, and that is forced rather than chosen: this ScreenGui runs
+		-- `ZIndexBehavior.Sibling`, under which a child ALWAYS draws above its parent whatever its
+		-- ZIndex -- so a shadow parented to the icon would cover the icon it is shadowing. As a
+		-- sibling one ZIndex lower it lands where it belongs, at the cost of having to mirror the
+		-- layout the caller sets afterwards.
+		local shade = Instance.new("ImageLabel")
+		shade.Name = "IconShadow"
+		shade.BackgroundTransparency = 1
+		shade.Image = asset
+		shade.ScaleType = Enum.ScaleType.Fit
+		shade.ImageColor3 = Color.Outline
+		shade.ImageTransparency = 0.55
+		shade.ZIndex = zIndex - 1
+		shade.Parent = parent
+
+		-- Every caller sets Size/Position on the slot AFTER it is handed back, so the mirror is a
+		-- subscription rather than a copy. The offset is in SCALE, so it stays proportional as the
+		-- responsive pass drives a tile from 82 px down toward its 40 px floor.
+		local function mirror()
+			shade.Size = img.Size
+			shade.SizeConstraint = img.SizeConstraint
+			shade.AnchorPoint = img.AnchorPoint
+			shade.LayoutOrder = img.LayoutOrder
+			shade.Visible = img.Visible
+			shade.Image = img.Image -- SetIcon can swap the drawing; the shadow has to follow it
+			shade.Position = img.Position + UDim2.new(0.05, 0, 0.055, 0)
+		end
+		for _, prop in ipairs({ "Size", "Position", "AnchorPoint", "SizeConstraint", "LayoutOrder", "Visible", "Image" }) do
+			img:GetPropertyChangedSignal(prop):Connect(mirror)
+		end
+		mirror()
+
+		return img, true
+	end
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Icon"
+	label.BackgroundTransparency = 1
+	label.Font = DisplayFont
+	label.TextColor3 = Color.White
+	label.Text = emoji or ""
+	label.ZIndex = zIndex
+	outlineText(label)
+	autoSize(label, minText or 16, maxText or 34)
+	label.Parent = parent
+	return label, false
+end
+
+-- PUBLIC, because the four kit surfaces are not the only places an icon appears. Panel CONTENT --
+-- the 17 shop cards, the 9 pass rows, the potion bottles, the boost chips -- is built directly out
+-- of Instance.new in MainUI rather than through Button/Card/IconTile/Pill, so those sites need the
+-- same either-kind slot without being rewritten into kit components.
+--
+-- It lives here rather than in MainUI on purpose: MainUI is at Luau's 200-local register cap (see
+-- its own header), and a helper declared there would cost one of the last registers. Declared here
+-- it costs none -- MainUI already holds a reference to this module.
+function UITheme.IconSlot(parent, opts)
+	opts = opts or {}
+	local slot = iconSlot(parent, opts.icon or "", opts.zIndex or Z.Content,
+		opts.minTextSize or 16, opts.maxTextSize or 34)
+	if opts.size then
+		slot.Size = opts.size
+	end
+	if opts.position then
+		slot.Position = opts.position
+	end
+	if opts.anchorPoint then
+		slot.AnchorPoint = opts.anchorPoint
+	end
+	if opts.layoutOrder then
+		slot.LayoutOrder = opts.layoutOrder
+	end
+	if opts.name then
+		slot.Name = opts.name
+	end
+	return slot
+end
+
+-- Turns an EXISTING left-aligned label whose text begins with a mapped emoji into an icon plus
+-- text: the glyph is stripped, a drawing is placed at the label's left edge, and the label is
+-- inset to clear it. Returns true when it did something.
+--
+-- This shape exists for the panel HEADERS, which are a dozen plain TextLabels built individually
+-- and positioned by hand across MainUI ("\u{1F4C5} Daily Rewards!", "\u{1F6CD}\u{FE0F} Robux
+-- Shop"). Rewriting each into a kit component would move every panel's title by a few pixels and
+-- risk the layout of twelve screens; adjusting one that is already correct costs one line and
+-- moves nothing but the glyph.
+--
+-- LEFT-ALIGNED ONLY, and it refuses rather than guessing otherwise: a centred title has no fixed
+-- left edge to hang an icon off -- the text starts wherever its own width puts it -- so an icon
+-- placed at the frame's left would float away from the words it belongs to.
+function UITheme.IconifyLabel(label, gap)
+	if not label or not label:IsA("TextLabel") then
+		return false
+	end
+	if label.TextXAlignment ~= Enum.TextXAlignment.Left then
+		return false
+	end
+	local asset = IconLibrary.Resolve(label.Text)
+	if not asset then
+		return false
+	end
+	local stripped = IconLibrary.StripLeading(label.Text)
+	if stripped == label.Text then
+		return false
+	end
+
+	gap = gap or 6
+	-- CAPTURED BEFORE ANYTHING MOVES, and this is the whole trick. The icon goes where the label
+	-- USED to start; the label then steps right to clear it. A resize handler that re-read
+	-- `label.Position` would read the position after that step and walk the icon onto the words --
+	-- which is exactly what the first version did, and what a screen capture caught: the panel
+	-- title rendered as "[icon]ily Rewards!" with the "Da" underneath the drawing.
+	local basePos = label.Position
+	local baseSize = label.Size
+
+	local img = iconSlot(label.Parent, label.Text, label.ZIndex)
+	img.Name = "TitleIcon"
+	img.AnchorPoint = label.AnchorPoint
+
+	local function fit()
+		-- square, off the label's rendered height -- a title box is 28..44 px depending on the panel
+		local d = label.AbsoluteSize.Y
+		if d < 4 then return end
+		img.Size = UDim2.new(0, d, 0, d)
+		img.Position = basePos
+		-- The label keeps its own anchor and simply starts further along. Offset only -- a scale
+		-- term here would make the inset depend on the parent's width, which an icon's width is not.
+		label.Position = basePos + UDim2.new(0, d + gap, 0, 0)
+		label.Size = baseSize - UDim2.new(0, d + gap, 0, 0)
+	end
+	label:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+
+	label.Text = stripped
+	fit()
+	return true
+end
+
+-- Re-exported so a call site that has to branch on "is there art for this" does not have to
+-- require IconLibrary itself. That matters for exactly one caller and it is the important one:
+-- MainUI is at the 200-local register cap, and a second `local X = require(...)` there costs a
+-- register this phase has promised not to spend.
+function UITheme.HasIcon(emoji)
+	return IconLibrary.Has(emoji)
+end
+
 local function buildLabelChild(inst, opts, base, text, maxText)
 	local label = Instance.new("TextLabel")
 	label.Name = "Label"
@@ -421,10 +624,52 @@ function UITheme.Button(parent, opts)
 	local color, base, press = buildSurface(button, parent, opts, UDim.new(0, 16))
 
 	local text = opts.text or ""
-	if opts.icon and opts.icon ~= "" then
+	-- ICON AND TEXT ARE STILL ONE LABEL WHEN THERE IS NO ART FOR THE ICON, and that is deliberate:
+	-- a button's text is centred, so splitting the row unconditionally would move every existing
+	-- caption a few pixels right for the ~90 emojis this game will never draw. When there IS art,
+	-- the glyph comes out of the string and a square ImageLabel takes the left end of the button.
+	local iconAsset = (opts.icon and opts.icon ~= "") and IconLibrary.Resolve(opts.icon) or nil
+	if opts.icon and opts.icon ~= "" and not iconAsset then
 		text = opts.icon .. " " .. text
 	end
-	buildLabelChild(button, opts, base, text, 26)
+	-- MOST BUTTONS IN THIS GAME PUT THE EMOJI IN THE TEXT, not in `icon` -- "\u{1F3A1} FREE SPIN",
+	-- "\u{2694}\u{FE0F} REVIVE". Those are the same thing written a different way, so a LEADING
+	-- mapped glyph is promoted to the icon slot and stripped from the string. Only leading: a
+	-- trailing glyph is part of a sentence ("SPIN 25\u{1F31F}" is a price) and has no slot to go to.
+	if not iconAsset then
+		iconAsset = IconLibrary.Resolve(text)
+		if iconAsset then
+			text = IconLibrary.StripLeading(text)
+		end
+	end
+	local label = buildLabelChild(button, opts, base, text, 26)
+
+	if iconAsset then
+		local img = iconSlot(button, opts.icon or opts.text, base + Z.Content)
+		-- Sized off the button's own height, so one rule covers a 42px shop row and a 68px HUD
+		-- button. 0.62 leaves the icon visually the same weight as the cap height beside it.
+		--
+		-- BOTH SCALES ARE 0.62, and that is what RelativeYY means: it makes the X scale relative to
+		-- the parent's HEIGHT as well, which is the whole point (a square, whatever the aspect of
+		-- the button). Writing the X term as 0 -- the obvious way to say "take the height and let
+		-- the constraint work it out" -- gives a slot 0 pixels wide, and an ImageLabel that is
+		-- loaded, positioned, correct in every structural probe, and invisible on screen.
+		img.Size = UDim2.new(0.62, 0, 0.62, 0)
+		img.SizeConstraint = Enum.SizeConstraint.RelativeYY
+		img.Position = UDim2.new(0, 10, 0.5, 0)
+		img.AnchorPoint = Vector2.new(0, 0.5)
+		-- and the text gives up exactly the room the icon took, on BOTH sides -- a label inset only
+		-- on the left is still centred on the whole button, so its text would sit under the icon
+		label.Size = UDim2.new(1, -16 - 2 * (label.AbsoluteSize.Y * 0.62 + 10), 1, -12)
+		-- AbsoluteSize is 0 for a frame that has not been laid out yet, which is every frame on the
+		-- first pass. Bind the real measurement to the button's own resize instead of guessing.
+		local function fit()
+			local d = button.AbsoluteSize.Y * 0.62 + 10
+			label.Size = UDim2.new(1, -16 - 2 * d, 1, -12)
+		end
+		button:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+		fit()
+	end
 
 	-- press feedback
 	local pressed = false
@@ -472,10 +717,26 @@ function UITheme.Card(parent, opts)
 
 	if opts.text and opts.text ~= "" then
 		local text = opts.text
-		if opts.icon and opts.icon ~= "" then
+		-- same split as Button, and the same reason it is conditional -- see the note there
+		local iconAsset = (opts.icon and opts.icon ~= "") and IconLibrary.Resolve(opts.icon) or nil
+		if opts.icon and opts.icon ~= "" and not iconAsset then
 			text = opts.icon .. " " .. text
 		end
-		buildLabelChild(card, opts, base, text, 26)
+		local label = buildLabelChild(card, opts, base, text, 26)
+		if iconAsset then
+			local img = iconSlot(card, opts.icon, base + Z.Content)
+			-- both scales 0.62 -- see the note in Button
+			img.Size = UDim2.new(0.62, 0, 0.62, 0)
+			img.SizeConstraint = Enum.SizeConstraint.RelativeYY
+			img.Position = UDim2.new(0, 10, 0.5, 0)
+			img.AnchorPoint = Vector2.new(0, 0.5)
+			local function fit()
+				local d = card.AbsoluteSize.Y * 0.62 + 10
+				label.Size = UDim2.new(1, -16 - 2 * d, 1, -12)
+			end
+			card:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+			fit()
+		end
 	end
 
 	if opts.badge then
@@ -544,13 +805,13 @@ function UITheme.IconTile(parent, opts)
 
 	local hasCaption = opts.caption ~= nil and opts.caption ~= ""
 
-	local icon = Instance.new("TextLabel")
+	-- KEPT AS "Label", whichever kind it turns out to be. Six places outside this module reach into
+	-- a tile by that name (the responsive pass, refreshAutoTile, the potion strip and others), and
+	-- renaming it because the class changed would break all of them silently -- a FindFirstChild
+	-- that misses returns nil, and every one of those call sites is nil-guarded.
+	local icon, isImage = iconSlot(body, opts.icon or opts.text or "", body.ZIndex + Z.Content,
+		20, opts.maxTextSize or 38)
 	icon.Name = "Label"
-	icon.BackgroundTransparency = 1
-	icon.Font = DisplayFont
-	icon.TextColor3 = Color.White
-	icon.Text = opts.icon or opts.text or ""
-	icon.ZIndex = body.ZIndex + Z.Content
 	if hasCaption then
 		-- 0.54, down from 0.60. The icon was taking six tenths of the tile and the word underneath it
 		-- was taking three, and the word is the half a player actually reads -- an emoji at 38pt is
@@ -563,9 +824,17 @@ function UITheme.IconTile(parent, opts)
 		icon.Position = UDim2.new(0.5, 0, 0.5, 0)
 		icon.AnchorPoint = Vector2.new(0.5, 0.5)
 	end
-	outlineText(icon)
-	autoSize(icon, 20, opts.maxTextSize or 38)
-	icon.Parent = body
+	-- A DRAWN ICON GETS A SQUARE SLOT, and this is the one place it matters most. `ScaleType.Fit`
+	-- keeps the art's aspect inside whatever box it is given, so a 1.0-wide by 0.54-high slot draws
+	-- the icon at 54% of the tile height and leaves the rest as empty margin -- correct, but small.
+	-- Constraining the WIDTH to the height instead gives the drawing the whole band it was allotted.
+	-- A TextLabel needs the opposite (its glyph is already centred in a wide box), so this only
+	-- applies to the image case.
+	if isImage and hasCaption then
+		-- both scales 0.60 -- see the note in Button about what RelativeYY does to the X term
+		icon.Size = UDim2.new(0.60, 0, 0.60, 0)
+		icon.SizeConstraint = Enum.SizeConstraint.RelativeYY
+	end
 
 	if hasCaption then
 		local caption = Instance.new("TextLabel")
@@ -707,18 +976,11 @@ function UITheme.Pill(parent, opts)
 	layout.Padding = UDim.new(0, 6)
 	layout.Parent = frame
 
-	local icon = Instance.new("TextLabel")
-	icon.Name = "Icon"
-	icon.BackgroundTransparency = 1
+	-- The pill is a UIListLayout, so the slot only has to declare its size and order -- the layout
+	-- puts the value beside it either way, and a drawn icon and an emoji occupy the same 40px box.
+	local icon = iconSlot(frame, opts.icon or "", frame.ZIndex, 16, opts.maxTextSize or 34)
 	icon.Size = UDim2.new(0, 40, 1, 0)
 	icon.LayoutOrder = 1
-	icon.Font = DisplayFont
-	icon.TextColor3 = Color.White
-	icon.Text = opts.icon or ""
-	icon.ZIndex = frame.ZIndex
-	outlineText(icon)
-	autoSize(icon, 16, opts.maxTextSize or 34)
-	icon.Parent = frame
 
 	local value = Instance.new("TextLabel")
 	value.Name = "Value"
@@ -966,11 +1228,59 @@ function UITheme.SetText(inst, text)
 	local host = inst:FindFirstChild("Body") or inst
 	local label = host:FindFirstChild("Label")
 	if label and label:IsA("TextLabel") then
+		-- THE GLYPH COMES OUT WHEN THERE IS ALREADY A DRAWING OF IT (9.9). Dozens of call sites
+		-- rewrite a caption with the emoji baked into the new string -- `SetText(btn, "🎡 SPIN 25🌟")`
+		-- -- and on a button whose icon is now an ImageLabel that would put the emoji back beside
+		-- the picture of itself. Stripping only a LEADING mapped glyph is deliberate: the trailing
+		-- 🌟 in that same string is part of a price and has no icon slot to move into.
+		local slot = inst:FindFirstChild("Icon")
+		if slot and slot:IsA("ImageLabel") then
+			-- ...AND THE PICTURE FOLLOWS THE WORDS. A control's leading glyph is not decoration, it
+			-- is part of what the control currently SAYS: the shard spin button reads
+			-- "🎡 SPIN 25🌟" when it can be pressed and "🌟 4 / 25" when it cannot. An icon frozen
+			-- at build time would keep offering a wheel next to a progress count. Only updated when
+			-- the new text actually leads with a mapped glyph -- otherwise the existing icon stands,
+			-- because "REVIVE  (2 left)" is the same button as "⚔️ REVIVE" with a different caption.
+			local nextAsset = IconLibrary.Resolve(text)
+			if nextAsset then
+				slot.Image = nextAsset
+			end
+			text = IconLibrary.StripLeading(text)
+		end
 		label.Text = text
+		return
+	end
+	-- An IconTile whose icon is drawn has an ImageLabel called "Label" and no text at all. Setting
+	-- `.Text` on it would error, and the caption is a different child anyway -- so this is a no-op
+	-- by design rather than by accident.
+	if label and label:IsA("ImageLabel") then
 		return
 	end
 	if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then
 		inst.Text = text
+	end
+end
+
+-- Swaps the drawing in an icon slot, for the handful of places that change what a control MEANS
+-- rather than what it says -- the potion strip's kind, a tab's state. Takes an emoji, like
+-- everything else in this system, and falls back to writing the glyph when there is no art.
+function UITheme.SetIcon(inst, emoji)
+	if not inst then
+		return
+	end
+	local host = inst:FindFirstChild("Body") or inst
+	local slot = host:FindFirstChild("Icon") or host:FindFirstChild("Label")
+	if not slot then
+		return
+	end
+	local asset = IconLibrary.Resolve(emoji)
+	if slot:IsA("ImageLabel") then
+		-- An unmapped emoji cannot be shown by an ImageLabel, so it clears rather than leaving the
+		-- PREVIOUS icon standing -- a stale picture is a worse answer than an empty slot, because it
+		-- is the one a player would believe.
+		slot.Image = asset or ""
+	elseif slot:IsA("TextLabel") then
+		slot.Text = emoji or ""
 	end
 end
 

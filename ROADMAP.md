@@ -316,6 +316,61 @@ rate.
 
 ---
 
+## Phase 9 — Modernisation pass · *make the player FEEL the progression*
+
+Commissioned 2026-08-09. The brief is not "new UI" — it is that attacking, evolving, climbing and
+rebirthing must each visibly pay. Ordered so that every later row can be tested against a game whose
+numbers already move. **9.1 landed first because it was a bug, not a polish item.**
+
+| # | Status | Task | Verification |
+|---|---|---|---|
+| 9.1 | `[x]` | **Damage actually grows with evolution.** Three separate causes, all measured, none of them the damage function: `CreatureService`'s `tier.damageCap` and `BossService`'s `BOSS_MIN_HITS` both replaced the real number with a per-target constant *and the FX drew the constant*, and `PetService` multiplied `damageMult` per pet (x652 on five mid-tier pets, against x1394 for the entire 100-step ladder). Damage is now geometric in the character rung — `GetRankDamage`, `1.076^5 = 1.4425 =` the per-zone creature-health ratio — so kills-per-creature are flat across all twenty zones. Boss health is derived from the same ladder instead of twenty authored numbers spanning x86,000 | Live in Play: evolution 1→100 = **5 → 7,053**; 2x Damage **x2.00**, VIP **x1.50**, stacked **x3.00**, 1 rebirth **x2.00**, 4 rebirths **x8.00**, Income 50 **x1.50**, 5 pets **x14.32**. End to end, the `CombatFx` payload over a killed creature came back **`d=3768`** = exactly `GetCombatDamage` for that save; the same swing drew **`7`** before |
+| 9.2 | `[x]` | **Rebirth is a milestone ladder, not a repeatable reset.** Zones 5 / 10 / 15 / 20, each usable **once** and locked afterwards, and it **stops at four** (owner's decision, 2026-08-09). Rebirth no longer pays Shards. The panel must state rebirths held, which is next, what resets, what is permanent and how far off it is **Walked live**: stages 5..20 unlock #1 and nothing below; the chain ran 1→2→3→4 each resetting to stage 1 / Forest / 1 zone / 0 bosses / 1 skin / 0 DNA / 0 XP / 0 upgrades while keeping mastery and shards; the **5th was refused**. A spent tier re-offered is refused, a tier past the live one is refused, and NaN / string / table are all refused while `nil` (the HUD button) works. Damage x2.00→x3.50→x5.50→x8.00, income x2.50→x4.00→x5.50→x7.00 |
+| 9.3 | `[x]` | **A modern arrow that shines at the Rebirth button** the moment a milestone is reachable, and nowhere else captured on screen: ring + arrow + "REBIRTH READY" beside the tile with a milestone live, and **completely absent** on the same save once the ladder is finished |
+| 9.4 | `[x]` | **Shards become a drop, and get a sink.** Rare, and **only** off the raised Brutes/Elites on the terraces — `GameConfig.RollShardDrop(tier, raised)`, where `raised` is carried on the spawn and **threaded through the respawn**, because a flag dropped there would pay the shelves exactly once per server. Elite 25% / Brute 12%, so one sweep of a zone's ten shelf creatures pays 1.72 against a spin costing 25: about a quarter-hour of cliff work. The sink is the **existing wheel**, not a second one — `RobuxShopService.SpendShardSpin` charges and calls the already-public `GrantSpin`, so 3.3's balance work still describes it exactly, and the price is set to the wheel's own `shards` segment so 7 spins in 100 return the next one. **One thing had to be taken out to make the sink usable:** `GetShardIncomeBonusPct` was still multiplying income by the shard *balance*, so every spin would have permanently cut the spinner's income and the correct play would have been never to touch it. That income moved onto the rebirth counter in 9.2 and the function was the half of that move that never happened | **live end to end: 38 kills on Forest's shelves paid 6 shards** (173 → 179 on the real save), and all 6 arrived on the `CombatFx` payload as `sh` — the two counts agree. Only ten raised creatures exist in a zone, so at least 28 of those kills were **respawns**, which is the flag-threading proved rather than argued. **Floor control: 12 real kills of floor Brutes/Elites, 0 shards and 0 payloads carrying `sh`**, plus 20,000 rolls of the shipped function where a floor Elite paid **0** and a raised Swarmer paid **0** (raised Brute 0.1206, raised Elite 0.2505 against 0.12 / 0.25 authored). Sink live through the real remote: 179 → 154 → 129, **exactly 25 a spin**, real segments rolled (2x Large Luck, Potion, DNA Surge); a **same-frame double fire charged 25 once**; at 4 shards the button reads **`🌟 4 / 25`** in Locked and a press is refused with the toast, balance untouched. Refusals on a synthetic save: 24 shards (one short) → `poor`, nothing deducted. The crystal was **sampled from the world across 151 frames** — 2 parts, PointLight, body 2.24×3.81×2.24 and tip 1.39×1.61×1.39 off one `u`, colour exactly RGB(255,206,84), rising then closing to 1.7 studs of the player, and destroyed on every path. Screen-captured in flight. Panel geometry: ShardSpin x280..450 against the streak card's 262 and the free spin's 458, **0 clipped labels**, MainUI still **181 top-level locals** |
+| 9.5 | `[x]` | **Evolution costs XP only.** `HandleEvolve` charges both DNA and XP today; DNA keeps the upgrades, eggs, potions and shops. `XpPerLevelGrowth` is used *twice* on purpose (`stage.xpCost` and `zone.mobXpMult`) — they are a matched pair and must move together **Live at ranks 1, 5, 10, 25, 50, 75, 99**: with **DNA = 0** every one evolved; with **DNA = 1e15 and one XP short** every one was refused; overkill XP carries (164 against 82 leaves 82); rank 100 reports `isMax` and a further press does nothing. HUD agrees — button reads "needs 78 more XP", bar and label both XP, the word DNA gone |
+| 9.6 | `[ ]` | **Zones: real mobs everywhere, and legible climb routes.** The terraces already carry `TerraceRamp` + stairs per tier per side; the job is making "higher = harder = better" readable, and finding why a streamed-in creature can read as a floating health plate | walk a zone: every plate has a body under it; the route up is obvious without hunting |
+| 9.7 | `[ ]` | **Potion cards, bounded.** Measured: the strip is a 250 px frame with **297 px** of content, `ClipsDescendants` false, and it overlaps the Rebirth tile on any viewport below 896 px — at 1366x768 that is three potions | at 1280x720 with every boost running, the Rebirth tile is fully clickable |
+| 9.8 | `[ ]` | **Leaderboard + a #1 statue.** `LeaderboardService.Top` already carries `userId`, so a statue can be cast from the real player; nothing in the place fetches an avatar thumbnail yet | the #1 name on the board and the statue agree after a refresh |
+| 9.9 | `[x]` | **Emoji → cartoon icon system.** 44 icons drawn by `tools/make_icons.py` (one silhouette per icon from a DILATED alpha mask — stroking each shape gives an outline per shape, not per icon) and uploaded to the owner's account; `assets/icons/uploaded.json` records the ids and new `IconLibrary` is what the game reads. **The lookup key is the EMOJI ITSELF**, which is what made this one abstraction instead of 150 edits: emoji are written into twenty stage rows, a hundred pet species, nine passes, seventeen products and thirty season rewards, and threading an `iconKey` through all of them would be a hundred chances to miss one. A call site still says `"\u{1F9EC}"` and gets a drawn helix. **An unmapped emoji returns nil and renders as the glyph** — so the ~90 species/stage emoji (a Swarmer is a bug, a pet is a fox) stay text on purpose, and an emoji added next year can never render as an empty square. Four `UITheme` surfaces cover the HUD; panel content is raw `Instance.new`, so `UITheme.IconSlot` / `IconifyLabel` / `SetIcon` / `HasIcon` were added for it — all in `UITheme`, because a helper in MainUI would cost one of its last registers | **all 44 verified loading in the live client** (`ImageLabel.IsLoaded`, 44/44) — `ContentProvider:PreloadAsync` reported Failure for all 44 **and for a known-good control asset**, so the probe was broken, not the ids. Live HUD: **129 drawn icons + 126 shadows**, 10/10 tiles and 3/3 pills drawing art, 107 across twelve panels, 0 clipped labels, and ZonesPanel still carrying **29 emoji glyphs with 0 icons** — the fallback holding where it should. Dynamic case driven through the real `SetText`: the shard button's icon goes wheel → shard as its caption changes. Titles measured for overlap: all seven **CLEAR at exactly 6px**. MainUI **181 top-level locals, 0 added**; compile sweep 59 scripts / 0 failures; `luanames` still 9. **Three bugs only the captures found** — see the changelog |
+| 9.10 | `[ ]` | **Guided first-time tutorial.** `FirstJoin` already derives its step from live save state rather than remembering one (so it cannot wedge, and it survives a disconnect) — keep that and add world-space pointing, highlight and spotlight | a new save is led attack → reward → evolve → climb without reading a wall of text |
+
+---
+
+## Phase 10 — Gameplay, economy, pet, combat & UI overhaul
+
+Commissioned 2026-08-10 from a 40-point brief plus seven screenshots of live play. Several rows
+are **already done** by earlier phases and are recorded here as such rather than re-done: the hatch
+sequence is 6.1, Auto Hatch is 2.3, the damage ladder is 9.1, the evolve XP curve is 9.5, and the
+boost-strip overlap was already measured by 9.7.
+
+Ordered so each row is testable against a game whose numbers already move.
+
+| ID | | Task | Verified how |
+|---|---|---|---|
+| 10.1 | `[x]` | **Pets pay damage, not DNA — and an egg's zone is finally worth something.** Three fixes in one: `PetBaseBonus.incomeMult`/`dnaMult` to a hard 1, a new zone axis on `GetPetBonus`, and `luckAdd` moved onto the damage share. See the changelog entry for the arithmetic | live in Play against the shipped source. One Legendary: DNA **x37.80 → x1.17**, damage **x1.83**. Five: DNA x1.68, damage x5.00. Ordering holds at rank 96 — zone 1/10/20 Legendary = **+21.8% / +29.6% / +80.0%**, strictly rising. Pet rows in the live HUD read **Draco +36% against Pyrodrake +48%**, same rarity and tier, different egg zone |
+| 10.2 | `[x]` | **Pet inventory hard cap 30.** `GameConfig.MaxOwnedPets` replaces two private `MAX_PETS = 600` constants (`PetService`, `TradeService`) that could drift apart — both files already required GameConfig, so the duplication only ever bought a way for a trade to accept pets a hatch was refusing. Capsule reads `n/30` and turns amber at −3, red at the cap. **Migration per the owner's decision**: keep the 30 strongest, equipped pets rescued unconditionally, once, flagged by `PetsTrimmedAt` | **live on the owner's real save: `trimmed 5746881443 (OGLightninggXD): 58 pets -> 30 (released 28)`**, and the HUD came up **30/30 in red** with 25 release buttons against 5 equipped rows. Fixture where the WEAKEST pet is equipped (the case a naive top-30 destroys): it survives, 3/3 equipped kept, 0 duplicate ids, 0 phantom equipped ids. 12 and 30-pet saves are not touched and get no flag; a second load does not re-trim. **The brief's critical case: at 30/30 a buy is refused and charges 0 DNA** (29/30 charges 500 and succeeds; a grandfathered 58 refuses and charges 0; release one → buy succeeds) |
+| 10.3 | `[x]` | **Pet deletion** — `Remotes.DeletePets`, `PetService.HandleDeletePets`, and a confirm dialog. **One handler takes a list, always**, so a single release is a list of one and there is no second path to drift. An equipped pet is **refused rather than auto-unequipped** — releasing the team by accident is what the dialog exists to prevent | live through the real handler: one release 6→5; an equipped pet refused with the inventory **unchanged**; a mixed batch of 3 valid + 1 equipped + 1 unknown id leaves exactly the equipped and the unknown; empty / numeric / boolean / 500-char / string payloads all change nothing; 5,000 ids hit the 60 batch cap and still spare the equipped pet. Dialog built once and re-targeted, hidden by default at ZIndex 60, centred, **CANCEL 210 px against RELEASE 152 px with an 18 px gap**, 0 clipped labels. **The click itself is not click-tested** — `getconnections` is unavailable, the same environment limit as 2.10, 3.7, 4.4 and 4.6 |
+| 10.4 | `[x]` | **x10 hatch.** New `HandleBuyEggBulk` + `Remotes.BuyEggBulk` + a `petBulk` payload and a compact reveal in `HatchReveal`. **Ten `HandleBuyEgg` calls would NOT have worked**: each fires its own `pet` notification and `HatchReveal.busy` keeps one sequence per egg, so nine of ten reveals would be dropped silently. The roll is extracted into a shared `rollAndInsert`, so x1 and x10 cannot drift. **Buys what fits** rather than refusing the batch. The x10 ProximityPrompt is cloned onto each shell by `WireKiosks` — no `ZoneBuilder` edit, no `BUILD_VERSION` bump | live: **60 single prompts, 60 x10 prompts**, labels correct (Forest Basic 500 → `5.0K DNA`). Full x10 = +10 pets / 5,000 DNA; **25/30 inventory buys 5 and charges for 5**; DNA for exactly 6 buys 6 and lands at 0; full inventory and unaffordable both charge **0**; a locked zone refuses. Client received **1 payload for 10 pets** (against 10), all fields present, all species from the egg's own zone, `best` matching the real best roll. Sequence measured **3.48 s, 10 grid cells on 1 billboard, 1 burst, header `💫 Accretia!`, 0 objects left behind** |
+| 10.5 | `[x]` | **Auto Hatch reachable, with real stop conditions.** Added the OFF switch the brief asks for (`AutoHatch` player attribute + `Remotes.SetAutoHatch`, mirroring the free auto-attack toggle; `nil` counts as ON) and a **stop reason reported once per transition** rather than once per tick — with the cap now 30, "full" went from a state nobody reached to one every pass owner hits, and a loop that silently does nothing is indistinguishable from a paid pass that does not work | live, driving the real loop: no pass → nothing; pass + toggle `nil` → **+3 pets in 3 ticks**; toggle off → **0**; toggle on again → **+3**; inventory full → 0 pets and **0 DNA spent**; empty wallet → 0 and **DNA never goes negative**; walked 400 studs away → 0. **Still gated on `passId = 0`** (owner action 2.11) — exercised through `data.Passes`, the same technique 2.10, 6.4 and 7.1 used |
+| 10.6 | `[x]` | **Auto-attack targets corpses.** Not a combat bug and nothing to do with the tutorial — `nearestTarget` had no liveness test, so a dead creature (parented for its 0.42 s death animation, and already dropped from `hitHandlers`, so the server discards every blow at it) is simply the NEAREST model and wins. One `Health > 0` test in `CombatClient`; it also rejects the deathBurst fx hosts parented into `workspace.Creatures` and the ~1,190 streamed-out shells | **repro measured live in a 3-creature cluster: 5 of 8 swings went at a corpse 13.8 studs away while a live Swarmer stood at 20.7.** After the fix, same cluster, 24 samples: **0 corpses, 5 live targets.** Bosses carry `Health` too (`BossService:2189`), so the filter is safe for both folders |
+| 10.7 | `[x]` | **Creature aggro distance** `LOOK_RADIUS` 120 → **32**, *and* measured from the body rather than the spawn point. 120 was most of the visible platform — every creature in the zone stared at once. 32 is sized off numbers that already exist: the client's auto scan is 34, so a creature notices you just before you can hit it | live sweep on one creature: ignores at **90 / 61 / 39 studs**, turns at **30 / 26 / 14** (within 5° of facing). **The distance-source bug was found by this test** — at 28 studs it kept its idle facing because `closestDist` was measured to `rig.origin`, which a roaming creature is up to `roamRadius` away from; harmless at 120, most of the radius at 32 |
+| 10.8 | `[x]` | **Boss faces the arrival gate, never the player.** `want` is unconditionally `rig.home`; `yawTowards` and `BOSS_TURN_RADIUS` are gone with it, and the nearest-player search in the driver went too — it existed only to feed the turn, ran on every boss every frame and could not break early. The lerp-and-snap is kept so an off-facing rig walks back to the gate and then costs nothing | live: player walked a full circle at 90 studs (well inside the old 320 turn radius) — boss yaw **-0.0° at every station, max drift 0.00°**. `-0.0°` is +Z, i.e. the arrival gate the arena is built around |
+| 10.9 | `[x]` | **Creature HP grows +5% per clearance, capped at x2.0; payout flat.** `generation` rides the respawn call the way `raised` does — a property of the SPAWN POINT, not of the player, because health is one number every player in the zone is looking at | live at one spawn point: **408 → 428 → 489**, exactly `base x1.05` and `base x1.20`. Structural proof that nothing else moves: of the 13 per-spawn `tier` fields, **only `health`** references the generation (`dnaMult`, `xp` and 10 others do not), and neither payout line mentions it. `data.Kills` is **written in 3 places and read in none** — a leaderboard counter, not a reward term. Cap reached at clearance 20 and holds at x2.00 for 40 and 500 |
+| 10.10 | `[ ]` | **Automatic evolution** the moment XP covers the step, with a short burst. Server-side, off `HandleEvolve` | XP crosses → evolves unprompted, XP spent, body and damage change |
+| 10.11 | `[ ]` | **Spawn as the current evolution.** `EvolutionVisuals` hooks `CharacterAdded:373` yet screenshot 4 is a default avatar — suspect the late-settle race in [[evolution-lab-body-settles-late]] | correct body after join, death, evolve, zone change, rebirth, rejoin |
+| 10.12 | `[ ]` | **Tutorial ends once and stays ended.** Gate and migration are already right; completion currently fires only on a **stage** advance, i.e. every 5th evolve since 9.5 | fresh save is led attack → reward → evolve; rejoin shows nothing |
+| 10.13 | `[ ]` | **Collision audit** — 417 `CanCollide = false` sites in `ZoneBuilder` to triage against what should be solid | rocks and walls stop the player; intentional walk-throughs still work |
+| 10.14 | `[ ]` | **Mountain creatures visible and real** (9.6's other half) | every health plate has a body under it |
+| 10.15 | `[ ]` | **Quest claimable-first sort + live Season bar on claim + remove the bottom CTA** | claim without closing the panel; bar animates; row returns to place |
+| 10.16 | `[ ]` | **Duplicate currency displays.** DNA renders twice (`MainUI:349` top-right, `:438` bottom-left), Diamonds twice (`:442` + the Potion modal's Resources section at `:3222`). Resources section goes entirely | one DNA readout, one Diamond readout, no potion "resources" |
+| 10.17 | `[ ]` | **Active Effects redesigned, bounded** — 9.7 measured 297 px of content in a 250 px frame with clipping off | at 1280x720 with every boost running, the Rebirth tile is fully clickable |
+| 10.18 | `[ ]` | **HUD hierarchy** — shape by function, controlled rounding, readable text and icons | |
+| 10.19 | `[ ]` | **Leaderboard presentation + a #1 statue** (9.8) | board and statue agree after a refresh |
+| 10.20 | `[ ]` | **Emoji → cartoon icon layer.** Zero `ImageLabel`/`rbxassetid` in the HUD today; four sites in `UITheme` decide it (9.9) | every tile, pill and header renders art |
+
+---
+
 ## 👤 Owner action checklist
 
 Collect these once; each one blocks agents until it exists.
@@ -352,6 +407,422 @@ Gathered 2026-08-07/08 while writing this plan.
 ---
 
 ## Changelog
+
+- **2026-08-10** — **10.8 and 10.9: the boss stopped watching you, and a farmed spawn point fights
+  back.** Both rows deleted more than they added.
+  **The boss turn was a real feature and it is deliberately gone.** It tracked whoever was fighting
+  it within 320 studs, lerped at 1.9 rad/s, and the code around it is some of the most carefully
+  reasoned in the file — the snap at 0.004 that stops a lerp parking two degrees off and re-posing
+  the statics forever is a genuinely good fix. None of that was wrong; the premise was. A zone boss
+  is 75 to 121 studs of architecture standing at the head of an arena whose disc, plinth and banner
+  masts are all authored facing the arrival gate, and a 121-stud statue swivelling to follow one
+  player reads as scenery on a turntable rather than as something enormous. `want` is unconditionally
+  `home` now.
+  **Removing the turn made two other things dead, and the second one was worth finding.**
+  `yawTowards` and `BOSS_TURN_RADIUS` are gone. But so is the nearest-player search in the driver:
+  it existed *only* to feed the turn, it ran for every boss on every frame, and because it had to
+  find the minimum it could never break early. The gate it shares that loop with only asks "is
+  anybody within `RIG_ANIMATE_RADIUS`", which stops at the first hit — so the loop got shorter and
+  strictly cheaper as a side effect of the feature being cut.
+  **10.9's growth belongs to the PLACE, not the player**, and that is forced rather than chosen:
+  health is one number on one model that everyone in the zone can see, so a per-player version of it
+  would be a lie to every other player standing there. `generation` therefore rides the respawn call
+  exactly the way `raised` already does.
+  **The payout deliberately does not move with it**, per the owner's decision, and this was the one
+  genuine tension in the brief: *"the same creature should get stronger"* and *"a kill must never pay
+  more just because you have killed more"* point in opposite directions, and paying more for a
+  tougher creature is precisely the auto-increment the second rule exists to remove, however it is
+  dressed up. So farming one spot slowly gets worse and moving up a zone is always the better play —
+  which is what the growth is *for*. Verified structurally rather than by eye: of the thirteen fields
+  on the per-spawn `tier` table, **only `health`** references the generation, and neither payout line
+  mentions it. The one kill-count term in the file, `data.Kills`, is **written in three places and
+  read in none** — it is the lifetime leaderboard counter from 5.3, not a reward input.
+  Measured live at a single spawn point across repeated kills: **408 → 428 → 489**, which is base
+  x1.05 and base x1.20 exactly. The cap is reached at clearance 20 and holds at x2.00 for 40 and 500.
+
+- **2026-08-10** — **9.9: the interface has an asset layer, and three bugs only a screenshot could
+  find.** Every icon in the game was an emoji in a `TextLabel` — zero `ImageLabel`, zero
+  `rbxassetid` anywhere in the HUD. That is not a style choice: Windows, Android, iOS and console
+  each ship their own emoji font, so the same tile rendered four different ways and not one of them
+  shared the thick dark outline and flat pastel fill everything else in this game is built from.
+  **The art is generated rather than drawn by hand** (`tools/make_icons.py`, 44 icons, ~9 seconds),
+  and regeneration is the reason: change `OUTLINE` or a palette entry and all forty-four move
+  together, which is the argument `UITheme` already makes about buttons. Two things it taught. A
+  house-style icon is ONE silhouette, so every shape is drawn with **no stroke** and the contour
+  comes from **dilating the finished layer's alpha** — stroking each shape gives four rings inside a
+  clover instead of one around it. And `ImageFilter.MaxFilter` is unusable for that: at this
+  supersample the kernel is ~75px and one icon took minutes, where the union of 96 offset copies of
+  the mask reaches the same contour in milliseconds.
+  **The lookup key is the emoji itself, and that is the whole design.** Emoji are written into
+  twenty stage rows, a hundred pet species, nine passes, seventeen products, thirty season rewards,
+  MainUI, and payloads the server sends. Threading an `iconKey` field through all of that would be a
+  hundred edits and a hundred chances to miss one. So a call site still writes the glyph and gets a
+  drawing — the emoji stays in the source as what it always was, a legible name for the thing, and
+  becomes the key as well. **An unmapped emoji returns nil and renders as the glyph**, which is what
+  makes 44 icons enough instead of 128: the ~90 species and stage emoji are identity rather than
+  chrome (a Swarmer is a bug, a pet is a fox), they are exactly the ones a type foundry already
+  draws well, and an emoji added next year renders as it does today rather than as an empty square.
+  Four `UITheme` surfaces cover the HUD chrome, but panel CONTENT is built straight out of
+  `Instance.new`, so it needed `UITheme.IconSlot`, `IconifyLabel`, `SetIcon` and `HasIcon`. **All
+  four live in `UITheme` rather than in MainUI, and that is a register decision**: MainUI is at
+  Luau's 200-local cap and already holds a reference to that module, so the whole phase cost it
+  **zero** top-level locals (181 before and after).
+  **Three real bugs, none visible to a structural probe, all caught by a capture.**
+  (1) `SizeConstraint = RelativeYY` makes the **X** scale relative to the parent's height as well,
+  so the obvious `UDim2.new(0, 0, 0.62, 0)` — "take the height and let the constraint work out the
+  width" — is a slot **zero pixels wide**. Every probe reported an ImageLabel that was loaded,
+  positioned and correct; the screen showed tiles with no icons at all.
+  (2) Day 7's gold sparkle on the gold Day 7 card was a pale ghost — the same gold-on-gold mistake
+  6.4 made with the boost chips. Fixed once for everything rather than per tile: a **drop shadow
+  that is the same PNG**, tinted flat to the outline colour and offset behind, so it is exactly the
+  icon's silhouette whatever colour it lands on. It has to be a **sibling**, because this ScreenGui
+  runs `ZIndexBehavior.Sibling` under which a child always draws above its parent — and it is
+  **skipped when the parent runs a layout**, or the currency pills' `UIListLayout` would hand the
+  shadow the next cell and push the value along.
+  (3) `IconifyLabel` drew the title icon **on top of the title**: its resize handler re-read
+  `label.Position` after the label had been stepped right to clear the icon, so the icon walked onto
+  the words — "[icon]ily Rewards!" with the "Da" underneath it. Capture the original position once
+  and never read the moved one.
+  **A verification note worth keeping.** `ContentProvider:PreloadAsync` reported `Failure` for all
+  44 icons — and then for a **known-good Roblox asset used as a control**, which is the only reason
+  the ids were not thrown away and re-uploaded. The probe was broken in that Studio session, not the
+  assets. `ImageLabel.IsLoaded` is the measurement that matters anyway and reported 44/44. Its own
+  trap: a texture is not fetched until it actually **renders**, so icons inside a scrolled region
+  read as unloaded until they come on screen — demonstrated by walking the shop scroll and watching
+  the count climb 4 → 17.
+
+- **2026-08-10** — **10.6 and 10.7: the auto-attack bug was a targeting bug, and the aggro radius was
+  measured from the wrong point.** The report — *"auto attack does not work when I stand next to a
+  creature"*, with a suspicion about Tutorial Mode — turned out to have nothing to do with the
+  tutorial, which never touches input, and nothing to do with combat, which was correct throughout.
+  **`nearestTarget` had no liveness test.** A killed creature stays parented for its 0.42 s death
+  animation, and `playDeath` has already removed it from `hitHandlers` — so the server correctly
+  discards every blow aimed at it. The client, meanwhile, picks the nearest model, and a fresh corpse
+  at your feet is nearer than the live creature behind it. Measured in a three-creature cluster:
+  **5 of 8 swings went at a corpse 13.8 studs away while a live Swarmer stood at 20.7**, i.e. the
+  player is standing in front of something and it loses no health. One `Health > 0` test fixes it,
+  and the same test rejects two other things for free — the deathBurst confetti hosts that get
+  parented straight into `workspace.Creatures`, and the ~1,190 creature models whose parts are
+  streamed out. Checked before shipping that bosses also carry `Health`, or the filter would have
+  silently disabled boss auto-attack.
+  **Finding it needed the right save and nearly did not happen.** The owner's save is eight rebirths
+  deep and one-shots a 6,720-health Elite, so on that character every creature dies the instant auto
+  is switched on and the defect is invisible — the first two probes read `LANDING` and `hp 0` and
+  looked like a working feature. What exposed it was sampling *what the client would aim at* over
+  time rather than *whether the target lost health*.
+  **10.7 was two changes, and the test found the second one.** `LOOK_RADIUS` 120 was most of the
+  visible platform, so entering a zone turned its whole population to face you at once — which reads
+  as the map watching you rather than as a creature noticing you. It is 32 now, sized against
+  numbers that already exist rather than picked: the client's auto scan is 34 studs, so a creature
+  squares up just *before* you are close enough to hit it, which is the order those two events have
+  to happen in. But the first sweep showed a creature at 28 studs still facing its idle direction —
+  because `closestDist` is the distance to `rig.origin`, the point the creature was *placed* at, and
+  a roaming creature is up to `roamRadius` away from it. Harmless at 120, where a roam is a rounding
+  error; at 32 it is most of the radius, so the reaction distance a player actually experienced was
+  neither 32 nor the same for two creatures standing side by side. The look test reads the live body
+  now; the animate gate deliberately still uses `origin`, since it decides whether to run the rig at
+  all, wants to be stable as the creature wanders, and is checked against a radius seven times
+  larger. Re-measured: ignores at 90 / 61 / 39 studs, turns at 30 / 26 / 14.
+  **A Studio note that cost several runs:** every Play start rebuilds the whole world (the place is
+  stamped 115 against `BUILD_VERSION` 117, and Play-mode changes never persist back to the Edit
+  datamodel, so the stamp can never advance in Studio). That is 2,617 pinned parts plus twenty zones
+  on every single boot, and this session repeatedly reported `Game Started` while remaining in Edit,
+  or dropped out of Play mid-probe. Stop-then-start recovers it; probes that must not be interrupted
+  should be written as one call.
+
+- **2026-08-10** — **10.4 and 10.5: ten at a time, and a loop that can stop.** The obvious x10 —
+  call `HandleBuyEgg` ten times — does not work, and the reason is worth writing down: each call
+  fires its own `pet` notification, and `HatchReveal.busy` deliberately keeps one sequence per egg
+  (6.1, so Auto Hatch's twice-a-second buying cannot save an already-shaken pivot as "home"). Nine
+  of the ten reveals would be dropped and the player would watch a single hatch after paying for
+  ten. So a batch needs its own payload, and the roll moved into a shared `rollAndInsert` so the two
+  paths cannot drift about what an egg is worth.
+  **It buys what fits.** 25/30 pets and a x10 press gets five, and is charged for five; DNA for six
+  gets six. Refusing outright is defensible and worse — the whole point of the button is not doing
+  arithmetic at the podium. One cooldown stamp, one deduction, one Season counter, one push and one
+  notification for the batch, because ten of each is ten replications of the entire save on the most
+  expensive action in the game.
+  **The reveal is one billboard, not ten.** Ten billboards at a podium overlap into a pile whose
+  layout depends on where the player happens to stand; one host laid out in GUI space is stable from
+  every angle. One shake, one burst in the best pull's colour, then ten cards arriving 0.09 s apart
+  with the header naming the best of them — measured live at **3.48 s, 10 cells, 0 objects left**.
+  **10.5's real work was making the loop able to stop and say so.** With the ceiling at 600 a full
+  inventory was a state nobody reached; at 30 it is one every pass owner meets in a session, and a
+  loop that quietly does nothing twice a second is indistinguishable from a pass that does not work.
+  The reason is now reported **once per transition** — `autoStop[userId]` holds the last reason
+  announced and is cleared on a successful hatch or on walking away — which is the same spam problem
+  2.3 solved by checking silently, solved this time without also making a paid feature mute. The OFF
+  switch is a player attribute, mirroring the free auto-attack toggle, and deliberately **not
+  saved**: a preference that survived a rejoin would have players logging in already spending.
+  **The test found a bug I had just written, and it was the interesting kind.** Guarding the whole
+  wiring block with a once-only `Wired` attribute looked right and was wrong: `autoEggPoints` is
+  cleared at the top of `WireKiosks` and refilled inside that block, so a **second** call would empty
+  the list and never refill it — Auto Hatch would then find no egg anywhere in the world and stop
+  silently for the rest of that server's life. Invisible on the first call, which is the only one a
+  real server makes today. The two jobs are now guarded differently: connections once, the anchor
+  list every time. **The hazard the guard exists for is real and predates x10** — nothing stopped
+  `WireKiosks` connecting `Triggered` twice on every egg in the game, i.e. one press charging twice.
+  Cloning a prompt is simply what made it visible, because a duplicated prompt can be *seen* where a
+  duplicated connection cannot. Verified: 60/60 prompts before and after a re-wire, and a third pass
+  adds nothing.
+  **A new variant of the fresh-require trap, worth recording.** The MCP sandbox returns a fresh
+  module instance **per `execute_luau` call**, not per Play session — so `WireKiosks()` in one call
+  and `DriveAutoHatch()` in the next operate on different tables, and the second sees an empty world.
+  Anything stateful must be set up and exercised in a single call. Two runs were lost to this before
+  it was spotted, and both looked exactly like the feature being broken.
+
+- **2026-08-10** — **10.2 and 10.3: a ceiling, and the door that has to come with it.** These are one
+  job. The cap was 600, which was a DataStore protection rather than a design (a save past 4 MB stops
+  saving forever with only a warning), and at 600 there was never a reason to remove a pet — so
+  nothing was ever built to. A live save reached **207**. Dropping the cap to 30 without a release
+  would just be a wall, and a release without a cap is a button nobody presses.
+  **The number stopped being private, and that was the actual bug waiting to happen.** `PetService`
+  and `TradeService` each held their own `MAX_PETS = 600`, deliberately, on the grounds that the two
+  services must not require each other. True, and beside the point: both already require GameConfig,
+  so the shared home was always there and the duplication only bought a way for a trade to keep
+  accepting pets after a hatch had started refusing them. One `GameConfig.MaxOwnedPets` now.
+  **The migration is the part that could destroy a save, so it is guarded four ways.** It runs once
+  (`PetsTrimmedAt` stores the ceiling it trimmed to, not `true`, so a future cap change is visibly a
+  different rule rather than silently blocked); it never touches a save already under the cap, so
+  almost every player pays nothing and gets no flag; it ranks with `data`, so 10.1's zone axis
+  applies and it keeps what is strongest *now* rather than what was strongest in the zone it hatched
+  in; and **equipped pets are seeded first, unconditionally**. That last one is not a nicety — the
+  fixture was built with the weakest pet in the collection deliberately equipped, scoring +3.9%
+  against a rank-30 cutoff of +50.5%, and a plain "keep the top 30" dismantles the team the player
+  built with no way for them to tell a migration from a bug.
+  Verified on the real save, not a fixture: **`trimmed 5746881443 (OGLightninggXD): 58 pets -> 30
+  (released 28)`**, and the HUD came back **30/30 in red** with 25 release buttons against 5 equipped
+  rows.
+  **The release handler takes a list, always.** A single delete is a list of one, because the
+  alternative is two handlers with two sets of guards about equipped pets, unknown ids and the empty
+  case — which would agree right up until one of them changed. An equipped pet is **refused, not
+  auto-unequipped**: unequipping on the player's behalf would make the destructive path the quiet
+  one. Unknown ids are dropped silently rather than failing the batch, since a stale row naming a pet
+  that was just fused is an ordinary race and not an attack.
+  **`PetService:137`'s ordering was already right and is now written down as load-bearing.** Capacity
+  is checked before the DNA is deducted fifteen lines later, so the brief's "never consume currency
+  and then fail to give the pet" needed no fix — it needs only to keep being true, which means
+  nothing that yields may ever be introduced between the two. Measured: at 30/30 a buy is refused and
+  charges **0 DNA**; at 29/30 it charges 500 and succeeds; a grandfathered 58-pet save refuses and
+  charges 0; release one and the buy goes through.
+  Junk payloads were swept and all change nothing (empty, numeric, boolean, a 500-character string,
+  a bare string instead of a table), and 5,000 submitted ids hit the 60-id batch cap while still
+  sparing the equipped pet. **MainUI gained 0 top-level locals** (181 before and after) — the dialog
+  is inside `;(function() … end)()` with one handle on `hudRefs`, per the rule that has deleted this
+  HUD twice. `luastruct` clean on 44, `luanames` at its 9-file baseline.
+  **The click path is still not click-tested**: `getconnections` is unavailable here, so the button's
+  own event cannot be fired. Same limit recorded at 2.10, 3.7, 4.4 and 4.6. What was verified is the
+  geometry a click reveals — centred, **CANCEL 210 px against RELEASE 152 px with an 18 px gap**, both
+  inside the card, 0 clipped labels — and the handler behind it, driven directly.
+
+- **2026-08-10** — **Phase 10 opens. 10.1: a pet is a combat stat, and an egg's zone finally means
+  something.** The report was two sentences and they turned out to be one bug seen from two sides:
+  *"every Legendary is +240% however expensive the egg"* and *"DNA was about 60, then I got my first
+  pet and it was about 1,000"*.
+  **`GetPetBonus(tier, rarity)` took no egg and no zone.** A Forest Basic-egg Legendary and an
+  Absolute Plane Premium-egg Legendary were byte-identical — `1 + (1.3-1) * (1 * 8.0) = 3.40`, i.e.
+  the reported +240% exactly — across a 1.8e13x difference in price. The egg tier decided only which
+  rarities could *roll* (`rarityMin/Max/Bias`), never what a rarity was *worth*.
+  **And the DNA half was the larger one.** The same pet carried `incomeMult 4.2` **and**
+  `dnaMult 9.0`, both stacked **multiplicatively per slot** in `GetEquippedBonus` — so one pet
+  multiplied every click and every kill by **x37.8**, and five by x1307 x x59049. That is the fourth
+  time this repo has made the same correction (`GetMutationIncomeMult` reached x5,000,000, idle
+  income paid 80 clicks a second, pet damage was a product until 9.1), so it is worth stating as the
+  rule it has become: *a quantity that multiplies once per item, over a collection that only grows,
+  is not a bonus — it is an exponential in the number of slots.* Both fields are a hard 1 now. The
+  DNA curve was authored for a player with **no pets** (14–20 kills per stage), so removing them
+  restores the pacing it was tuned for rather than needing a second retune.
+  **The progression axis needed no new save field and no migration**, which is the part worth
+  keeping. Every species already carries its `zone` from the `ZONE_PETS` flatten, so the zone of any
+  pet ever hatched is recoverable from its key — verified live: `Draco → Forest → 1`,
+  `Stellara → Nebula → 10`, `TheFirst → AbsolutePlane → 20`.
+  **The first cut of the zone factor was wrong, and the balance sweep is what caught it.** It was
+  `math.clamp(ratio, 0.25, 1)`, and because damage is geometric the ratio collapses fast: at rank 96
+  a zone-1 pet scores 0.0009 and a zone-10 pet 0.026, so **both clamped to the floor and an
+  early-egg Legendary was worth exactly as much as a mid-game one** — the brief's own requirement,
+  reintroduced at the end of the game by the fix meant to remove it. It is `floor + (1-floor) *
+  sqrt(ratio)` now: monotonic over the whole domain, so the ordering cannot flatten however far
+  apart the zones are.
+  **A third DNA channel survived the first two fixes and only the live test found it.** With the
+  multipliers gone the mean click still ran **3.38 → 5.15 → 10.40** across zero, one and five pets:
+  `luckAdd` was `5 x tier x rarity` = 40 points for one Legendary and 180 for five, luck drives crit
+  (`clamp(5 + luck*0.5, 0, 75)` for x5), and 180 points pins crit at its cap. One free pet was also
+  out-earning the **249 R$ Lucky pass** (40 against 50) and five beat it fourfold — out of band
+  whatever it did to DNA. Luck rides the damage share now, so one ladder moves a pet's whole
+  contribution and none of it can drift.
+  Verified live in Play against the pushed source, not read: one Legendary is **DNA x1.17, damage
+  x1.83**; five are DNA x1.68, damage x5.00 — damage outpaces DNA three to one, which is the whole
+  design. Ordering at rank 96 is **+21.8% / +29.6% / +80.0%** for zone 1 / 10 / 20. The live HUD
+  draws it: **Draco +36% beside Pyrodrake +48%**, same rarity, same tier, different egg.
+  `luastruct` clean on all 44; `luanames` at its 9-file baseline (the new `stop` warning at
+  `MainUI:2550` is 9.3's uncommitted rebirth beacon, same legal-upvalue false positive as the other
+  nine). HUD rebuilt whole — **0 top-level locals added**, 56 pet rows drawn, server booted clean.
+  **A tooling note:** `loadstring` is disabled in this place, so the roadmap's
+  `loadstring(inst.Source)` recipe for testing an edit **does not work here**. The route that does is
+  the 9.1 HTTP bridge — `python -m http.server` on 127.0.0.1, `UpdateSourceAsync` from Edit mode,
+  then `require` in a fresh Play session, which reads the new source without the Edit-mode require
+  cache lying about it.
+
+- **2026-08-10** — **9.4: the terraces finally mint something, and the shard stopped being a stat.**
+  Shards had no gameplay source at all after 9.2 took them off the rebirth reward. What was left was
+  three time gates and a code — a daily login, the Season Pass premium track, a 7% slice of the
+  wheel — and **not one of them is something a player can go and do.** They are a drop now, and the
+  one drop in this game with a *place* attached: a creature on the valley floor never pays one,
+  however long it is farmed. Only the Brutes and Elites standing on the terrace shelves do. That
+  gives the climb the shelves were built for the one thing it never had, which is a reason.
+  **The flag is carried on the spawn, and the respawn is the part that mattered.** A Brute on the
+  floor and a Brute on a shelf are the same tier, the same rig and the same table of stats — the
+  only difference is which of `CreatureService.Init`'s two loops placed them — so `raised` is passed
+  to `spawnCreature` rather than inferred from the ground under it. Forgetting to pass it through
+  the `task.delay` respawn would have paid the shelves exactly once per server and then never again,
+  which is why the verification insisted on kills the ten shelf spots could not have supplied:
+  **38 raised kills against 10 spots** means at least 28 of them were respawns.
+  **The sink is the wheel that already existed.** `GrantSpin` was made public in Phase 3 for the
+  free daily spin, and this is the third door into one implementation rather than a copy that would
+  need balancing twice; everything 3.3 measured about the odds still describes it. The price is 25,
+  which is exactly what the wheel's own `shards` segment pays, so seven spins in a hundred hand back
+  the next one and that segment needed no rebalancing to mean it.
+  **And one thing had to be removed for the sink to be usable at all.** `GetShardIncomeBonusPct` was
+  still multiplying `GetIncomeMult` by the player's shard *balance* at +2% each. That was harmless
+  only while nothing in the game could spend a shard: the moment something can, every spin
+  permanently cuts the spinner's income, so the optimal play is to never touch the sink — and a sink
+  nobody can afford to use is not a sink. **That income was moved onto the rebirth counter by 9.2
+  and this function was the half of the move that never happened**, so nothing is being taken away
+  twice. Saves holding shards keep them; what they lose is a bonus the counter is already paying.
+  Sized against its sink the way `DiamondDropChance` was sized against the upgrades: Elite 25%,
+  Brute 12%, so one sweep of a zone's four Elites and six Brutes pays 1.72 shards and a spin is
+  about a quarter of an hour of deliberate cliff work — above the floor where a random drop becomes
+  indistinguishable from a bug, and far enough below a diamond's rate that the two never read as the
+  same reward.
+  The pickup gets **no HUD toast, and that is the one deliberate exception to what the diamond
+  does**: a crystal that tears out of the creature and flies into you says both what dropped and
+  what killed it, where a banner in the corner says only the first. It is drawn from the house
+  recipe for a crystal — a hard block body with a smaller, paler tip, the same two pieces
+  `ZoneBuilder` cuts its geodes from, because Roblox blocks do not taper and that tip is the entire
+  reason a rectangle reads as faceted. Gold, to match the pill it lands in. No `Highlight` anywhere
+  near it.
+  **A verification note worth keeping.** The first floor control proved nothing and looked like it
+  had: enumerating creatures on the *client* under StreamingEnabled returns far-away models as empty
+  shells whose `GetPivot()` is the identity, so a "Y ≤ 30 means valley floor" filter selected 325
+  **streamed-out** models at (0,0,0) and the run killed two things by accident. Enumerate on the
+  server, hand the client real positions, and re-acquire locally by demanding the model actually has
+  a `BasePart`.
+
+- **2026-08-09** — **9.5: an evolve costs XP and nothing else.** It charged **both** DNA and XP, and
+  two gates on one button is one gate too many: whichever ran out first was the real requirement and
+  the other was noise, so the most important button in the game could refuse for a reason the player
+  was not watching. They also pull in opposite directions — **DNA is earned by idle collection as
+  well as by fighting**, so a player standing still could unblock an evolve without swinging at
+  anything, which is precisely the opposite of what the loop is meant to teach. One currency, one
+  sentence: fight → XP → evolve → stronger.
+  **The pacing did not need retuning, because XP was already the binding half.** `xpCost` is
+  `50 * 1.55^(i-1) * (1 + (i-1)*0.06)` and `zone.mobXpMult` is `1.55^(i-1)` — the same constant, on
+  purpose — so kills per evolve ramp gently instead of exploding: **Critter 25 → 53, Brute 10 → 21,
+  Elite 4 → 8** from zone 1 to zone 20.
+  That same pairing is also what already answers the brief's "you should not be able to unlock the
+  endgame from Zone 1", and it answers it by arithmetic rather than by a rule: `xpCost` is a function
+  of the STAGE you are at while `mobXpMult` is a function of the ZONE you are standing in, so
+  grinding a stage-10 evolve on Forest creatures costs **1,988 Critters against 38** in the zone that
+  matches it — 52x — with nothing anywhere forbidding it.
+  The client mirror collapsed with it. The progress bar drew `math.min(dnaPct, xpPct)` and then had
+  to work out which of the two the label underneath should name, so **the bar could jump backwards
+  when the binding requirement swapped and the label changed units under the player**; it is one bar
+  and one unit now. `FirstJoin`'s hint lost its unreachable "collect DNA" branch. `step.cost` is left
+  on the table and documented as informational — `stage.cost` doubles as the `math.huge` sentinel for
+  the end of the chain — with a note that anything checking it is re-adding the gate.
+  Verified live at ranks 1, 5, 10, 25, 50, 75 and 99: **DNA = 0 evolved every time**; **DNA = 1e15
+  and one XP short was refused every time**; overkill carries (164 banked against 82 leaves 82); and
+  rank 100 reports `isMax` with a further press doing nothing.
+
+- **2026-08-09** — **9.2 and 9.3: a rebirth is four events, not an errand.** It was a repeatable
+  reset — reach stage 5 and cash in as often as you liked, at whichever of the four statues you had
+  passed. That shape has no "next" to point at, unlocks nothing, and its honest optimum is farming
+  the cheapest tier forever, which is the least interesting thing the mechanic can do. It is now
+  four milestones — stages 5, 10, 15, 20 — **spent strictly in order, once each, and then the ladder
+  ends** (the owner chose the hard stop over an endless tier 4).
+  **It needed no new save field, and that was worth an hour of not adding one.** `data.Rebirths`
+  already counts what has been spent, and because the milestones are consumed in order the count IS
+  the position on the ladder — a separate "tiers used" set would be a second source of truth that
+  could disagree with the counter, and every save in existence would have needed repairing to build
+  it. `GetNextRebirthTier` / `CanRebirthNow` are the only two functions that decide anything, and the
+  server, the HUD and the shrine all read them, so the button cannot offer what `HandleRebirth` will
+  refuse.
+  **Saves that predate the rule keep everything.** The owner's has eight rebirths against a ladder
+  four long; it holds x23.00 damage and has simply nothing left to spend. Never take something away
+  to enforce a new rule — and the panel drops the denominator past the cap rather than printing
+  "8 / 4", which reads as broken arithmetic rather than as a grandfathered save.
+  **`tier` stopped being a choice and became a claim.** Four statues used to be four prices for one
+  transaction, with the reward going as tier², so choosing was a trap the UI had to warn about. Now
+  the argument is only the client asserting which statue it touched; it is **checked against the one
+  live milestone and refused otherwise, never clamped** — a client asking for the wrong one is stale
+  or lying, and both deserve the same answer. The NaN guard is still load-bearing and still the only
+  test that works (`n ~= n`): every comparison against NaN is false, so it slid past the old guards
+  and a NaN in the save makes every future DataStore write throw forever, swallowed by a pcall.
+  **Shards left the rebirth loop**, per the owner's design: they become a rare drop off the raised
+  creatures with the wheel as their only sink (9.4). A currency that is *spent* cannot also be the
+  permanent reward for the hardest thing in the game — so the income it used to pay moved onto the
+  counter as `GetRebirthIncomeMult`, +150% a run, where it cannot be spent away by accident. Four
+  rebirths now end at **x8.00 damage and x7.00 income**, both permanent.
+  The panel was rewritten to answer the six questions it never answered — how many, which is next,
+  where am I, what do I get, what do I lose, how far off — because the old one listed a Shard price
+  and never once named the thing being bought, which is why a rebirth read as a punishment. And 9.3
+  adds a beacon that exists **only** while a milestone is live: one Heartbeat for the whole thing,
+  connected while showing and disconnected otherwise, reading `AbsolutePosition` every frame because
+  the responsive pass moves that tile on any resize and a cached position aims the arrow at empty
+  screen.
+  **Testing note worth reusing.** `require` from the MCP sandbox in Play returns a **different module
+  instance** than ServerMain's — which is why `PlayerDataService.Get` came back nil earlier, and it
+  is also a safety property: a fixture written into the sandbox's `Cache` cannot reach the live
+  server's. `Save` was stubbed and counted anyway (6 interceptions, 0 writes), because `HandleRebirth`
+  saves immediately by design and the cache is keyed by the real user id. The corollary is that
+  `RebirthService.OnRebirth` reading as `nil` from a probe proves nothing — check `ServerMain` in
+  source (it is wired at :168 and :186).
+
+- **2026-08-09** — **Phase 9 opens, and 9.1 is done: evolving finally does something.** The report
+  was "the Journal says an evolution gives more damage and the number over the creature never
+  changes", and the damage function was never the problem — it was correct and it was the only one.
+  **Three things stood between it and the screen, and two of them were the same mistake.**
+  `CreatureService` clamped every blow to `tier.health / minHits` and `BossService` clamped every
+  blow to `boss.health / BOSS_MIN_HITS`; in both cases **the clamp then became the number the FX
+  drew**, so a fresh save and a save eight rebirths deep saw the identical figure. In Forest that
+  cap is 4 on a Swarmer and 7 on a Critter — and a brand-new stage-1 player already hit for 8, which
+  means *no player had ever once seen their own damage*. Both are gone.
+  The third was `PetService`: `damageMult` multiplied per pet, and on the owner's own save five
+  ordinary pets came to **x652** against **x1394** for the whole hundred-step ladder — so even with
+  the caps removed, an evolve's step would have been noise. Summed now (**x14.32** for the same five).
+  **This is the third time this repo has made exactly this correction** — `GetMutationIncomeMult`
+  reached x5,000,000 as a product, and idle income paid eighty clicks a second — so it is worth
+  stating as a rule: *a quantity that multiplies once per item, over a collection that only grows,
+  is not a bonus, it is an exponential in the number of slots.* `incomeMult` and `dnaMult` were
+  deliberately left alone; that is an economy rebalance, not a combat fix.
+  **The curve underneath was also wrong, and in the opposite direction at the other end.** Damage was
+  `8 + (stage - 1) * 6` — linear, x15 across the whole game — against creature health's geometric
+  x1050. That is why the late zones were passable only through Rebirth damage, and why *"after
+  rebirthing I progress far too slowly"* kept coming back: a mechanic meant to be a choice was
+  load-bearing. It is now geometric in the **character rung**, which is the thing the player is
+  actually doing: 100 rungs, five to a stage, one per evolve, at `1.076` each — and `1.076^5 =
+  1.4425` is `mobHealthMult`'s own per-zone ratio (measured, 1050^(1/19) = 1.442). **The two are one
+  curve now, and the property worth protecting is that kills per creature are FLAT**: zone 1 rank 1
+  and zone 20 rank 96 both give Swarmer 2.4 / Critter 6.0 / Brute 14.0 hits, while inside a stage the
+  five evolves cut a Critter from 6 hits to 4. Boss health stopped being twenty authored numbers
+  spanning x86,000 and became `BossTargetHits * GetZoneReferenceDamage(i)`.
+  **One design rule had to be reversed to make it work, and it is an improvement:** damage reads the
+  best rung **owned**, not the one **worn**. At a linear +3% a rung, wearing something fifty rungs
+  back cost 150% — a real trade the Journal advertised honestly. Geometric, that same choice costs a
+  factor of forty, which no cosmetic is worth and which would read as a broken save rather than as a
+  decision. **Progress pays; appearance is free.** Health follows damage onto the same rung so the
+  two can never disagree about what the player is.
+  Verified live in Play, not read: evolution 1→100 = **5 → 7,053**; 2x Damage **x2.00**, VIP
+  **x1.50**, both **x3.00**, 1 rebirth **x2.00**, 4 rebirths **x8.00**, Income 50 **x1.50**, 5 pets
+  **x14.32**. **There is no damage potion in the game** — the nine bottles are dna/xp/luck only, so
+  the brief's "check potions feed the damage calculation" has no hook to check. The end-to-end proof
+  is the `CombatFx` payload off a real kill: **`k=kill d=3768`**, exactly `GetCombatDamage` for that
+  save, where the same swing drew **`7`** before.
+  **A tooling note that will pay for itself all through Phase 9:** Studio's `HttpService` will fetch
+  `http://127.0.0.1`, so `src/` can be pushed into the place *whole* over a one-line local file
+  server plus `ScriptEditorService:UpdateSourceAsync` — instead of replaying every changed comment
+  block through `multi_edit`, which for `GameConfig` (200 KB) and `MainUI` (269 KB) is thousands of
+  tokens per edit. Six files went across byte-identical on the first attempt, hashed on both sides.
 
 - **2026-08-09** — **Phase 8's server core: 8.2, 8.3 and 8.4 done and verified, 8.1 and 8.5 half
   done, and the gate is still shut.** `TradeService` exists, compiles and is tested, and **nothing

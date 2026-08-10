@@ -92,10 +92,12 @@ local PROXIMITY_STUDS = 40
 -- Cheap spam control on top of the per-minute cap: one request every few seconds per player.
 local REQUEST_COOLDOWN = 4
 local TRADES_PER_MINUTE = 6
--- The same 600-pet ceiling PetService enforces on a hatch. Duplicated as a constant rather than
--- required across, for the same reason PetService keeps its own copy of the luck formula: these
--- two files must not require each other.
-local MAX_PETS = 600
+-- The same ceiling PetService enforces on a hatch, and now literally the same number: it moved into
+-- GameConfig (30, down from 600 -- see the note there). This used to be a private copy on the
+-- grounds that these two services must not require each other, which was true and beside the point,
+-- since both already require GameConfig. All the duplication ever bought was a way for a trade to
+-- keep accepting pets after a hatch had started refusing them.
+local MAX_PETS = GameConfig.MaxOwnedPets
 -- A window nobody finishes has to expire, or its reservations are held until the server restarts.
 local SESSION_TIMEOUT = 180
 

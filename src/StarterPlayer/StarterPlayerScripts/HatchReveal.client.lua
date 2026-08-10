@@ -329,8 +329,202 @@ local function play(payload)
 	end
 end
 
+-- ============================================================================
+-- x10 (Phase 10.4)
+-- ============================================================================
+--
+-- TEN OF THE SEQUENCE ABOVE IS NOT THE ANSWER. Back to back it is ~35 seconds of theatre for one
+-- button press, and run at once they fight over the same egg: `busy` would drop nine of them and the
+-- player would watch a single hatch after paying for ten.
+--
+-- So the batch borrows the parts that read as "something big happened" -- one shake, one burst in
+-- the best rarity's colour -- and then replaces the ten reveals with ten small cards that arrive
+-- staggered and are readable as a group. One shake, one burst, one row of cards, about four seconds.
+--
+-- The cards are drawn in a GRID ON ONE BILLBOARD rather than as ten separate ones: ten billboards at
+-- a podium overlap into an unreadable pile, and their relative positions would depend on where the
+-- player happened to be standing. One host, laid out in GUI space, is stable from every angle.
+local BULK_CARD_W, BULK_CARD_H = 74, 46
+local BULK_COLS = 5
+local BULK_HOLD = 2.6
+
+local function bulkCards(position, pets, best)
+	local host = Instance.new("Part")
+	host.Size = Vector3.new(1, 1, 1)
+	host.Transparency = 1
+	host.Anchored = true
+	host.CanCollide = false
+	host.CanQuery = false
+	host.CanTouch = false
+	host.CastShadow = false
+	host.CFrame = CFrame.new(position)
+	host.Parent = fxFolder
+
+	local rows = math.ceil(#pets / BULK_COLS)
+	local gui = Instance.new("BillboardGui")
+	gui.Size = UDim2.new(0, BULK_CARD_W * BULK_COLS + 16, 0, BULK_CARD_H * rows + 34)
+	gui.AlwaysOnTop = true
+	gui.LightInfluence = 0
+	gui.Parent = host
+
+	local header = Instance.new("TextLabel")
+	header.Size = UDim2.new(1, 0, 0, 28)
+	header.BackgroundTransparency = 1
+	header.Font = UITheme.Font.Display
+	header.TextScaled = true
+	header.TextColor3 = UITheme.Color.White
+	header.TextStrokeColor3 = UITheme.Color.Outline
+	header.TextStrokeTransparency = 0
+	-- names the best thing in the batch, because that is what the player is actually looking for
+	header.Text = best and ("%s  %s!"):format(best.emoji or "", best.name or "") or ("x%d"):format(#pets)
+	header.Parent = gui
+
+	local grid = Instance.new("Frame")
+	grid.Size = UDim2.new(1, 0, 1, -30)
+	grid.Position = UDim2.new(0, 0, 0, 30)
+	grid.BackgroundTransparency = 1
+	grid.Parent = gui
+
+	local layout = Instance.new("UIGridLayout")
+	layout.CellSize = UDim2.new(0, BULK_CARD_W - 6, 0, BULK_CARD_H - 6)
+	layout.CellPadding = UDim2.new(0, 4, 0, 4)
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = grid
+
+	local frames = {}
+	for i, entry in ipairs(pets) do
+		local rarity = GameConfig.GetRarity(entry.rarity)
+		local cell = Instance.new("Frame")
+		cell.LayoutOrder = i
+		cell.BackgroundColor3 = rarity.color
+		cell.BorderSizePixel = 0
+		-- starts invisible; the stagger below is what makes ten cards read as an unfolding result
+		-- rather than as a table that was always there
+		cell.BackgroundTransparency = 1
+		cell.Parent = grid
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, 8)
+		c.Parent = cell
+		local s = Instance.new("UIStroke")
+		s.Thickness = 2
+		s.Color = UITheme.Color.Outline
+		s.Transparency = 1
+		s.Parent = cell
+
+		local label = Instance.new("TextLabel")
+		label.Size = UDim2.new(1, -6, 1, -6)
+		label.Position = UDim2.new(0.5, 0, 0.5, 0)
+		label.AnchorPoint = Vector2.new(0.5, 0.5)
+		label.BackgroundTransparency = 1
+		label.Font = UITheme.Font.Display
+		label.TextScaled = true
+		label.TextColor3 = UITheme.Color.White
+		label.TextStrokeColor3 = UITheme.Color.Outline
+		label.TextStrokeTransparency = 0
+		label.TextTransparency = 1
+		label.Text = entry.emoji or "?"
+		label.Parent = cell
+
+		frames[i] = { cell = cell, stroke = s, label = label, rarity = rarity }
+	end
+
+	task.spawn(function()
+		for _, f in ipairs(frames) do
+			TweenService:Create(f.cell, TweenInfo.new(0.18), { BackgroundTransparency = 0 }):Play()
+			TweenService:Create(f.stroke, TweenInfo.new(0.18), { Transparency = 0 }):Play()
+			TweenService:Create(f.label, TweenInfo.new(0.18), { TextTransparency = 0 }):Play()
+			-- a Legendary in the batch gets its own small burst as its card lands, so a good pull is
+			-- still an event inside a batch rather than one square among ten
+			if GameConfig.IsBeaconRarity(f.rarity.name) then
+				burst(position, f.rarity.color, 40)
+				SoundLibrary.PlayHatch(f.rarity.name)
+			end
+			task.wait(0.09)
+		end
+	end)
+
+	TweenService:Create(host, TweenInfo.new(BULK_HOLD + 0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		CFrame = host.CFrame + Vector3.new(0, 3.5, 0),
+	}):Play()
+	task.delay(BULK_HOLD, function()
+		for _, f in ipairs(frames) do
+			TweenService:Create(f.cell, TweenInfo.new(0.45), { BackgroundTransparency = 1 }):Play()
+			TweenService:Create(f.stroke, TweenInfo.new(0.45), { Transparency = 1 }):Play()
+			TweenService:Create(f.label, TweenInfo.new(0.45), { TextTransparency = 1 }):Play()
+		end
+		TweenService:Create(header, TweenInfo.new(0.45), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	end)
+	Debris:AddItem(host, BULK_HOLD + 0.9)
+end
+
+local function playBulk(payload)
+	local pets = payload.pets
+	if type(pets) ~= "table" or #pets == 0 then return end
+	local best = payload.best or pets[1]
+	local bestRarity = GameConfig.GetRarity(best.rarity)
+
+	local egg = nearestEgg()
+	if not egg then
+		local head = player.Character and player.Character:FindFirstChild("Head")
+		if head then
+			bulkCards(head.Position + Vector3.new(0, head.Size.Y * 1.8 + 3, 0), pets, best)
+		end
+		return
+	end
+	if busy[egg] then return end
+	busy[egg] = true
+
+	local home = egg:GetPivot()
+	local shell = egg:FindFirstChild("EggShell")
+	local shellColor = shell and shell.Color
+	local top = home.Position + Vector3.new(0, 4, 0)
+
+	local ok, err = pcall(function()
+		-- ONE shake for the batch, faster and harder than a single hatch's: ten eggs' worth of
+		-- anticipation compressed rather than repeated
+		local t0 = os.clock()
+		local shakeTime = SHAKE_TIME * 0.8
+		while os.clock() - t0 < shakeTime do
+			local a = (os.clock() - t0) / shakeTime
+			local amp = math.rad(4 + a * 16)
+			local wobble = math.sin((os.clock() - t0) * 42)
+			egg:PivotTo(home * CFrame.Angles(wobble * amp, 0, wobble * amp * 0.6))
+			STEP:Wait()
+		end
+		egg:PivotTo(home)
+
+		if shell then shell.Color = Color3.new(1, 1, 1) end
+		SoundLibrary.Play("hit", nil, { speed = 1.35, volume = 0.4 })
+		local t1 = os.clock()
+		while os.clock() - t1 < CRACK_TIME do
+			local a = (os.clock() - t1) / CRACK_TIME
+			egg:PivotTo(home * CFrame.new(0, -a * 0.6, 0))
+			STEP:Wait()
+		end
+		egg:PivotTo(home)
+		if shell and shellColor then shell.Color = shellColor end
+
+		-- the burst takes the colour of the BEST pull, so the batch announces its own headline
+		burst(top, bestRarity.color, bestRarity.name == "Legendary" and 110 or 60)
+		bulkCards(top + Vector3.new(0, 4.2, 0), pets, best)
+	end)
+
+	if egg.Parent then
+		egg:PivotTo(home)
+		if shell and shellColor then shell.Color = shellColor end
+	end
+	busy[egg] = nil
+	if not ok then
+		warn("[HatchReveal] bulk sequence failed: " .. tostring(err))
+	end
+end
+
 Remotes:WaitForChild("Notify").OnClientEvent:Connect(function(payload)
-	if type(payload) == "table" and payload.kind == "pet" then
+	if type(payload) ~= "table" then return end
+	if payload.kind == "pet" then
 		task.spawn(play, payload)
+	elseif payload.kind == "petBulk" then
+		task.spawn(playBulk, payload)
 	end
 end)

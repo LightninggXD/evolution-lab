@@ -305,6 +305,63 @@ function PlayerDataService.Load(player)
 		end
 		data.WornCharacter = best and best.key or nil
 	end
+
+	-- ===== TRIMMING A COLLECTION TO THE NEW 30-PET CEILING =====
+	--
+	-- The cap was 600 and a live save reached 207. The owner's decision (2026-08-10) is to keep the
+	-- 30 strongest and release the rest, so the inventory is never in the impossible 207/30 state
+	-- that a grandfathering rule would leave on screen for the rest of that save's life.
+	--
+	-- FOUR THINGS THIS HAS TO GET RIGHT, and each one is a way to destroy a save quietly:
+	--
+	-- * IT RUNS ONCE. `PetsTrimmedAt` is the flag, and it stores the ceiling it trimmed to rather
+	--   than `true` -- so if the cap is ever raised, an old stamp is visibly from a different rule
+	--   instead of silently blocking a re-trim that a lower cap would need.
+	-- * EQUIPPED PETS SURVIVE UNCONDITIONALLY. Ranking already puts them near the top, but "near"
+	--   is not a guarantee, and a player logging in to find the team they built dismantled would
+	--   have no way to tell a trim from a bug. They are seeded first and the rest fills behind them.
+	-- * IT IS RANKED WITH `data`, so the zone axis applies (10.1) -- otherwise the trim would keep
+	--   whatever was strongest in the zone it hatched in rather than what is strongest now.
+	-- * IT NEVER RUNS ON A SAVE THAT IS ALREADY UNDER THE CAP, so the overwhelming majority of
+	--   players pay nothing for this and no flag is written into their save at all.
+	--
+	-- `PetsReleased` is left on the table for the session so PetService can tell the player what
+	-- happened. It is a count, not the pets: keeping the discarded list would defeat the point of a
+	-- ceiling that exists to bound the save.
+	if type(data.Pets) == "table" and #data.Pets > GameConfig.MaxOwnedPets
+		and data.PetsTrimmedAt ~= GameConfig.MaxOwnedPets then
+		local before = #data.Pets
+		local equippedLookup = {}
+		for _, id in ipairs(data.EquippedPetIds or {}) do equippedLookup[id] = true end
+
+		local kept, keptLookup = {}, {}
+		for _, p in ipairs(data.Pets) do
+			if equippedLookup[p.id] and #kept < GameConfig.MaxOwnedPets then
+				table.insert(kept, p)
+				keptLookup[p.id] = true
+			end
+		end
+		for _, p in ipairs(GameConfig.SortedPetsByPower(data.Pets, data)) do
+			if #kept >= GameConfig.MaxOwnedPets then break end
+			if not keptLookup[p.id] then
+				table.insert(kept, p)
+				keptLookup[p.id] = true
+			end
+		end
+		data.Pets = kept
+
+		-- an equipped id whose pet did not survive would leave a phantom paying bonuses forever
+		local liveEquipped = {}
+		for _, id in ipairs(data.EquippedPetIds or {}) do
+			if keptLookup[id] then table.insert(liveEquipped, id) end
+		end
+		data.EquippedPetIds = liveEquipped
+
+		data.PetsTrimmedAt = GameConfig.MaxOwnedPets
+		data.PetsReleased = before - #kept
+		warn(("[PlayerDataService] trimmed %d (%s): %d pets -> %d (released %d)")
+			:format(player.UserId, player.Name, before, #kept, data.PetsReleased))
+	end
 		-- no field-by-field migration for these two: SeasonPassService rebuilds either one whenever
 		-- its stamp does not match the current season/period, which covers a save that predates them
 		if type(data.Season) ~= "table" then data.Season = {} end

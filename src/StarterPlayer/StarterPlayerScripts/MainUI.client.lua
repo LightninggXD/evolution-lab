@@ -1092,6 +1092,9 @@ masteryTitle.TextXAlignment = Enum.TextXAlignment.Left
 masteryTitle.Text = "⭐ Stage Mastery"
 masteryTitle.Parent = masteryPanel
 themeLabel(masteryTitle, 32)
+-- 9.9: the leading glyph becomes a drawing at the title's left edge, or stays a glyph if
+-- there is no art for it. One line, and it moves nothing else on the panel.
+UITheme.IconifyLabel(masteryTitle)
 
 -- running total, so the player can see what the whole collection is currently worth without
 -- adding up twenty rows themselves
@@ -1272,6 +1275,9 @@ petsPanelTitle.ZIndex = petsPanel.ZIndex + UITheme.Z.Badge
 petsPanelTitle.Text = "🐾 Pets!"
 petsPanelTitle.Parent = petsPanel
 themeLabel(petsPanelTitle, 44)
+-- 9.9: the leading glyph becomes a drawing at the title's left edge, or stays a glyph if
+-- there is no art for it. One line, and it moves nothing else on the panel.
+UITheme.IconifyLabel(petsPanelTitle)
 
 -- Bulk actions. A collection this size is not managed one row at a time: by the time a player is
 -- three zones in they own dozens of pets, and "which three are my best" is a question the game
@@ -1460,6 +1466,18 @@ local hudRefs = {}
 		chip.Parent = passGrid
 		corner(chip, UDim.new(0.5, 0))
 		themeLabel(chip, 19)
+		-- THE CHIP IS THE DISC AND THE ICON AT ONCE, so 9.9 goes INSIDE it rather than replacing it:
+		-- the dark disc is what makes these read as permanent against the potion row's coloured
+		-- cards (see the note above), and an ImageLabel in its place would lose that. The glyph is
+		-- blanked and a drawing inset into the same box; a pass with no art keeps its emoji.
+		if UITheme.HasIcon(pass.emoji) then
+			chip.Text = ""
+			UITheme.IconSlot(chip, {
+				name = "Art", icon = pass.emoji,
+				size = UDim2.new(0.72, 0, 0.72, 0), position = UDim2.new(0.5, 0, 0.5, 0),
+				anchorPoint = Vector2.new(0.5, 0.5), zIndex = chip.ZIndex + 1,
+			})
+		end
 		passChips[#passChips + 1] = { key = pass.key, frame = chip }
 	end
 
@@ -1731,16 +1749,11 @@ end)()
 		count.Parent = capsule
 		themeLabel(count, 24)
 
-		local icon = Instance.new("TextLabel")
-		icon.Name = "Icon"
-		icon.Size = UDim2.new(0, 34, 0, 34)
-		icon.Position = UDim2.new(1, -8, 0.5, 0)
-		icon.AnchorPoint = Vector2.new(1, 0.5)
-		icon.BackgroundTransparency = 1
-		icon.ZIndex = capsule.ZIndex + UITheme.Z.Content
-		icon.Text = emoji
-		icon.Parent = capsule
-		themeLabel(icon, 26)
+		UITheme.IconSlot(capsule, {
+			name = "Icon", icon = emoji, maxTextSize = 26,
+			size = UDim2.new(0, 34, 0, 34), position = UDim2.new(1, -8, 0.5, 0),
+			anchorPoint = Vector2.new(1, 0.5), zIndex = capsule.ZIndex + UITheme.Z.Content,
+		})
 
 		return count
 	end
@@ -1846,7 +1859,10 @@ local function refreshPetsPanel()
 	if not currentData then return end
 	local data = currentData
 
-	petsPanelTitle.Text = string.format("🐾 Pets (%d/%d equipped)", #data.EquippedPetIds, GameConfig.MaxEquippedPets)
+	-- NO LEADING 🐾 HERE ANY MORE: the paw is drawn beside this label as a TitleIcon (9.9), and a
+	-- refresh that put the glyph back would show the emoji next to the picture of itself. The
+	-- icon is built once and never changes, so this line only carries the words.
+	petsPanelTitle.Text = string.format("Pets (%d/%d equipped)", #data.EquippedPetIds, GameConfig.MaxEquippedPets)
 
 	-- Clear old cells. Matched on NAME alone: a cell is a TextButton now (the whole card is the
 	-- equip button), and the old `IsA("Frame")` test silently stopped clearing anything -- every
@@ -1870,16 +1886,32 @@ local function refreshPetsPanel()
 	local ranked = GameConfig.SortedPetsByPower(data.Pets)
 
 	hudRefs.petSlotCount.Text = ("%d/%d"):format(#data.EquippedPetIds, GameConfig.GetMaxEquippedPets(data))
-	hudRefs.petOwnedCount.Text = tostring(#data.Pets)
+	-- "17 / 30" rather than "17": a bare number cannot tell the player they are one hatch from being
+	-- refused, and being refused at the podium with no warning is how the 600-cap read as a bug.
+	-- The capsule turns red AT the cap and amber approaching it, so the state is legible without
+	-- reading the digits -- and `>=` rather than `==` because a grandfathered save can sit above it.
+	local owned, cap = #data.Pets, GameConfig.MaxOwnedPets
+	hudRefs.petOwnedCount.Text = ("%d/%d"):format(owned, cap)
+	local capsule = hudRefs.petOwnedCount.Parent
+	if capsule then
+		capsule.BackgroundColor3 = (owned >= cap) and UITheme.Color.Red
+			or (owned >= cap - 3) and UITheme.Color.Orange
+			or UITheme.Color.Blue
+	end
 
 	for i, pet in ipairs(ranked) do
 		local info = petDisplayInfo(pet.key)
 		local rarity = GameConfig.GetRarity(info.rarity)
 		local isEquipped = equippedLookup[pet.id] == true
-		local bonus = GameConfig.GetPetBonus(pet.tier, info.rarity)
-		-- The reference prints a flat "+75". Ours are multipliers (a x2.6 pet really does multiply),
-		-- so the same shape is reached by showing the multiplier as the percentage it adds -- x2.6
-		-- reads as +160%. Same sign, same feel, and it is not a lie about what the pet does.
+		-- `pet.key` and `data` are what make this row honest about the zone axis: the same Legendary
+		-- reads +80% while its own zone is current and +20% once the player has climbed well past it,
+		-- which is the whole point of the progression rebalance. Quoting it without them would print
+		-- a number the damage chain does not use.
+		local bonus = GameConfig.GetPetBonus(pet.tier, info.rarity, pet.key, data)
+		-- The reference prints a flat "+75". A pet's contribution is a share of the player's own
+		-- damage, summed across the equipped slots, so the percentage it adds IS the number -- and
+		-- unlike the old multiplicative reading it is now literally true: three pets at +80% each
+		-- really do come to +240% damage.
 		local damageText = ("+%d%%"):format(math.floor((bonus.damageMult - 1) * 100 + 0.5))
 
 		-- THE CELL IS THE BUTTON. In the reference you equip by clicking the pet, not by hunting for
@@ -1957,6 +1989,35 @@ local function refreshPetsPanel()
 		statLabel.Text = ("\u{1F5E1}\u{FE0F} Damage: %s"):format(damageText)
 		statLabel.Parent = statBar
 		flatText(themeLabel(statLabel, 18, Color3.fromRGB(88, 92, 104)))
+
+		-- ===== RELEASE =====
+		--
+		-- A small x in the card's top-right rather than a button on the row. The whole cell is the
+		-- equip toggle (see the note above), so a full-width Release button would sit inside the
+		-- thing it must not be confused with -- and the destructive action must be the one you aim
+		-- at, not the one you hit by missing.
+		--
+		-- ABSENT ON AN EQUIPPED PET, not disabled. The server refuses to release an equipped pet, so
+		-- a button that is drawn and then refused would teach the player the UI is lying to them;
+		-- unequipping is one click on the same cell and puts the x back.
+		if not isEquipped then
+			local release = Instance.new("TextButton")
+			release.Name = "Release"
+			release.Size = UDim2.new(0, 26, 0, 26)
+			-- hangs off the card's own corner, clear of the art in the opposite one
+			release.Position = UDim2.new(1, -8, 0, -8)
+			release.AnchorPoint = Vector2.new(1, 0)
+			release.Text = "\u{2715}"
+			release.ZIndex = card.ZIndex + UITheme.Z.Badge
+			release.Parent = card
+			styleButton(release, UITheme.Color.Red, UDim.new(1, 0), 2)
+			themeLabel(release, 16)
+			release.MouseButton1Click:Connect(function()
+				if hudRefs.confirmRelease then
+					hudRefs.confirmRelease(pet.id, info.name, rarity.name, rarity.color)
+				end
+			end)
+		end
 
 		-- the pet itself, hanging off the card's top-left corner with nothing behind it. The rig is
 		-- the same PetModel build that walks around the world, so what you see here is what you get.
@@ -2042,6 +2103,141 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
+-- ===== Release confirmation =====
+--
+-- The one destructive action a player can take on their own save, so it is the one thing in this
+-- HUD that asks twice. It exists because the inventory ceiling came down to 30 (GameConfig
+-- .MaxOwnedPets): at 600 there was never a reason to remove a pet and so there was never a way to,
+-- and a cap without a release is just a wall.
+--
+-- THE DIALOG IS BUILT ONCE AND RE-TARGETED, not built per pet. A confirm built inside the row
+-- handler would allocate a full modal on every click, and the row list is rebuilt from scratch on
+-- every data push -- so the frames would pile up behind a panel nobody has closed.
+--
+-- Deliberately NOT symmetrical: Cancel is the wide neutral button and sits first, Release is
+-- narrower, red, and second. The safe path is the easy one to hit, and the destructive one has to
+-- be aimed at. `pendingId` is cleared on every exit path, so a stale id cannot be released by a
+-- later confirm that was opened for a different pet and dismissed with Escape.
+--
+-- Built inside an immediately-called function so its locals get a register file of their own --
+-- see the note on the Season Pass panel for why a `do` block is not enough. Handles via `hudRefs`.
+;(function()
+	local pendingId = nil
+
+	-- Newer than the authored Remotes folder, so it is waited for by name rather than indexed --
+	-- PetService creates it on server start. Resolved once here instead of on every confirm: a
+	-- WaitForChild inside a click handler would yield the handler on the one frame it matters.
+	local deleteRemote = nil
+	task.spawn(function()
+		deleteRemote = Remotes:WaitForChild("DeletePets", 30)
+		if not deleteRemote then
+			warn("[MainUI] Remotes.DeletePets never appeared -- pet release is disabled")
+		end
+	end)
+
+	local shade4 = Instance.new("TextButton")
+	shade4.Name = "ReleaseShade"
+	shade4.Size = UDim2.new(1, 0, 1, 0)
+	shade4.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	shade4.BackgroundTransparency = 0.45
+	shade4.Text = ""
+	shade4.AutoButtonColor = false
+	shade4.Visible = false
+	-- above every panel: this is a question, and anything drawn over it is a way to answer it by
+	-- accident. The panels sit at ZIndex 20, so 60 clears them and their badges.
+	shade4.ZIndex = 60
+	shade4.Parent = screenGui
+
+	local box = Instance.new("Frame")
+	box.Name = "ReleaseDialog"
+	box.Size = UDim2.new(0, 420, 0, 240)
+	box.Position = UDim2.new(0.5, 0, 0.5, 0)
+	box.AnchorPoint = Vector2.new(0.5, 0.5)
+	box.ZIndex = shade4.ZIndex + 1
+	box.Parent = shade4
+	styleCard(box, Color3.fromRGB(252, 252, 255), UDim.new(0, 18), 5)
+
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.Size = UDim2.new(1, -32, 0, 40)
+	title.Position = UDim2.new(0, 16, 0, 14)
+	title.BackgroundTransparency = 1
+	title.ZIndex = box.ZIndex + UITheme.Z.Content
+	title.Text = "Release Pet?"
+	title.Parent = box
+	themeLabel(title, 30)
+
+	local petLine = Instance.new("TextLabel")
+	petLine.Name = "PetLine"
+	petLine.Size = UDim2.new(1, -32, 0, 34)
+	petLine.Position = UDim2.new(0, 16, 0, 60)
+	petLine.BackgroundTransparency = 1
+	petLine.RichText = true
+	petLine.ZIndex = box.ZIndex + UITheme.Z.Content
+	petLine.Text = ""
+	petLine.Parent = box
+	themeLabel(petLine, 24)
+
+	local warn4 = Instance.new("TextLabel")
+	warn4.Name = "Warning"
+	-- two lines of room for one line of text: themeLabel floors at 14 px, so a box too short for
+	-- its wrapped text clips the overflow rather than shrinking it, and reports nothing wrong
+	warn4.Size = UDim2.new(1, -40, 0, 52)
+	warn4.Position = UDim2.new(0, 20, 0, 98)
+	warn4.BackgroundTransparency = 1
+	warn4.TextWrapped = true
+	warn4.ZIndex = box.ZIndex + UITheme.Z.Content
+	warn4.Text = "This pet will be permanently deleted."
+	warn4.Parent = box
+	themeLabel(warn4, 18, Color3.fromRGB(120, 124, 138))
+
+	local cancel = Instance.new("TextButton")
+	cancel.Name = "Cancel"
+	cancel.Size = UDim2.new(0, 210, 0, 56)
+	cancel.Position = UDim2.new(0, 20, 1, -72)
+	cancel.Text = "CANCEL"
+	cancel.ZIndex = box.ZIndex + UITheme.Z.Content
+	cancel.Parent = box
+	styleButton(cancel, UITheme.Color.Blue, UDim.new(0, 12), 4)
+	themeLabel(cancel, 24)
+
+	local confirm = Instance.new("TextButton")
+	confirm.Name = "Confirm"
+	confirm.Size = UDim2.new(0, 152, 0, 56)
+	confirm.Position = UDim2.new(1, -172, 1, -72)
+	confirm.Text = "RELEASE"
+	confirm.ZIndex = box.ZIndex + UITheme.Z.Content
+	confirm.Parent = box
+	styleButton(confirm, UITheme.Color.Red, UDim.new(0, 12), 4)
+	themeLabel(confirm, 24)
+
+	local function close()
+		pendingId = nil
+		shade4.Visible = false
+	end
+
+	cancel.MouseButton1Click:Connect(close)
+	-- clicking the darkened backdrop cancels, which is what every modal in every game does and what
+	-- a player will try first
+	shade4.MouseButton1Click:Connect(close)
+	confirm.MouseButton1Click:Connect(function()
+		local id = pendingId
+		close()
+		if id and deleteRemote then
+			-- a list of one: the server has a single handler for one pet and for many, so there is
+			-- no second path here that could drift from the multi-select one
+			deleteRemote:FireServer({ id })
+		end
+	end)
+
+	hudRefs.confirmRelease = function(petId, displayName, rarityName, rarityColor)
+		pendingId = petId
+		petLine.Text = ("%s  %s"):format(displayName or "Pet",
+			colorTag(rarityName or "", rarityColor or UITheme.Color.White))
+		shade4.Visible = true
+	end
+end)()
+
 -- ===== Pet Fusion panel =====
 -- Fusing is a decision about a GROUP -- four identical pets go in, one of the next tier comes out
 -- -- so this panel lists GROUPS, not pets. Each row is one species at one tier, and it states the
@@ -2113,12 +2309,12 @@ end)
 	emptyLabel.Parent = scroll
 	themeLabel(emptyLabel, 20, UITheme.Color.Cream)
 
-	-- power runs 1 .. 64 across the whole roster, so one decimal below ten and none above it
+	-- GetPetPower is a SHARE OF THE PLAYER'S DAMAGE now, not the old 1..64 tier x rarity product, so
+	-- it runs about 0.03 to 3.4 -- and "x0.1" as a power chip says nothing to anybody. Rendered as
+	-- the percentage of damage the pet adds, which is the same unit the pet rows and the catalyst
+	-- rows already print, so one pet reads the same number everywhere in the UI.
 	local function powerText(p)
-		if p >= 10 then
-			return ("x%d"):format(math.floor(p + 0.5))
-		end
-		return ("x%.1f"):format(p)
+		return ("+%d%%"):format(math.floor(p * 100 + 0.5))
 	end
 
 	local function refresh()
@@ -2152,8 +2348,11 @@ end)
 		for _, g in ipairs(order) do
 			g.nextTier = GameConfig.GetNextTier(g.tier)
 			if g.nextTier and g.count >= GameConfig.FuseRequirement then
-				g.power = GameConfig.GetPetPower({ key = g.key, tier = g.tier })
-				g.nextPower = GameConfig.GetPetPower({ key = g.key, tier = g.nextTier })
+				-- `data` carries the zone axis into the ranking, so the fusion list is ordered by what
+				-- these pets are worth to this player now rather than by what they were worth in the
+				-- zone they hatched in
+				g.power = GameConfig.GetPetPower({ key = g.key, tier = g.tier }, data)
+				g.nextPower = GameConfig.GetPetPower({ key = g.key, tier = g.nextTier }, data)
 				table.insert(ready, g)
 			end
 		end
@@ -2181,8 +2380,8 @@ end)
 			end
 		end
 		table.sort(catalysts, function(a, b)
-			local pa = GameConfig.GetPetPower({ key = a.key, tier = a.catalystTier })
-			local pb = GameConfig.GetPetPower({ key = b.key, tier = b.catalystTier })
+			local pa = GameConfig.GetPetPower({ key = a.key, tier = a.catalystTier }, data)
+			local pb = GameConfig.GetPetPower({ key = b.key, tier = b.catalystTier }, data)
 			if pa ~= pb then return pa > pb end
 			return a.key < b.key
 		end)
@@ -2210,22 +2409,26 @@ end)
 			nameLabel.Parent = row
 			themeLabel(nameLabel, 23)
 
-			-- THE GAIN IS READ OFF GetPetBonus, NOT GetPetPower.
+			-- THE GAIN IS QUOTED IN DAMAGE, BECAUSE DAMAGE IS NOW THE ONLY THING A PET PAYS.
 			--
-			-- GetPetPower is the raw tier x rarity product, so a tier step always divides out to exactly
-			-- +100% -- which is what the fuse rows below print. The bonuses it feeds are AFFINE
-			-- (1 + 0.4*mult and so on), so a Common's real income gain from Golden to Rainbow is +44%,
-			-- not +100%. A row the player is about to pay Robux against has to quote the number they
-			-- will actually get.
-			local fromBonus = GameConfig.GetPetBonus(g.tier, info.rarity).incomeMult
-			local toBonus = GameConfig.GetPetBonus(g.catalystTier, info.rarity).incomeMult
+			-- This read `incomeMult` until the pet rebalance, and that field is a hard 1 today -- so
+			-- left alone this row would have advertised "income x1.00 -> x1.00 (+0%)" on a card the
+			-- player is about to spend Robux against. A stat that no longer exists cannot be the
+			-- headline of a purchase.
+			--
+			-- Still read off GetPetBonus rather than GetPetPower for the original reason: the tier
+			-- ladder divides out to a constant ratio, but what the player actually gains is the
+			-- share ON TOP of 1, so only the bonus itself can quote the real step. Both calls pass
+			-- `pet key` and `data`, so the quote is what this player gets at their current rung.
+			local fromBonus = GameConfig.GetPetBonus(g.tier, info.rarity, g.key, data).damageMult
+			local toBonus = GameConfig.GetPetBonus(g.catalystTier, info.rarity, g.key, data).damageMult
 			local gainLabel = Instance.new("TextLabel")
 			gainLabel.Size = UDim2.new(0, 290, 0, 24)
 			gainLabel.Position = UDim2.new(0, 16, 1, -32)
 			gainLabel.BackgroundTransparency = 1
 			gainLabel.TextXAlignment = Enum.TextXAlignment.Left
 			gainLabel.RichText = true
-			gainLabel.Text = ("%s \u{2192} %s   income x%.2f \u{2192} %s"):format(
+			gainLabel.Text = ("%s \u{2192} %s   damage x%.2f \u{2192} %s"):format(
 				g.tier,
 				colorTag(g.catalystTier, GameConfig.PetTierColor[g.catalystTier] or UITheme.Color.White),
 				fromBonus,
@@ -2396,7 +2599,7 @@ end
 -- ===== Rebirth panel =====
 local rebirthPanel = Instance.new("Frame")
 rebirthPanel.Name = "RebirthPanel"
-rebirthPanel.Size = UDim2.new(0, 400, 0, 384)
+rebirthPanel.Size = UDim2.new(0, 430, 0, 392)
 rebirthPanel.Position = PANEL_ANCHOR
 rebirthPanel.ZIndex = 20
 rebirthPanel.Visible = false
@@ -2414,12 +2617,15 @@ rebirthTitle.TextXAlignment = Enum.TextXAlignment.Left
 rebirthTitle.Text = "♻️ Rebirth"
 rebirthTitle.Parent = rebirthPanel
 themeLabel(rebirthTitle, 28)
+-- 9.9: the leading glyph becomes a drawing at the title's left edge, or stays a glyph if
+-- there is no art for it. One line, and it moves nothing else on the panel.
+UITheme.IconifyLabel(rebirthTitle)
 
 -- the two readouts get real cards rather than bare text on the shell, so the panel has the
 -- same stacked-card rhythm as Zones/Pets instead of reading as a dialog box
 local rebirthInfoCard = Instance.new("Frame")
 rebirthInfoCard.Name = "InfoCard"
-rebirthInfoCard.Size = UDim2.new(1, -28, 0, 88)
+rebirthInfoCard.Size = UDim2.new(1, -28, 0, 64)
 rebirthInfoCard.Position = UDim2.new(0, 14, 0, 56)
 rebirthInfoCard.Parent = rebirthPanel
 styleCard(rebirthInfoCard, UITheme.Color.Purple, UDim.new(0, 14), 4)
@@ -2432,14 +2638,14 @@ rebirthInfoLabel.BackgroundTransparency = 1
 rebirthInfoLabel.TextXAlignment = Enum.TextXAlignment.Left
 rebirthInfoLabel.TextYAlignment = Enum.TextYAlignment.Top
 rebirthInfoLabel.TextWrapped = true
-rebirthInfoLabel.Text = "Rebirths: 0\nEvolution Shards: 0 (+0% income)"
+rebirthInfoLabel.Text = "Rebirths  0 / 4"
 rebirthInfoLabel.Parent = rebirthInfoCard
 themeLabel(rebirthInfoLabel, 19, UITheme.Color.Cream)
 
 local rebirthReqCard = Instance.new("Frame")
 rebirthReqCard.Name = "ReqCard"
-rebirthReqCard.Size = UDim2.new(1, -28, 0, 132)
-rebirthReqCard.Position = UDim2.new(0, 14, 0, 154)
+rebirthReqCard.Size = UDim2.new(1, -28, 0, 176)
+rebirthReqCard.Position = UDim2.new(0, 14, 0, 132)
 rebirthReqCard.Parent = rebirthPanel
 styleCard(rebirthReqCard, UITheme.Color.Gold, UDim.new(0, 14), 4)
 
@@ -2471,38 +2677,175 @@ rebirthActionButton.MouseButton1Click:Connect(function()
 	Remotes.Rebirth:FireServer()
 end)
 
+-- ===== THE REBIRTH BEACON: AN ARROW THAT ONLY EXISTS WHEN THERE IS SOMETHING TO PRESS =====
+--
+-- A milestone that is reachable and unmentioned is a milestone nobody uses. This is the one moment
+-- in the game worth interrupting for, so it gets a pointer -- and it gets exactly nothing the rest
+-- of the time, which is what stops it becoming another permanently-lit badge the eye learns to skip.
+--
+-- Three deliberate cheapnesses, because this can be on screen for a long stretch:
+--
+--   * ONE `RunService.Heartbeat` for the whole beacon, connected only while it is showing and
+--     disconnected the instant it is not. Not one per element, and nothing at all while locked.
+--   * It reads `rebirthButton.AbsolutePosition` every frame rather than caching it, because the
+--     responsive pass at the bottom of this file MOVES that tile on any viewport change -- a cached
+--     position leaves the arrow pointing at empty screen after a window resize.
+--   * `IgnoreGuiInset` is left FALSE on this ScreenGui. That is not an oversight: an offset Position
+--     inside an inset-ignoring GUI is measured from the top of the SCREEN while `AbsolutePosition`
+--     is reported below the topbar, and mixing the two puts everything exactly one inset (58 px
+--     measured here) out of place. Copying the other GUI's flag looks like the fix and is not.
+--
+-- Everything lives in this immediately-called function so the file gains no top-level locals -- see
+-- the register-cap note further down. The one handle out is `hudRefs.setRebirthReady`.
+;(function()
+	local beaconGui = Instance.new("ScreenGui")
+	beaconGui.Name = "RebirthBeacon"
+	beaconGui.ResetOnSpawn = false
+	beaconGui.IgnoreGuiInset = false
+	beaconGui.DisplayOrder = 90
+	beaconGui.Enabled = false
+	beaconGui.Parent = playerGui
+
+	-- A ring that pulses AROUND the tile rather than a badge on top of it: the tile already carries
+	-- an icon and a caption, and covering either to say "press me" hides what is being pressed.
+	local ring = Instance.new("Frame")
+	ring.Name = "Ring"
+	ring.AnchorPoint = Vector2.new(0.5, 0.5)
+	ring.BackgroundTransparency = 1
+	ring.Parent = beaconGui
+	local ringCorner = Instance.new("UICorner")
+	ringCorner.CornerRadius = UDim.new(0, 22)
+	ringCorner.Parent = ring
+	local ringStroke = Instance.new("UIStroke")
+	ringStroke.Thickness = 4
+	ringStroke.Color = UITheme.Color.Gold
+	ringStroke.Transparency = 0.15
+	ringStroke.Parent = ring
+
+	local arrow = Instance.new("TextLabel")
+	arrow.Name = "Arrow"
+	arrow.Size = UDim2.new(0, 62, 0, 62)
+	arrow.AnchorPoint = Vector2.new(0, 0.5)
+	arrow.BackgroundTransparency = 1
+	arrow.Text = "\u{27A1}\u{FE0F}"
+	arrow.TextScaled = true
+	arrow.Parent = beaconGui
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Label"
+	label.Size = UDim2.new(0, 186, 0, 34)
+	label.AnchorPoint = Vector2.new(0, 0.5)
+	label.Text = "REBIRTH READY"
+	label.Parent = beaconGui
+	styleCard(label, UITheme.Color.Gold, UDim.new(0, 12), 3)
+	themeLabel(label, 19)
+
+	local conn
+	local function stop()
+		if conn then conn:Disconnect() conn = nil end
+		beaconGui.Enabled = false
+	end
+
+	hudRefs.setRebirthReady = function(ready)
+		if not ready then stop() return end
+		if conn then return end -- already running; never stack a second Heartbeat
+		beaconGui.Enabled = true
+		local t0 = os.clock()
+		conn = RunService.Heartbeat:Connect(function()
+			-- the tile can be gone for a frame during a respawn or a layout pass
+			if not rebirthButton.Parent then return end
+			local pos, size = rebirthButton.AbsolutePosition, rebirthButton.AbsoluteSize
+			if size.X < 1 then return end
+			local t = os.clock() - t0
+			local pulse = 0.5 + 0.5 * math.sin(t * 3.2)
+
+			-- the ring breathes OUTWARD from the tile, so it never covers the icon
+			local grow = 10 + pulse * 8
+			ring.Position = UDim2.fromOffset(pos.X + size.X * 0.5, pos.Y + size.Y * 0.5)
+			ring.Size = UDim2.fromOffset(size.X + grow * 2, size.Y + grow * 2)
+			ringStroke.Transparency = 0.1 + pulse * 0.45
+
+			-- and the arrow nudges toward the tile from its right, the one side the tile column
+			-- never occupies (the left column is pinned at x = 20)
+			local nudge = math.abs(math.sin(t * 3.2)) * 10
+			local ax = pos.X + size.X + 16 + nudge
+			arrow.Position = UDim2.fromOffset(ax, pos.Y + size.Y * 0.5)
+			label.Position = UDim2.fromOffset(ax + 66, pos.Y + size.Y * 0.5)
+		end)
+	end
+
+	-- the panel is what decides; this is only ever told. Start hidden so a save that arrives locked
+	-- never flashes it.
+	stop()
+end)()
+
+-- ===== THE REBIRTH PANEL ANSWERS SIX QUESTIONS, IN ORDER =====
+--
+-- how many have I done, which is next, where am I now, what do I get, what do I lose, how far off
+-- am I. It used to answer one and a half of those -- a Shard count and "a checkpoint exists every
+-- 5 stages" -- which is why a rebirth read as a punishment: the panel listed a price and never once
+-- named the thing being bought.
+--
+-- Everything here derives from GameConfig.CanRebirthNow / GetNextRebirthTier, the same two
+-- functions the server and the shrine use, so the button can never offer something HandleRebirth
+-- will refuse.
 local function refreshRebirthPanel()
 	if not currentData then return end
 	local data = currentData
-	local shardBonus = GameConfig.GetShardIncomeBonusPct(data.EvolutionShards)
-	local tierNow = GameConfig.GetRebirthTier(data.StageIndex)
-	rebirthInfoLabel.Text = string.format(
-		"Rebirths: %d\nEvolution Shards: %d (+%d%% income)\nRebirth Tier: %d / %d",
-		data.Rebirths, data.EvolutionShards, shardBonus, tierNow, GameConfig.MaxRebirthTier
-	)
+	local done = data.Rebirths or 0
+	local nextTier = GameConfig.GetNextRebirthTier(data)
+	local ready, why = GameConfig.CanRebirthNow(data)
 
-	local canRebirth = data.StageIndex >= GameConfig.RebirthRequirementStageIndex
-	local nextShards = GameConfig.GetRebirthShardReward(data.StageIndex, data.Rebirths)
-	if canRebirth then
-		local nextTierStage = math.min((tierNow + 1) * GameConfig.RebirthTierSize, #GameConfig.Stages)
-		local pushHint = ""
-		if tierNow < GameConfig.MaxRebirthTier then
-			local nextTierStageDef = GameConfig.Stages[nextTierStage]
-			local nextTierShards = GameConfig.GetRebirthShardReward(nextTierStage, data.Rebirths)
-			pushHint = string.format(" Push to %s %s (Stage %d) for +%d Shards instead!", nextTierStageDef.emoji, nextTierStageDef.name, nextTierStage, nextTierShards)
-		end
-		-- The button below is the shortcut; the statues are where the choice actually lives, because
-		-- there you pick WHICH tier to cash in at. Each stands in the zone that opens at its own
-		-- checkpoint stage -- see ServerScriptService.RebirthShrine.
-		rebirthReqLabel.Text = string.format("Ready! Rebirth now for +%d Shards.%s", nextShards, pushHint)
-		rebirthActionButton.Text = string.format("REBIRTH (+%d Shards)", nextShards)
+	-- WHAT IS PERMANENT. Stated as the totals carried right now, not as a per-run rate: after a
+	-- reset that takes the stage, the zones and the collection, "you permanently hit for x3.5" is
+	-- the only framing in which the trade reads as a gain.
+	-- "8 / 4" IS NOT A COUNTER, IT IS A BUG REPORT. Saves from before the ladder existed hold more
+	-- rebirths than the ladder has rungs (the owner's test save has eight) and they keep every point
+	-- of it -- so past the cap the denominator is dropped rather than printing a fraction that reads
+	-- as broken arithmetic.
+	local counter = (done > GameConfig.MaxRebirths)
+		and ("Rebirths  %d"):format(done)
+		or ("Rebirths  %d / %d"):format(done, GameConfig.MaxRebirths)
+	rebirthInfoLabel.Text = string.format(
+		"%s\n\u{2694}\u{FE0F}  x%.2f Damage  \u{2022}  \u{1F9EC}  x%.2f Income   (permanent)",
+		counter, GameConfig.GetRebirthDamageMult(data), GameConfig.GetRebirthIncomeMult(data))
+
+	if ready then
+		local reqStageIndex = GameConfig.GetRebirthTierStageIndex(nextTier)
+		local afterData = { Rebirths = done + 1 }
+		rebirthReqLabel.Text = string.format(
+			"REBIRTH %d IS READY.\nTakes you to  \u{2694}\u{FE0F} x%.2f Damage  \u{2022}  \u{1F9EC} x%.2f Income, forever.\n\nResets: stage, zones, upgrades, DNA, XP and your skins.\nKeeps: pets, diamonds, shards, mastery and everything above.",
+			nextTier, GameConfig.GetRebirthDamageMult(afterData), GameConfig.GetRebirthIncomeMult(afterData))
+		rebirthActionButton.Text = string.format("REBIRTH %d  \u{2022}  STAGE %d", nextTier, reqStageIndex)
 		setButtonColor(rebirthActionButton, UITheme.Color.Purple)
-	else
-		local reqStage = GameConfig.Stages[GameConfig.RebirthRequirementStageIndex]
-		rebirthReqLabel.Text = "Reach " .. reqStage.emoji .. " " .. reqStage.name .. " (Stage " .. GameConfig.RebirthRequirementStageIndex .. ") to unlock your first Rebirth. A Rebirth checkpoint exists every 5 stages."
-		rebirthActionButton.Text = "REBIRTH (LOCKED)"
+		rebirthActionButton.Active = true
+	elseif why == "done" then
+		-- The ladder is four rungs and it ENDS. A save from before this rule can hold more than four
+		-- and keeps every point of it -- there is simply nothing left to spend.
+		rebirthReqLabel.Text = string.format(
+			"All %d Rebirths complete.\nEverything they paid for is permanent and stays with you.",
+			GameConfig.MaxRebirths)
+		rebirthActionButton.Text = "ALL REBIRTHS COMPLETE"
 		setButtonColor(rebirthActionButton, UITheme.Color.Locked)
+		rebirthActionButton.Active = false
+	else
+		-- HOW FAR OFF, in stages, because that is the unit the player moves in. Naming the creature
+		-- as well as the number is what makes it a destination rather than a threshold.
+		local reqStageIndex = GameConfig.GetRebirthTierStageIndex(nextTier)
+		local reqStage = GameConfig.Stages[reqStageIndex]
+		local togo = reqStageIndex - (data.StageIndex or 1)
+		rebirthReqLabel.Text = string.format(
+			"Rebirth %d unlocks at  %s %s  (Stage %d).\nYou are Stage %d \u{2014} %d %s to go.\n\nEach of the %d Rebirths is used ONCE, in order: stages 5, 10, 15 and 20.",
+			nextTier, reqStage.emoji, reqStage.name, reqStageIndex,
+			data.StageIndex or 1, togo, togo == 1 and "stage" or "stages", GameConfig.MaxRebirths)
+		rebirthActionButton.Text = string.format("LOCKED  \u{2022}  %d MORE %s",
+			togo, togo == 1 and "STAGE" or "STAGES")
+		setButtonColor(rebirthActionButton, UITheme.Color.Locked)
+		rebirthActionButton.Active = false
 	end
+
+	-- and tell the HUD tile whether to shine -- see the Rebirth beacon block
+	if hudRefs.setRebirthReady then hudRefs.setRebirthReady(ready) end
 end
 
 -- ===== shared bits for the two "claim a reward" boards (Daily + Playtime) =====
@@ -2617,6 +2960,9 @@ rewardTitle.TextXAlignment = Enum.TextXAlignment.Left
 rewardTitle.Text = "📅 Daily Rewards!"
 rewardTitle.Parent = rewardPanel
 themeLabel(rewardTitle, 36)
+-- 9.9: the leading glyph becomes a drawing at the title's left edge, or stays a glyph if
+-- there is no art for it. One line, and it moves nothing else on the panel.
+UITheme.IconifyLabel(rewardTitle)
 
 local rewardStreakCard = Instance.new("Frame")
 rewardStreakCard.Name = "StreakCard"
@@ -2662,11 +3008,6 @@ local function buildDayCell(dayIndex, size, position, big)
 	dayLabel.Parent = frame
 	themeLabel(dayLabel, big and 34 or 24)
 
-	local iconLabel = Instance.new("TextLabel")
-	iconLabel.Name = "IconLabel"
-	iconLabel.Size = UDim2.new(1, 0, 0, big and 138 or 58)
-	iconLabel.Position = UDim2.new(0, 0, 0, big and 62 or 38)
-	iconLabel.BackgroundTransparency = 1
 	local icon = "🧬"
 	if reward.potions and reward.shards then
 		icon = "🌟"
@@ -2675,9 +3016,16 @@ local function buildDayCell(dayIndex, size, position, big)
 	elseif reward.shards or reward.diamonds then
 		icon = "💎"
 	end
-	iconLabel.Text = icon
-	iconLabel.Parent = frame
-	themeLabel(iconLabel, big and 84 or 46)
+	-- THE ICON IS THE FACE OF THE CARD, so this is the one slot on this panel where the drawing
+	-- matters most. The box is unchanged; what changed is that an emoji's glyph fills about half
+	-- its line box while a drawing fills what it is given, so these come out visibly larger at the
+	-- same authored size. Day 7's 🌟 is gold on a gold card -- the case that pushed the icon drop
+	-- shadow into UITheme rather than being special-cased here (see iconSlot).
+	local iconLabel = UITheme.IconSlot(frame, {
+		name = "IconLabel", icon = icon, maxTextSize = big and 84 or 46,
+		size = UDim2.new(1, 0, 0, big and 138 or 58),
+		position = UDim2.new(0, 0, 0, big and 62 or 38),
+	})
 
 	local amountLabel = Instance.new("TextLabel")
 	amountLabel.Name = "AmountLabel"
@@ -2870,7 +3218,7 @@ local function dayNumber(timestamp)
 	return math.floor((timestamp or 0) / SECONDS_PER_DAY)
 end
 
--- ================= THE FREE DAILY SPIN (Phase 5.6) =================
+-- ================= THE TWO WAYS INTO THE WHEEL (Phase 5.6 + 9.4) =================
 --
 -- Placed HERE rather than beside the rest of the Daily panel further up, and the reason is a Lua
 -- one: `dayNumber` is declared a few lines above, so a closure written earlier in the file would
@@ -2884,6 +3232,19 @@ end
 	local button = UITheme.Button(rewardPanel, {
 		name = "FreeSpin", text = "\u{1F3A1} FREE SPIN", color = UITheme.Color.Gold,
 		size = UDim2.new(0, 220, 0, 42), position = UDim2.new(1, -22, 0, 54),
+		anchorPoint = Vector2.new(1, 0), radius = 14,
+		zIndex = rewardPanel.ZIndex + 1, maxTextSize = 22,
+	})
+
+	-- THE SHARD SPIN SITS BESIDE THE FREE ONE, and that placement is the point (9.4). They are the
+	-- same wheel reached by two triggers, so putting them together is what makes the relationship
+	-- legible -- free once a day, or 25 Shards whenever you have climbed for them -- where a shard
+	-- wheel hidden on some other screen would read as a second, different gamble. It fits in the
+	-- band the streak card (ends x262) and the free spin button (starts x458) leave empty, so
+	-- nothing already measured on this panel moves.
+	local shardButton = UITheme.Button(rewardPanel, {
+		name = "ShardSpin", text = "\u{1F3A1} SPIN 25\u{1F31F}", color = UITheme.Color.Locked,
+		size = UDim2.new(0, 170, 0, 42), position = UDim2.new(1, -250, 0, 54),
 		anchorPoint = Vector2.new(1, 0), radius = 14,
 		zIndex = rewardPanel.ZIndex + 1, maxTextSize = 22,
 	})
@@ -2911,10 +3272,37 @@ end
 			UITheme.SetColor(button, UITheme.Color.Locked)
 			UITheme.SetText(button, "\u{1F3A1} " .. countdown((dayNumber(os.time()) + 1) * SECONDS_PER_DAY - os.time()))
 		end
+
+		-- The shard button reads the same price the server charges (GameConfig.SpinCostShards), so it
+		-- can never offer a spin SpendShardSpin will refuse -- the property the evolve button has
+		-- against GetEvolveStep and the free spin has against GetFreeSpinStatus.
+		--
+		-- When it cannot be afforded it shows PROGRESS rather than the price again. "12 / 25" tells a
+		-- player who has never seen a shard both what the thing costs and that they are getting
+		-- there; a greyed-out "SPIN 25" tells them only that they cannot press it.
+		local cost = GameConfig.SpinCostShards
+		local held = math.floor(currentData.EvolutionShards or 0)
+		if held >= cost then
+			UITheme.SetColor(shardButton, UITheme.Color.Purple)
+			UITheme.SetText(shardButton, ("\u{1F3A1} SPIN %d\u{1F31F}"):format(cost))
+		else
+			UITheme.SetColor(shardButton, UITheme.Color.Locked)
+			UITheme.SetText(shardButton, ("\u{1F31F} %d / %d"):format(held, cost))
+		end
 	end
 
 	button.MouseButton1Click:Connect(function()
 		local remote = Remotes:FindFirstChild("ClaimFreeSpin")
+		if remote then
+			remote:FireServer()
+		end
+	end)
+
+	-- Fired unconditionally rather than gated on the local affordability check: the client's copy of
+	-- the save is up to a push behind, and a button that silently does nothing is worse than the
+	-- server's own "you need 25" toast. The server is the one that decides either way.
+	shardButton.MouseButton1Click:Connect(function()
+		local remote = Remotes:FindFirstChild("SpinWithShards")
 		if remote then
 			remote:FireServer()
 		end
@@ -2931,7 +3319,8 @@ end
 		end
 	end)
 
-	hudRefs.refreshFreeSpin = refresh
+	-- one handle for both buttons: they are two states of the same question ("can I spin, and how")
+	hudRefs.refreshSpins = refresh
 end)()
 
 local function refreshRewardPanel()
@@ -3034,6 +3423,9 @@ inventoryTitle.TextXAlignment = Enum.TextXAlignment.Left
 inventoryTitle.Text = "\u{1F392} Items!"
 inventoryTitle.Parent = inventoryPanel
 themeLabel(inventoryTitle, 40)
+-- 9.9: the leading glyph becomes a drawing at the title's left edge, or stays a glyph if
+-- there is no art for it. One line, and it moves nothing else on the panel.
+UITheme.IconifyLabel(inventoryTitle)
 
 -- ===== SECTION HEADINGS =====
 -- Centred grey word with a rule running out of both sides. Two of them, written out rather than
@@ -3202,14 +3594,10 @@ for i, potion in ipairs(GameConfig.Potions) do
 	row.Parent = potionScroll
 	styleCard(row, potion.color, UDim.new(0, 14), 3)
 
-	local icon = Instance.new("TextLabel")
-	icon.Name = "Icon"
-	icon.Size = UDim2.new(0, 46, 1, -10)
-	icon.Position = UDim2.new(0, 8, 0, 5)
-	icon.BackgroundTransparency = 1
-	icon.Text = potion.sizeEmoji
-	icon.Parent = row
-	themeLabel(icon, 30)
+	local icon = UITheme.IconSlot(row, {
+		name = "Icon", icon = potion.sizeEmoji, maxTextSize = 30,
+		size = UDim2.new(0, 46, 1, -10), position = UDim2.new(0, 8, 0, 5),
+	})
 
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Name = "NameLabel"
@@ -3402,6 +3790,9 @@ robuxTitle.TextXAlignment = Enum.TextXAlignment.Left
 robuxTitle.Text = "🛍️ Robux Shop"
 robuxTitle.Parent = robuxPanel
 themeLabel(robuxTitle, 30)
+-- 9.9: the leading glyph becomes a drawing at the title's left edge, or stays a glyph if
+-- there is no art for it. One line, and it moves nothing else on the panel.
+UITheme.IconifyLabel(robuxTitle)
 
 -- A SCROLLING FRAME, NOT A FRAME. Seventeen products in a 448 x 500 panel is nine rows of two,
 -- about 1,400 px of cards in roughly 350 px of space: as a plain Frame everything below the third
@@ -3469,18 +3860,17 @@ robuxLayout.Parent = robuxGrid
 
 		-- THE ICON IS THE TILE. At 24 px the emoji was punctuation in front of a name; the fastest
 		-- thing to recognise in a shop is what kind of thing you are looking at, and that is the icon.
-		local icon = Instance.new("TextLabel")
-		icon.Name = "Icon"
-		-- 60 px of BOX for what will draw as roughly half that in GLYPH. TextScaled fits the font size
-		-- to the line box, and an emoji's line box is mostly padding -- a 40 px box drew an icon barely
-		-- larger than the name under it, which was the whole thing this was meant to fix. Measured off
-		-- a capture rather than guessed.
-		icon.Size = UDim2.new(1, -16, 0, 60)
-		icon.Position = UDim2.new(0, 8, 0, 8)
-		icon.BackgroundTransparency = 1
-		icon.Text = product.emoji
-		icon.Parent = card
-		themeLabel(icon, 40)
+		--
+		-- Through UITheme.IconSlot since 9.9, so a product whose emoji has drawn art gets the
+		-- drawing and one whose emoji does not keeps the glyph. The 60 px box is unchanged and the
+		-- note below is still why it is 60: TextScaled fits the font to the LINE BOX and an emoji's
+		-- line box is mostly padding, so a 40 px box drew an icon barely larger than the name under
+		-- it. An ImageLabel has no such padding and fills what it is given, which is a small free
+		-- improvement on exactly the tiles this was measured against.
+		local icon = UITheme.IconSlot(card, {
+			name = "Icon", icon = product.emoji, maxTextSize = 40,
+			size = UDim2.new(1, -16, 0, 60), position = UDim2.new(0, 8, 0, 8),
+		})
 
 		local nameLabel = Instance.new("TextLabel")
 		nameLabel.Name = "NameLabel"
@@ -3590,7 +3980,9 @@ robuxLayout.Parent = robuxGrid
 			end
 		end
 		local left = 86400 - (os.time() % 86400)
-		robuxTitle.Text = ("\u{1F6CD}\u{FE0F} Robux Shop   \u{2B50} pick resets in %dh %02dm"):format(left // 3600, (left % 3600) // 60)
+		-- leading 🛍️ dropped for the reason written on the Pets title; the ⭐ mid-string stays,
+		-- because it belongs to the sentence about the pick and has no slot of its own
+		robuxTitle.Text = ("Robux Shop   \u{2B50} pick resets in %dh %02dm"):format(left // 3600, (left % 3600) // 60)
 	end
 	hudRefs.refreshRobuxShop()
 end)()
@@ -3674,14 +4066,10 @@ end)()
 		end
 		styleCard(row, accent, UDim.new(0, 16), 4)
 
-		local icon = Instance.new("TextLabel")
-		icon.Name = "Icon"
-		icon.Size = UDim2.new(0, 56, 0, 56)
-		icon.Position = UDim2.new(0, 10, 0, 8)
-		icon.BackgroundTransparency = 1
-		icon.Text = pass.emoji
-		icon.Parent = row
-		themeLabel(icon, 40)
+		local icon = UITheme.IconSlot(row, {
+			name = "Icon", icon = pass.emoji, maxTextSize = 40,
+			size = UDim2.new(0, 56, 0, 56), position = UDim2.new(0, 10, 0, 8),
+		})
 
 		local nameLabel = Instance.new("TextLabel")
 		nameLabel.Name = "NameLabel"
@@ -3793,8 +4181,9 @@ end)()
 
 	addPlus(dnaPill, UITheme.Color.Green)
 	addPlus(diamondPill, UITheme.Color.SkyBlue)
-	-- deliberately NOT on the Shard pill: Evolution Shards are a rebirth reward and are not sold for
-	-- Robux anywhere, so a `+` there would open a shop that has nothing to answer it with
+	-- deliberately NOT on the Shard pill: Evolution Shards are not sold for Robux anywhere, so a `+`
+	-- there would open a shop that has nothing to answer it with. They are earned off the raised
+	-- creatures on the terraces (9.4), and the place to spend them is the Daily panel's wheel.
 end)()
 
 robuxButton.MouseButton1Click:Connect(function()
@@ -3822,6 +4211,9 @@ playtimeTitle.TextXAlignment = Enum.TextXAlignment.Left
 playtimeTitle.Text = "⏰ Playtime Gifts"
 playtimeTitle.Parent = playtimePanel
 themeLabel(playtimeTitle, 32)
+-- 9.9: the leading glyph becomes a drawing at the title's left edge, or stays a glyph if
+-- there is no art for it. One line, and it moves nothing else on the panel.
+UITheme.IconifyLabel(playtimeTitle)
 
 local playtimeSubLabel = Instance.new("TextLabel")
 playtimeSubLabel.Name = "SubLabel"
@@ -4178,7 +4570,11 @@ local CHAR_LINE_H = 132
 			-- ladder that no longer exists. Its own colour is the useful fact: the disc is now a
 			-- swatch of what you actually turn into when you press it.
 			local tint = entry.color or GameConfig.GetRarity(entry.rarity).color
-			local damagePct = GameConfig.GetCharacterDamagePct(entry)
+			-- THE DAMAGE THIS RUNG PUTS ON THE BODY, and it is now literally the number the creature
+			-- takes: GameConfig.GetRankDamage is the base of DNAService.GetCombatDamage, and nothing
+			-- clamps it any more. The Journal promising one figure while combat drew another is the
+			-- bug this replaces -- see the DAMAGE LADDER block in GameConfig.
+			local damagePct = math.floor(GameConfig.GetRankDamage(GameConfig.GetCharacterRank(entry)))
 
 			local col = (i - 1) % CHAR_PER_LINE
 			local line = math.floor((i - 1) / CHAR_PER_LINE)
@@ -4232,7 +4628,7 @@ local CHAR_LINE_H = 132
 			-- a lie in one direction or the other depending on how far the collection has got. It says
 			-- what it actually is instead.
 			damageLabel.Text = entry.vip and "\u{2694}\u{FE0F} = best"
-				or ("\u{2694}\u{FE0F} +%d%%"):format(damagePct)
+				or ("\u{2694}\u{FE0F} %s"):format(formatNumber(damagePct))
 			damageLabel.ZIndex = cell.ZIndex + UITheme.Z.Badge
 			damageLabel.Parent = cell
 			themeLabel(damageLabel, 17, Color3.fromRGB(58, 66, 88))
@@ -4411,14 +4807,16 @@ local CHAR_LINE_H = 132
 		local rarityLine = ownershipText(entry.key)
 		-- ONE worn character, wherever the player is standing -- see GameConfig.GetWornCharacter
 		local equipped = currentData and currentData.WornCharacter == entry.key
-		local wornEntry = currentData and GameConfig.GetWornCharacter(currentData)
-		local wornPct = wornEntry and GameConfig.GetCharacterDamagePct(wornEntry) or 0
+		-- The rung the player actually FIGHTS at. It is the best one owned, not the one on the body:
+		-- a costume is free now, see GameConfig.GetProgressRank.
+		local progressDamage = currentData and math.floor(GameConfig.GetBaseDamage(currentData)) or 0
 
 		dName.Text = owned and entry.name or "???"
 		dName.TextColor3 = owned and (entry.color or Color3.fromRGB(46, 54, 74)) or Color3.fromRGB(150, 158, 178)
 		dSub.Text = ("%s %s  \u{2022}  #%d of %d%s"):format(stage and stage.emoji or "", stage and stage.name or "",
 			GameConfig.GetCharacterIndex(entry), #GameConfig.GetCharactersForStage(entry.stage), rarityLine)
-		dStatLabel.Text = ("\u{2694}\u{FE0F}  +%d%% Damage"):format(GameConfig.GetCharacterDamagePct(entry))
+		dStatLabel.Text = ("\u{2694}\u{FE0F}  %s Damage"):format(
+			formatNumber(math.floor(GameConfig.GetRankDamage(GameConfig.GetCharacterRank(entry)))))
 
 		equipButton.Visible = owned
 		if equipped then
@@ -4435,23 +4833,24 @@ local CHAR_LINE_H = 132
 			equipButton.Active = true
 		end
 
-		-- WHAT IT COSTS OR PAYS, against what is on the body right now. Anything can be worn at any
-		-- time, so the only question left is the trade -- and a drop in damage that nothing warned
-		-- about reads as the game breaking rather than as the price of the skin you chose.
+		-- THERE IS NO TRADE LEFT TO WARN ABOUT. This used to compare the rung against the one on the
+		-- body and print what wearing it would cost, because damage came from the costume. It comes
+		-- from the best rung OWNED now, so picking an old skin changes nothing but the mirror --
+		-- and the useful fact is instead what the player is hitting for right now.
 		if not owned then
 			dHint.Text = "Evolve to " .. (stage and stage.name or "this stage") .. " to discover it."
 		elseif equipped then
-			dHint.Text = "This is what you look like right now."
+			dHint.Text = ("This is what you look like right now.  You hit for %s."):format(formatNumber(progressDamage))
 		else
-			local delta = GameConfig.GetCharacterDamagePct(entry) - wornPct
+			local delta = math.floor(GameConfig.GetRankDamage(GameConfig.GetCharacterRank(entry))) - progressDamage
 			if delta > 0 then
-				dHint.Text = ("Wearing this is +%d%% damage on what you have on."):format(delta)
+				dHint.Text = "Wear it freely \u{2014} a skin is looks only, your damage stays where you climbed to."
 				dHint.TextColor3 = Color3.fromRGB(72, 168, 96)
 			elseif delta < 0 then
-				dHint.Text = ("Wearing this costs you %d%% damage \u{2014} but you can wear it anywhere."):format(-delta)
-				dHint.TextColor3 = Color3.fromRGB(206, 116, 96)
+				dHint.Text = ("Costs you nothing \u{2014} you still hit for %s."):format(formatNumber(progressDamage))
+				dHint.TextColor3 = Color3.fromRGB(72, 168, 96)
 			else
-				dHint.Text = "Same damage as what you have on."
+				dHint.Text = ("You hit for %s."):format(formatNumber(progressDamage))
 				dHint.TextColor3 = Color3.fromRGB(146, 154, 174)
 			end
 		end
@@ -4860,13 +5259,10 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 		local reward = GameConfig.GetSeasonReward(level)[track]
 		local faceEmoji, faceAmount = rewardFace(reward)
 
-		local icon = Instance.new("TextLabel")
-		icon.Size = UDim2.new(1, -8, 0, 36)
-		icon.Position = UDim2.new(0, 4, 0, 5)
-		icon.BackgroundTransparency = 1
-		icon.Text = faceEmoji
-		icon.Parent = btn
-		themeLabel(icon, 30)
+		UITheme.IconSlot(btn, {
+			name = "Icon", icon = faceEmoji, maxTextSize = 30,
+			size = UDim2.new(1, -8, 0, 36), position = UDim2.new(0, 4, 0, 5),
+		})
 
 		local amount = Instance.new("TextLabel")
 		amount.Size = UDim2.new(1, -8, 0, 20)
@@ -5641,16 +6037,14 @@ local function refreshUI()
 		evolveProgressLabel.Text = "MAX STAGE"
 		setButtonColor(evolveButton, UITheme.Color.Locked)
 	else
-		local dnaPct = math.clamp(data.DNA / step.cost, 0, 1)
+		-- ONE BAR, ONE CURRENCY. This used to draw `math.min(dnaPct, xpPct)` and then had to work out
+		-- which of the two the number underneath should name, because an evolve cost both -- so the
+		-- bar could jump backwards when the binding requirement swapped, and the label changed units
+		-- underneath the player. XP is the only gate now (see DNAService.HandleEvolve), so the bar and
+		-- the label can finally be the same fact.
 		local xpPct = step.xpCost > 0 and math.clamp((data.XP or 0) / step.xpCost, 0, 1) or 1
-		progressBarFill.Size = UDim2.new(math.min(dnaPct, xpPct), 0, 1, 0)
-		-- the fill tracks whichever requirement is furthest behind, so the label has to name that
-		-- same requirement -- otherwise the number contradicts the bar drawn under it
-		if xpPct < dnaPct then
-			evolveProgressLabel.Text = formatNumber(data.XP or 0) .. " / " .. formatNumber(step.xpCost) .. " XP"
-		else
-			evolveProgressLabel.Text = formatNumber(data.DNA) .. " / " .. formatNumber(step.cost) .. " DNA"
-		end
+		progressBarFill.Size = UDim2.new(xpPct, 0, 1, 0)
+		evolveProgressLabel.Text = formatNumber(data.XP or 0) .. " / " .. formatNumber(step.xpCost) .. " XP"
 
 		-- WHAT THE PRESS BUYS, WHICH IS NOT ALWAYS A STAGE. Four presses in five hand over the next
 		-- skin and leave the body where it is; the fifth is the stage. Naming the stage on all five
@@ -5669,15 +6063,14 @@ local function refreshUI()
 			goal = ("%s %s"):format(stage.emoji, stage.name)
 		end
 
-		local canEvolve = data.DNA >= step.cost and (data.XP or 0) >= step.xpCost
+		-- The SAME condition the server checks, and now it is one term instead of two -- see
+		-- DNAService.HandleEvolve. The button can never promise something the server refuses.
+		local canEvolve = (data.XP or 0) >= step.xpCost
 		if canEvolve then
 			evolveButton.Text = "EVOLVE to " .. goal
-		elseif xpPct < dnaPct then
+		else
 			evolveButton.Text = ("%s \u{2014} needs %s more XP"):format(goal,
 				formatNumber(math.max(step.xpCost - (data.XP or 0), 0)))
-		else
-			evolveButton.Text = ("%s \u{2014} needs %s more DNA"):format(goal,
-				formatNumber(math.max(step.cost - data.DNA, 0)))
 		end
 		-- LIT ONLY WHEN IT WILL WORK. A full-brightness green button that answers a press with a red
 		-- error toast is the game telling the player they did something wrong for doing the one
@@ -5737,7 +6130,7 @@ Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 	if hudRefs.refreshPassShop then hudRefs.refreshPassShop() end
 	if hudRefs.refreshAudioPanel then hudRefs.refreshAudioPanel(data) end
 	if hudRefs.refreshCodes then hudRefs.refreshCodes(data) end
-	if hudRefs.refreshFreeSpin then hudRefs.refreshFreeSpin() end
+	if hudRefs.refreshSpins then hudRefs.refreshSpins() end
 	-- the DNA tiles are priced in the player's own stage, so they move when the player does
 	if hudRefs.refreshRobuxShop then hudRefs.refreshRobuxShop() end
 	refreshRebirthPanel()
@@ -5855,7 +6248,7 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		-- character in the game was announced as "📒 NEW COMMON CHARACTER!" -- the exact words the
 		-- server was rewritten to stop saying -- and the damage figure was never shown at all.
 		local tint = (GameConfig.GetCharacter(payload.key or "") or {}).color or UITheme.Color.Lavender
-		local gain = payload.damagePct and (("  \u{2694}\u{FE0F} +%d%% Damage"):format(payload.damagePct)) or ""
+		local gain = payload.damage and (("  \u{2694}\u{FE0F} %s Damage"):format(formatNumber(payload.damage))) or ""
 		if payload.isNew then
 			celebratePurchase(("📒 NEW CHARACTER!\n%s %s%s"):format(payload.emoji, payload.name, gain), tint)
 		else
@@ -5891,18 +6284,31 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 	elseif payload.kind == "machine" then
 		showNotification("🧬 Machine gave +" .. formatNumber(payload.amount) .. " DNA", Color3.fromRGB(120, 220, 255))
 	elseif payload.kind == "rebirth" then
-		-- The permanent damage is the reward now, not the shards -- see GameConfig's note on why
-		-- income was the wrong thing to pay for a full reset. It leads, because it is what the
-		-- player just traded an entire climb for.
-		celebratePurchase(("♻️ REBIRTH #%d!\n+%d%% Damage — forever"):format(
-			payload.rebirths, payload.damagePct or 0), Color3.fromRGB(190, 120, 255))
+		-- BOTH MULTIPLIERS, AS TOTALS, AND THEN WHERE THE LADDER POINTS NEXT. The player has just
+		-- traded a whole climb for this; a delta ("+100%") describes the transaction, while the
+		-- total describes what they now permanently are, which is the only framing under which a
+		-- full reset reads as a gain. Naming the next milestone is what stops the screen going quiet
+		-- at the exact moment the run restarts.
+		local tail = ""
+		if payload.nextTier and payload.nextStageIndex then
+			local s = GameConfig.Stages[payload.nextStageIndex]
+			tail = ("\nNext: Rebirth %d at %s %s"):format(payload.nextTier, s and s.emoji or "", s and s.name or ("Stage " .. payload.nextStageIndex))
+		else
+			tail = "\nThat was the last one — everything you earned is permanent."
+		end
+		celebratePurchase(("♻️ REBIRTH %d!\n\u{2694}\u{FE0F} x%.2f Damage  •  \u{1F9EC} x%.2f Income — forever%s"):format(
+			payload.rebirths, payload.damageMult or 1, payload.incomeMult or 1, tail),
+			Color3.fromRGB(190, 120, 255))
 	elseif payload.kind == "dailyReward" then
 		local text = "🎁 Day " .. payload.day .. " reward: +" .. formatNumber(payload.dna) .. " DNA"
 		if payload.potions and payload.potions > 0 then
 			text = text .. " +" .. payload.potions .. " 🧪"
 		end
 		if payload.shards and payload.shards > 0 then
-			text = text .. " +" .. payload.shards .. " 💎 Shards"
+			-- 🌟, not 💎: the shard pill on the HUD is a gold star, and the diamond line directly
+			-- below this one is the gem -- with both reading 💎 the day-7 reward looked like two
+			-- diamond payouts of different sizes
+			text = text .. " +" .. payload.shards .. " 🌟 Shards"
 		end
 		if payload.diamonds and payload.diamonds > 0 then
 			text = text .. " +" .. payload.diamonds .. " 💎 Diamonds"

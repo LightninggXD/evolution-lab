@@ -53,7 +53,14 @@ local UseBossRevive = ensureRemote("UseBossRevive")
 -- damage and enemy health are on curves that only meet in the zone matching the player's stage,
 -- and every earlier zone stays walkable -- so a boss seven zones back would otherwise die to one
 -- click, which is the whole of a boss fight replaced by a sound effect.
-local BOSS_MIN_HITS = 12
+-- BOSS_MIN_HITS is gone: it clamped every blow to a twelfth of the boss's health, so a boss died
+-- in exactly twelve hits in every zone no matter who was hitting it, and no progression could show
+-- against one. Boss health is derived from the damage ladder now (GameConfig.BossTargetHits), which
+-- is the same guarantee expressed as arithmetic instead of as a clamp.
+--
+-- EVENT_MIN_HITS stays and means something different: the event boss is one shared target for a
+-- whole server, so a ceiling on what ONE player may contribute is what keeps it a group fight
+-- rather than a race won by whoever is furthest ahead.
 local EVENT_MIN_HITS = 40
 
 local function broadcastFx(payload)
@@ -106,18 +113,11 @@ local EDGE_MARGIN = 6
 -- attachment of a nearby boss each frame, so a boss that TRACKS THE PLAYER costs the same as one
 -- that stares straight ahead. CFrame.lookAt puts local -Z on the target, which is the same axis the
 -- faces are built on.
-local BOSS_TURN_RADIUS = 320  -- beyond this nobody can tell which way it is looking
+-- ...and everything above is still true of how a rig is BUILT and posed. What is gone is the boss
+-- turning to track a player: `yawTowards` and `BOSS_TURN_RADIUS` went with it (10.8, and the
+-- reasoning is at the driver). The rate survives because the driver still lerps toward `home`,
+-- which is what makes an off-facing rig walk back to the gate instead of snapping.
 local BOSS_TURN_RATE = 1.9    -- radians/sec. Deliberate, not a snap: a boss is heavy.
-
--- Flattened to the ground plane -- a boss that pitches to look down at a player standing under it
--- would lie on its face, because these rigs have no neck joint to absorb it.
-local function yawTowards(from, to)
-	local flat = Vector3.new(to.X, from.Y, to.Z)
-	if (flat - from).Magnitude < 1 then
-		return nil
-	end
-	return CFrame.lookAt(from, flat)
-end
 
 -- Same abbreviation MainUI uses for every other number in the game. Boss health reaches
 -- 43,000,000 by the last zone, so the health plate has to read "43.00M", not fifteen digits.
@@ -144,7 +144,7 @@ end
 
 -- THE CAP THAT MAKES HALF THE GAME REACHABLE. See the longer note on CreatureService.hurtPlayer.
 --
--- A boss may not fall in fewer than BOSS_MIN_HITS blows, and it swings back on most of them. The
+-- A boss takes GameConfig.BossTargetHits blows to fell, and it swings back on most of them. The
 -- player's maximum health is additive across the twenty stages -- 100 + 40 per stage, doubled at
 -- most by Stage Mastery, so 1720 at the very top -- while boss retaliation is multiplied zone by
 -- zone at roughly 1.18x. Those two curves cross at zone 9, and from zone 11 the fight is lost
@@ -1884,16 +1884,14 @@ local function driveRigs(dt)
 		else
 			local origin = rig.origin.Position
 			local near = false
-			-- the closest player is what the boss turns to face, so it is found in the same sweep
-			-- that decides whether the rig is worth animating at all
-			local closest, closestDist = nil, math.huge
+			-- ONE QUESTION NOW, NOT TWO: is anybody close enough for this rig to be worth animating.
+			-- This used to also track the nearest player, because that was what the boss turned to
+			-- face; with the turn gone (10.8) that search was pure cost on every boss every frame,
+			-- and it could not stop early. This one breaks the moment it finds anyone in range.
 			for _, p in ipairs(positions) do
-				local d = (p - origin).Magnitude
-				if d <= RIG_ANIMATE_RADIUS then
+				if (p - origin).Magnitude <= RIG_ANIMATE_RADIUS then
 					near = true
-				end
-				if d < closestDist then
-					closest, closestDist = p, d
+					break
 				end
 			end
 
@@ -1905,12 +1903,24 @@ local function driveRigs(dt)
 			end
 
 			if near then
-				-- TURN TOWARD WHOEVER IS FIGHTING IT, and settle back to facing the arrival gate
-				-- once they are gone. Only while near, and only ever a yaw -- see yawTowards.
+				-- ===== A BOSS DOES NOT TURN. IT IS FACED. =====
+				--
+				-- This used to track whoever was fighting it, within BOSS_TURN_RADIUS. That was a
+				-- deliberate feature and it is now deliberately gone (10.8, owner's call): a zone boss
+				-- is 75 to 121 studs of architecture standing at the head of its own arena, and a
+				-- 121-stud statue swivelling to follow one player around reads as scenery on a
+				-- turntable rather than as something enormous. The arena is built to be walked INTO --
+				-- the rig, its disc and its banner masts are all authored facing the arrival gate --
+				-- so the boss looking down the approach is the composition the whole space was made
+				-- for, and it stays that way whichever way the player circles.
+				--
+				-- `want` is unconditionally `home`, rather than deleting the machinery below, and that
+				-- is worth a line: the lerp-and-snap is what makes this SELF-HEALING. Any rig that is
+				-- somehow off-facing -- a restart mid-turn on a live server, a future feature that
+				-- rotates one -- walks back to the gate and then costs nothing, because the `> 1e-5`
+				-- guard stops the re-pose the instant it settles. A boss that has never moved pays one
+				-- Lerp and one comparison per frame and writes nothing.
 				local want = rig.home
-				if closest and closestDist <= BOSS_TURN_RADIUS then
-					want = yawTowards(origin, closest) or want
-				end
 				-- Lerped rather than snapped: at these sizes an instant 90-degree turn reads as the
 				-- rig teleporting. CFrame:Lerp carries the rotation and keeps the position, which is
 				-- the same on both sides anyway.
@@ -2249,10 +2259,17 @@ local function spawnBoss(zone)
 		end
 		lastHitByPlayer[player.UserId] = now
 
-		-- Same cap the creatures got, and for the same reason: a boss that dies to one click is the
-		-- worst version of the problem, because the whole point of a boss is the fight. A zone boss
-		-- may not fall in fewer than BOSS_MIN_HITS blows however far past this zone the player is.
-		local playerDamage = math.min(DNAService.GetCombatDamage(data), boss.health / BOSS_MIN_HITS)
+		-- UNCLAMPED, like the creatures. `math.min(..., boss.health / BOSS_MIN_HITS)` stood here and
+		-- it made every boss in the game a twelve-hit fight -- the first one and the last one, for a
+		-- fresh save and for a player eight rebirths deep. The bar moved a twelfth per blow whatever
+		-- was thrown at it, which is the same defect the creature `damageCap` had: the cap was the
+		-- damage, so no progression could ever show against a boss either.
+		--
+		-- What replaces it is arithmetic rather than a clamp: boss health is now DERIVED from the
+		-- damage ladder at `GameConfig.BossTargetHits` blows for the zone it guards, so a boss is
+		-- roughly sixty swings for a player who has just arrived and fewer for one who has geared.
+		-- See the BOSS HEALTH IS DERIVED block in GameConfig.
+		local playerDamage = DNAService.GetCombatDamage(data)
 		local health = math.max((model:GetAttribute("Health") or boss.health) - playerDamage, 0)
 		model:SetAttribute("Health", health)
 		drawHealth(health)
@@ -2368,6 +2385,11 @@ local function spawnBoss(zone)
 			SeasonPassService.Track(player, "bosses", 1)
 			-- a boss is a kill too, and counts on the same lifetime board (5.3)
 			data.Kills = (data.Kills or 0) + 1
+			-- The other of the two places XP enters a save, so the other half of 10.10's auto-evolve.
+			-- It matters most here: a boss pays 25+ XP against a creature's 1, so a boss kill is the
+			-- likeliest single event to fill the bar -- and it is the one a player is most obviously
+			-- watching. Before markDefeated, which pushes, so the payload already carries the new rung.
+			DNAService.AutoEvolveIfReady(player)
 			markDefeated(player, data, zone.key)
 			Remotes.Notify:FireClient(player, { kind = "bossDefeated", name = boss.name, amount = boss.dnaReward, diamonds = gems })
 

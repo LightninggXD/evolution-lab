@@ -141,10 +141,17 @@ local function paint(entry, unlocked, data)
 		-- Two lines of nothing but the number that matters. The title above already names the tier and
 		-- the creature, so repeating "Reach Wolf (Stage 5)" here filled a 38-stud sign with words the
 		-- player has just read and pushed the one figure they came for down to unreadable.
+		-- THREE STATES, NOT TWO. A statue is a milestone spent once and in order now, so "spent" is a
+		-- state of its own: the tier below the next one is not locked and not available, it is
+		-- FINISHED, and painting it the same grey as a tier never reached would read as having lost
+		-- something. See the REBIRTH IS A LADDER block in GameConfig.
+		local nextTier = data and GameConfig.GetNextRebirthTier(data) or 1
 		if unlocked then
-			local shards = GameConfig.GetRebirthShardReward(entry.stageIndex, data and data.Rebirths or 0)
 			entry.status.TextColor3 = GOLD
-			entry.status.Text = ("\u{267B}\u{FE0F} REBIRTH  +%s Shards"):format(short(shards))
+			entry.status.Text = ("\u{267B}\u{FE0F} REBIRTH %d  \u{2022}  READY"):format(entry.tier)
+		elseif nextTier == nil or entry.tier < nextTier then
+			entry.status.TextColor3 = Color3.fromRGB(150, 210, 160)
+			entry.status.Text = ("\u{2713} REBIRTH %d  \u{2022}  DONE"):format(entry.tier)
 		else
 			entry.status.TextColor3 = Color3.fromRGB(196, 192, 204)
 			entry.status.Text = ("\u{1F512} Needs Stage %d"):format(entry.stageIndex)
@@ -157,11 +164,16 @@ end
 -- moment ago is picked up here rather than needing an event of its own.
 local function refresh()
 	local data = latestData
-	local earnedTier = data and GameConfig.GetRebirthTier(data.StageIndex or 1) or 0
+	-- ONE statue is live at a time now: the next milestone on the ladder, and only once the stage
+	-- behind it is reached. `tier <= earnedTier` used to light every statue the player had ever
+	-- passed, which was right when a rebirth was repeatable at any tier and is exactly wrong now --
+	-- it would offer three spent milestones alongside the one real one.
+	local nextTier = data and GameConfig.GetNextRebirthTier(data) or 1
+	local ready = data and (GameConfig.CanRebirthNow(data)) or false
 	for _, monument in ipairs(CollectionService:GetTagged("RebirthStatue")) do
 		local entry = tryRegister(monument)
 		if entry then
-			paint(entry, entry.tier <= earnedTier, data)
+			paint(entry, ready and entry.tier == nextTier, data)
 		end
 	end
 end

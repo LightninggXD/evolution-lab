@@ -10,56 +10,73 @@ RebirthService.OnRebirth = nil -- optional callback(player, data) set by ServerM
 -- because it must run AFTER the rebuild that one triggers -- see the call site.
 RebirthService.OnReturnHome = nil
 
+-- One question, one answer, and it lives in GameConfig so the shrine, the HUD and this file cannot
+-- drift apart about which milestone is live. See the REBIRTH IS A LADDER block there.
 function RebirthService.CanRebirth(data)
-	return data.StageIndex >= GameConfig.RebirthRequirementStageIndex
+	return (GameConfig.CanRebirthNow(data))
 end
 
 -- `tier` is which of the shrine's four statues was triggered (see RebirthShrine). It is optional:
--- the HUD's Rebirth panel has no statues in it and passes nothing, which means "cash in at the
--- highest tier I have earned" -- the behaviour this had before the shrine existed.
+-- the HUD's Rebirth panel has no statues in it and passes nothing.
 --
--- CHOOSING A LOWER TIER IS ALLOWED AND IS ALWAYS WORSE. The reward goes as tier^2, so rebirthing
--- at the Wolf when you could have reached The Absolute is a real (bad) decision rather than
--- something to block -- but it must be the player's decision, so a tier ABOVE what they have
--- earned is refused rather than silently clamped down to what they can afford.
+-- THERE IS NO LONGER A CHOICE OF TIER, AND THAT IS THE POINT OF THE REWRITE. The four statues used
+-- to be four prices for the same repeatable transaction -- you could cash in at the Wolf forever,
+-- and the reward went as tier^2, so choosing was a trap the UI had to warn about. They are four
+-- MILESTONES now, spent strictly in order and never again: the Wolf at stage 5 is the first rebirth
+-- and only the first, and once it is spent the ladder points at stage 10.
+--
+-- So `tier` stops being a choice and becomes an assertion the client is making about which statue
+-- it touched. It is checked against the one milestone that is actually live and refused otherwise,
+-- rather than clamped -- a client that asks for the wrong one is either stale or lying, and both
+-- deserve the same answer.
 function RebirthService.HandleRebirth(player, tier)
 	local data = PlayerDataService.Get(player)
 	if not data then return end
 
-	if not RebirthService.CanRebirth(data) then
-		local reqStage = GameConfig.Stages[GameConfig.RebirthRequirementStageIndex]
-		Remotes.Notify:FireClient(player, { kind = "error", message = "Reach " .. reqStage.name .. " before you can Rebirth!" })
-		return
-	end
-
-	local earnedTier = GameConfig.GetRebirthTier(data.StageIndex)
-	-- tonumber + floor before anything else: this value reaches here straight off a RemoteEvent when
-	-- the HUD fires it, so it can be a string, a table, or 2.5.
-	local tierReached = math.floor(tonumber(tier) or earnedTier)
-	-- NaN SURVIVES BOTH GUARDS BELOW, AND IT IS PERMANENT.
-	--
-	-- `Rebirth:FireServer(0/0)` reaches here as NaN. `NaN < 1` is false and `NaN > earnedTier` is
-	-- false, so neither rejection fires; the shard reward comes back NaN, `data.EvolutionShards`
-	-- becomes NaN, and a DataStore cannot serialise NaN -- so every save that player makes from
-	-- that moment on throws, forever, swallowed by the pcall in PlayerDataService as a warning
-	-- nobody reads. The account is dead and there is no symptom until they lose everything.
-	--
-	-- `n ~= n` is the only test for it: NaN is the one value that is not equal to itself.
-	if tierReached ~= tierReached or tierReached < 1 then
-		return
-	end
-	if tierReached > earnedTier then
-		local reqStage = GameConfig.Stages[GameConfig.GetRebirthTierStageIndex(tierReached)]
+	local nextTier = GameConfig.GetNextRebirthTier(data)
+	if not nextTier then
 		Remotes.Notify:FireClient(player, { kind = "error",
-			message = ("Reach %s (Stage %d) to use this statue!"):format(reqStage.name, GameConfig.GetRebirthTierStageIndex(tierReached)) })
+			message = ("You have completed all %d Rebirths -- there are no more."):format(GameConfig.MaxRebirths) })
 		return
 	end
 
-	-- The reward is the CHOSEN tier's, not the stage's: standing at stage 19 and triggering the Wolf
-	-- statue pays tier 1, which is the point of having four of them.
-	local shardsEarned = GameConfig.GetRebirthShardReward(GameConfig.GetRebirthTierStageIndex(tierReached), data.Rebirths)
+	local reqStageIndex = GameConfig.GetRebirthTierStageIndex(nextTier)
+	if data.StageIndex < reqStageIndex then
+		local reqStage = GameConfig.Stages[reqStageIndex]
+		Remotes.Notify:FireClient(player, { kind = "error",
+			message = ("Reach %s (Stage %d) to unlock Rebirth %d!"):format(reqStage.name, reqStageIndex, nextTier) })
+		return
+	end
+
+	-- THE CLIENT'S CLAIM IS CHECKED, NOT TRUSTED AND NOT CLAMPED.
+	--
+	-- `tonumber` + `floor` first, because this arrives straight off a RemoteEvent and can be a
+	-- string, a table or 2.5. Then the NaN test, which is still load-bearing and still the only one
+	-- that works: `Rebirth:FireServer(0/0)` gives a value where every comparison is false, so it slid
+	-- past the old guards, and a NaN written into the save makes every future DataStore write throw
+	-- forever -- swallowed by a pcall as a warning nobody reads. The account dies silently.
+	-- `n ~= n` is the only test for it: NaN is the one value not equal to itself.
+	--
+	-- nil is allowed and means "the HUD button, which has no statue to name".
+	if tier ~= nil then
+		local claimed = tonumber(tier)
+		claimed = claimed and math.floor(claimed) or nil
+		if claimed ~= claimed then return end -- NaN
+		if claimed ~= nextTier then
+			local reqStage = GameConfig.Stages[reqStageIndex]
+			Remotes.Notify:FireClient(player, { kind = "error",
+				message = ("That milestone is spent. Your next Rebirth is at %s (Stage %d)."):format(reqStage.name, reqStageIndex) })
+			return
+		end
+	end
+
+	-- NO SHARDS. A rebirth used to pay Evolution Shards, worth +2% income each; shards are a rare
+	-- drop with the wheel as their only sink now, and a currency that is spent cannot also be the
+	-- permanent reward for the hardest thing in the game. What it pays is permanent damage AND
+	-- permanent income, both read straight off the counter incremented on the next line --
+	-- see GetRebirthDamageMult and GetRebirthIncomeMult.
+	local tierReached = nextTier
 	data.Rebirths += 1
-	data.EvolutionShards += shardsEarned
 
 	-- reset run-specific progress; Pets and EvolutionShards/Rebirths persist across rebirths
 	data.DNA = 0
@@ -111,11 +128,16 @@ function RebirthService.HandleRebirth(player, tier)
 	Remotes.Notify:FireClient(player, {
 		kind = "rebirth",
 		rebirths = data.Rebirths,
-		shards = shardsEarned,
 		tier = tierReached,
-		-- what it actually bought, so the reward is a number the player can see rather than a
-		-- counter going up by one
-		damagePct = data.Rebirths * GameConfig.RebirthDamagePct,
+		-- WHAT IT BOUGHT, as the two multipliers the player now permanently carries rather than as a
+		-- counter going up by one. Both are totals, not deltas: after a reset that wiped the stage,
+		-- the zones and the whole skin collection, "you are now x3.5 income and x3.5 damage forever"
+		-- is the only framing under which the trade reads as a gain.
+		damageMult = GameConfig.GetRebirthDamageMult(data),
+		incomeMult = GameConfig.GetRebirthIncomeMult(data),
+		-- and where the ladder points next, so the reset ends by naming its own sequel
+		nextTier = GameConfig.GetNextRebirthTier(data),
+		nextStageIndex = GameConfig.GetNextRebirthStage(data),
 	})
 
 	if RebirthService.OnRebirth then
