@@ -32,7 +32,7 @@ local ZoneBuilder = {}
 -- down to 12. They were the "something yellow and round hanging in the air" in the bug report.
 -- 117: the terraces got a flight of stairs per tier per side, so the shelves are somewhere a
 -- player can actually go -- which is what the raised Brutes and Elites in CreatureService need.
-local BUILD_VERSION = 118
+local BUILD_VERSION = 120
 
 -- The Colosseum carries its own stamp. Bumping BUILD_VERSION drops all 21 zones and rebuilds
 -- ~60,000 parts, which takes long enough that Studio regularly loses the connection partway (see
@@ -1572,9 +1572,55 @@ local VILLAGE_MATERIAL = {
 local VILLAGE_POST_MAT = Enum.Material.Wood
 local VILLAGE_BOARD_MAT = Enum.Material.WoodPlanks
 
+-- ===== THE OUTLINE TIER, AND WHY IT IS NOT SIMPLY "DARKER" =====
+--
+-- Measured across 443 street-level props in Forest: **not one** was near-ink. The darkest thing on
+-- the whole street was a glow post at value 0.35, and the structural colour every prop hangs off
+-- (`VILLAGE_WOOD_DARK`) sat at 0.40. So the world had no outline tier at all -- everything from the
+-- fence to the lamp to the bench was a mid-tone against a mid-tone ground, which is exactly what
+-- "flat and pastel" is made of. The house style's first rule is the dark contour (see the chunky
+-- look notes); the HUD has it, the icons have it, the props did not.
+--
+-- The seventeen sites that read `VILLAGE_WOOD_DARK` are all skeleton -- lamp foot, post, bracket
+-- and roof, fence rail, arch pillar, bench leg, planter rim, sign post and batten. Pushing that one
+-- colour is therefore a whole-world outline pass for one line, with no new parts anywhere.
+--
+-- IT IS A CONTRAST TRIM, NOT A DARK TRIM, and that distinction is what keeps it from repeating the
+-- mistake the village palette above already paid for: a silver village on the Moon's pale ground
+-- vanished, so villages are picked AGAINST THE GROUND. If the trim were unconditionally dark it
+-- would vanish the same way -- on the bright-ground zones the village body is itself dark, and
+-- ink-on-ink is invisible.
+--
+-- The trim contrasts with the THING IT OUTLINES rather than with the background, which is the whole
+-- point of an outline and is also why it can be decided here from one colour: a light body gets a
+-- near-ink trim, and a body already dark gets a bone one. Either way the prop reads as drawn.
+-- THE FLIP POINT IS 0.32, AND 0.42 WAS WRONG -- Forest is the case that proves it. Its wood-dark
+-- is a mid brown at value 0.396, which is not "already dark" in any useful sense: it carries an ink
+-- trim perfectly well. At 0.42 it took the flip instead and every fence rail, bench leg and planter
+-- rim in the starting zone came out CREAM. Below 0.32 are the five genuinely dark bodies (Absolute
+-- 0.13, Mirror 0.20, Moon 0.22, Desert and Celestial 0.29) -- the bright-ground zones, which is
+-- exactly the set the flip exists for.
+--
+-- The audit that missed this checked all nineteen palettes in `VILLAGE_STYLE` and passed. Forest is
+-- not in that table -- it is `VILLAGE_DEFAULT`, the fallback -- so the one zone every player starts
+-- in was the one zone the check did not cover. **A table-driven audit has to include the default.**
+local function trimFor(body)
+	local h, s, v = Color3.toHSV(body)
+	if v > 0.32 then
+		-- room to go down: genuine ink, hue kept so oak trims brown and marble trims blue-grey
+		return Color3.fromHSV(h, math.min(s * 1.08, 1), math.max(v * 0.34, 0.13))
+	end
+	-- already dark; going darker would erase it, so the outline goes the other way
+	return Color3.fromHSV(h, s * 0.5, math.min(v * 2.5 + 0.12, 0.93))
+end
+
 local function applyVillageStyle(key)
 	local s = VILLAGE_STYLE[key] or VILLAGE_DEFAULT
-	VILLAGE_WOOD, VILLAGE_WOOD_DARK = s.wood, s.dark
+	VILLAGE_WOOD = s.wood
+	-- `s.dark` is the authored mid-tone shade of the body, and it stays available as that; what the
+	-- skeleton wants is a step further than "a bit darker", so it is derived rather than authored --
+	-- twenty hand-picked ink colours would be twenty chances for one of them to be wrong.
+	VILLAGE_WOOD_DARK = trimFor(s.dark)
 	VILLAGE_CLOTH, VILLAGE_CREAM = s.cloth, s.cream
 	local m = VILLAGE_MATERIAL[key]
 	VILLAGE_POST_MAT = m and m.post or Enum.Material.Wood
