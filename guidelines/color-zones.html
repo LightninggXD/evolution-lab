@@ -1,0 +1,13 @@
+<!-- @dsCard group="Colors" viewport="700x200" name="Badge & Tag Colors" subtitle="Glossy gradient buttons — rounded rect, thick outline, light-to-dark shine, bold outlined text" -->
+<link rel="stylesheet" href="../styles.css">
+<style>
+body{margin:0;background:#e8e2d5;font-family:var(--font-body);display:flex;align-items:center;box-sizing:border-box}*{box-sizing:border-box}
+.comic-text{font-family:var(--font-display);font-weight:800;color:#fff;-webkit-text-stroke:2.5px var(--outline);paint-order:stroke fill;text-shadow:0 3px 0 rgba(0,0,0,.2);transform:skewX(-6deg) rotate(-2deg);display:inline-block}
+.glossy{position:relative;border-radius:999px;border:4px solid var(--outline);box-shadow:0 6px 0 var(--outline);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.glossy::before{content:'';position:absolute;top:8%;left:10%;right:10%;height:42%;background:linear-gradient(180deg,rgba(255,255,255,.85),rgba(255,255,255,0));border-radius:50%;filter:blur(0.5px)}
+</style>
+<div style="display:flex;gap:14px;padding:20px;width:100%;justify-content:center">
+<div class="glossy" style="width:170px;height:84px;background:linear-gradient(180deg,color-mix(in srgb,var(--green-500) 70%,white) 0%,var(--green-500) 55%,color-mix(in srgb,var(--green-500) 75%,black) 100%)"><span class="comic-text" style="font-size:24px;position:relative">Claim!</span></div>
+<div class="glossy" style="width:170px;height:84px;background:linear-gradient(180deg,color-mix(in srgb,var(--blue-500) 70%,white) 0%,var(--blue-500) 55%,color-mix(in srgb,var(--blue-500) 75%,black) 100%)"><span class="comic-text" style="font-size:21px;position:relative">Quick Sell</span></div>
+<div class="glossy" style="width:170px;height:84px;background:linear-gradient(180deg,color-mix(in srgb,var(--gold-500) 70%,white) 0%,var(--gold-500) 55%,color-mix(in srgb,var(--gold-500) 75%,black) 100%)"><span class="comic-text" style="font-size:18px;position:relative">Upgrade</span></div>
+</div>

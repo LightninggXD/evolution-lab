@@ -1,0 +1,49 @@
+<!-- @dsCard group="Colors" viewport="700x260" name="Layering & the gloss rule" subtitle="Shadow < Shell < Gloss < Content < Badge, and the gloss is never more opaque than 28% — this is the rule that keeps button text readable" -->
+<link rel="stylesheet" href="../styles.css">
+<style>
+body{margin:0;background:#e8e2d5;font-family:var(--font-body);box-sizing:border-box}*{box-sizing:border-box}
+.wrap{display:flex;gap:20px;padding:18px 20px 22px;width:100%;align-items:flex-start}
+.col{flex:1;display:flex;flex-direction:column;gap:10px}
+.tag{font-family:var(--font-display);font-size:12px;letter-spacing:.04em;text-transform:uppercase;display:flex;align-items:center;gap:6px}
+.tag b{width:16px;height:16px;border-radius:50%;border:2px solid var(--engine-outline);display:inline-block}
+.ok b{background:var(--engine-green)}
+.bad b{background:var(--engine-red)}
+.btn{position:relative;height:62px;border-radius:999px;border:4px solid var(--engine-outline);box-shadow:0 6px 0 var(--engine-outline);display:flex;align-items:center;justify-content:center;overflow:hidden;
+  background:linear-gradient(180deg,color-mix(in srgb,#fff 68%,var(--engine-blue)) 0%,var(--engine-blue) 55%,color-mix(in srgb,#000 70%,var(--engine-blue)) 100%)}
+/* the sheen: an ellipse across the top, and always mostly transparent */
+.btn::before{content:'';position:absolute;top:8%;left:8%;right:8%;height:32%;border-radius:50%;
+  background:linear-gradient(180deg,rgba(255,255,255,.45),rgba(255,255,255,0));z-index:1}
+.btn span{position:relative;z-index:3;font-family:var(--font-display);font-size:21px;color:#fff;
+  -webkit-text-stroke:3px var(--engine-outline);paint-order:stroke fill}
+/* the bug: opaque sheen, and text left underneath it */
+.broken::before{background:#fff;opacity:1}
+.broken span{z-index:0}
+.stack{font-size:11px;line-height:1.75;color:var(--text-secondary)}
+.stack code{font-family:var(--font-mono);background:rgba(26,18,36,.07);padding:1px 5px;border-radius:4px}
+.stack .z{display:inline-block;min-width:22px;font-family:var(--font-mono);color:var(--engine-purple)}
+</style>
+<div class="wrap">
+  <div class="col">
+    <div class="tag ok"><b></b>Correct</div>
+    <div class="btn"><span>Claim!</span></div>
+    <div class="stack">
+      <span class="z">+5</span> <code>Badge</code> — corner pips, "NEW!" ribbons<br>
+      <span class="z">+3</span> <code>Content</code> — <strong>all text and icons</strong><br>
+      <span class="z">+1</span> <code>Gloss</code> — sheen, <code>transparency &gt;= .72</code><br>
+      <span class="z">&nbsp;0</span> <code>Shell</code> — the surface itself<br>
+      <span class="z">-1</span> <code>Shadow</code> — hard offset drop shadow
+    </div>
+  </div>
+  <div class="col">
+    <div class="tag bad"><b></b>The bug this rule exists for</div>
+    <div class="btn broken"><span>Claim!</span></div>
+    <div class="stack">
+      An opaque sheen at <code>Shell+1</code> with labels left at their
+      default index paints a solid white lozenge straight over every caption.
+      Under <code>ZIndexBehavior.Sibling</code> this hit ~30 call sites at once
+      and made the whole HUD unreadable.<br><br>
+      Never hand-roll a sheen — build surfaces through <code>UITheme</code>,
+      which owns both halves of the contract.
+    </div>
+  </div>
+</div>

@@ -1,0 +1,22 @@
+/* Fredoka One is the real in-engine display face -- UITheme resolves
+   Enum.Font.FredokaOne at runtime (falling back to GothamBlack on older Studio
+   builds). Baloo 2 was the earlier screenshot-guess placeholder and is kept only
+   as the next-nearest fallback. */
+@font-face{font-family:'Fredoka One';font-weight:400;font-style:normal;font-display:swap;src:url('https://fonts.gstatic.com/s/fredokaone/v15/k3kUo8kEI-tA1RRcTZGmTmHB.ttf') format('truetype')}
+@font-face{font-family:'Baloo 2';font-weight:400 800;font-style:normal;font-display:swap;src:url('https://fonts.gstatic.com/s/baloo2/v22/wXKrE3kTposypRydzWRWvcRXSMX9nHDaZg.woff2') format('woff2')}
+:root{
+--font-display:'Fredoka One','Baloo 2',system-ui,sans-serif;
+--font-body:'Fredoka One','Baloo 2',system-ui,sans-serif;
+--font-mono:'SFMono-Regular',Consolas,monospace;
+--text-hud-label:14px;
+--text-hud-value:20px;
+--text-card-title:16px;
+--text-card-sub:13px;
+--text-modal-title:30px;
+--text-body:14px;
+--text-caption:12px;
+--weight-regular:400;
+--weight-semibold:600;
+--weight-bold:700;
+--weight-black:800;
+}

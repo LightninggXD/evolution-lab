@@ -1,0 +1,11 @@
+:root{
+--shadow-panel:0 4px 0 var(--outline);
+--shadow-panel-lg:0 6px 0 var(--outline);
+--shadow-modal:0 10px 0 var(--outline),0 24px 50px rgba(0,0,0,.35);
+--shadow-btn:0 4px 0 rgba(0,0,0,.35);
+--border-outline:3px solid var(--outline);
+--border-outline-thick:5px solid var(--outline);
+--text-stroke:0.03em;
+--transition-fast:.12s ease-out; /* @kind other */
+--transition-med:.2s ease-out; /* @kind other */
+}

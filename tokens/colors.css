@@ -1,0 +1,75 @@
+:root{
+--cream:#fff8ea;
+--cream-panel:#ffffff;
+--ink:#1a1410;
+--outline:#2b1a33;
+--outline-soft:rgba(43,26,51,.5);
+--green-500:#2fe053;
+--green-600:#1fb43e;
+--green-glow:rgba(62,203,74,.35);
+--blue-500:#15c9ff;
+--blue-600:#0aa3d6;
+--gold-500:#ffce1f;
+--gold-600:#f2a70f;
+--red-500:#ff3b3b;
+--red-600:#e01f1f;
+--purple-500:#a83bff;
+--purple-600:#8b1fe0;
+--pink-500:#ff5fa8;
+--pink-600:#e83f8c;
+--orange-500:#ff9a2e;
+--orange-600:#f07d0a;
+--teal-500:#2ee6b8;
+--teal-600:#14c49a;
+--tan-500:#c98a4b;
+--accent-cycle:var(--green-500),var(--blue-500),var(--pink-500),var(--orange-500),var(--purple-500),var(--teal-500);
+--text-primary:#1a1410;
+--text-inverse:#fff8ea;
+--text-secondary:rgba(26,20,16,.6);
+--text-tertiary:rgba(26,20,16,.4);
+--surface-panel:var(--cream-panel);
+--surface-card:var(--cream-panel);
+--surface-card-alt:#fef1d8;
+
+/* ===== in-engine palette (authoritative) =====
+   Everything above this line was estimated from screenshots. These are the exact
+   values shipping in the game, read from ReplicatedStorage.Modules.UITheme
+   (mirrored at src/ReplicatedStorage/Modules/UITheme.lua, `local Color`).
+   Semantic aliases below point here, so components track the game, not the guess. */
+--engine-outline:#1a1224;
+--engine-shadow:#120c1a;
+--engine-white:#ffffff;
+--engine-cream:#fff8eb;
+--engine-panel-white:#fcfcff;
+--engine-panel-blue:#56b2e8;
+--engine-gold:#ffcd46;
+--engine-orange:#f79623;
+--engine-blue:#4aa4e0;
+--engine-sky-blue:#78cdf5;
+--engine-green:#5fcd69;
+--engine-red:#e84848;
+--engine-purple:#aa6ef0;
+--engine-pink:#ff6ec8;
+--engine-grey:#9696a5;
+--engine-locked:#6e6e7c;
+
+/* Every themed surface carries the same vertical gradient. UITheme builds it with
+   shade(c,+0.68) at 0%, the base at 55%, shade(c,-0.70) at 100% -- a positive shade
+   lerps toward white, a negative one scales toward black, so color-mix reproduces
+   both stops exactly. Write it out per surface:
+
+     background:linear-gradient(180deg,
+       color-mix(in srgb,#fff 68%,var(--engine-green)) 0%,
+       var(--engine-green) 55%,
+       color-mix(in srgb,#000 70%,var(--engine-green)) 100%);
+
+   Deliberately not a single --surface-gradient token: a custom property whose value
+   contains var() resolves against the element that DECLARES it, so a per-card
+   --surface override would not reach it. */
+--outline-engine:var(--engine-outline);
+--accent-primary:var(--engine-green);
+--accent-currency:var(--engine-gold);
+--accent-danger:var(--engine-red);
+--accent-evolve:var(--engine-purple);
+--accent-info:var(--engine-blue);
+}

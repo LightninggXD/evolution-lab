@@ -1,0 +1,110 @@
+<!-- @dsCard group="Evolution Lab" viewport="1280x720" name="HUD (interactive)" subtitle="Click Zones / Daily / Shop / Playtime to open modals; Volcano to fight" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>Evolution Lab — HUD</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:'Baloo 2',sans-serif;overflow:hidden;background:#333}
+#root{width:100vw;height:100vh;display:flex;align-items:center;justify-content:center}
+.world{position:relative;width:1280px;height:720px;flex:none;background:linear-gradient(180deg,#7ee0ff 0%,#a8ecc4 35%,#bfe37a 60%,#8fc85a 100%);overflow:hidden}
+a{color:var(--blue-600)}a:hover{color:var(--blue-500)}
+</style></head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="ZonesPanel.jsx"></script>
+<script type="text/babel" src="DailyRewardsModal.jsx"></script>
+<script type="text/babel" src="RobuxShopModal.jsx"></script>
+<script type="text/babel" src="PlaytimeModal.jsx"></script>
+<script type="text/babel" src="CombatScreen.jsx"></script>
+<script type="text/babel">
+const { Button, StatCard, CurrencyPill, IconBadge, NavRail, Tag } = window.EvolutionLabDesignSystem_cb9a2a;
+
+function HUD(){
+  const [modal,setModal] = React.useState(null);
+  const [showCombat,setShowCombat] = React.useState(false);
+  const stats = [
+    {icon:'🔪',label:'Speed',cost:25},
+    {icon:'💰',label:'Income',cost:20},
+    {icon:'🍀',label:'Luck',cost:40},
+    {icon:'🚀',label:'Mutation Chance',cost:60},
+    {icon:'⚙️',label:'Auto Collect',cost:100},
+  ];
+  const megaStats = [
+    {icon:'💎',label:'Mega Income',cost:5,costIcon:'💎'},
+    {icon:'🍀',label:'Mega Luck',cost:8,costIcon:'💎'},
+    {icon:'🎒',label:'Pet Slot',cost:15,costIcon:'💎'},
+  ];
+  const navItems = [{icon:'🗺️',label:'Zones'},{icon:'🐾',label:'Pets'},{icon:'♻️',label:'Rebirth'},{icon:'🎁',label:'Daily'},{icon:'🧪',label:'Inventory'},{icon:'🛒',label:'Shop'},{icon:'🛍️',label:'Robux'},{icon:'⏰',label:'Playtime'}];
+
+  function onNav(i){
+    const label = navItems[i].label;
+    if (label==='Zones') setModal('zones');
+    else if (label==='Daily') setModal('daily');
+    else if (label==='Robux') setModal('shop');
+    else if (label==='Playtime') setModal('playtime');
+  }
+
+  return (
+    <div className="world">
+      <div style={{position:'absolute',top:16,left:16,display:'flex',gap:16,alignItems:'flex-start'}}>
+        <div style={{background:'var(--cream-panel)',border:'3px solid var(--outline)',borderRadius:'var(--radius-lg)',padding:'8px 16px',boxShadow:'var(--shadow-panel)',fontWeight:800,color:'var(--text-primary)'}}>🦎 Lizard</div>
+        <NavRail items={navItems} activeIndex={-1} onSelect={onNav} />
+      </div>
+
+      <div style={{position:'absolute',top:16,right:16,display:'flex',flexDirection:'column',gap:8,alignItems:'flex-end'}}>
+        <CurrencyPill icon="🧬" value="12 DNA" accent="green" />
+        <div style={{background:'var(--cream-panel)',border:'3px solid var(--outline)',borderRadius:'var(--radius-md)',padding:10,fontSize:12,boxShadow:'var(--shadow-panel)',color:'var(--text-primary)'}}>
+          <div style={{fontWeight:800,marginBottom:4,color:'var(--text-primary)'}}>People · Stage · DNA</div>
+          <div style={{color:'var(--text-primary)'}}>OGLightninggXD · Lizard · 12</div>
+        </div>
+      </div>
+
+      <div style={{position:'absolute',top:120,left:'50%',transform:'translateX(-50%)',background:'rgba(43,26,51,.55)',color:'#fff',fontWeight:800,fontSize:16,padding:'8px 18px',borderRadius:'var(--radius-pill)',border:'2px solid var(--outline)'}}>
+        🚀 Use the DNA Machine or fight creatures to collect DNA!
+      </div>
+
+      <div style={{position:'absolute',bottom:110,left:'50%',transform:'translateX(-50%)',display:'flex',gap:10}}>
+        {stats.map((s,i)=><StatCard key={i} {...s} costIcon="🧬" />)}
+      </div>
+      <div style={{position:'absolute',bottom:16,left:'50%',transform:'translateX(-50%)',display:'flex',gap:10}}>
+        {megaStats.map((s,i)=><StatCard key={i} {...s} wide />)}
+      </div>
+
+      <div style={{position:'absolute',top:190,right:16}}>
+        <Button variant="evolve" size="lg" onClick={()=>setShowCombat(true)}>⚔️ Enter Volcano (fight)</Button>
+      </div>
+
+      {showCombat && (
+        <div style={{position:'absolute',inset:0,background:'rgba(0,0,0,.4)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div style={{position:'relative'}}>
+            <button onClick={()=>setShowCombat(false)} style={{position:'absolute',top:-14,right:-14,width:36,height:36,borderRadius:10,background:'var(--red-500)',color:'#fff',border:'3px solid var(--outline)',fontWeight:900,cursor:'pointer',boxShadow:'var(--shadow-btn)'}}>✕</button>
+            <CombatScreenMount/>
+          </div>
+        </div>
+      )}
+
+      {modal && (
+        <div style={{position:'absolute',inset:0,background:'rgba(0,0,0,.4)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+          {modal==='zones' && <ZonesPanel onClose={()=>setModal(null)} />}
+          {modal==='daily' && <DailyRewardsModal onClose={()=>setModal(null)} />}
+          {modal==='shop' && <RobuxShopModal onClose={()=>setModal(null)} />}
+          {modal==='playtime' && <PlaytimeModal onClose={()=>setModal(null)} />}
+        </div>
+      )}
+    </div>
+  );
+}
+function CombatScreenMount(){ return <CombatScreen/>; }
+ReactDOM.createRoot(document.getElementById('root')).render(<HUD/>);
+function fitWorld(){
+  const el = document.querySelector('.world');
+  if(!el) return;
+  const scale = Math.min(window.innerWidth/1280, window.innerHeight/720, 1);
+  el.style.transform = `scale(${scale})`;
+}
+window.addEventListener('resize', fitWorld);
+setTimeout(fitWorld, 0);
+new MutationObserver(fitWorld).observe(document.getElementById('root'), {childList:true, subtree:true});
+</script>
+</body></html>
