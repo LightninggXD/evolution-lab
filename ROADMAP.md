@@ -368,7 +368,7 @@ Ordered so each row is testable against a game whose numbers already move.
 | 10.17 | `[x]` | **Active Effects redesigned, bounded.** Two faults, not one. (a) **The strip shared the left tile column's lane** — both start at x = 20 — so its overflow grew straight up over the buttons; live at 1546x793 the gold pass card covered the Rebirth tile *whole* (tile y 289..371, content began at 322). It sits **beside** the column now, at `20 + tileWidth + 14` read from the tile's own live `AbsoluteSize` rather than from a second copy of the responsive pass's arithmetic — the tiles shrink 82 → 40 on a short viewport, and a hard-coded 82 would put the strip back over the column on exactly the screens that are tightest. (b) **The height is a budget**: from the frame's own bottom edge up to `TOP_CLEAR` (121, the same figure the tile columns respect), computed in authored offsets off `ViewportSize` — never from `AbsolutePosition`, which this ScreenGui reports 58 px up from where offsets are measured. When content still exceeds it, **whole cards are hidden lowest-urgency-first** (passes → event → potions by most time remaining); clipping was rejected because a sliced card reads as a broken HUD and the slice lands on the stroke `styleCard` draws outside the frame | driven live with all 9 passes and 3 potions injected. **At exactly 1280x720: 4 cards shown, none dropped, and `strip cards over the Rebirth tile: NONE`** — `GetGuiObjectsAtPosition` at the tile's centre returns its own `Label / IconShadow / Body / RebirthButton / Shadow` and nothing else, i.e. fully clickable. Budget there is 419 against a 297 px worst case, so the event card fits too. At a 345 px viewport the floor engages and the drop order is visible working: passes and event gone, and the **one** card kept is Luck at 2:35 — the most urgent of the three (DNA 30:47, XP 10:23). MainUI still compiles and is still at **173** top-level locals; the whole change lives inside the existing immediately-called function |
 | 10.18 | `[ ]` | **HUD hierarchy** — shape by function, controlled rounding, readable text and icons | |
 | 10.19 | `[ ]` | **Leaderboard presentation + a #1 statue** (9.8) | board and statue agree after a refresh |
-| 10.20 | `[ ]` | **Emoji → cartoon icon layer.** Zero `ImageLabel`/`rbxassetid` in the HUD today; four sites in `UITheme` decide it (9.9) | every tile, pill and header renders art |
+| 10.20 | `[x]` | **Emoji → cartoon icon layer, redrawn and completed.** 9.9 built the layer and shipped 44 flat icons; this both **relights all of them** and **closes the coverage holes**. (a) `tools/iconkit.py` is a new five-pass pipeline running over the finished colour layer — volume gradient off `UITheme.gradientFor`'s own three stops, a light rim band inside the top edge, a dark one inside the bottom, a soft gloss at `addGloss`'s 0.28, and a thicker contour (3.6 → **5.0**) — so the icons are lit by the same curve as the buttons they sit on rather than by one invented for them. Ink is protected from passes 1–4 by distance-to-INK, or deliberate linework turns to grey smudge. (b) An interface-wide audit found **30 missing**: **17 zones** (the biggest icons in the game — the same art draws the zone row, the unlock toast, the boss bar *and* `ZoneTransition`'s 190×190 card) and **13 chrome** glyphs. Bodies split into `tools/icons/set_*.py` so six can be drawn at once; `tools/apply_uploads.py` writes ids into `uploaded.json` + `IconLibrary.lua` together and audits both directions of reachability | **74/74 assets load** in a live client (`ImageLabel.IsLoaded`, 4.6 s — `PreloadAsync` still lies here, it reports Failure for known-good ids). Resolution checked by walking the **real config rows** rather than a typed list: Zones **20/20**, RobuxProducts 17/17, GamePasses 9/9, Potions + sizes 18/18, SpinWheel 8/8, Seasons 6/6, Quests 7/7, Upgrades 5/5, ShopKinds + titles 6/6 — **no misses in any group**. HUD capture: every tile renders art. ZonesPanel went from **0 ImageLabels and 18 bare 🔒 glyphs → 80 ImageLabels and zero bare glyphs**. MainUI cost: **zero** top-level locals (the Go button's lock/word flip is `UITheme.ShowIconOrText`) |
 
 ---
 
@@ -408,6 +408,52 @@ Gathered 2026-08-07/08 while writing this plan.
 ---
 
 ## Changelog
+
+- **2026-08-10** — **10.20: the icons were flat, and the set had thirty holes in it.** 9.9 built the
+  asset layer and drew 44 icons; they were competent FLAT art — a few solid shapes inside a thin
+  contour — which is the generic flat-icon look and not what this game looks like. Every other
+  surface in Evolution Lab is a painted toy with a light side, a shadow side and a wet highlight.
+  The icons alone were not, and next to a HUD tile they read as stickers on a toy.
+  **The fix is a pipeline, not 44 edits.** `tools/iconkit.py` runs five passes over the *finished*
+  colour layer, so it applies to every icon — including ones drawn next year — without a single
+  icon body knowing it exists: a volume gradient down the icon's own bounding box, a light rim band
+  inside the top edge, a dark band inside the bottom, a soft gloss, and one thicker ink contour.
+  **The numbers are taken from `UITheme`, not invented**: the gradient is `gradientFor`'s three
+  stops and the gloss is `addGloss`'s 0.28, so an icon and the button under it are lit by one
+  decision. That duplication is deliberate and is cheaper than teaching Lua to draw PNGs.
+  **Ink had to be protected from all of it.** Passes 1–4 skip pixels near INK, softly, by distance —
+  lightening the top half of a deliberate black line turns a drawn mouth or facet into a grey
+  smudge. That one guard is the difference between "shaded icon" and "shaded icon with mud in it".
+  **A coverage audit of the whole interface found 30 emoji still falling back to a platform glyph.**
+  Seventeen were zones, which is the biggest hole possible here: the same drawing is used on the
+  zone row, the unlock toast, the boss bar **and** `ZoneTransition`'s full-screen card at 190×190,
+  where everything else in the set is read at forty pixels. The other thirteen were chrome, and
+  several cost a table row and no art at all — a bare `✔` with no variation selector, a second tick
+  glyph `✅`, a dagger where the rest of the game uses crossed swords. The audit also caught a real
+  bug: **`CodesService` printed shards with a crystal ball**, which is the Mystery Potion shop's
+  mark, so a code that paid shards named something the game does not have.
+  **Eight icons had to be drawn twice, and the failures are the reusable part** — each is recorded
+  in its own body's comment. `blackhole` was a hat (a tilted ring-plus-ball is a brim and a crown).
+  `ocean` took four passes and taught the general rule: **a polygon whose return path runs near its
+  outgoing path is a BAND, and a band reads as a rope or a tap however you bend it** — rebuilt from
+  overlapping solid masses, which is free here because the silhouette is a union of the whole layer.
+  `absolute` was a sailboat, and no adjustment could have fixed it: plinth = hull, triangle = sail,
+  centre ridge = mast, so the read came from the *arrangement* and two of the three had to go.
+  `bag` was a cake — **a light horizontal band across the top third of anything turns it into
+  furniture**, and the handle *is* the silhouette of a bag, so nothing may be drawn in front of it.
+  `speed` was a fish: twice as wide as tall, tapering to a point, fin on the back. Proportion, not
+  detail. `handshake` was a boomerang (both arms rising into a V), then a bone (arms as thick as the
+  clasp). And `egg` had a face, which produced the sharpest rule of the lot: **a face is not a
+  decoration you add to an object, it REPLACES the object.** Two dark discs in a pale oval are read
+  as eyes before anything else in the drawing is read at all, and the speckles were then recruited
+  into cheeks. `pet` and `boss` are meant to be faces; an egg is a thing you hatch.
+  **Process notes worth keeping.** Six agents drew in parallel, one file each, and all six were
+  killed mid-run by a session limit — but every file had already been written, so nothing was lost
+  and the work resumed by rendering what was on disk. Splitting the bodies out of the orchestrator
+  is what made that survivable, and `--sheet` takes a path for the same reason: the PNGs several
+  renders write are disjoint, but a shared contact sheet is the one file they would race on.
+  **And judge icons as a family, not one at a time** — the contact sheet is where a mismatched
+  weight or light direction shows, and it is invisible when you open them individually.
 
 - **2026-08-10** — **10.17: the boost strip was not too tall, it was in the wrong lane.** 9.7 had
   measured the fault as 297 px of content in a 250 px frame with clipping off, and that framing is

@@ -1038,6 +1038,12 @@ for i, zone in ipairs(GameConfig.Zones) do
 	nameLabel.Text = zone.emoji .. " " .. zone.name
 	nameLabel.Parent = row
 	themeLabel(nameLabel, 24)
+	-- DRAW THE ZONE, DO NOT SPELL IT (10.20). All twenty zones have art now, and this row was the
+	-- single biggest place still rendering a platform emoji -- twenty of them, stacked, in one
+	-- scrolling list, which is exactly where four different emoji fonts are most obvious.
+	-- `IconifyLabel` strips the leading glyph and puts the drawing where it was; it returns false
+	-- and leaves the label alone for anything unmapped, so this is safe on a zone added later.
+	UITheme.IconifyLabel(nameLabel)
 
 	local statusLabel = Instance.new("TextLabel")
 	statusLabel.Name = "StatusLabel"
@@ -1053,9 +1059,22 @@ for i, zone in ipairs(GameConfig.Zones) do
 	goButton.Name = "GoButton"
 	goButton.Size = UDim2.new(0, 96, 0, 46)
 	goButton.Position = UDim2.new(1, -108, 0.5, -23)
-	goButton.Text = "🔒"
+	goButton.Text = "\u{1F512}"
 	goButton.Parent = row
 	styleButton(goButton, UITheme.Color.Locked, UDim.new(1, 0))
+	-- THE PADLOCK IS DRAWN, THE WORD "Go" IS NOT (10.20). A locked row shows an icon and an
+	-- unlocked one shows a word, so this button carries both an ImageLabel and its own text and
+	-- shows exactly one of them at a time -- see `UITheme.ShowIconOrText`. Built here so
+	-- the slot exists before the first refresh; a slot created lazily would leave the very first
+	-- draw of a fresh save showing the glyph.
+	do
+		local slot = UITheme.IconSlot(goButton, {
+			name = "LockIcon", icon = "\u{1F512}",
+			size = UDim2.new(0, 26, 0, 26), position = UDim2.new(0.5, 0, 0.5, 0),
+			anchorPoint = Vector2.new(0.5, 0.5), zIndex = goButton.ZIndex + UITheme.Z.Content,
+		})
+		if slot then goButton.Text = "" end
+	end
 
 	goButton.MouseButton1Click:Connect(function()
 		Remotes.TeleportToZone:FireServer(zone.key)
@@ -2645,7 +2664,7 @@ local function refreshZonesPanel()
 		if refs then
 			if unlockedLookup[zone.key] then
 				refs.statusLabel.Text = "Unlocked" .. (zone.incomeBonusPct > 0 and (" · +" .. zone.incomeBonusPct .. "% income") or "")
-				refs.goButton.Text = "Go"
+				UITheme.ShowIconOrText(refs.goButton, false, "Go")
 				setButtonColor(refs.goButton, Color3.fromRGB(60, 190, 100))
 			else
 				-- BOTH REASONS, and the one actually in the way first.
@@ -2676,7 +2695,7 @@ local function refreshZonesPanel()
 				else
 					refs.statusLabel.Text = "Requires: " .. (reqStage and reqStage.name or "?")
 				end
-				refs.goButton.Text = "🔒"
+				UITheme.ShowIconOrText(refs.goButton, true, "\u{1F512}")
 				setButtonColor(refs.goButton, Color3.fromRGB(80, 80, 90))
 			end
 		end

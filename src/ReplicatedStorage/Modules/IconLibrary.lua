@@ -45,50 +45,80 @@ local IconLibrary = {}
 -- Names match `tools/make_icons.py` and `assets/icons/uploaded.json` exactly. Do not rename one
 -- without the other two.
 local ID = {
-	dna       = "rbxassetid://81434690219399",
-	diamond   = "rbxassetid://130283776476870",
-	shard     = "rbxassetid://109021070436279",
-	xp        = "rbxassetid://107775900051043",
-	luck      = "rbxassetid://121532874219481",
-	sword     = "rbxassetid://104391890869412",
-	paw       = "rbxassetid://76239497429653",
-	potion    = "rbxassetid://99999317917015",
-	egg       = "rbxassetid://107032143247002",
-	crown     = "rbxassetid://76791476727334",
-	lock      = "rbxassetid://101615815229927",
-	check     = "rbxassetid://94096354033963",
-	cross     = "rbxassetid://126922218599181",
-	fire      = "rbxassetid://118575692998570",
-	clock     = "rbxassetid://140329280761162",
-	wheel     = "rbxassetid://97712433514837",
-	upgrade   = "rbxassetid://131840105948434",
-	arrow     = "rbxassetid://138420523300304",
-	question  = "rbxassetid://114563777659487",
-	boom      = "rbxassetid://131337550097639",
-	coin      = "rbxassetid://129513347169030",
-	gear      = "rbxassetid://120219310542767",
-	bolt      = "rbxassetid://100617901114870",
-	ticket    = "rbxassetid://112939594103107",
-	gift      = "rbxassetid://83944471849827",
-	cart      = "rbxassetid://138827402391986",
-	bag       = "rbxassetid://74045941803440",
-	book      = "rbxassetid://75156244958882",
-	map       = "rbxassetid://89873662284176",
-	rebirth   = "rbxassetid://77260142925404",
-	backpack  = "rbxassetid://91824526387988",
-	audio     = "rbxassetid://89347950978095",
-	medal     = "rbxassetid://121983672866560",
-	rainbow   = "rbxassetid://89084335349565",
-	sun       = "rbxassetid://121798912637171",
-	calendar  = "rbxassetid://76380530027551",
-	party     = "rbxassetid://87717541564323",
-	hourglass = "rbxassetid://128862957992094",
-	boss      = "rbxassetid://130454681228865",
-	heart     = "rbxassetid://77811537280917",
-	plus      = "rbxassetid://93901047663431",
-	shop      = "rbxassetid://132821656068720",
-	zone      = "rbxassetid://111515559788213",
-	pet       = "rbxassetid://81488146657952",
+	absolute     = "rbxassetid://133654512361485",
+	arrow        = "rbxassetid://100683138086656",
+	audio        = "rbxassetid://77987918035205",
+	backpack     = "rbxassetid://112267210821022",
+	bag          = "rbxassetid://86141762589488",
+	blackhole    = "rbxassetid://86622214176705",
+	bolt         = "rbxassetid://125449019286643",
+	book         = "rbxassetid://117510209178278",
+	boom         = "rbxassetid://98622443720558",
+	boss         = "rbxassetid://75913353547225",
+	calendar     = "rbxassetid://114216417880572",
+	cart         = "rbxassetid://120268752774798",
+	check        = "rbxassetid://139079900516571",
+	clock        = "rbxassetid://110502368703038",
+	coin         = "rbxassetid://138155477964656",
+	cross        = "rbxassetid://79209920954791",
+	crown        = "rbxassetid://100737784411045",
+	desert       = "rbxassetid://107579072515574",
+	diamond      = "rbxassetid://94306408327096",
+	dna          = "rbxassetid://97605056516888",
+	dream        = "rbxassetid://84498845488665",
+	egg          = "rbxassetid://85200417748395",
+	fire         = "rbxassetid://114362288516361",
+	forest       = "rbxassetid://139549052766790",
+	galaxy       = "rbxassetid://73608735294271",
+	gear         = "rbxassetid://134940823652825",
+	gift         = "rbxassetid://116511141331182",
+	handshake    = "rbxassetid://105809271165337",
+	heart        = "rbxassetid://103783313754607",
+	home         = "rbxassetid://117910760992150",
+	honey        = "rbxassetid://114133034277624",
+	hourglass    = "rbxassetid://136044741795897",
+	lock         = "rbxassetid://128372983391438",
+	luck         = "rbxassetid://140260937065697",
+	map          = "rbxassetid://106964707289711",
+	mars         = "rbxassetid://76391200725920",
+	medal        = "rbxassetid://79294732633106",
+	medal_bronze = "rbxassetid://116258111831735",
+	medal_silver = "rbxassetid://126119579368347",
+	mirror       = "rbxassetid://112502828175923",
+	moon         = "rbxassetid://99231498307217",
+	multiverse   = "rbxassetid://86591318170427",
+	nebula       = "rbxassetid://102108182273845",
+	ocean        = "rbxassetid://73127498026523",
+	orb          = "rbxassetid://96092681500201",
+	party        = "rbxassetid://123272919810963",
+	paw          = "rbxassetid://115889303279770",
+	pet          = "rbxassetid://75752760135035",
+	plus         = "rbxassetid://91152374913942",
+	potion       = "rbxassetid://86593763008335",
+	quantum      = "rbxassetid://100109299598613",
+	question     = "rbxassetid://84165149952604",
+	rainbow      = "rbxassetid://72918578421395",
+	rebirth      = "rbxassetid://137919423177940",
+	shard        = "rbxassetid://93975864077659",
+	shop         = "rbxassetid://79110444339140",
+	singularity  = "rbxassetid://76125474367091",
+	skull        = "rbxassetid://124856616676295",
+	sleep        = "rbxassetid://126193952793647",
+	snow         = "rbxassetid://105381723604694",
+	sparkle      = "rbxassetid://79993776154604",
+	speed        = "rbxassetid://83909543865551",
+	sprig        = "rbxassetid://137694586619038",
+	sun          = "rbxassetid://128063910082223",
+	sword        = "rbxassetid://77111451475226",
+	ticket       = "rbxassetid://102723710825138",
+	upgrade      = "rbxassetid://94822131391656",
+	void         = "rbxassetid://86778432912380",
+	volcano      = "rbxassetid://116235909195170",
+	warning      = "rbxassetid://98782266115018",
+	wheel        = "rbxassetid://136196933572720",
+	wormhole     = "rbxassetid://83004249894908",
+	xp           = "rbxassetid://90055084700953",
+	zone         = "rbxassetid://103171428143568",
 }
 IconLibrary.Id = ID
 
@@ -175,6 +205,81 @@ local BY_EMOJI = {
 	["\u{231B}"] = "hourglass",  -- ⌛
 	["\u{23F1}\u{FE0F}"] = "clock",   -- ⏱️
 	["\u{23F1}"] = "clock",
+
+	-- ========================================================================
+	-- THE ZONES (10.20)
+	-- ========================================================================
+	-- Seventeen of the twenty zones had no art and fell back to a platform glyph. These are the
+	-- BIGGEST icons in the game and it is easy to miss why: the same drawing is used on the zone
+	-- row, on the unlock toast, on the boss bar -- and on `ZoneTransition`'s full-screen card,
+	-- where it renders at 190x190. Everything else here is read at forty pixels.
+	--
+	-- THE BOSS ROWS ARE THE SAME EMOJI ON PURPOSE. `GameConfig.ZoneBosses` reuses each zone's glyph
+	-- for that zone's boss from Volcano onward, so one drawing lights both places with no extra row
+	-- here and nothing to keep in step.
+	["\u{1F332}"] = "forest",      -- 🌲 Forest
+	["\u{1F3DC}\u{FE0F}"] = "desert",   -- 🏜️ Desert
+	["\u{1F3DC}"] = "desert",
+	["\u{1F30A}"] = "ocean",       -- 🌊 Ocean (and the "Deep Currents" season)
+	["\u{1F30B}"] = "volcano",     -- 🌋 Volcano (and "Ashfall")
+	["\u{1F319}"] = "moon",        -- 🌙 Moon
+	["\u{1F534}"] = "mars",        -- 🔴 Mars
+	["\u{1F30C}"] = "galaxy",      -- 🌌 Galaxy
+	["\u{26AB}"]  = "blackhole",   -- ⚫ Black Hole
+	["\u{1F300}"] = "multiverse",  -- 🌀 Multiverse
+	["\u{1F320}"] = "nebula",      -- 🌠 Nebula (and "Starfall")
+	["\u{1F573}\u{FE0F}"] = "wormhole", -- 🕳️ Wormhole
+	["\u{1F573}"] = "wormhole",
+	["\u{269B}\u{FE0F}"] = "quantum",   -- ⚛️ Quantum Realm
+	["\u{269B}"]  = "quantum",
+	["\u{1F4AD}"] = "dream",       -- 💭 Dream Dimension
+	["\u{1FA9E}"] = "mirror",      -- 🪞 Mirror Universe
+	["\u{1F311}"] = "void",        -- 🌑 Void Expanse
+	["\u{1F4AB}"] = "singularity", -- 💫 Singularity
+	["\u{1F53A}"] = "absolute",    -- 🔺 The Absolute Plane
+
+	-- ========================================================================
+	-- CHROME THAT WAS STILL FALLING BACK TO A GLYPH (10.20)
+	-- ========================================================================
+	-- Found by auditing every emoji that reaches a tile, a pill or a header against this table.
+	-- Several are NEAR-MISSES of rows that already existed -- a second tick glyph, a bare ✔ with no
+	-- variation selector, a dagger where the rest of the game uses crossed swords -- and those cost
+	-- a row each and no art at all. They are grouped with the icon they join.
+	["\u{2705}"]  = "check",     -- ✅ the Claimed / Done / Premium-unlocked marks
+	["\u{2714}"]  = "check",     -- ✔  bare, no variation selector: the pet Equipped tick
+	["\u{2715}"]  = "cross",     -- ✕  the pet Release button
+	["\u{1F5E1}\u{FE0F}"] = "sword",  -- 🗡️ the pet card's Damage stat
+	["\u{1F5E1}"] = "sword",
+	["\u{1F4CB}"] = "book",      -- 📋 the Season panel's Quests tab
+	["\u{1F948}"] = "medal_silver",   -- 🥈 leaderboard 2nd
+	["\u{1F949}"] = "medal_bronze",   -- 🥉 leaderboard 3rd
+	-- ⚠ and its selector-less twin: the caution line under the pet Fuse row
+	["\u{26A0}\u{FE0F}"] = "warning",
+	["\u{26A0}"]  = "warning",
+	["\u{1F4A4}"] = "sleep",     -- 💤 the offline-earnings card
+	["\u{2620}\u{FE0F}"] = "skull",   -- ☠️ the boss-revive prompt
+	["\u{2620}"]  = "skull",
+	["\u{2728}"]  = "sparkle",   -- ✨ the season track's shard face, and "NEW FORM"
+	["\u{1F52E}"] = "orb",       -- 🔮 the Mystery Potions shop
+	["\u{1F91D}"] = "handshake", -- 🤝 "Trade complete!"
+	["\u{1F3E0}"] = "home",      -- 🏠 the arena's Back portal
+	["\u{2744}\u{FE0F}"] = "snow",    -- ❄️ the "Frostbloom" season
+	["\u{2744}"]  = "snow",
+	["\u{1F33F}"] = "sprig",     -- 🌿 the "Overgrowth" season
+	["\u{1F36F}"] = "honey",     -- 🍯 the Large potion size
+	-- SPEED IS ONE DRAWING FOR TWO GLYPHS, and they are the same idea told twice: 👟 is the Speed
+	-- UPGRADE tile and 🏃 is the 2x Speed PASS chip. Before this, the pass chip was the one chip in
+	-- a grid of nine that kept a glyph while its neighbours had art.
+	["\u{1F45F}"] = "speed",     -- 👟
+	["\u{1F3C3}"] = "speed",     -- 🏃
+
+	-- `zone` IS DELIBERATELY LEFT WITH NO EMOJI, and it is the one entry in `ID` that has none.
+	-- It was orphaned by accident before 10.20 -- drawn, uploaded and unreachable, which is the
+	-- failure `tools/apply_uploads.py` now audits for -- and it stays unmapped on purpose now that
+	-- all twenty zones have their own art: a generic green landscape would only ever be shown
+	-- INSTEAD of the specific zone, which is worse than the emoji fallback. Kept rather than
+	-- deleted because it costs one line and is the obvious drawing for any future "somewhere in
+	-- the world" label.
 }
 
 -- Returns the asset id for an emoji, or nil when there is no icon for it -- which is a normal

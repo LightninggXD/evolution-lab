@@ -1284,4 +1284,31 @@ function UITheme.SetIcon(inst, emoji)
 	end
 end
 
+-- ============================================================================
+-- A BUTTON THAT IS SOMETIMES A PICTURE AND SOMETIMES A WORD (10.20)
+-- ============================================================================
+-- The zone list's Go button is the case this exists for: locked it is a padlock, unlocked it is
+-- the word "Go". Both cannot be shown at once and neither can be built lazily -- a slot created on
+-- first use leaves the very first draw of a fresh save showing whatever the other state left
+-- behind.
+--
+-- So the caller builds the ImageLabel once, at construction, and flips between the two here. The
+-- icon is HIDDEN rather than blanked: clearing `Image` would make the next flip re-fetch the
+-- texture, and a texture that is re-fetched is a texture that can be missing for a frame.
+--
+-- IN UITheme RATHER THAN IN MainUI, deliberately. MainUI's top level is one Luau function with a
+-- 200-register ceiling and this would be one more named local there for no benefit -- the same
+-- reason IconSlot, IconifyLabel and SetIcon all live here. See the register note in MainUI.
+function UITheme.ShowIconOrText(button, useIcon, text, iconName)
+	if not button then return end
+	local icon = button:FindFirstChild(iconName or "LockIcon", true)
+	if icon then
+		icon.Visible = useIcon
+	end
+	-- When there is no icon slot at all -- an unmapped emoji, or a build that skipped it -- fall
+	-- back to text in BOTH states rather than showing an empty button. An icon that does not exist
+	-- must never be able to produce a button with nothing on it.
+	button.Text = (useIcon and icon) and "" or (text or "")
+end
+
 return UITheme
