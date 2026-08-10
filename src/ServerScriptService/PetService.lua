@@ -643,6 +643,20 @@ local function shortDNA(n)
 	return ("%.1f%s DNA"):format(n, DNA_SUFFIX[mag])
 end
 
+-- Half the gap between the two prompts an egg carries, in pixels of the default prompt UI. Each one
+-- is pushed this far from the shell's centre in the opposite direction, so the number is HALF the
+-- separation, not the separation -- and 36 is therefore the floor, not the target.
+--
+-- MEASURED, not guessed. The default UI turns UIOffset into `SizeOffset = UIOffset / Size`, and the
+-- card it builds for these prompts is 72 px tall (read off PlayerGui.ProximityPrompts in a live
+-- session). So separation is 2 * this, and the first value tried -- 34 -- left the two cards
+-- overlapping by 4 px, which looks exactly like the bug it was meant to fix. 44 leaves a 16 px gap.
+--
+-- Distance does not enter into it. A BillboardGui's offset size shrinks as the camera pulls away,
+-- but SizeOffset is a FRACTION of that same size, so the two shrink together and the gap stays
+-- proportional at every range.
+local PROMPT_STACK = 44
+
 -- A ProximityPrompt hangs off either a part or an attachment on one, and which one is ZoneBuilder's
 -- business, not this file's.
 local function promptAnchor(prompt)
@@ -702,6 +716,25 @@ function PetService.WireKiosks()
 							-- beside it by construction; a hand-built second prompt would drift the day
 							-- PROMPT_REACH changed. `Wired` is stripped from the copy so a clone can never
 							-- be mistaken for an already-wired original by a later pass.
+							--
+							-- ===== AND THE PAIR HAS TO BE PULLED APART =====
+							--
+							-- Two prompts on ONE part draw at ONE point. Everything that makes the clone
+							-- faithful -- same parent, same anchor, same default UIOffset of (0,0) -- also
+							-- lands it exactly on top of the original, so "Buy Egg" and "Hatch x10" render
+							-- as one smudged card and only the E key is legible. Neither prompt is broken;
+							-- they are simply invisible to each other. That is the overlap in the shop.
+							--
+							-- The single moves up by PROMPT_STACK and the bulk down by the same, so the
+							-- pair stays centred on the point the lone prompt used to occupy -- the podium
+							-- and the egg's billboard were both composed around it.
+							--
+							-- Symmetric on purpose. Which way UIOffset's Y points is the default prompt
+							-- UI's business, not ours, and a symmetric split cannot overlap whichever way
+							-- it resolves: the worst a flipped sign costs is x10 reading above Buy Egg
+							-- instead of below.
+							prompt.UIOffset = Vector2.new(0, PROMPT_STACK)
+
 							local bulk = prompt:Clone()
 							bulk:SetAttribute("Wired", nil)
 							bulk.Name = "BulkEggPrompt"
@@ -712,6 +745,7 @@ function PetService.WireKiosks()
 							-- a touch longer than the single: ten eggs' worth of DNA is not a press to make
 							-- by brushing past the podium
 							bulk.HoldDuration = 0.6
+							bulk.UIOffset = Vector2.new(0, -PROMPT_STACK)
 							bulk:SetAttribute("BulkPrompt", true)
 							bulk.Parent = prompt.Parent
 							bulk.Triggered:Connect(function(player)
