@@ -51,7 +51,7 @@ local LeaderboardService = {}
 
 -- Bumping this rebuilds the signs on the next server start, the same shape as RebirthShrine's
 -- SHRINE_VERSION and ZoneBuilder's BUILD_VERSION.
-local BOARD_VERSION = 1
+local BOARD_VERSION = 2
 
 -- 2^53. Above it a double stops being able to represent consecutive integers, so two players
 -- 1 DNA apart would compare equal and the ordering would be noise.
@@ -364,10 +364,193 @@ local function buildSigns()
 end
 
 -- ============================================================================
+-- THE #1 STATUE (10.19)
+-- ============================================================================
+-- The boards say who is winning; the statue is what makes it feel like winning. It is cast from the
+-- REAL avatar of whoever is first, via `Players:CreateHumanoidModelFromUserId` -- measured at 0.75 s
+-- for a 17-part R15 rig, so it is a yield and lives on its own task, never on the refresh loop.
+--
+-- IT FOLLOWS ONE BOARD, AND THAT BOARD IS DNA. Three statues would be three-quarters of a wall of
+-- statues nobody reads; one is a landmark. DNA is the headline number -- it is what the topbar shows
+-- and what every other system pays out in -- so it is the one worth carving.
+--
+-- z = 95, at the end of the row of boards (they run 280 -> 140), on the same x = -130 strip. Probed
+-- before choosing: the only things in a 30x48x30 box there are `Floor` and a ground decal, which is
+-- exactly what a plinth wants to stand on.
+local STATUE_BOARD = "DNA"
+local STATUE_X, STATUE_Z = -130, 95
+local STATUE_HEIGHT = 22          -- the avatar itself, plinth excluded
+local PLINTH_H = 9
+-- BRONZE ON A CREAM PLINTH. The zone statues are pale stone on purpose -- a statue tinted to its
+-- biome is a green lump on green grass -- but this one stands on its own pale plinth, so pale-on-
+-- pale is the same mistake in miniature: the first build put a cream figure on a cream base and it
+-- read as a smudge. The figure contrasts with the thing it stands on, not with the field it is in,
+-- and bronze says "trophy" for free.
+local STATUE_TONE = Color3.fromRGB(196, 138, 74)
+
+-- What is standing there now, so a refresh that does not change the leader does no work at all --
+-- rebuilding the same avatar every minute would be a web call and a model swap for nothing, and the
+-- flicker would be visible to anyone standing in front of it.
+local statueUserId = nil
+
+local function stoneify(model, tone)
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.Anchored = true
+			d.CanCollide = false
+			d.CastShadow = true
+			d.Color = tone
+			d.Material = Enum.Material.Sand
+			-- A MeshPart keeps its avatar texture unless the texture is cleared, and a statue wearing
+			-- a printed t-shirt is not a statue. `Color` alone only tints the print.
+			if d:IsA("MeshPart") then
+				d.TextureID = ""
+			end
+		elseif d:IsA("Decal") or d:IsA("Texture") then
+			-- the face is a Decal; carved stone has no eyes drawn on it
+			d:Destroy()
+		elseif d:IsA("Humanoid") then
+			-- keep the rig, drop the actor: a live Humanoid tries to stand, plays an idle animation
+			-- and prints state warnings for a thing that is meant to be furniture
+			d:Destroy()
+		elseif d:IsA("Script") or d:IsA("LocalScript") then
+			d:Destroy()
+		end
+	end
+end
+
+local function buildStatue(userId, name, value)
+	local folder = workspace:FindFirstChild("Leaderboards")
+	if not folder then return false end
+
+	local ok, model = pcall(function()
+		return Players:CreateHumanoidModelFromUserId(userId)
+	end)
+	if not ok or not model then
+		warn("[LeaderboardService] could not fetch avatar for " .. tostring(userId) .. ": " .. tostring(model))
+		return false
+	end
+
+	-- ===== ORDER MATTERS, AND GETTING IT WRONG IS SILENT =====
+	--
+	-- ANCHOR LAST. The first version anchored and recoloured before positioning, and the statue came
+	-- out as a scatter of limbs: measured, a 21-stud bounding box around a torso 2.5 studs tall, with
+	-- a hand 10.8 studs off centre. A model straight from this API is held together by Motor6Ds that
+	-- have not resolved yet -- anchoring each part first freezes every limb wherever it happened to
+	-- be authored, and no later `PivotTo` can gather them, because anchored parts do not follow a
+	-- joint. Parent it, let the joints settle, THEN freeze it.
+	-- Captured BEFORE the new one is parented. Both are called "TopStatue" for the moment they
+	-- coexist, and `FindFirstChild` returns whichever it reaches first -- ask afterwards and you can
+	-- be handed the new model and leave the old one standing inside it forever.
+	local old = folder:FindFirstChild("TopStatue")
+
+	model.Name = "TopStatue"
+	model.Parent = folder
+	task.wait()
+
+	-- ...BUT ANCHOR AS SOON AS THE JOINTS HAVE. The second version waited until the very end and the
+	-- statue came out **13.6 studs underground**: between the wait above and the recolour below the
+	-- model is parented to the workspace and unanchored, so gravity has several frames to act on it
+	-- and the careful seating lands on a figure that is already falling. Freeze it here -- after the
+	-- joints have gathered the limbs, before anything is measured or moved.
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.Anchored = true
+		end
+	end
+
+	-- Scale to a fixed height rather than trusting the rig. Avatar scaling is a player setting, so
+	-- two winners can differ by a third of their height, and a landmark that changes size when the
+	-- leaderboard changes reads as a bug.
+	local _, size = model:GetBoundingBox()
+	if size.Y > 0.1 then
+		model:ScaleTo(STATUE_HEIGHT / size.Y)
+	end
+
+	-- SEAT IT BY ITS OWN BOUNDING BOX, in two steps, exactly the way ZoneBuilder seats a model whose
+	-- pivot it does not control: put it down first, read where the bottom actually landed, then lift
+	-- by that much. Guessing the drop from the pivot is what once left the Forest trees hovering.
+	-- Yawed a quarter turn so the figure faces +X, the street the boards read toward.
+	model:PivotTo(CFrame.new(STATUE_X, 0, STATUE_Z) * CFrame.Angles(0, math.pi * 0.5, 0))
+	local cf, s2 = model:GetBoundingBox()
+	model:PivotTo(model:GetPivot() + Vector3.new(0, PLINTH_H - (cf.Position.Y - s2.Y * 0.5), 0))
+
+	-- ...and only now is it furniture.
+	stoneify(model, STATUE_TONE)
+	if old then old:Destroy() end
+
+	local plate = folder:FindFirstChild("StatuePlate")
+	if plate then
+		local label = plate:FindFirstChildWhichIsA("TextLabel", true)
+		if label then
+			label.Text = ("#1  %s\n%s DNA"):format(name or "?", shorten(value or 0))
+		end
+	end
+	statueUserId = userId
+	return true
+end
+
+-- The plinth is built once with the signs; only the figure on top is ever replaced.
+local function buildPlinth(folder)
+	local model = Instance.new("Model")
+	model.Name = "StatuePlinth"
+
+	for _, spec in ipairs({
+		{ Vector3.new(26, 3, 26), PLINTH_H - 7.5, UITheme.Color.Outline },
+		{ Vector3.new(22, 6, 22), PLINTH_H - 3, UITheme.Color.Cream },
+	}) do
+		local p = Instance.new("Part")
+		p.Name = "PlinthTier"
+		p.Size = spec[1]
+		p.CFrame = CFrame.new(STATUE_X, spec[2], STATUE_Z)
+		paint(p, spec[3])
+		p.CastShadow = true
+		p.Parent = model
+	end
+	model.Parent = folder
+
+	-- the nameplate, on its own part so replacing the figure never touches it
+	local plate = Instance.new("Part")
+	plate.Name = "StatuePlate"
+	plate.Size = Vector3.new(1, 5, 20)
+	plate.CFrame = CFrame.new(STATUE_X + 11.4, PLINTH_H - 3, STATUE_Z)
+	paint(plate, UITheme.Color.Outline)
+	plate.Parent = folder
+
+	local gui = Instance.new("SurfaceGui")
+	gui.Face = Enum.NormalId.Right          -- at the street, exactly as the boards do
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 24
+	gui.Parent = plate
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = "#1"
+	label.TextScaled = true
+	label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	label.Font = UITheme.Font.Display
+	label.Parent = gui
+	UITheme.OutlineText(label)
+end
+
+-- Called after every DNA refresh. Cheap and silent when the leader has not changed.
+local function refreshStatue()
+	local rows = LeaderboardService.Top[STATUE_BOARD]
+	local first = rows and rows[1]
+	if not first or not first.userId then return end
+	if first.userId == statueUserId then return end
+	task.spawn(buildStatue, first.userId, first.name, first.value)
+end
+
+-- ============================================================================
 -- INIT
 -- ============================================================================
 function LeaderboardService.Init()
-	buildSigns()
+	local folder = buildSigns()
+	if folder and not folder:FindFirstChild("StatuePlinth") then
+		buildPlinth(folder)
+	end
 
 	-- a final figure on the way out, so a player who logs off after a big session is on the board
 	-- before the next refresh rather than a minute later
@@ -380,6 +563,12 @@ function LeaderboardService.Init()
 			for _, board in ipairs(BOARDS) do
 				refreshOne(board)
 				drawBoard(board)
+				-- THE STATUE IS DRIVEN FROM THE SAME DATA THE SIGN WAS JUST PAINTED FROM, on the same
+				-- pass, which is what makes "the board and the statue agree" true by construction
+				-- rather than by two schedules happening to line up.
+				if board.key == STATUE_BOARD then
+					refreshStatue()
+				end
 				-- spread across the interval rather than three web calls in one frame
 				task.wait(REFRESH_INTERVAL / #BOARDS)
 			end
@@ -403,6 +592,15 @@ function LeaderboardService.RefreshNow()
 		local ok = refreshOne(board)
 		drawBoard(board)
 		report[board.key] = ok and #(LeaderboardService.Top[board.key] or {}) or false
+	end
+	-- SYNCHRONOUS here, unlike the loop's fire-and-forget: a test that returns before the avatar has
+	-- been fetched cannot check what it just asked for. This is the only caller that waits.
+	local rows = LeaderboardService.Top[STATUE_BOARD]
+	local first = rows and rows[1]
+	if first and first.userId and first.userId ~= statueUserId then
+		report.statue = buildStatue(first.userId, first.name, first.value)
+	else
+		report.statue = "unchanged"
 	end
 	return report
 end
