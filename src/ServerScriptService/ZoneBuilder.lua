@@ -32,7 +32,7 @@ local ZoneBuilder = {}
 -- down to 12. They were the "something yellow and round hanging in the air" in the bug report.
 -- 117: the terraces got a flight of stairs per tier per side, so the shelves are somewhere a
 -- player can actually go -- which is what the raised Brutes and Elites in CreatureService need.
-local BUILD_VERSION = 122
+local BUILD_VERSION = 123
 
 -- The Colosseum carries its own stamp. Bumping BUILD_VERSION drops all 21 zones and rebuilds
 -- ~60,000 parts, which takes long enough that Studio regularly loses the connection partway (see
@@ -201,6 +201,38 @@ local SHADOW_MIN_LONG = 3.5
 local SHADOW_MIN_SHORT = 0.5
 local SHADOW_MAX_VOL = 200000
 
+-- ===== WHAT IS SOLID, AND WHY THIS LIST IS SHORT =====
+--
+-- `CanCollide = false` appears at 418 sites in this file, and the obvious reading -- that the world
+-- is full of props you can walk through by accident -- is WRONG. Auditing them against the running
+-- world (ray and box queries against the engine, not a read of the source) put almost all of them
+-- in one of three defensible groups:
+--
+--   * backed by something else that IS solid -- `CliffFace` and `CliffRubble` sit against
+--     `CliffJut` / `CliffBlock` / `TerraceTop`, `PoolStone` against `PoolBed`. The drawn rock is
+--     scenery on a collision hull, which is the right way round.
+--   * deliberate, with the reason already written down -- the `EggShell` is a Block wearing a
+--     sphere mesh, so its collision is the BOX and its corners stick out at head height; and the
+--     street fence is decoration rather than a pen, which is why the player can leave the road.
+--   * correctly intangible -- grass tufts, flowers, mushrooms, coins, waterfall spray.
+--
+-- What was genuinely wrong is the rocks. A `GroundRock` is a 12-stud boulder standing on open
+-- ground with nothing behind it, and you walk straight through. Same for scree, mounds and the well.
+-- That is exactly the row's own wording -- "rocks and walls stop the player" -- and it is the whole
+-- of the real defect, so this list is deliberately short rather than a sweep.
+--
+-- The street furniture joins it because walking through a bench reads as the same bug even though
+-- nobody would call a bench a wall.
+--
+-- CHECKED FIRST: none of these sits on the route. The path corridor is 30 studs wide and the
+-- closest of any of them to the centre line is 54 studs, so making them solid blocks nothing.
+local SOLID_PROPS = {
+	GroundRock = true, ValleyRock = true, ValleyScree = true, Mound = true,
+	PoolStone = true, WellStone = true, WellPost = true,
+	BenchSeat = true, BenchLeg = true,
+	LampPost = true, LampFoot = true, GlowPost = true,
+}
+
 local function shouldCastShadow(p)
 	if p.Transparency >= 0.5 or p.Material == Enum.Material.Neon then
 		return false
@@ -232,6 +264,13 @@ local function newPart(props)
 	-- are one blanket policy typed out 104 times. Leaving them to win would mean the rule only
 	-- applied to parts nobody had gotten round to.
 	p.CastShadow = shouldCastShadow(p)
+	-- ...and the same shape of decision for collision (10.13), but from a NAME rather than a size.
+	-- Shadows are a property of how big a thing is; solidity is a property of what it IS. A bush and
+	-- a boulder are the same size and only one of them should stop you, so no measurement can decide
+	-- this and the list above has to be explicit.
+	if SOLID_PROPS[p.Name] then
+		p.CanCollide = true
+	end
 	return p
 end
 
