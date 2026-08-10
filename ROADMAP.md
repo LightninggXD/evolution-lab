@@ -453,6 +453,19 @@ Gathered 2026-08-07/08 while writing this plan.
   first time it cost shipped rows: a push into Studio is not persistence.** Ctrl+S is. The
   countermeasure that actually worked is the mirror — `src/` was complete and current, so recovery
   was two `UpdateSourceAsync` batches and a hash check rather than a re-implementation.
+  **And the save no longer has to wait for a human.** Every in-Studio route is blocked — there is no
+  `game:Save()`, `game:SavePlace()` refuses from the Edit datamodel, and calling it under Play would
+  persist the *runtime* state (1,400 spawned creatures and all), so that one is not a fallback but a
+  hazard. Sending Ctrl+S to the Studio window from the OS works, and this session's work was
+  committed that way. **This place is cloud-backed, so Ctrl+S is "Save to Roblox", not a file
+  write**: the repo's `Evolution-lab.rbxl` is *not* the document being edited, its timestamp says
+  nothing about whether a save happened, and the only honest confirmation is the newest
+  `%LOCALAPPDATA%\Roblox\logs\*.log` — `Saving to Roblox…` → `Saved new changes in "Evolution Lab" to
+  Roblox.` → `SaveToCloudTime : 7.6096 sec`. Note also that **the document tab carries no dirty
+  marker in Studio 0.733** (verified by dirtying the place and re-screenshotting), so "no asterisk"
+  is not evidence of anything; a Ctrl+S on an already-clean document logs `Action savePlaceAction is
+  not handled` and nothing more, which is how "already saved" is told apart from "the keystroke never
+  arrived".
   **Never assume a hash difference means Studio is ahead.** Direction was proved before anything was
   overwritten, by the longest-common-prefix/suffix test on per-line hashes: a `studioBlock` of 0
   (BossService, CreatureService) is proof the push is purely additive, and a small non-zero one
