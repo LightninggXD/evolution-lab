@@ -32,7 +32,7 @@ local ZoneBuilder = {}
 -- down to 12. They were the "something yellow and round hanging in the air" in the bug report.
 -- 117: the terraces got a flight of stairs per tier per side, so the shelves are somewhere a
 -- player can actually go -- which is what the raised Brutes and Elites in CreatureService need.
-local BUILD_VERSION = 123
+local BUILD_VERSION = 124
 
 -- The Colosseum carries its own stamp. Bumping BUILD_VERSION drops all 21 zones and rebuilds
 -- ~60,000 parts, which takes long enough that Studio regularly loses the connection partway (see
@@ -3969,6 +3969,31 @@ local function buildValleySide(model, zone, cx, side, p)
 			local steps = math.clamp(math.floor(run / 5.5), 4, 12)
 			local riser = (top - bottom) / steps
 
+			-- ===== A FLIGHT HAS TO BE VISIBLE FROM THE VALLEY (9.6) =====
+			--
+			-- Measured before this existed: the stair faces and the cliff face were the SAME value --
+			-- 0.51 and 0.51, a difference of zero. The steps were painted `rock` and `lighten(rock,
+			-- 0.16)`, and `rock` is exactly the colour of the cliff they are cut into, so a flight was
+			-- a shape you could only find by walking into it. That is the whole of "you have to hunt
+			-- for the route up": the climb worked, it just could not be seen. Six flights per zone sit
+			-- 400+ studs off the street, which is precisely the distance at which a zero-contrast
+			-- stripe is nothing at all.
+			--
+			-- Worn steps are PALER than the rock around them, so that is the direction -- but stated as
+			-- a fraction of the cliff's own value rather than as a lerp, for the reason the path verge
+			-- paid for: "blend toward X then lighten" cancels at some inputs and this file has twenty
+			-- of them. On an already-bright cliff it goes the other way, the same contrast flip the
+			-- village trim uses.
+			local cliffV = select(3, Color3.toHSV(rock))
+			local function tread(amount)
+				local h, s = Color3.toHSV(rock)
+				local v = cliffV > 0.62 and cliffV * (1 - amount) or cliffV + (1 - cliffV) * amount
+				return Color3.fromHSV(h, s * 0.82, math.clamp(v, 0.04, 1))
+			end
+			-- two tones so individual steps stay countable close up; both clear of the cliff so the
+			-- flight reads as one pale stripe from across the valley
+			local treadA, treadB = tread(0.42), tread(0.26)
+
 			-- ---- THE STEPS, WHICH ARE THE THING YOU SEE. Each one is a solid block standing on the
 			-- tread below and reaching its own height, so its top is horizontal, its front face is the
 			-- riser, and nothing about it floats -- the first cut laid thin plates along the pitch of
@@ -3978,7 +4003,7 @@ local function buildValleySide(model, zone, cx, side, p)
 				local sx = footX + (headX - footX) * ((k - 0.5) / steps)
 				newPart({ Name = "TerraceStairFace", Size = Vector3.new((run / steps) * 1.02, h, 30),
 					Position = Vector3.new(sx, bottom + h / 2, zc),
-					Color = (k % 2 == 0) and rockLit or rock, Material = Enum.Material.Rock,
+					Color = (k % 2 == 0) and treadA or treadB, Material = Enum.Material.Rock,
 					CanCollide = false, CastShadow = false, Parent = model })
 			end
 
