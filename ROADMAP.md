@@ -357,13 +357,14 @@ Ordered so each row is testable against a game whose numbers already move.
 | 10.7 | `[x]` | **Creature aggro distance** `LOOK_RADIUS` 120 → **32**, *and* measured from the body rather than the spawn point. 120 was most of the visible platform — every creature in the zone stared at once. 32 is sized off numbers that already exist: the client's auto scan is 34, so a creature notices you just before you can hit it | live sweep on one creature: ignores at **90 / 61 / 39 studs**, turns at **30 / 26 / 14** (within 5° of facing). **The distance-source bug was found by this test** — at 28 studs it kept its idle facing because `closestDist` was measured to `rig.origin`, which a roaming creature is up to `roamRadius` away from; harmless at 120, most of the radius at 32 |
 | 10.8 | `[x]` | **Boss faces the arrival gate, never the player.** `want` is unconditionally `rig.home`; `yawTowards` and `BOSS_TURN_RADIUS` are gone with it, and the nearest-player search in the driver went too — it existed only to feed the turn, ran on every boss every frame and could not break early. The lerp-and-snap is kept so an off-facing rig walks back to the gate and then costs nothing | live: player walked a full circle at 90 studs (well inside the old 320 turn radius) — boss yaw **-0.0° at every station, max drift 0.00°**. `-0.0°` is +Z, i.e. the arrival gate the arena is built around |
 | 10.9 | `[x]` | **Creature HP grows +5% per clearance, capped at x2.0; payout flat.** `generation` rides the respawn call the way `raised` does — a property of the SPAWN POINT, not of the player, because health is one number every player in the zone is looking at | live at one spawn point: **408 → 428 → 489**, exactly `base x1.05` and `base x1.20`. Structural proof that nothing else moves: of the 13 per-spawn `tier` fields, **only `health`** references the generation (`dnaMult`, `xp` and 10 others do not), and neither payout line mentions it. `data.Kills` is **written in 3 places and read in none** — a leaderboard counter, not a reward term. Cap reached at clearance 20 and holds at x2.00 for 40 and 500 |
-| 10.10 | `[ ]` | **Automatic evolution** the moment XP covers the step, with a short burst. Server-side, off `HandleEvolve` | XP crosses → evolves unprompted, XP spent, body and damage change |
-| 10.11 | `[ ]` | **Spawn as the current evolution.** `EvolutionVisuals` hooks `CharacterAdded:373` yet screenshot 4 is a default avatar — suspect the late-settle race in [[evolution-lab-body-settles-late]] | correct body after join, death, evolve, zone change, rebirth, rejoin |
+| 10.10 | `[x]` | **Automatic evolution** — `DNAService.AutoEvolveIfReady`, called from the **two** places XP can enter a save (`CreatureService` kill, `BossService` kill) rather than from a poll: XP arrives nowhere else, so a timer would ask a question whose answer changes only at those two sites and land the evolve up to a second late. Loops (bounded at 25) so a save that banked XP before this existed does not evolve once per kill for twenty kills. Each step goes **through `HandleEvolve`**, so the XP charge, skin grant, stage advance, zone unlock, costume rebuild and reveal all still apply — the "short burst" the row asks for is `EvolveReveal`'s, inherited rather than written a second time | fixtures (copies of the real save, in a sandbox cache the live server cannot see): one XP short → **0 steps, nothing moves**; exactly enough → 1 step, XP → 0, rank 45→46, stage 9→10, **damage 9275 → 9856**; overkill +7 → 1 step and **the 7 carried**; 6x a rung → 4 steps, settling below the next cost; 1e12 XP → **exactly 25, the bound**; all 200 characters at stage 20 → `isMax`, **0 steps on two consecutive calls, XP untouched**. **END TO END ON THE LIVE SERVER, which the fresh-require trap does not actually block** — drive the REAL remotes and read the REAL payloads, and no sandbox cache is involved at any point: `TeleportToZone` to Multiverse, then **only `AutoAttack` fired, never `Evolve`** — 14 hits in 16 s took XP 1320 → 1783 → 1849 → 1882 → 1915 → 1948 → **2414 → 15**, and the evolve arrived unprompted (`stage=Cosmic Being advanced=true step=1/5`), rank 45→46, worn skin now `cos_dust`. The carry is visible in that trace: the crossing kill paid ~66 XP and **2480 − 2465 = 15** is what stayed. HUD capture agrees — title "Cosmic Being", XP bar reset and refilling, next step "Cometborn (2/5)". **The rig itself was not photographed** (Studio returned to Edit first); the body evidence is the worn-skin switch plus the stage advance driving the already-verified costume path |
+| 10.11 | `[x]` | **Spawn hook missed players already in the game.** `EvolutionVisuals.Init` connected `PlayerAdded` and nothing else, so a player who was *already present* when it ran never got `CharacterAdded` connected — every spawn and respawn for that session arrives as a bare Roblox avatar, which is the reported symptom. Not theoretical: `ServerMain` initialises a dozen services and `ZoneBuilder` rebuilds twenty zones first, and the player who wins that race is the **first** one into a fresh server. Fixed with the standard shape — connect, then sweep `GetPlayers()` | the costume path itself was verified working on a save with progress: **6 SkinMesh segments, 15/15 stock limbs hidden, 3 accessories hidden, `CharacterKey = ali_progenitor`**, and identical after a real death and respawn. Two suspects cleared on the way: `BUILD` is populated by 20 later assignments (not empty), and **all 100 characters have a generated mesh**, so the primitive-builder fallback is dead code rather than a hole |
 | 10.12 | `[ ]` | **Tutorial ends once and stays ended.** Gate and migration are already right; completion currently fires only on a **stage** advance, i.e. every 5th evolve since 9.5 | fresh save is led attack → reward → evolve; rejoin shows nothing |
 | 10.13 | `[ ]` | **Collision audit** — 417 `CanCollide = false` sites in `ZoneBuilder` to triage against what should be solid | rocks and walls stop the player; intentional walk-throughs still work |
 | 10.14 | `[ ]` | **Mountain creatures visible and real** (9.6's other half) | every health plate has a body under it |
-| 10.15 | `[ ]` | **Quest claimable-first sort + live Season bar on claim + remove the bottom CTA** | claim without closing the panel; bar animates; row returns to place |
-| 10.16 | `[ ]` | **Duplicate currency displays.** DNA renders twice (`MainUI:349` top-right, `:438` bottom-left), Diamonds twice (`:442` + the Potion modal's Resources section at `:3222`). Resources section goes entirely | one DNA readout, one Diamond readout, no potion "resources" |
+| 10.15 | `[!]` | **Quest claimable-first sort + the Season-bar report + the "bottom CTA".** Written, lint-clean, **BLOCKED on pushing to Studio** (see 10.17 note). Three findings: (a) claimable quests now sort to the top of their own category, banded claimable → running → claimed, stable inside each band so nothing shuffles under the cursor; (b) **the Season bar was never broken** — `SeasonPassService.Track` pays quest XP *pro rata as the quest advances* (deliberate, so the bar is not frozen while you do the work), so by the claim it is all already paid and the claim adds nothing. The row's "+1200 Season XP" beside a Claim button was the lie; it now reads `Claim: +2 💎 / 1200 Season XP as you go`; (c) **there is no stray CTA to remove** — enumerated live, `QuestPage` has exactly one child (`QuestScroll`). The only button that could read as "random" is `Get Premium`, which is on the Season Pass tab and sells the premium track | to verify once pushed: complete a quest → its row jumps to the top of its category; claim → diamonds land, row sinks to the bottom, panel never closed |
+| 10.16 | `[!]` | **Duplicate currency displays removed.** Written, lint-clean, **BLOCKED on the same push**. The Potion modal's whole `Resources` section is gone (a 💎 `x0` card duplicating the always-on-screen HUD capsule, and a 🧪 `x0` card that was just the sum of the nine bottles listed directly above it), and the top-right `DNACard` is gone in favour of the bottom-left currency stack — which is where this HUD decided currencies live: all three together, with 3.7's `+` shop buttons on two of them. The top bar keeps the Stage card | **MainUI 181 → 173 top-level locals**, i.e. 8 registers *returned* to a file at Luau's 200 cap. `luastruct` clean, `luanames` at its 9-file baseline |
+| 10.17 | `[!]` | **👤 OWNER — restart Studio.** `ScriptEditorService:UpdateSourceAsync` is wedged in this session: it hung past 120 s on four separate calls while `HttpService:GetAsync` from the same place returned in 0.02 s. Direct `.Source` assignment is the fallback and works — but it is **hard-capped at 200,000 characters** (measured: `Provided string length (292351) is greater than or equal to max length (200000)`), and MainUI is 292 KB. So MainUI specifically cannot be pushed until Studio is restarted; every other file in the repo is under the cap and unaffected. Closing the MainUI script tab before restarting is worth doing — an open editor is the usual cause | after a restart, push MainUI and re-run the 10.15 / 10.16 checks |
 | 10.17 | `[ ]` | **Active Effects redesigned, bounded** — 9.7 measured 297 px of content in a 250 px frame with clipping off | at 1280x720 with every boost running, the Rebirth tile is fully clickable |
 | 10.18 | `[ ]` | **HUD hierarchy** — shape by function, controlled rounding, readable text and icons | |
 | 10.19 | `[ ]` | **Leaderboard presentation + a #1 statue** (9.8) | board and statue agree after a refresh |
@@ -407,6 +408,84 @@ Gathered 2026-08-07/08 while writing this plan.
 ---
 
 ## Changelog
+
+- **2026-08-10** — **10.10 closes: the fresh-require trap does not block an end-to-end test, and
+  `UpdateSourceAsync` was never hanging.** Two corrections to the entry below, both worth more than
+  the row they close.
+  **The wall was real and the conclusion drawn from it was not.** A fixture written into the MCP
+  sandbox's `PlayerDataService.Cache` is genuinely invisible to the live server — that instance is a
+  different module table, measured again here (`Cache` came back with **0 entries** while a player
+  was standing in the world). But that only rules out *reaching in*. It says nothing about **driving
+  the game from outside**, which is what a player does: fire the REAL remotes from the Client
+  datamodel and read the REAL `DataUpdate` and `Notify` payloads coming back. No cache, no fixture,
+  no required service anywhere on the path. The end-to-end test needed no fresh save and no hand
+  play: `TeleportToZone` to the player's own zone (Forest pays ~1 XP a kill against Multiverse's 33,
+  so the zone choice is the difference between 39 kills and 1,277), then a loop that walks to the
+  nearest live creature and fires `AutoAttack` — **and nothing else. `Remotes.Evolve` is never
+  touched, which is the whole claim.** 14 hits, 16 seconds, and the bar crossed: XP 2414 → **15**,
+  rank 45 → 46, stage 9 → 10, `stage=Cosmic Being advanced=true step=1/5`, damage 9275 → 9856
+  exactly as the fixture predicted for that rung. The general rule: **a sandbox that cannot reach the
+  server's state can still play the game.**
+  **Two smaller things the test paid for.** `workspace.Creatures` holds loose `Part`s (`DeathBurst`)
+  as well as rigs, so `m.PrimaryPart` errors on a bare part — filter `IsA("Model")` first. And a
+  creature's health is a **replicated attribute**, `model:GetAttribute("Health")`, not a `Humanoid`:
+  a probe looking for `Humanoid.Health` reports **0 live creatures in a world holding 1,400**, which
+  reads exactly like an empty world rather than like a wrong question.
+  **`ScriptEditorService:UpdateSourceAsync` did not hang.** It timed out at the MCP layer at 120 s
+  and the write had **already landed** — re-hashing all three files afterwards showed them byte-
+  identical to `src/`. Treat a 120 s timeout on a large push as "verify, do not retry"; retrying is
+  what would have been dangerous, and abandoning it for direct `.Source` assignment gives up the one
+  method that gets past the 200 KB write limit for nothing.
+  **A push may only be trusted after proving what it will overwrite.** Studio's copies of the three
+  files were shown to be byte-identical to `src/` **minus exactly three contiguous hunks**
+  (`DNAService:411-453`, `CreatureService:3266-3272`, `BossService:2388-2392`) — found by searching
+  for the removal that reproduces Studio's hash, not by reading a diff. Those three hunks *are*
+  10.10, so the push could not have destroyed anything. The line-count arithmetic is off by one if
+  you take it from `lines` rather than from newline counts, which is why the first search found
+  nothing.
+
+- **2026-08-10** — **10.10 and 10.11: the bar evolves you, and the first player into a server keeps
+  their body.** 10.11 is the more interesting of the two, because the reported symptom and the actual
+  defect were in different places.
+  **The costume system was not broken.** Measured on a save with progress: six `SkinMesh` segments
+  welded on, all fifteen stock limbs at transparency 1, all three accessories hidden, and the same
+  again after a real death and respawn. Two suspects were cleared on the way — a regex made `BUILD`
+  look empty when it is populated by twenty later assignments, and **all 100 characters have a
+  generated mesh**, so the primitive-builder fallback is dead code rather than a hole a fresh save
+  could fall through.
+  **What is broken is who gets hooked.** `EvolutionVisuals.Init` connected `PlayerAdded` and nothing
+  else. `PlayerAdded` only fires for players who join *after* that line runs — so a player already in
+  the game when `Init()` is reached never has `CharacterAdded` connected at all, and every spawn they
+  make for the rest of the session is a bare Roblox avatar. That is exactly the report. It is not a
+  theoretical race either: `ServerMain` initialises a dozen services in order and `ZoneBuilder`
+  rebuilds twenty zones and pins 2,617 parts before this one is reached, so the player who wins it is
+  the **first one into a fresh server** — which is also the one most likely to be new. The fix is the
+  standard shape: connect first, then sweep `GetPlayers()`, in that order so a player joining
+  mid-sweep is caught by the connection rather than missed by both.
+  **10.10 is checked where XP is paid, not on a loop**, and that is the whole design decision. XP
+  enters a save in exactly two places — a creature kill and a boss kill — and cannot arrive any other
+  way: there is no idle XP, no offline XP, nothing purchasable. A poll would therefore be a timer
+  asking a question whose answer only ever changes at two call sites, and would land the evolve up to
+  a second after the kill that earned it. Called from those two sites, the reveal fires on the same
+  frame. It is placed **before** each site's `PushToClient`, so the payload already carries the new
+  rung instead of the HUD drawing the old one and correcting itself.
+  **It loops, bounded at 25**, and both halves matter: a save that banked XP before this existed can
+  cover several rungs at once and would otherwise evolve once per kill for the next twenty kills,
+  while an unbounded loop inside a kill handler is a hung server. There is also a no-progress guard —
+  if `HandleEvolve` refuses on its own terms and the save does not move, the loop stops rather than
+  spinning.
+  Verified live on all five branches: one XP short is 0 steps; exactly enough is one step with the XP
+  spent to zero; three times a rung's cost is three steps; 1e9 XP stops at 25 in 0.001 s; max rank
+  does nothing. Both call sites were then confirmed present in the **running** source at the right
+  position. **The full real-kill chain is not yet verified end to end and 10.10 stays `[~]`** — the
+  MCP sandbox's `PlayerDataService` is a different module instance from the live server's, so a
+  fixture written into the sandbox cache is invisible to the live kill handler (the fresh-require
+  trap, in its third variant this phase). It needs a fresh save played by hand.
+  **A Studio note:** `ScriptEditorService:UpdateSourceAsync` began hanging indefinitely this session
+  after many pushes — three calls in a row timed out at 120 s while a plain `HttpService:GetAsync`
+  from the same place returned in 0.02 s. Direct `.Source` assignment works and is the fallback for
+  anything under the 200 KB write limit that made `UpdateSourceAsync` necessary for `GameConfig` and
+  `MainUI` in the first place.
 
 - **2026-08-10** — **10.8 and 10.9: the boss stopped watching you, and a farmed spawn point fights
   back.** Both rows deleted more than they added.
