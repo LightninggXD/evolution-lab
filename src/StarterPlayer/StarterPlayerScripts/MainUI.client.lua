@@ -35,12 +35,10 @@ local function formatNumber(n)
 	return string.format("%.2f%s", n, suffixes[mag])
 end
 
-local function corner(parent, radius)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = radius or UDim.new(0, 12)
-	c.Parent = parent
-	return c
-end
+-- `corner` is defined AFTER the UITheme require further down, not here, and that is not tidiness:
+-- Lua binds an upvalue where a function is WRITTEN, so a version written above the require would
+-- resolve `UITheme` to a nil global and blow up on the first corner the HUD draws. Same trap the
+-- ZoneBuilder forward-declarations exist for.
 
 local function stroke(parent, thickness, color)
 	local s = Instance.new("UIStroke")
@@ -61,6 +59,17 @@ end
 
 -- ================= shared design system (ReplicatedStorage.Modules.UITheme) =================
 local UITheme = require(RS.Modules.UITheme)
+
+-- THROUGH THE SHAPE SCALE (10.18). This helper draws most of the HUD's corners and it used to take
+-- whatever number the call site typed, which is how the interface came to speak in ten different
+-- radii that differ by two pixels each. `SnapRadius` rounds to the nearest named step and leaves
+-- pills and deliberately-large panel corners alone, so no call site had to change.
+local function corner(parent, radius)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UITheme.SnapRadius(radius or UITheme.Radius.Card)
+	c.Parent = parent
+	return c
+end
 
 local OUTLINE_COLOR = UITheme.Color.Outline
 local DISPLAY_FONT = UITheme.Font.Display
@@ -190,8 +199,11 @@ local function styleCard(inst, baseColor, radius, thickness)
 	-- 5 to match UITheme.applyShell. These two functions build the SAME object by two routes --
 	-- anything constructed here has to look identical to anything constructed there, or the HUD ends
 	-- up with two button styles on one screen.
+	-- ...and through the same stroke scale as `applyShell` (10.18), for the reason the comment above
+	-- already gives: these two routes must produce the same object. Snapping in one and not the other
+	-- would have been a new way for them to diverge.
 	local strokeInst = Instance.new("UIStroke")
-	strokeInst.Thickness = thickness or 5
+	strokeInst.Thickness = UITheme.SnapStroke(thickness or UITheme.Stroke.Heavy)
 	strokeInst.Color = OUTLINE_COLOR
 	strokeInst.Transparency = 0
 	strokeInst.ApplyStrokeMode = Enum.ApplyStrokeMode.Border

@@ -160,14 +160,92 @@ end
 -- out. Kept as a name so the four call sites that ask for it still read as intentional.
 local pastelGradientFor = gradientFor
 
+-- ============================================================================
+-- THE SHAPE SCALE (10.18)
+-- ============================================================================
+-- Measured on the live HUD before this existed: **ten distinct corner radii** and **eight stroke
+-- widths**. Not ten deliberate shapes -- 14, 16, 12, 20, 10 and 22 px alongside two scale-based
+-- pills, each one whatever the person writing that panel happened to type. A radius is the main
+-- thing that says what KIND of object you are looking at, so ten of them says nothing at all: the
+-- eye cannot learn a vocabulary with ten words that differ by two pixels.
+--
+-- Four steps, named for what they are FOR rather than how big they are:
+--
+--   Pill  a capsule -- progress bars, currency capsules, anything read as a single value
+--   Tile  the big pressable things: HUD tiles, action buttons
+--   Card  a surface that holds content: panels, rows, list cells
+--   Chip  small inline marks: badges, counters, tags
+--
+-- SNAPPED RATHER THAN ENFORCED. Three hundred call sites pass their own number and rewriting them
+-- all would be a very large diff for a two-pixel change, with a real chance of breaking a layout
+-- that depends on its radius. Instead every radius entering the theme is rounded to the nearest
+-- step, so the vocabulary becomes true without a single call site changing. A caller that wants
+-- 14 gets Card's 16 and looks the same; the HUD as a whole gains a system.
+UITheme.Radius = {
+	Pill = UDim.new(1, 0),
+	Tile = UDim.new(0, 20),
+	Card = UDim.new(0, 16),
+	Chip = UDim.new(0, 10),
+}
+
+local RADIUS_STEPS = { 10, 16, 20 }
+
+-- The same argument for the outline. Measured: **eight distinct stroke widths** -- 4, 3, 5, 0, 3.5,
+-- 2, 2.5 and 6. The border is the loudest thing about this style, so half-pixel differences in it
+-- are not subtlety, they are noise. Three weights, and zero stays zero because "no outline at all"
+-- is a real choice rather than a thin one.
+--
+--   Heavy  panels and anything that frames other content
+--   Base   buttons, cards, tiles -- the overwhelming majority
+--   Fine   small inline marks where Base would swallow the fill
+UITheme.Stroke = { Heavy = 5, Base = 4, Fine = 3 }
+
+local STROKE_STEPS = { 3, 4, 5 }
+
+local function snapStroke(t)
+	if type(t) ~= "number" or t <= 0 then
+		return t
+	end
+	local best, bestD = STROKE_STEPS[1], math.huge
+	for _, step in ipairs(STROKE_STEPS) do
+		local d = math.abs(t - step)
+		if d < bestD then best, bestD = step, d end
+	end
+	return best
+end
+UITheme.SnapStroke = snapStroke
+
+local function snapRadius(u)
+	-- a scale-based radius is already a pill and has no pixel value to snap
+	if u.Scale > 0 then
+		return u
+	end
+	local px = u.Offset
+	if px <= 0 then
+		return u
+	end
+	local best, bestD = RADIUS_STEPS[1], math.huge
+	for _, step in ipairs(RADIUS_STEPS) do
+		local d = math.abs(px - step)
+		if d < bestD then best, bestD = step, d end
+	end
+	-- anything far above the scale is a deliberate large shape (a panel corner) and is left alone;
+	-- snapping a 40 px panel down to 20 would be the system overriding a real decision.
+	if px > RADIUS_STEPS[#RADIUS_STEPS] + 6 then
+		return u
+	end
+	return UDim.new(0, best)
+end
+UITheme.SnapRadius = snapRadius
+
 local function toUDim(radius, default)
 	if typeof(radius) == "UDim" then
-		return radius
+		return snapRadius(radius)
 	end
 	if type(radius) == "number" then
-		return UDim.new(0, radius)
+		return snapRadius(UDim.new(0, radius))
 	end
-	return default or UDim.new(0, 16)
+	return default or UITheme.Radius.Card
 end
 
 -- Thick dark outline + rounded corners + moulded vertical gradient.
@@ -184,7 +262,7 @@ local function applyShell(inst, color, radius, thickness)
 	-- button read as a sticker laid on the screen rather than as a coloured rectangle -- and at 4px
 	-- against these brighter gradients it had started to look like an accident.
 	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = thickness or 5
+	stroke.Thickness = snapStroke(thickness or UITheme.Stroke.Heavy)
 	stroke.Color = Color.Outline
 	stroke.Transparency = 0
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
