@@ -1110,9 +1110,27 @@ local function meshRig(ctx, template)
 	-- so the ground sits well beneath. Dropping a generated figure's torso straight onto origin
 	-- buries it to the belly. Measure how far the torso centre stands above the lowest point of the
 	-- finished mesh and lift the whole figure by that, so it stands ON the ground.
+	--
+	-- SUBTRACT HOW HIGH THE BODY SITS ABOVE ITS OWN FLOOR, NOT ITS WORLD ALTITUDE (10.14).
+	--
+	-- This line used to read `footDrop - ctx.origin.Position.Y + MESH_GROUND_CLEAR`, and everything
+	-- built here is an offset that the driver applies as `origin * offset` -- so `origin.Y` went in
+	-- once with a plus and once with a minus and CANCELLED. Every generated figure in the game was
+	-- therefore drawn with its feet at absolute `y = MESH_GROUND_CLEAR` whatever the creature's own
+	-- altitude, which was invisible for as long as every creature stood in a valley whose floor is
+	-- y = 0, and became the reported bug the moment 9.4 put four Elites and six Brutes per zone up on
+	-- the terraces: the invisible Body carried the health plate up to 92 studs, `GroundRing` drew
+	-- itself on the shelf at `floorY + 0.35` -- and the six mesh segments stayed lying in the valley
+	-- 78 studs below. A health plate and a gold disc on a cliff with no creature under them.
+	--
+	-- The quantity that was always meant here is the body's height above the ground it is standing
+	-- on. `spawnCreature` puts the body at `floorY + base.size * 0.56`, so on the valley floor
+	-- (floorY = 0) this is arithmetically identical to the old line and nothing on the flat moves by
+	-- a stud; on a shelf it is the whole fix.
 	local bbCF, bbSize = clone:GetBoundingBox()
 	local footDrop = torso.Position.Y - (bbCF.Position.Y - bbSize.Y * 0.5)
-	local lift = CFrame.new(0, footDrop - ctx.origin.Position.Y + MESH_GROUND_CLEAR, 0)
+	local bodyAboveFloor = ctx.origin.Position.Y - (ctx.floorY or 0)
+	local lift = CFrame.new(0, footDrop - bodyAboveFloor + MESH_GROUND_CLEAR, 0)
 
 	-- The body is an INVISIBLE ANCHOR rather than the torso itself: buildRig plants the body
 	-- exactly on origin and the torso has to sit above it by `lift`, so the torso becomes one more
@@ -2142,7 +2160,7 @@ end
 -- Builds the rig for a zone and returns the primary body plus the flat attachments
 -- list the idle loop drives. Every rig keeps its body part at the model origin so
 -- body.Position stays the spawn position (aura range + billboard depend on that).
-local function buildRig(model, position, tierName, zone, tier, yaw)
+local function buildRig(model, position, tierName, zone, tier, yaw, floorY)
 	local base = TIERS[tierName]
 	local ctx = {
 		model = model,
@@ -2150,6 +2168,12 @@ local function buildRig(model, position, tierName, zone, tier, yaw)
 		-- corner of the platform that no player has walked near is never touched by the idle driver
 		-- at all, and it still has to be standing the right way round.
 		origin = CFrame.new(position) * CFrame.Angles(0, yaw or 0, 0),
+		-- The height of the ground THIS creature stands on -- 0 in the valley, 30 to 107 on the
+		-- terraces. Only `meshRig` reads it (the primitive rigs are relative to `origin` throughout
+		-- and never had the bug), but it belongs on the context rather than in a parameter list that
+		-- every rig builder would have to carry and ignore. Defaults to 0, which is what every
+		-- caller before the terraces meant.
+		floorY = floorY or 0,
 		u = tier.size,
 		pal = buildPalette(zone, tierName, tier.colors),
 		-- 0 Swarmer / 1 Critter / 2 Brute+Elite. Every optional piece below is gated on this: a
@@ -2888,7 +2912,7 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 
 	-- per-biome rig: `body` is the torso/core and stays the PrimaryPart; `attachments`
 	-- is every other part paired with its joint, motion kind and animation phase
-	local body, attachments = buildRig(model, position, tierName, zone, tier, homeYaw)
+	local body, attachments = buildRig(model, position, tierName, zone, tier, homeYaw, floorY)
 	local bodyBaseSize = body.Size
 
 	-- chunky comic health bar, built from the shared design system. Instance names are

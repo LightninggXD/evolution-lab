@@ -427,6 +427,17 @@ local function meshRig(ctx, template)
 	-- origin buries it to the belly, which is exactly how the first bear came out. Measure how far
 	-- the torso centre stands above the lowest point of the finished mesh, and lift the whole
 	-- figure by the difference so the feet land on the floor instead.
+	--
+	-- `- ctx.origin.Position.Y` IS A DELIBERATE PIN TO ABSOLUTE y = MESH_GROUND_CLEAR, and it is only
+	-- correct because a boss arena floor is always y = 0 (`BossStationClear` levels it, verified: the
+	-- ray under Boss_Forest hits `Floor` at 0.00 and its soles sit at exactly 1.00). Everything built
+	-- here is an offset the driver applies as `origin * offset`, so origin.Y goes in once with a plus
+	-- and once with a minus and CANCELS -- the figure is drawn at a fixed world altitude rather than
+	-- at the rig's own. The identical line in `CreatureService.meshRig` was a real bug the moment
+	-- creatures started standing on terraces 30 to 107 studs up (10.14), where it left the health
+	-- plate and the ground ring on the shelf and the body lying in the valley. **If a boss is ever
+	-- placed on ground that is not y = 0, this line has to subtract the body's height above ITS OWN
+	-- floor**, the way CreatureService now does.
 	local bbCF, bbSize = clone:GetBoundingBox()
 	local footDrop = torso.Position.Y - (bbCF.Position.Y - bbSize.Y * 0.5)
 	local lift = CFrame.new(0, footDrop - ctx.origin.Position.Y + MESH_GROUND_CLEAR, 0)
