@@ -32,7 +32,7 @@ local ZoneBuilder = {}
 -- down to 12. They were the "something yellow and round hanging in the air" in the bug report.
 -- 117: the terraces got a flight of stairs per tier per side, so the shelves are somewhere a
 -- player can actually go -- which is what the raised Brutes and Elites in CreatureService need.
-local BUILD_VERSION = 120
+local BUILD_VERSION = 122
 
 -- The Colosseum carries its own stamp. Bumping BUILD_VERSION drops all 21 zones and rebuilds
 -- ~60,000 parts, which takes long enough that Studio regularly loses the connection partway (see
@@ -1202,8 +1202,30 @@ local function addGroundDetail(model, zone, cx)
 	-- Absolute Plane was invisible against the ground it was decorating -- the same blind spot the
 	-- cliffs had. Both patch tones step downward there.
 	local gl = g.R * 0.3 + g.G * 0.59 + g.B * 0.11
-	local patchA = gl > 0.78 and g:Lerp(zone.accentColor, 0.3) or g:Lerp(Color3.new(1, 1, 1), 0.16)
-	local patchB = g:Lerp(Color3.new(0, 0, 0), gl > 0.78 and 0.1 or 0.16)
+	-- ===== THE GROUND IS THE BIGGEST SURFACE IN FRAME AND IT WAS DOING NOTHING =====
+	--
+	-- These were two tones at 0.16 either side of the ground colour, i.e. about +/-0.08 in value.
+	-- That is inside the noise of the lighting: measured on Forest's mid-green, the patches came out
+	-- 0.46 and 0.62 around a 0.55 floor and simply did not read at any distance. The valley was one
+	-- flat colour with faint bruises on it.
+	--
+	-- Three tones now, and roughly twice the separation. THREE rather than two because two alternate
+	-- and alternation is a pattern -- with a third the eye stops being able to predict the next patch
+	-- and starts reading it as ground rather than as decoration.
+	--
+	-- The bright-floor branch is unchanged in spirit and still necessary: on the Absolute Plane's
+	-- white floor `Lerp(white)` is still white, so both tones there step DOWN instead. That is the
+	-- same blind spot the cliffs had.
+	-- The light tone is the WEAKER of the two on purpose. A patch lighter than the floor reads as a
+	-- pool of light -- something shining on the ground -- where a darker one reads as earth showing
+	-- through, and earth is what this is meant to be. The first pass had them equal at 0.30 and the
+	-- valley came out dotted with pale spotlights.
+	local light = gl > 0.78 and g:Lerp(zone.accentColor, 0.34) or g:Lerp(Color3.new(1, 1, 1), 0.20)
+	local dark = g:Lerp(Color3.new(0, 0, 0), gl > 0.78 and 0.20 or 0.34)
+	-- the third is the zone's own accent, heavily muted -- enough to tint, not enough to read as a
+	-- painted mark. It is what stops a green field being only lighter and darker green.
+	local tinted = g:Lerp(zone.accentColor, 0.22):Lerp(Color3.new(0, 0, 0), 0.06)
+	local patchTones = { light, dark, tinted }
 	local mat = GROUND_MATERIAL[zone.key] or Enum.Material.SmoothPlastic
 
 	-- more patches over more ground, so the bigger floor does not read as emptier
@@ -1217,16 +1239,27 @@ local function addGroundDetail(model, zone, cx)
 	-- A hundredth of a stud between layers is invisible to the eye and decisive to the depth buffer,
 	-- and stacking them in draw order means the later patch is always the one on top rather than the
 	-- two arguing about it. The whole stack still clears the path slabs at 0.16.
-	for i = 1, 44 do
+	-- 70, up from 44, and a wider size range. The floor is 640 x 800; forty-four discs averaging 59
+	-- studs cover well under half of it, which is why the gaps between them read as "the real ground"
+	-- and the patches as marks ON it. Past roughly two-thirds coverage the relationship inverts and
+	-- the eye stops seeing patches at all -- it sees ground that varies, which is the goal.
+	--
+	-- The small end matters as much as the count: a floor of same-sized blobs is a texture, and one
+	-- with a few big sweeps and many small breaks is terrain.
+	for i = 1, 70 do
 		local x, z = scatterPoint(cx, 320, 400)
-		local s = math.random(26, 92)
+		local s = math.random(18, 116)
 		newPart({
 			Name = "GroundPatch",
 			Shape = Enum.PartType.Cylinder,
 			Size = Vector3.new(0.4, s, s * (0.65 + math.random() * 0.6)),
 			Orientation = Vector3.new(0, math.random(0, 360), 90),
+			-- STILL ONE HUNDREDTH APART, and now the stack is 70 deep rather than 44, so it reaches
+			-- 0.75 instead of 0.49. That is fine and deliberately checked: the path sits at 0.16 but
+			-- `scatterPoint` reserves the path corridor, so patches do not land on it -- measured, one
+			-- patch in the whole zone overlapped a slab and by 0.03 studs.
 			Position = Vector3.new(x, 0.05 + i * 0.01, z),
-			Color = i % 2 == 0 and patchA or patchB,
+			Color = patchTones[(i % 3) + 1],
 			Material = mat,
 			CanCollide = false,
 			Parent = model,
@@ -1237,13 +1270,79 @@ local function addGroundDetail(model, zone, cx)
 	-- (z = -34) to the exit gate's own steps (z = -226), so the street reads as one continuous route
 	-- from the door you came in by to the door you leave by -- with the boss standing on it. Slabs
 	-- shrink and wander so it reads as worn ground rather than a paved road.
-	local pathCol = g:Lerp(Color3.fromRGB(150, 130, 104), 0.5)
+	-- ===== THE PATH HAS TO BE A DIFFERENT MATERIAL, NOT A SHADE OF THE GRASS =====
+	--
+	-- This was a half-lerp toward stone, which on Forest's green produced rgb(112,135,89): still
+	-- green, and value 0.53 against a floor of 0.55. The path was the same colour as the ground it
+	-- crossed, so no amount of edging stones could make it read as a route -- the slabs looked like
+	-- stepping stones dropped on a lawn because that is all they were, chromatically.
+	--
+	-- 0.85 lands it on the stone almost entirely. The luminance barely moves, which is fine and is
+	-- rather the point: what separates a worn path from grass is HUE and saturation -- warm, dull,
+	-- trodden -- not brightness. A path made lighter instead just looks like a bleached stripe.
+	local pathCol = g:Lerp(Color3.fromRGB(150, 130, 104), 0.85)
 	for _, span in ipairs({ { 370, 26 }, { -34, -390 } }) do
 		for z = span[1], span[2], -13 do
 			local w = 30 - math.abs(math.abs(z) - 180) * 0.03
 			newPart({ Name = "PathSlab", Size = Vector3.new(w, 0.3, 13.5), Orientation = Vector3.new(0, math.random(-4, 4), 0), Position = Vector3.new(cx + math.random(-4, 4), 0.16, z), Color = pathCol, Material = mat, CanCollide = false, Parent = model })
 		end
 	end
+	-- ===== THE VERGE: WHAT MAKES A PATH READ AS A PATH =====
+	--
+	-- A route across grass is not slabs sitting on top of it -- it is ground the grass has been worn
+	-- off, which means the edge is a GRADIENT and not a line. Without one the slabs read as stepping
+	-- stones dropped on a lawn, which is exactly how this street looked.
+	--
+	-- Two bands a side, both darker than the ground and both wider than the path, laid UNDER the
+	-- slabs (y 0.03 and 0.06, against the slabs' 0.16) so the slabs still sit proudest. The outer
+	-- band is the fainter of the two, so the wear fades outward instead of ending.
+	--
+	-- Deliberately NOT drawn as one long part per side: a 700-stud unbroken strip reads as a road
+	-- marking. Segments of varying length with small gaps read as wear.
+	-- THE VERGE IS DERIVED FROM THE GROUND, NOT FROM THE PATH, and the first attempt got that
+	-- backwards with a result worth recording. Written as "lerp most of the way to the path, then
+	-- darken", it CANCELS on a dark floor: Galaxy's ground is 0.39, the stone-tinted path lands at
+	-- 0.56, seven tenths of the way there is 0.51, and taking 22% off brings it back to 0.40 -- a
+	-- verge one hundredth of a step from the grass it was supposed to edge. Three zones came out
+	-- that way (Galaxy 0.04, Time Rift 0.03, Dream 0.03) and no eye would have caught it in the two
+	-- zones anybody screenshots.
+	--
+	-- So it is the ground, mostly, moved decisively in ONE direction -- and which direction depends
+	-- on the ground, the same rule the village trim runs on. Five zones here have near-black floors
+	-- (Void 0.04, Black Hole 0.05, Singularity 0.08, Multiverse 0.12) and you cannot darken black:
+	-- there the worn strip has to be the LIGHTER thing, which is also what real trodden ground does
+	-- when the dark surface is dust.
+	-- HUE AND SATURATION COME FROM THE BLEND; THE VALUE IS SET OUTRIGHT. Lerping toward the path and
+	-- then darkening leaves the two fighting -- the blend raises the value, the darkening lowers it,
+	-- and how much of each survives depends on the floor. Fixing the flip threshold alone was not
+	-- enough: Time Rift's floor at 0.35 sits just above it and still cancelled to a 0.07 gap. Stating
+	-- the value as a fraction of the GROUND's own makes the separation a guarantee at every floor
+	-- rather than an outcome, which is the only version that can be checked once and trusted twenty
+	-- times.
+	local gV = select(3, Color3.toHSV(g))
+	local function worn(pathMix, amount)
+		local h, s = Color3.toHSV(g:Lerp(pathCol, pathMix))
+		local v = gV > 0.30 and gV * (1 - amount) or gV + (1 - gV) * amount * 1.15
+		return Color3.fromHSV(h, s, math.clamp(v, 0, 1))
+	end
+	local vergeInner = worn(0.35, 0.34)
+	local vergeOuter = worn(0.22, 0.16)
+	for _, span in ipairs({ { 372, 24 }, { -32, -392 } }) do
+		for z = span[1], span[2], -46 do
+			local len = 40 + math.random(0, 16)
+			for _, band in ipairs({ { 34, 0.03, vergeOuter }, { 24, 0.06, vergeInner } }) do
+				newPart({
+					Name = "PathVerge",
+					Shape = Enum.PartType.Cylinder,
+					Size = Vector3.new(0.4, band[1], len),
+					Orientation = Vector3.new(0, math.random(-3, 3), 90),
+					Position = Vector3.new(cx + math.random(-3, 3), band[2], z),
+					Color = band[3], Material = mat, CanCollide = false, Parent = model,
+				})
+			end
+		end
+	end
+
 	-- edging stones, so the path has a lip instead of dissolving into the grass
 	for _, span in ipairs({ { 366, 30 }, { -38, -386 } }) do
 		for z = span[1], span[2], -32 do
