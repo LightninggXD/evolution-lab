@@ -61,38 +61,11 @@ end
 -- The loop below therefore keeps its `*=` on two constants that are now 1. That is deliberate: the
 -- operator is the bug, and leaving it visible next to the `+=` on damage states the rule better
 -- than a deleted line would.
-function PetService.GetEquippedBonus(data)
-	-- `damageAdd` accumulates each pet's share ABOVE 1 and becomes the multiplier at the end, so an
-	-- empty team returns exactly 1 and nothing downstream has to special-case "no pets".
-	local incomeMult, luckAdd, dnaMult, damageAdd = 1, 0, 1, 0
-	if not data.EquippedPetIds or not data.Pets then
-		return { incomeMult = incomeMult, luckAdd = luckAdd, dnaMult = dnaMult, damageMult = 1 }
-	end
-	local equippedLookup = {}
-	for _, id in ipairs(data.EquippedPetIds) do
-		equippedLookup[id] = true
-	end
-	for _, pet in ipairs(data.Pets) do
-		if equippedLookup[pet.id] then
-			-- rarity is a property of the species, not of the save, so it is looked up rather
-			-- than stored -- pets hatched before rarities existed still resolve correctly
-			local def = GameConfig.GetPetDef(pet.key)
-			-- `pet.key` and `data` are the progression axis: what this pet is worth to THIS player
-			-- at the rung they are standing on, not what its species is worth in the abstract. See
-			-- GetPetZoneFactor -- it is what makes a late-egg Legendary beat an early-egg one.
-			local bonus = GameConfig.GetPetBonus(pet.tier, def and def.rarity, pet.key, data)
-			-- Both of these are hard 1 now (see PetBaseBonus) so these two lines are no-ops, and
-			-- they are kept as lines rather than deleted because the shape of this loop is the thing
-			-- that was wrong: `*=` over a growing collection is the bug, and leaving the operators
-			-- visible beside the summed damage below is the clearest statement of the rule.
-			incomeMult *= bonus.incomeMult
-			dnaMult *= bonus.dnaMult
-			luckAdd += bonus.luckAdd
-			damageAdd += (bonus.damageMult - 1)
-		end
-	end
-	return { incomeMult = incomeMult, luckAdd = luckAdd, dnaMult = dnaMult, damageMult = 1 + damageAdd }
-end
+-- MOVED TO GameConfig ON 2026-08-11 so the client can reach it (the egg panel shows real odds, and
+-- odds need the equipped team's luck). This is now one line pointing at the single implementation --
+-- kept under its old name because roughly a dozen call sites across this file, DNAService and the
+-- HUD already say `PetService.GetEquippedBonus`, and renaming them would be churn for no gain.
+PetService.GetEquippedBonus = GameConfig.GetEquippedBonus
 
 -- A player may only buy an egg while standing near the Pet Shop kiosk that sells it --
 -- there is deliberately no way to fire this from the Pets UI tab anymore.
@@ -133,8 +106,19 @@ end
 -- business. Pure in the sense that matters here: it does not yield, so a caller can run it in a
 -- loop between a single affordability check and a single deduction with no window in between.
 local function rollAndInsert(data, eggDef)
-	-- luck formula mirrors DNAService.GetLuckPercent's base term (kept local to avoid a circular require)
-	local luckPercent = data.Upgrades.Luck * 2 + PetService.GetEquippedBonus(data).luckAdd + (eggDef.luckBonus or 0)
+	-- ===== THE EGG ROLL USES THE REAL LUCK NUMBER NOW =====
+	--
+	-- This used to be `data.Upgrades.Luck * 2 + equipped pet luckAdd + egg luckBonus`, with a comment
+	-- claiming it "mirrors DNAService.GetLuckPercent's base term". It mirrored two of that function's
+	-- SIX terms: MegaLuck, the Luck Potion, the Lucky pass, VIP and live-event luck were all missing.
+	-- So a player who drank a Luck Potion or bought the Lucky pass got **exactly zero** effect on
+	-- hatching -- the one place in the game a player expects luck to matter most.
+	--
+	-- It reads GameConfig rather than DNAService because DNAService requires THIS file, so a require
+	-- in the other direction is a cycle -- which is the whole reason the duplicate formula existed.
+	-- Moving the total into GameConfig removed the cycle instead of working around it, and the egg
+	-- panel on the client now quotes the same number this rolls against.
+	local luckPercent = GameConfig.GetLuckPercent(data) + (eggDef.luckBonus or 0)
 	-- rolls only within this egg's own pool -- its zone's species, sliced by the egg tier's
 	-- rarity window -- and the tier's bias shifts the odds inside that slice on top of luck
 	local petDef = GameConfig.RollPetForEgg(eggDef, luckPercent)
@@ -148,7 +132,11 @@ local EGG_INTERVAL = 0.35   -- comfortably faster than the hatch animation, far 
 local MAX_PETS = GameConfig.MaxOwnedPets
 local lastEgg = {}          -- [userId] = os.clock()
 
-function PetService.HandleBuyEgg(player, eggKey)
+-- `auto` is true only when DriveAutoHatch bought this one. It changes NOTHING about the purchase --
+-- same cost, same roll, same cap -- and exists purely so the client knows which presentation to
+-- play: a deliberate purchase earns the full-screen reveal, and a pass buying two a second must
+-- never take over the screen. See HatchReveal.
+function PetService.HandleBuyEgg(player, eggKey, auto)
 	local data = PlayerDataService.Get(player)
 	if not data then return end
 
@@ -213,6 +201,8 @@ function PetService.HandleBuyEgg(player, eggKey)
 		emoji = petDef.emoji,
 		tier = "Normal",
 		rarity = petDef.rarity,
+		-- which presentation the client should play; see the note on the signature above
+		auto = auto == true,
 	})
 
 	-- After the payout and after the client push, because a beam that goes up before the pet is in
@@ -578,7 +568,10 @@ function PetService.HandleTierUp(player, petId)
 		return
 	end
 
-	local pet
+	-- Explicitly initialised, for the reason stated over `local best, bestDist` in DriveAutoHatch:
+	-- an uninitialised `local` is the one shape tools/luanames.py does not always bind, and a clean
+	-- lint baseline is worth more than three characters.
+	local pet = nil
 	for _, p in ipairs(data.Pets) do
 		if p.id == petId then pet = p break end
 	end
@@ -858,7 +851,9 @@ function PetService.DriveAutoHatch()
 							-- cleared on a successful hatch, so the next time a reason DOES apply it is
 							-- announced again rather than being swallowed as "already said that"
 							autoStop[player.UserId] = nil
-							PetService.HandleBuyEgg(player, best.eggKey)
+							-- `true` = bought by the pass, not by the player. Keeps the full-screen
+							-- reveal off the screen of someone who is standing still farming.
+							PetService.HandleBuyEgg(player, best.eggKey, true)
 						end
 					else
 						-- standing nowhere near an egg is not a failure state and says nothing, but it

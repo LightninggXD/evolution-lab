@@ -870,19 +870,29 @@ end)
 -- swing had recovered, so the arms never returned to rest and auto-attack read as a body thrashing
 -- rather than as a character hitting something repeatedly.
 local AUTO_INTERVAL = 0.34
--- 34, DOWN FROM 55. This is the radius the auto-attack target scan sweeps, and 55 studs is most
--- of a screen: it was picking fights with creatures the player had not walked up to and could not
--- reasonably be said to be next to. It is NOT scaled by the player's body -- nothing in combat is,
--- on either side -- so the number is read at face value in world studs at every stage.
+-- 60, UP FROM 34, and the reason is a measurement rather than a preference. At 34 studs
+-- centre-to-centre auto-attack essentially never found anything: the nearest creature to the
+-- Forest spawn is 109 studs away, so a player with the toggle ON walked around watching it do
+-- nothing, which is exactly the "auto-attack does not work at all" report. The wiring was never
+-- broken -- a Brute died in two seconds the moment one was inside 34.
 --
--- Sanity-checked against the server, which is the thing that actually decides: CreatureService
--- validates every blow against `max(clickReach, 34) + tier.size`, i.e. 40.5 for a Swarmer up to
--- 83.2 for an Elite. 34 sits inside the tightest of those, so a legitimate auto-attack at the edge
--- of the client's scan is never refused.
+-- 34 came from the opposite complaint: at 55 it picked fights with creatures the player had not
+-- walked up to. That complaint is now answered by the CLICK reach instead, which is melee
+-- (CreatureService's clickReach, ~20-32 studs) and is what "fighting range" means to a player.
+-- Auto-attack is the convenience feature and is allowed to sweep wider than your arm.
+--
+-- It is NOT scaled by the player's body -- nothing in combat is, on either side -- so the number
+-- is read at face value in world studs at every stage.
+--
+-- KEEP THIS IN STEP WITH THE SERVER. CreatureService gates auto-attack at
+-- `max(clickReach + 4, 60) + tier.size`, i.e. 66.5 for a Swarmer up to 86 for an Elite. 60 sits
+-- inside the tightest of those, so a legitimate auto-attack at the edge of the client's scan is
+-- never refused -- and raising this past 60 without raising the server's floor would silently
+-- start dropping blows the player can see themselves make.
 --
 -- Bosses keep 70, and that is not an oversight: a zone boss is 75 to 121 studs across, so 70 studs
 -- from its centre is barely clear of its own body.
-local AUTO_REACH = { Creatures = 34, Bosses = 70 }
+local AUTO_REACH = { Creatures = 60, Bosses = 70 }
 
 local function autoEnabled()
 	if player:GetAttribute("AutoAttack") ~= true then return false end
@@ -955,11 +965,19 @@ if player:GetAttribute("AutoAttack") == nil then
 end
 
 task.spawn(function()
-	local autoRemote = RS:WaitForChild("Remotes"):WaitForChild("AutoAttack", 30)
-	if not autoRemote then
-		warn("[CombatClient] Remotes.AutoAttack never appeared -- auto-attack is disabled")
-		player:SetAttribute("AutoAttack", false)
-		return
+	-- ===== WAITING FOR THE REMOTE MUST NOT BE A ONE-SHOT =====
+	--
+	-- This used to `return` after a 30 s timeout, which killed auto-attack for the WHOLE SESSION on
+	-- one slow server boot, with a `warn` nobody sees and a toggle that silently did nothing
+	-- afterwards. The remote is created when ServerMain requires CreatureService, so anything that
+	-- delays the server past 30 s -- a cold start, a world rebuild, a hitch -- used to be permanent.
+	-- Keep retrying; the loop below costs nothing while it has no remote.
+	local autoRemote
+	while not autoRemote do
+		autoRemote = RS:WaitForChild("Remotes"):WaitForChild("AutoAttack", 30)
+		if not autoRemote then
+			warn("[CombatClient] Remotes.AutoAttack has not appeared yet -- still waiting")
+		end
 	end
 	while true do
 		-- The Fast Auto Attack pass shortens the gap between swings. Read off a player ATTRIBUTE rather
@@ -1033,7 +1051,11 @@ end
 
 UserInputService.InputBegan:Connect(function(input, processed)
 	if input.KeyCode == Enum.KeyCode.T and not processed then
-		player:SetAttribute("AutoAttack", not autoEnabled())
+		-- Toggles the RAW attribute, not `autoEnabled()`. `autoEnabled()` also returns false while
+		-- the player is dead, so `not autoEnabled()` was always `true` on a corpse -- pressing T
+		-- while dead could only ever switch auto-attack ON, and it could never be switched off again
+		-- until you respawned. The attribute is the setting; `autoEnabled()` is whether it may act.
+		player:SetAttribute("AutoAttack", player:GetAttribute("AutoAttack") ~= true)
 		return
 	end
 	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then

@@ -265,47 +265,6 @@ function PlayerDataService.Load(player)
 		if not data.TutorialDone and ((data.StageIndex or 1) > 1 or (data.Rebirths or 0) > 0) then
 			data.TutorialDone = true
 		end
-	-- ===== HEALING A SAVE WRITTEN UNDER THE OLD RULE =====
-	--
-	-- A STAGE YOU HAVE LEFT IS A STAGE YOU COLLECTED. That is the rule now -- every character is an
-	-- evolve (GameConfig.GetEvolveStep), and the only way past a stage is through all five of it --
-	-- so any hole BELOW the stage a save is standing at is a hole the new rule says cannot exist.
-	--
-	-- It is also a hole nothing could ever fill. GetEvolveStep only ever looks at the stage the
-	-- player is on, so a save that reached Worm holding Cell 2/5 (which is what the old 1-in-5 kill
-	-- drop routinely produced) would carry those eight missing skins forever and its Journal could
-	-- never read 100/100. Backfilling only each stage's FIRST character -- what this used to do --
-	-- leaves exactly the same dead ends, four per stage instead of five.
-	--
-	-- Everything strictly below the current stage is granted; the current stage is left alone,
-	-- because that one is still being walked and its remaining steps are what the player is paying
-	-- for right now. Runs on load, so it repairs itself once, silently.
-	data.Characters = data.Characters or {}
-	for stageIndex = 1, math.min((data.StageIndex or 1) - 1, #GameConfig.Stages) do
-		for _, entry in ipairs(GameConfig.GetCharactersForStage(stageIndex)) do
-			data.Characters[entry.key] = true
-		end
-	end
-	-- and the stage they ARE on always owes them its first: it was handed over by the evolve that
-	-- brought them here, and a save from before that rule can be standing at a stage it owns
-	-- nothing of.
-	do
-		local base = GameConfig.GetBaseCharacterForStage(math.clamp(data.StageIndex or 1, 1, #GameConfig.Stages))
-		if base then data.Characters[base.key] = true end
-	end
-	-- and a save that has never worn anything gets dressed in the best thing it owns, rather than
-	-- spawning as the undressed stage default next to a full Journal
-	if data.WornCharacter == nil then
-		local best
-		for key in pairs(data.Characters) do
-			local entry = GameConfig.GetCharacter(key)
-			if entry and (not best or GameConfig.GetCharacterRank(entry) > GameConfig.GetCharacterRank(best)) then
-				best = entry
-			end
-		end
-		data.WornCharacter = best and best.key or nil
-	end
-
 	-- ===== TRIMMING A COLLECTION TO THE NEW 30-PET CEILING =====
 	--
 	-- The cap was 600 and a live save reached 207. The owner's decision (2026-08-10) is to keep the
@@ -378,6 +337,52 @@ function PlayerDataService.Load(player)
 			end
 		end
 	end
+
+	-- ===== EVERY SAVE OWNS THE FIRST CHARACTER OF THE STAGE IT IS STANDING ON =====
+	--
+	-- THIS BLOCK LIVES OUTSIDE THE if/else ON PURPOSE, and that is the whole of the "Cell 1 is not
+	-- unlocked" report. It used to sit *inside* the `else` above -- de-indented to one tab, so it
+	-- read as top-level while the parser had it in the returning-save branch, which does not close
+	-- until the `end` a hundred lines further down. A brand new profile therefore took
+	-- `data = defaultData()` and skipped all of it: it spawned owning nothing, wearing nothing, and
+	-- the HUD read "Cell (0/5)" with "Speck (1/5) -- needs 19 more XP" as the next thing to earn,
+	-- for a character the player is supposed to already be.
+	--
+	-- Everything here is idempotent and cheap on a fresh save (the backfill loop runs zero times at
+	-- stage 1, and the dress picks the one key the grant just wrote), so running it unconditionally
+	-- costs nothing and removes the entire class of bug.
+
+	-- A STAGE YOU HAVE LEFT IS A STAGE YOU COLLECTED. Every character is an evolve
+	-- (GameConfig.GetEvolveStep) and the only way past a stage is through all five of it, so any
+	-- hole BELOW the stage a save stands at is a hole the current rule says cannot exist -- and one
+	-- nothing could ever fill, because GetEvolveStep only ever looks at the stage you are on.
+	-- Everything strictly below the current stage is granted; the current stage is left alone,
+	-- because that one is still being walked and its remaining steps are what is being paid for now.
+	data.Characters = data.Characters or {}
+	for stageIndex = 1, math.min((data.StageIndex or 1) - 1, #GameConfig.Stages) do
+		for _, entry in ipairs(GameConfig.GetCharactersForStage(stageIndex)) do
+			data.Characters[entry.key] = true
+		end
+	end
+	-- and the stage they ARE on always owes them its first: it was handed over by the evolve that
+	-- brought them here, and at stage 1 it is the character the game starts you as.
+	do
+		local base = GameConfig.GetBaseCharacterForStage(math.clamp(data.StageIndex or 1, 1, #GameConfig.Stages))
+		if base then data.Characters[base.key] = true end
+	end
+	-- and a save that has never worn anything gets dressed in the best thing it owns, rather than
+	-- spawning as the undressed stage default next to a full Journal
+	if data.WornCharacter == nil then
+		local best
+		for key in pairs(data.Characters) do
+			local entry = GameConfig.GetCharacter(key)
+			if entry and (not best or GameConfig.GetCharacterRank(entry) > GameConfig.GetCharacterRank(best)) then
+				best = entry
+			end
+		end
+		data.WornCharacter = best and best.key or nil
+	end
+
 	-- ===== PASS OWNERSHIP IS NEVER READ OUT OF THE SAVE =====
 	--
 	-- `data.Passes` is a runtime cache of what Roblox's ownership API says this player owns, and

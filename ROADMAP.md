@@ -120,7 +120,7 @@ API surface: `PassService.Init()`, `.Refresh(player)`, `.Has(player, key)`, `.Mu
 | 1.4 | `[x]` | `data.Passes` cleared on load, unconditionally, for **both** the fresh and the returning branch | `PlayerDataService` defaultData + `Load` | measured on the real save (OGLightninggXD, stage 5): `Passes` comes back a table with **0** entries |
 | 1.5 | `[x]` | `Remotes.PromptGamePassPurchase` + handler with the `passId = 0` guard and an already-owned guard | `Remotes`, `PassService.Init` | remote exists in Play; all 9 passes refuse to prompt on id 0 |
 | 1.6 | `[x]` | Wire `PassService.Init()` into `ServerMain` before `RobuxShopService.Init()`, plus `OnPassesChanged` → `EvolutionVisuals.RefreshBonuses` so 2x Speed lands without a respawn | `ServerMain` | `Server systems initialized.` with no errors; compile sweep 45 scripts / 0 failures |
-| 1.7 | `[ ]` | **👤 OWNER** Create the 7 existing developer products on the dashboard, paste real ids | `GameConfig.RobuxProducts` | a real purchase in a published test place grants and saves |
+| 1.7 | `[~]` | **👤 OWNER** Create the 7 existing developer products on the dashboard, paste real ids. **The ids exist** (2026-08-11, universe 10675543038) and are in `GameConfig`; managed pricing is off on every one. Stays `[~]` because this row's own verification is a **purchase**, and no real purchase has been made | `GameConfig.RobuxProducts` | ids: all resolve via `GetProductInfo`, names and prices match `GameConfig`. **Still owed: a real purchase in the published place grants and saves** |
 
 ---
 
@@ -178,7 +178,7 @@ local if anyone cares.
 | 2.9a | `[x]` | The VIP skin — `GameConfig.VipCharacter` (`vip_gold`, "Golden Patron"). Registered in `CHARACTER_BY_KEY` only, **never** in `CHARACTERS_BY_STAGE`. `GetEffectiveRank` makes it score as `GetBestOwnedRank(data)`, so it is worth exactly what the wearer earned. `SyncVipCharacter` grants and **revokes** it, and is called after a rebirth too because `RebirthService` clears `data.Characters` wholesale. No `SkinMesh_vip_gold` exists and that is intended — `SkinMesh.Has()` falls back to `StageCostume` painted gold, i.e. a gold version of whatever stage you are | collection still counts 100 collectible (of 200 authored) with the skin owned; no leak into `CHARACTERS_BY_STAGE`; damage identical to the best owned skin at depths 1/3/10/20 (x1.15 / x1.45 / x2.50 / x4.00); losing the pass removes it and moves the body to a real skin |
 | 2.9b | `[x]` | The VIP skin in the **Journal UI** — a 21st section. The stage loop now walks a `sections` list (20 stages + one VIP section), so the disc is built by **exactly the same code** as every other one: it locks, unlocks, previews, selects and wears with no special case, and a later change to cell styling reaches it for free. Two honest touches: its damage chip reads `⚔️ = best` rather than a percentage (it has no rung on the ladder), and it previews at the **player's own stage**, because it is a gold version of whatever you currently are | 21 rows built; header reads **`Discovered 20 / 100`** with the VIP skin owned — it does not inflate the count; disc unlocked, worn tick on, chip reads `= best`; control: an unowned stage-6 disc still reads locked |
 | 2.10 | `[x]` | Robux panel: **Packs / Passes tabs** inside the existing panel rather than a new one — a pass and a product are the same decision, and `MainUI` has no top-level registers to spare. Built inside `;(function() … end)()`, escaping only as `hudRefs.refreshPassShop`. Passes render as wide rows (name, description, price) in a scroll, since 9 product-sized tiles are 710 px in a 500 px panel | HUD builds in Play; `TabRow` + `PassScroll` + `RobuxGrid` all present; 9 rows; VIP reads `R$ 499`. With `Passes = {VIP, DNA2x}` pushed, exactly those two flip to `OWNED` with `AutoButtonColor = false` and the other seven keep prices. **Not click-tested** — `VirtualInputManager` needs a capability this environment lacks, so the two tab handlers are wired but unclicked; `selectTab` itself is verified by its initial call |
-| 2.11 | `[ ]` | **👤 OWNER** Create all 9 passes on the dashboard, paste ids | a real purchase applies without a rejoin |
+| 2.11 | `[~]` | **👤 OWNER** Create all 9 passes on the dashboard, paste ids. **Done 2026-08-11**: all 9 exist on universe 10675543038, ids are in `GameConfig`, and **"Item for sale" is enabled on every one** — a separate step from creating the pass and the easiest thing here to miss. Stays `[~]` for the same reason as 1.7 | ids: all 9 resolve, `IsForSale = true` on each, prices match. Effects proven separately by `PassService.Refresh`'s `IsStudio()` branch (VIP, FastAuto 1.7x, 2x Speed → WalkSpeed 237). **Still owed: a real purchase applies without a rejoin** |
 | 2.12 | `[x]` | Balance check on the full stack. **Verdict: everything is bounded, nothing needs changing.** Income: passes contribute a flat **×3.00** at every stage (worst honest case ×15 free → ×45 paid), so an evolve at stage 20 costs 204,621 clicks free against 68,207 paid — a real advantage, not a collapse. Damage ×3.00, but `BOSS_MIN_HITS` caps a single blow at a share of the target's health, so hit counts are untouched and passes only remove wasted swings. Luck is the one additive stat and reaches 385% worst case — crit is saved by its hard 75% cap, and the roll tables turn out to be heavily damped: the rarest egg outcome moves only 3.8% → 4.6% (and just 5.0% at luck 1000). Mystery potions shift most, large 6.9% → 20.3% | replayed numerically; egg odds sampled, potion roll sampled over 20,000 rolls |
 
 ---
@@ -203,7 +203,7 @@ row below. Everything else in the phase landed as written.
 | 3.5 | `[x]` | 🌈 **Rainbow Catalyst** (99 R$ / 249 R$ x3) — **RESHAPED, and the roadmap's own premise was the reason.** "One tier above the existing Golden fusion" describes a game this is not: `PetTiers` has run Normal/Golden/Rainbow/Celestial for a long time, `GetNextTier` has no gate, and `HandleFuse` refuses only "already Celestial" and "fewer than 4 copies". **A player with four Goldens gets a Rainbow today, free** — so the product as specified would have charged 199 R$ for shipped content, which is the one thing this project refuses to do (see the auto-attack note in `GamePasses`). The real wall is needing **4 identical copies of the same species and tier** — 16 Normals for a Rainbow, 64 for a Celestial. So the token sells the grind: raise one owned pet one tier, no copies. **Capped below Celestial** (`GameConfig.CatalystMaxTier`), because equipped bonuses multiply across up to 9 slots and an uncapped bought tier is a compounding income multiplier priced like a consumable | live in Play: Normal→Golden and Golden→Rainbow spend one token each; **Rainbow→Celestial refused and no token spent**; already-max refused; unowned pet id spends nothing; 0 tokens changes nothing. The pet keeps its `id`, so an equipped pet **stays equipped** — unlike a fuse. Free fusing still reaches Celestial |
 | 3.6 | `[x]` | Robux panel: the grid is now a **`ScrollingFrame`** (17 products is ~1,400 px of cards in ~350 px of panel — as a plain Frame everything past row three did not exist), 40 px icons, the **price on the button** instead of "Buy with R$", a per-player "what this pays you at your stage" line on the DNA tiles, and ribbons. **No tile claims to be popular:** `MOST POPULAR` is a claim about other players that nothing here measures, so the ribbons are `BEST VALUE` plus a **derived** `+N% BONUS` from `GetTierBonusPct` — arithmetic on the product table, not a sentence someone typed. The "limited offer timer" is a **Today's Pick** rotating off the calendar day with a real countdown to the rotation; nothing is discounted, so nothing pretends to expire | live client probe: `RobuxGrid` is a ScrollingFrame with `AutomaticCanvasSize`, **17 cards, 17 priced buttons, 9 ribbons** (`+24/48/77% BONUS`, `BEST VALUE`, `+9/23/37% BONUS`, `BEST VALUE`, `BEST VALUE`), 1 pick star, title counting down. `DNA_1` read `+65.97K DNA` for a stage-5 save, i.e. the scaling reaches the tile. **Screen capture caught a real bug the probe could not**: at a 24 px name box, `themeLabel`'s 14 px floor (`UITextSizeConstraint.MinTextSize`) meant a wrapped "Small DNA Pack" was clipped rather than shrunk, on every DNA tile. Card 158 → 180 px, name given two lines, icon box 40 → 60 px (an emoji's glyph fills about half its line box, so a 40 px box drew an icon no bigger than the name under it). Re-verified with the engine's own `TextFits` on every label of all 17 cards: **none clipped** |
 | 3.7 | `[x]` | **`+` on the DNA and Diamond capsules**, opening the shop on the **Packs** tab (`hudRefs.selectRobuxTab`). Built after `robuxPanel` exists — a closure written beside the pills 2,500 lines earlier cannot see a local declared later — and inside `;(function() … end)()`. **Not** on the Shard pill: shards are a rebirth reward and are sold nowhere | live: `PlusButton` present on `DNAPill` and `DiamondPill`, absent on `ShardPill`. MainUI still **178 top-level locals** — the whole phase added none. Not click-tested, same environment limit noted in 2.10 |
-| 3.8 | `[ ]` | **👤 OWNER** Create the **10 new** developer products on the dashboard and paste the ids (`DNA_1`…`DNA_5`, `Diamonds_1`…`Diamonds_5` replace the old four; plus `LuckySpin`, `BossRevive`, `TierUp_1`, `TierUp_3`) — 17 rows in total with the two potion packs and the Season Pass | real purchase grants and saves |
+| 3.8 | `[~]` | **👤 OWNER** Create the **10 new** developer products on the dashboard and paste the ids (`DNA_1`…`DNA_5`, `Diamonds_1`…`Diamonds_5` replace the old four; plus `LuckySpin`, `BossRevive`, `TierUp_1`, `TierUp_3`) — 17 rows in total with the two potion packs and the Season Pass. **Done 2026-08-11**: all 17 exist on universe 10675543038. Stays `[~]` for the same reason as 1.7 | all 17 resolve via `GetProductInfo`, prices match `GameConfig`, managed pricing off. **Still owed: a real purchase grants and saves** — that is the only thing that exercises `ProcessReceipt` |
 
 ---
 
@@ -378,14 +378,15 @@ Collect these once; each one blocks agents until it exists.
 
 | | Action | Blocks |
 |---|---|---|
-| `[ ]` | Publish a test place — `MessagingService` cannot be exercised from Studio at all, and neither can two clients trading | 5.4, 8.6 |
+| `[x]` | Publish a test place — `MessagingService` cannot be exercised from Studio at all, and neither can two clients trading | 5.4, 8.6 — **done 2026-08-11**: published to **Evolution Lab BETA V0.2**, universe `10675543038`, place `102217824272435`. Both rows are now buildable |
+| `[ ]` | **One real Robux purchase** on the published place — the only thing that exercises `ProcessReceipt` and Roblox's billing. Studio's `IsStudio()` pass grant tests effects, never purchases | 1.7, 2.11, 3.8 |
 | `[ ]` | Roblox group id, for the Group / Like / Favourite rewards | 5.5 |
 | `[ ]` | Rewarded Ads set up on the dashboard (the free spin half of 5.6 is done) | 5.6 |
 | `[x]` | Save the place into the repo (binary `.rbxl` is fine — `tools/rbxl_extract.py` reads it) | 0.1 — done 2026-08-08 |
 | `[ ]` | `StreamingMinRadius` / `TargetRadius` / `IntegrityMode` in Properties | 0.4 |
-| `[ ]` | Create the 7 existing developer products, paste ids | 1.7 |
-| `[ ]` | Create the 9 game passes, paste ids | 2.11 |
-| `[ ]` | Create the 10 new developer products, paste ids (the shop is 17 rows now — see 3.8) | 3.8 |
+| `[x]` | Create the 7 existing developer products, paste ids | 1.7 — done 2026-08-11 |
+| `[x]` | Create the 9 game passes, paste ids | 2.11 — done 2026-08-11, all with "Item for sale" on |
+| `[x]` | Create the 10 new developer products, paste ids (the shop is 17 rows now — see 3.8) | 3.8 — done 2026-08-11, 26 ids in total |
 | `[ ]` | Game icon and thumbnail | 6.5 |
 | `[x]` | Prism Festival dates in `GameConfig.Events` — a design decision, not an id, so edit freely | 7.4 — decided 2026-08-10: 4–7 September 2026, the authored window, unchanged |
 
@@ -409,6 +410,36 @@ Gathered 2026-08-07/08 while writing this plan.
 
 ## Changelog
 
+- **2026-08-11** — **The place is published, and `GameId = 0` was the whole bug report.** Three
+  symptoms came in from Play — spawning as the player's own Roblox avatar instead of Cell 1, a
+  stale "Use the DNA Machine" tip, and a kick a few seconds in. They were **two causes, neither a
+  code defect.**
+  (a) The place open in Studio had **no place association at all** (`game.GameId = 0`,
+  `game.PlaceId = 0`), so every DataStore call returned *"You must publish this place to the web"*.
+  That is fatal earlier than it looks: `PlayerDataService` calls `GetDataStore` at module scope, so
+  the **`require` itself threw and `ServerMain` crashed at line 7** — no remotes were ever created
+  (`RarityBeam` infinite yield, `UseBossRevive` and `DeletePets` "never appeared"), nothing was
+  dressed, and the HUD read zero because there was no server. The visible kick was the *only*
+  correct part of it: `Load` distinguishes "never played" from "could not read" and refuses to
+  start a session on a blank save. **General rule: a service that touches a DataStore at module
+  scope turns a configuration problem into a total boot failure — the failure surface is the whole
+  server, not the save.**
+  (b) The tip was simply **stale code**: the `.rbxl` on disk was saved 08-10 23:32 while the
+  previous session ran to 04:31, so the place was missing 16 files' worth of work that only existed
+  in `src/`. Proof without diffing: Studio still held `MachineService` (deleted in `src/`) and had
+  no `FirstEvolveXp` anywhere.
+  Fixed by publishing to **Evolution Lab BETA V0.2** (universe `10675543038`, place
+  `102217824272435`) — verified live: DataStore reads succeed and the owner's save loads
+  (`Stage 1`, `DNA 6844`, `Worn = cell_amber`). Then all **14 changed files were pushed `src/` →
+  Studio** over the localhost bridge and `MachineService` was moved to `ServerStorage._PushBackup`
+  (moved, not deleted; the only remaining mention of it anywhere is one comment in `MainUI`). A
+  full sweep now reports **48/49 scripts byte-identical between Studio and `src/`, 0 differing.**
+  1.7 / 2.11 / 3.8 move to `[~]`: all **26 ids exist and resolve** on the published universe, but
+  each row's own verification is a *purchase*, and none has been made — that is a new owner row.
+  **Still open and measured today:** the `[Streaming]` warns still fire, so 0.4 is untouched; and
+  the skin is not applied to the live character even on a save that names one
+  (`Worn = cell_amber`, yet the body is a stock R15 avatar with zero costume parts and no error in
+  the console) — under investigation, retest pending.
 - **2026-08-10** — **7.4 decided, and the branch merged into `main`.** The owner confirmed the
   Prism Festival's authored window **is** the launch weekend — 4–7 September 2026, Friday noon to
   Monday noon UTC — so the row closes with no edit. That is the point of writing a window as

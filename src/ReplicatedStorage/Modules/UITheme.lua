@@ -280,120 +280,92 @@ local function applyShell(inst, color, radius, thickness)
 end
 
 --[[
-	Hard drop shadow.
-	A shadow cannot be a CHILD of the element it sits behind and still render behind
-	it reliably, so it is parented as a SIBLING. If the parent runs a UIListLayout a
-	sibling frame would become a layout item and break the row, so in that case we
-	fall back to an inner bottom "lip" which reads as the same moulded depth.
+	THE DROP SHADOW IS GONE, ON PURPOSE (2026-08-11 play-test feedback).
 
-	Returns: shadowInstance, pressFn(isPressed)
+	It had two variants and both drew outside the shell they belonged to:
+
+	  * the SIBLING variant was a full-size opaque `Color.Shadow` rectangle parented next to the
+	    button and offset 5px down. On a rounded shell that leaves a hard dark crescent poking out
+	    of the bottom corners, and on the HUD tiles it is the "ugly line at the bottom of the
+	    button that even sticks out" in the report. It also never shrank with the press: the squash
+	    is a UIScale on the BUTTON, and the shadow is not a child of the button, so pressing made
+	    the button smaller and left the shadow at full size popping out around it.
+	  * the LIP variant was a full-width 6px bar anchored at the bottom carrying the shell's FULL
+	    corner radius. A bar as wide as the shell, at a height where the shell has already curved
+	    inwards, is wider than the shell is there -- so it stuck out of both bottom corners, and on
+	    a circular shell (the Journal discs) it stuck out badly.
+
+	Nothing replaces them. The moulded depth now comes entirely from the shell's own vertical
+	gradient (see `gradientFor`: bright top, -0.28 bottom) plus the heavy dark outline, which is
+	what actually carries the sticker look -- and neither of those can cross an edge, because they
+	ARE the edge. Press feedback is the UIScale squash in `styleButton`, which was always the thing
+	doing the visible work.
+
+	Kept as a function with its old signature so the four call sites and their `opts.shadow ~= false`
+	guards keep working. Returns: nil, no-op pressFn.
 ]]
-local function addShadow(inst, radius)
-	local parent = inst.Parent
-	if not parent then
-		return nil, function() end
-	end
-
-	local cornerRadius = toUDim(radius)
-
-	if parent:FindFirstChildOfClass("UIListLayout")
-		or parent:FindFirstChildOfClass("UIGridLayout")
-		or parent:FindFirstChildOfClass("UIPageLayout")
-		or parent:FindFirstChildOfClass("UITableLayout") then
-		-- inner bottom lip variant
-		local base = inst:GetAttribute("BaseColor") or inst.BackgroundColor3
-		local lip = Instance.new("Frame")
-		lip.Name = "Shadow"
-		-- -0.38, not -0.55. The lip is the shadowed underside of the SAME painted surface, so it has
-		-- to sit one step below the gradient's bottom stop (-0.28). At -0.55 it was far darker than
-		-- the gradient and read as a black bar stuck across the bottom of the button -- doubly wrong
-		-- now that the gradient itself no longer goes dark.
-		lip.BackgroundColor3 = shade(base, -0.38)
-		lip.BackgroundTransparency = 0
-		lip.BorderSizePixel = 0
-		lip.AnchorPoint = Vector2.new(0.5, 1)
-		lip.Position = UDim2.new(0.5, 0, 1, 0)
-		lip.Size = UDim2.new(1, 0, 0, 6)
-		lip.ZIndex = inst.ZIndex
-		local lipCorner = Instance.new("UICorner")
-		lipCorner.CornerRadius = cornerRadius
-		lipCorner.Parent = lip
-		lip.Parent = inst
-		lip:SetAttribute("IsLip", true)
-
-		local function press(down)
-			lip.Size = UDim2.new(1, 0, 0, down and 3 or 6)
-		end
-		return lip, press
-	end
-
-	local shadow = Instance.new("Frame")
-	shadow.Name = "Shadow"
-	shadow.BackgroundColor3 = Color.Shadow
-	shadow.BackgroundTransparency = 0
-	shadow.BorderSizePixel = 0
-	shadow.AnchorPoint = inst.AnchorPoint
-	shadow.Size = inst.Size
-	shadow.ZIndex = inst.ZIndex + Z.Shadow
-	shadow.Visible = inst.Visible
-
-	local shCorner = Instance.new("UICorner")
-	shCorner.CornerRadius = cornerRadius
-	shCorner.Parent = shadow
-
-	local offset = 5
-	local function sync()
-		shadow.AnchorPoint = inst.AnchorPoint
-		shadow.Size = inst.Size
-		shadow.Position = inst.Position + UDim2.new(0, 0, 0, offset)
-		shadow.Visible = inst.Visible
-		shadow.ZIndex = inst.ZIndex + Z.Shadow
-	end
-	sync()
-	shadow.Parent = parent
-
-	inst:GetPropertyChangedSignal("Position"):Connect(sync)
-	inst:GetPropertyChangedSignal("Size"):Connect(sync)
-	inst:GetPropertyChangedSignal("Visible"):Connect(sync)
-	inst:GetPropertyChangedSignal("AnchorPoint"):Connect(sync)
-	inst:GetPropertyChangedSignal("ZIndex"):Connect(sync)
-	inst.Destroying:Connect(function()
-		shadow:Destroy()
-	end)
-
-	local function press(down)
-		-- button sinks into its own shadow: shell +3px, shadow gap 5 -> 2
-		offset = down and 2 or 5
-		sync()
-	end
-
-	return shadow, press
+local function addShadow(_inst, _radius)
+	return nil, function() end
 end
 
--- Faint top sheen. NEVER opaque, NEVER above content.
--- Sits at the documented FLOOR of 0.72 and is a little wider and taller than it was, because the
--- reference's top highlight covers most of the upper half of the button. It does not go below
--- 0.72: that number is a contract, not a preference -- a gloss any stronger starts washing out the
--- white label underneath it, which is the bug this invariant exists to prevent.
+-- Faint top sheen. NEVER opaque, NEVER above content, and since 2026-08-11 never outside the
+-- shell either.
+--
+-- ===== WHY IT USED TO STICK OUT, AND WHY IT CANNOT NOW =====
+--
+-- The old geometry was a fixed 0.88 x 0.4 box at (0.06, 0.06) with its corner radius HARDCODED to
+-- `UDim.new(1, 0)` -- the function took a `radius` argument and ignored it. `ClipsDescendants` is
+-- deliberately false on themed surfaces (badges are meant to hang outside an IconTile), so nothing
+-- caught the overflow: on a low-radius button the pill's ends bulged past the shell's corners, and
+-- on a CIRCULAR shell a rectangle inset only 6% from the bounding box has its top corners outside
+-- the circle entirely. That is half of "the buttons look cut off at the sides".
+--
+-- The fix is geometric rather than a clip, so it holds at every size and needs no extra instance.
+-- The sheen is inset by the shell's OWN corner radius, which is exactly where the shell's straight
+-- top edge begins -- so a box inset by `r` (plus a little) spans only the part of the shell that is
+-- flat, and cannot reach a curve. Two cases, because the two radius kinds mean different things:
+--
+--   * ROUND (Scale >= 0.5 -- a circle or a pill): inset to the middle 56% and start 10% down. A
+--     circle's half-width at 10% of its height is 0.30 of its diameter, i.e. a 0.60 span, so a 0.56
+--     span centred on it clears the rim with room at the tightest point and more everywhere below.
+--   * RECTANGULAR: inset `r + 4` on each side and 5px from the top, with its own corner radius one
+--     step under the shell's.
+--
+-- Transparency floor RAISED 0.72 -> 0.78. 0.72 is still the documented invariant and this respects
+-- it; the sheen was reading as a white pill painted on the button rather than as light falling on
+-- it, which is the other half of the complaint. It must never go BELOW 0.72 -- that number is a
+-- contract, not a preference: any stronger and it starts washing out the white label under it.
 local function addGloss(inst, radius)
+	local cornerRadius = toUDim(radius)
+	local round = cornerRadius.Scale >= 0.5
+
 	local gloss = Instance.new("Frame")
 	gloss.Name = "Gloss"
 	gloss.BackgroundColor3 = Color.White
-	gloss.BackgroundTransparency = 0.72 -- invariant: >= 0.72
+	gloss.BackgroundTransparency = 0.78 -- invariant: >= 0.72
 	gloss.BorderSizePixel = 0
-	gloss.Size = UDim2.new(0.88, 0, 0.4, 0)
-	gloss.Position = UDim2.new(0.06, 0, 0.06, 0)
 	gloss.ZIndex = inst.ZIndex + Z.Gloss
 
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(1, 0)
+	if round then
+		gloss.AnchorPoint = Vector2.new(0.5, 0)
+		gloss.Size = UDim2.new(0.56, 0, 0.26, 0)
+		gloss.Position = UDim2.new(0.5, 0, 0.10, 0)
+		corner.CornerRadius = UDim.new(1, 0)
+	else
+		local pad = cornerRadius.Offset + 4
+		gloss.AnchorPoint = Vector2.new(0.5, 0)
+		gloss.Size = UDim2.new(1, -pad * 2, 0.34, 0)
+		gloss.Position = UDim2.new(0.5, 0, 0, 5)
+		corner.CornerRadius = UDim.new(0, math.max(cornerRadius.Offset - 3, 4))
+	end
 	corner.Parent = gloss
 
 	local grad = Instance.new("UIGradient")
 	grad.Rotation = 90
 	grad.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.55),
-		NumberSequenceKeypoint.new(0.7, 0.92),
+		NumberSequenceKeypoint.new(0, 0.62),
+		NumberSequenceKeypoint.new(0.7, 0.94),
 		NumberSequenceKeypoint.new(1, 1),
 	})
 	grad.Parent = gloss
@@ -1292,9 +1264,13 @@ function UITheme.SetColor(inst, color)
 	if grad then
 		grad.Color = isTileBody and pastelGradientFor(color) or gradientFor(color)
 	end
+	-- A recolour of the bottom lip used to live here. There is no lip any more (see addShadow), and
+	-- the guard is kept only because a surface built before this change can still be on screen in a
+	-- session that hot-reloaded UITheme -- recolouring it keeps that one consistent instead of
+	-- leaving a bar in the old colour. New surfaces never have the child, so this never runs.
 	local lip = inst:FindFirstChild("Shadow")
 	if lip and lip:IsA("Frame") and lip:GetAttribute("IsLip") then
-		lip.BackgroundColor3 = shade(color, -0.38) -- must match addShadow's lip; see the note there
+		lip.BackgroundColor3 = shade(color, -0.30)
 	end
 	inst:SetAttribute("BaseColor", color)
 end

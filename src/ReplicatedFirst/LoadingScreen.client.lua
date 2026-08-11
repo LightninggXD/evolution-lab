@@ -72,7 +72,7 @@ local BLOB_COLORS = {
 }
 
 local TIPS = {
-	"Fight creatures or use the DNA Machine -- both pay DNA.",
+	"Every creature you defeat pays DNA -- the tougher it is, the more it pays.",
 	"Beat a zone's boss to open the gate behind it.",
 	"Every egg podium lists exactly what it can hatch, and the odds.",
 	"Rarer pets are strictly stronger -- rarity multiplies your tier bonus.",

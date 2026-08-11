@@ -432,7 +432,9 @@ local NOTIFY_SOUND = {
 	crit = "crit",
 	upgrade = "purchase",        diamond = "diamond",         evolve = "evolve",
 	character = "levelUp",       questComplete = "levelUp",   zone = "levelUp",
-	fuse = "fusion",             machine = "collect",         rebirth = "evolve",
+	-- `machine` went with the DNA Machine (10.19). This table is keyed by notify `kind`, and nothing
+	-- sends that kind any more.
+	fuse = "fusion",             rebirth = "evolve",
 	dailyReward = "purchase",    stageMastery = "levelUp",    diamondUpgrade = "purchase",
 	potion = "collect",          playtimeGift = "purchase",   bossRevive = "purchase",
 	spin = "purchase",           robuxPurchase = "purchase",  reward = "purchase",

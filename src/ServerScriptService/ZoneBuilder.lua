@@ -32,7 +32,13 @@ local ZoneBuilder = {}
 -- down to 12. They were the "something yellow and round hanging in the air" in the bug report.
 -- 117: the terraces got a flight of stairs per tier per side, so the shelves are somewhere a
 -- player can actually go -- which is what the raised Brutes and Elites in CreatureService need.
-local BUILD_VERSION = 124
+-- 126: scree pulled back off the first riser -- the last measured jump shortcut (see ValleyScree).
+-- 125: the collision pass (items 15/18/19). Seven more names are solid, ~48 walkable parts a zone
+-- are pinned against streaming, the stair slab covers the steps that are drawn on it, and the three
+-- ways onto a shelf without using the stairs (a sub-apex rise, the buttress ledge, a boulder against
+-- the riser) are closed. Every one of those changes GEOMETRY, so it needs the rebuild this bump
+-- forces -- without it Build() skips every zone that already exists and none of it appears.
+local BUILD_VERSION = 126
 
 -- The Colosseum carries its own stamp. Bumping BUILD_VERSION drops all 21 zones and rebuilds
 -- ~60,000 parts, which takes long enough that Studio regularly loses the connection partway (see
@@ -226,11 +232,38 @@ local SHADOW_MAX_VOL = 200000
 --
 -- CHECKED FIRST: none of these sits on the route. The path corridor is 30 studs wide and the
 -- closest of any of them to the centre line is 54 studs, so making them solid blocks nothing.
+--
+-- ===== SECOND PASS, 2026-08-11: "you can walk through half the objects" =====
+--
+-- Re-run the same way the first audit was done -- `GetPartBoundsInBox` against the LIVE world for
+-- every prop name in Forest that had no solid part at all, asking the engine whether anything solid
+-- shared its volume. That put 60-odd names in the "backed by solid" column exactly as the note
+-- above claims (every cliff skin, the waterfalls, the banners, the planters, the terrace mushrooms),
+-- and left a short list of free-standing physical objects with nothing behind them at all.
+--
+-- Those are the ones below. Each was also checked against the street: the corridor is 30 wide and
+-- the closest of these is 48 studs off the centre line, so none of them blocks the route -- the same
+-- check the first pass documents.
+--
+-- NOT added, deliberately: the flowers, pennants, bunting, runes, glints and the loose statue
+-- details (Leg, Paw, Eye, Horn, Wing) are correctly intangible; `BackdropMesa` is 196-stud
+-- background scenery nobody can reach; and the portal's high stonework sits 138-218 studs up.
 local SOLID_PROPS = {
 	GroundRock = true, ValleyRock = true, ValleyScree = true, Mound = true,
 	PoolStone = true, WellStone = true, WellPost = true,
 	BenchSeat = true, BenchLeg = true,
 	LampPost = true, LampFoot = true, GlowPost = true,
+	-- a log lying across the ground, and two braziers the size of a player -- the three things in
+	-- the world most obviously solid to the eye and most obviously not to the feet
+	FallenLog = true, IdolBrazier = true, GuardianBrazier = true,
+	-- the sibling of GlowPost, which has been solid since 10.13; they are the same object with two
+	-- names and only one of them stopped anybody
+	GlintPost = true,
+	-- ground mushrooms. The TERRACE ones are already backed by their shelf and are left alone.
+	MushroomCap = true, MushroomStem = true,
+	-- "a player who walks through a crate stack is being told the world is a painting" -- the note
+	-- over CrateStack, which was solid while the loose crates beside it were not
+	StallCrate = true,
 }
 
 local function shouldCastShadow(p)
@@ -3351,6 +3384,17 @@ local TERRAIN_OUTER = 625        -- the platform edge, where the boundary wall s
 -- and a waterfall pouring down a 15-stud riser has no room to look like falling water. Totals now
 -- run 66-128 studs against a 180-stud boundary wall, so the terraces climb most of the way up it
 -- without ever poking over.
+-- ===== NO TIER MAY BE LOWER THAN A MAXED JUMP (item 19, 2026-08-11) =====
+--
+-- `rise` is not just a look. A Roblox jump reaches `power^2 / (2 * 196.2)`, and GameConfig's
+-- MaxJumpPower of 92 puts a fully upgraded player's apex at **21.6 studs** -- so every shelf built
+-- at or under that was reachable by walking to the cliff and holding space, with the staircase and
+-- the whole climb it gates reduced to decoration. Raised creatures are the only Evolution Shard
+-- source in the game, so the climb is the price of the currency.
+--
+-- Five zones were at or under it (DreamDimension 20, Ocean 22, Wormhole 22, Galaxy 24, TimeRift 25)
+-- and are now 26, which clears the apex by 4.4 studs. **26 is the floor for any new zone**; if
+-- MaxJumpPower ever rises, this number has to rise with it.
 local TERRAIN_PROFILE = {
 	-- `trees` is the CHANCE (0..1) that a given terrace segment gets a conifer, not a count: the
 	-- segments already vary in size and position, so a probability spreads them unevenly where a
@@ -3360,19 +3404,19 @@ local TERRAIN_PROFILE = {
 	-- an OASIS, not a river: the one dry-looking biome that still earns water, and the only reason
 	-- the Desert terraces are not a bare sand shelf from end to end
 	Desert          = { tiers = 2, rise = 36, water = true,  falls = 1, rocks = 14, rockSize = { 18, 38 } },
-	Ocean           = { tiers = 3, rise = 22, water = true,  falls = 3, rocks = 6, rockSize = { 12, 26 }, trees = 0.4 },
+	Ocean           = { tiers = 3, rise = 26, water = true,  falls = 3, rocks = 6, rockSize = { 12, 26 }, trees = 0.4 },
 	Volcano         = { tiers = 3, rise = 34, water = true,  falls = 2, rocks = 14, rockSize = { 16, 40 } },
 	Moon            = { tiers = 2, rise = 30, water = false, falls = 0, rocks = 16, rockSize = { 20, 44 } },
 	Mars            = { tiers = 3, rise = 32, water = false, falls = 0, rocks = 13, rockSize = { 18, 40 } },
-	Galaxy          = { tiers = 4, rise = 24, water = true,  falls = 2, rocks = 7, rockSize = { 12, 28 }, trees = 0.3 },
+	Galaxy          = { tiers = 4, rise = 26, water = true,  falls = 2, rocks = 7, rockSize = { 12, 28 }, trees = 0.3 },
 	BlackHole       = { tiers = 2, rise = 46, water = false, falls = 0, rocks = 10, rockSize = { 22, 46 } },
 	Multiverse      = { tiers = 4, rise = 26, water = true,  falls = 3, rocks = 8, rockSize = { 14, 30 }, trees = 0.35 },
 	Nebula          = { tiers = 3, rise = 28, water = true,  falls = 2, rocks = 9, rockSize = { 14, 32 } },
-	Wormhole        = { tiers = 4, rise = 22, water = false, falls = 0, rocks = 11, rockSize = { 16, 34 } },
+	Wormhole        = { tiers = 4, rise = 26, water = false, falls = 0, rocks = 11, rockSize = { 16, 34 } },
 	QuantumRealm    = { tiers = 3, rise = 30, water = true,  falls = 2, rocks = 8, rockSize = { 12, 30 } },
-	TimeRift        = { tiers = 4, rise = 25, water = true,  falls = 3, rocks = 9, rockSize = { 14, 32 } },
+	TimeRift        = { tiers = 4, rise = 26, water = true,  falls = 3, rocks = 9, rockSize = { 14, 32 } },
 	AntimatterZone  = { tiers = 2, rise = 44, water = false, falls = 0, rocks = 15, rockSize = { 20, 44 } },
-	DreamDimension  = { tiers = 4, rise = 20, water = true,  falls = 3, rocks = 6, rockSize = { 10, 26 }, trees = 0.5 },
+	DreamDimension  = { tiers = 4, rise = 26, water = true,  falls = 3, rocks = 6, rockSize = { 10, 26 }, trees = 0.5 },
 	MirrorUniverse  = { tiers = 3, rise = 30, water = true,  falls = 2, rocks = 8, rockSize = { 14, 32 } },
 	VoidExpanse     = { tiers = 2, rise = 50, water = false, falls = 0, rocks = 12, rockSize = { 22, 48 } },
 	CelestialThrone = { tiers = 4, rise = 27, water = true,  falls = 3, rocks = 7, rockSize = { 14, 30 }, trees = 0.3 },
@@ -3823,15 +3867,33 @@ local function buildValleySide(model, zone, cx, side, p)
 				end
 				local h = p.rise * math.random(50, 92) / 100
 				local d = math.random(9, 17)
+				-- ===== THE BUTTRESS IS THE WALL, SO IT STAYS SOLID -- BUT IT IS NO LONGER A STEP =====
+				--
+				-- It used to be centred at `innerX - 1.5`, which with a depth of 9-17 left it hanging
+				-- 6 to 10 studs PROUD of the tier edge, out over the tread below. Its top sits at up
+				-- to 92% of the rise, so it was a ledge you could jump onto and then step off onto the
+				-- shelf -- two hops past a staircase that is meant to be the only way up (item 19).
+				--
+				-- Making it intangible was the obvious fix and is WRONG. A ray fired horizontally into
+				-- a riser with the jut excluded hits only `CliffFace`, which is `CanCollide = false`:
+				-- there is no other collision at that height. The jut IS the riser wall, and removing
+				-- it would let players walk into the cliff.
+				--
+				-- So it is pushed back into the hill instead. `innerX + d/2 - 2` leaves exactly two
+				-- studs proud of the edge -- enough to keep the relief that stops the cliff face
+				-- reading as a painted board, too little for a character to stand on -- while the rest
+				-- of its bulk sits inside the cliff, still spanning the riser plane and still solid.
+				local jutX = innerX + d * 0.5 - 2
 				newPart({ Name = "CliffJut", Size = Vector3.new(d, h, w),
-					CFrame = CFrame.new(cx + side * (innerX - 1.5), top - p.rise + h / 2, z)
+					CFrame = CFrame.new(cx + side * jutX, top - p.rise + h / 2, z)
 						* CFrame.Angles(0, math.rad(math.random(-4, 4)), math.rad(side * math.random(-3, 3))),
 					Color = (j % 2 == 0) and rock or rockLit, Material = Enum.Material.Rock, Parent = model })
 				-- a shoulder on the taller ones: an unbroken vertical box is a pillar, and a pillar with
-				-- a sloped top is a rock
+				-- a sloped top is a rock. Kept at the same offset RELATIVE to the jut it caps, so it
+				-- travels with the change above instead of being left hanging in the air.
 				if h > p.rise * 0.78 then
 					newPart({ Name = "CliffJutCap", Size = Vector3.new(d * 0.7, h * 0.22, w * 0.72),
-						Position = Vector3.new(cx + side * (innerX - 3 - d * 0.14), top - p.rise + h * 1.04, z),
+						Position = Vector3.new(cx + side * (jutX - 1.5 - d * 0.14), top - p.rise + h * 1.04, z),
 						Color = rockDark, Material = Enum.Material.Rock, CanCollide = false, Parent = model })
 				end
 			end
@@ -4021,7 +4083,13 @@ local function buildValleySide(model, zone, cx, side, p)
 			-- starts from, so setting off is a slope and not a kerb either.
 			local from = Vector3.new(footX, bottom + riser * 0.5 - 2, zc)
 			local to = Vector3.new(headX, top - 2, zc)
-			local ramp = newPart({ Name = "TerraceRamp", Size = Vector3.new(28, 4, (to - from).Magnitude + 6),
+			-- 28 -> 34. THE COLLISION WAS NARROWER THAN THE STAIRCASE YOU CAN SEE. The visible steps
+			-- are 30 studs deep and non-colliding paint; this slab is the only thing you actually
+			-- stand on. At 28 it left a stud of nothing down each side of the flight, so walking up
+			-- the visual edge of the stairs dropped the player off the side of the hill -- which is
+			-- most of "you can fall if you snag on certain things" (item 18). 34 covers the painted
+			-- tread with two studs to spare on each side, and still passes under the rails at +/-16.
+			local ramp = newPart({ Name = "TerraceRamp", Size = Vector3.new(34, 4, (to - from).Magnitude + 6),
 				CFrame = CFrame.lookAt(from:Lerp(to, 0.5), to), Color = rock,
 				Material = Enum.Material.Rock, Parent = model })
 
@@ -4057,7 +4125,20 @@ local function buildValleySide(model, zone, cx, side, p)
 		-- it there is no tread, only the underside of the shelf above.
 		local innerX = edgeAt(tier, z)
 		local outerX = (tier < p.tiers) and edgeAt(tier + 1, z) or TERRAIN_OUTER
-		boulder(cx + side * span(innerX + 16, outerX - 18),
+		-- ===== A BOULDER MUST NOT BE A STEP ONTO THE NEXT SHELF (item 19) =====
+		--
+		-- The outer bound was `outerX - 18`, i.e. a boulder CENTRE 18 studs short of the next riser
+		-- -- and `rockSize` reaches 48, so a big one overlapped the cliff above it by six studs and
+		-- stood up to 30 studs tall against a rise of 20-26. Climb the boulder, jump, and you are on
+		-- the shelf without ever finding the stairs. It was also the likeliest thing in the zone to
+		-- wedge a player: a solid tilted slab half-buried in a wall.
+		--
+		-- The clearance is now derived from the boulder that could actually be rolled here rather
+		-- than being a flat 18: half the widest possible rock, plus 24 studs of gap between its edge
+		-- and the riser. Jumping the remaining gap while also gaining height is not a step, it is a
+		-- stunt -- and unlike the flat number this cannot silently stop working when `rockSize` moves.
+		local boulderClear = p.rockSize[2] * 0.5 + 24
+		boulder(cx + side * span(innerX + 16, outerX - boulderClear),
 			treadY(tier), z, math.random(p.rockSize[1], p.rockSize[2]))
 	end
 
@@ -4068,7 +4149,16 @@ local function buildValleySide(model, zone, cx, side, p)
 		newPart({ Name = "ValleyScree", Shape = Enum.PartType.Ball,
 			Size = Vector3.new(s, s * 0.6, s * 0.88),
 			Orientation = Vector3.new(0, math.random(0, 360), math.random(-24, 24)),
-			Position = Vector3.new(cx + side * math.random(TERRAIN_INNER - 40, TERRAIN_INNER - 6),
+			-- ===== SCREE SPILLS FROM THE FOOT, IT DOES NOT LEAN ON IT (item 19) =====
+			--
+			-- The band ended at `TERRAIN_INNER - 6`, so a 15-stud rock (7.5 of radius) sat hard
+			-- against the first riser -- and scree is SOLID (see SOLID_PROPS). Its top is ~4.5 studs
+			-- up, which added to the 21.6-stud max-jump apex is 26.1 against a 26-stud rise: enough,
+			-- by a tenth of a stud, to hop the first tier beside the stairs. Measured, not guessed --
+			-- a shelf was found 9 studs from a scree rock and within jump height.
+			-- Pulled back to 22-46 studs from the foot: still a spill that stops the terraces meeting
+			-- the flat ground on a ruled line, no longer a step.
+			Position = Vector3.new(cx + side * math.random(TERRAIN_INNER - 46, TERRAIN_INNER - 22),
 				s * 0.22, math.random(-halfZ + 40, halfZ - 40)),
 			Color = (math.random() < 0.5) and rock or rockDark, Material = Enum.Material.Rock,
 			CanCollide = false, Parent = model })
@@ -4438,7 +4528,10 @@ local function buildValleySide(model, zone, cx, side, p)
 end
 
 local function buildTerrain(model, zone, cx)
-	local p = TERRAIN_PROFILE[zone.key] or { tiers = 3, rise = 16, water = false, falls = 0, rocks = 9, rockSize = { 14, 32 } }
+	-- rise 26, not 16, for the reason given over TERRAIN_PROFILE: anything at or under the 21.6-stud
+	-- max-jump apex is a shelf you hop onto instead of climbing to, and a fallback is exactly the
+	-- case nobody re-measures.
+	local p = TERRAIN_PROFILE[zone.key] or { tiers = 3, rise = 26, water = false, falls = 0, rocks = 9, rockSize = { 14, 32 } }
 	for _, side in ipairs({ -1, 1 }) do
 		buildValleySide(model, zone, cx, side, p)
 	end
@@ -7799,6 +7892,34 @@ local ALWAYS_LOADED = {
 	-- non-colliding paint (see the note where they are built) -- one part per tier per side, ~126
 	-- across the world, against ~1,900 if the steps themselves had had to be pinned.
 	TerraceRamp = true,
+
+	-- ===== 2026-08-11: "the player can fall through / snag on things" =====
+	--
+	-- Measured rather than guessed: 451 SOLID parts per zone were still sitting in the zone folder,
+	-- i.e. free to stream out from under somebody. Pinning all of them is not the answer -- that is
+	-- ~9,000 more parts on top of 2,617, and most of the 451 are cliff mass, statue geometry and
+	-- portal stonework 138-218 studs in the air that nothing ever stands on.
+	--
+	-- What is pinned below is the intersection of three facts about a part: it is SOLID, it has a
+	-- top face a character can be on, and it is at a height a player reaches in ordinary play. That
+	-- is ~48 parts per zone, so the shell goes from 2,617 to roughly 3,600 -- a third more, for the
+	-- whole class of "the ground vanished while I was standing on it".
+	--
+	-- NOT pinned, on purpose: `CliffBlock` (104 a zone -- it is the cliff's mass, and the surface
+	-- anyone actually walks on is `TerraceTop`, which is already here), `body_geom` (statue meshes),
+	-- and everything above the portal's springing line.
+	PortalStep = true,          -- the steps into every gate, walked through on every zone change
+	PortalColumnBase = true,
+	IdolPad = true, IdolPadStep = true, IdolPlinthStep = true,
+	LandmarkPlinth = true, LandmarkPlinthStep = true,
+	GuardianPlinth = true,
+	PoolRim = true, PoolBed = true,
+	Mound = true,               -- 3,460-stud footprint of walkable hillock
+	StallDeck = true, StallCounter = true, StallStep = true,
+	RuinPillarBase = true,
+	-- these two belong to zones Forest does not have, and are the same case as the terrace ramp:
+	-- a whole staircase and a throne dais that a player stands on
+	DreamStair = true, ThroneStep = true,
 }
 
 local function keepShellLoaded(zonesFolder)

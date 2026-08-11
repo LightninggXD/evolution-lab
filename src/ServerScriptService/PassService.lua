@@ -1,5 +1,6 @@
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService") -- Studio test mode only; see PassService.Refresh
 local RS = game:GetService("ReplicatedStorage")
 
 local GameConfig = require(RS.Modules.GameConfig)
@@ -98,6 +99,37 @@ end
 function PassService.Refresh(player)
 	local data = PlayerDataService.Get(player)
 	if not data then return false end
+
+	-- ===== STUDIO-ONLY: PRETEND EVERY PASS IS OWNED =====
+	--
+	-- There are nine passes and seventeen products, and NONE of their effects can be exercised on a
+	-- live server without actually spending Robux -- which makes the whole monetisation layer the
+	-- one part of this game that never gets tested. This grants them all, but only inside Studio.
+	--
+	-- WHY THIS IS SAFE. `RunService:IsStudio()` is false on every Roblox server, including the one
+	-- the play-testers join, so on a real server this branch cannot execute -- it is not a flag
+	-- somebody can forget to turn off, and there is no way to reach it from a client. It is also
+	-- deliberately NOT a `GameConfig` setting: a config value is exactly the thing that gets flipped
+	-- on for a test and shipped, and this must never ship enabled.
+	--
+	-- It tests EFFECTS, not PURCHASES. What a real purchase does that this cannot is prove the
+	-- `ProcessReceipt` path and Roblox's own billing -- so one real buy on the published place is
+	-- still needed before launch, and this does not replace it.
+	if RunService:IsStudio() then
+		local owned = {}
+		for _, pass in ipairs(GameConfig.GamePasses) do
+			owned[pass.key] = true
+		end
+		data.Passes = owned
+		PassService.GrantVipDaily(player, data)
+		PlayerDataService.PushToClient(player)
+		if PassService.OnPassesChanged then
+			PassService.OnPassesChanged(player, data)
+		end
+		warn("[PassService] STUDIO TEST MODE -- every game pass is being treated as owned. " ..
+			"This never runs on a real server.")
+		return true
+	end
 
 	local owned = {}
 	local complete = true

@@ -216,32 +216,35 @@ local function styleCard(inst, baseColor, radius, thickness)
 	grad.Color = UITheme.GradientFor(baseColor)
 	grad.Parent = inst
 
-	local lip = Instance.new("Frame")
-	lip.Name = "Shadow"
-	-- one step below the gradient's bottom stop, not a black bar -- mirrors UITheme.addShadow
-	lip.BackgroundColor3 = UITheme.Shade(baseColor, -0.38)
-	lip.BorderSizePixel = 0
-	lip.AnchorPoint = Vector2.new(0.5, 1)
-	lip.Position = UDim2.new(0.5, 0, 1, 0)
-	lip.Size = UDim2.new(1, 0, 0, 6)
-	lip.ZIndex = inst.ZIndex
-	lip:SetAttribute("IsLip", true)
-	corner(lip, cornerRadius)
-	lip.Parent = inst
+	-- NO BOTTOM LIP. It was a full-width 6px bar carrying the shell's full corner radius, which is
+	-- wider than the shell is at the height it sat at -- so it stuck out of both bottom corners, and
+	-- out of a circular shell (the Journal discs) badly. It is the "ugly line at the bottom of the
+	-- button" in the 2026-08-11 report. Removed in UITheme.addShadow at the same time; these two
+	-- functions build the SAME object by two routes and must not diverge.
 
+	-- The sheen, with UITheme.addGloss's geometry -- see the long note there for why it is inset by
+	-- the shell's own corner radius rather than clipped. Same two cases, same numbers.
 	local gloss = Instance.new("Frame")
 	gloss.Name = "Gloss"
 	gloss.BackgroundColor3 = UITheme.Color.White
-	gloss.BackgroundTransparency = 0.72 -- invariant: >= 0.72 (mirrors UITheme.addGloss)
+	gloss.BackgroundTransparency = 0.78 -- invariant: >= 0.72 (mirrors UITheme.addGloss)
 	gloss.BorderSizePixel = 0
-	gloss.Size = UDim2.new(0.88, 0, 0.4, 0)
-	gloss.Position = UDim2.new(0.06, 0, 0.06, 0)
+	gloss.AnchorPoint = Vector2.new(0.5, 0)
 	gloss.ZIndex = inst.ZIndex + UITheme.Z.Gloss
-	corner(gloss, UDim.new(1, 0))
+	if cornerRadius.Scale >= 0.5 then
+		gloss.Size = UDim2.new(0.56, 0, 0.26, 0)
+		gloss.Position = UDim2.new(0.5, 0, 0.10, 0)
+		corner(gloss, UDim.new(1, 0))
+	else
+		local pad = cornerRadius.Offset + 4
+		gloss.Size = UDim2.new(1, -pad * 2, 0.34, 0)
+		gloss.Position = UDim2.new(0.5, 0, 0, 5)
+		corner(gloss, UDim.new(0, math.max(cornerRadius.Offset - 3, 4)))
+	end
 	local glossGrad = gradient(gloss, ColorSequence.new(UITheme.Color.White), 90)
 	glossGrad.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.55),
-		NumberSequenceKeypoint.new(0.7, 0.92),
+		NumberSequenceKeypoint.new(0, 0.62),
+		NumberSequenceKeypoint.new(0.7, 0.94),
 		NumberSequenceKeypoint.new(1, 1),
 	})
 	gloss.Parent = inst
@@ -289,7 +292,10 @@ local function styleButton(btn, baseColor, radius, thickness)
 		--
 		-- A UIScale is not a layout property, so nothing overwrites it. Squashing to 0.96 reads as
 		-- the same push as a 3px sink and works identically in a list, in a grid and free-positioned.
-		local lip = btn:FindFirstChild("Shadow")
+		-- The lip that used to shrink from 6px to 3px alongside the squash is gone (see styleCard),
+		-- so the UIScale is the whole of the press now. It was always the part that actually read
+		-- as a press -- and unlike the old sibling shadow it scales WITH the button, which is why
+		-- pressing no longer makes a dark edge pop out around the shell.
 		local squash = btn:FindFirstChildOfClass("UIScale")
 		if not squash then
 			squash = Instance.new("UIScale")
@@ -300,13 +306,11 @@ local function styleButton(btn, baseColor, radius, thickness)
 			if pressed then return end
 			pressed = true
 			squash.Scale = 0.96
-			if lip then lip.Size = UDim2.new(1, 0, 0, 3) end
 		end)
 		local function release()
 			if not pressed then return end
 			pressed = false
 			squash.Scale = 1
-			if lip then lip.Size = UDim2.new(1, 0, 0, 6) end
 		end
 		btn.MouseButton1Up:Connect(release)
 		btn.MouseLeave:Connect(release)
@@ -369,7 +373,7 @@ local stageLabel = stageCard.Label
 -- (see refreshUI), or after ninety seconds if they somehow have not earned any.
 UITheme.Label(screenGui, {
 	name = "ClickHint",
-	text = "🧬 Use the DNA Machine or fight creatures to collect DNA!",
+	text = "🧬 Fight creatures to collect DNA!",
 	size = UDim2.new(0, 560, 0, 32),
 	position = UDim2.new(0.5, 0, 0, 52),
 	anchorPoint = Vector2.new(0.5, 0),
@@ -756,6 +760,28 @@ do
 	local OPEN = TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 	local SHUT = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 
+	-- ===== A PANEL OPENS AT THE TOP, NOT WHERE IT WAS LEFT =====
+	--
+	-- `CanvasPosition` was written NOWHERE in this file -- the only mention of it was a
+	-- GetPropertyChangedSignal subscription on the Journal -- so all ten ScrollingFrames reopened
+	-- exactly where the player had last scrolled them. Open the Passes tab, scroll to the bottom,
+	-- close, reopen: still at the bottom, with the header off screen and no clue anything is above.
+	--
+	-- Fixed HERE rather than at the ten build sites because `animatePanel` is the single chokepoint
+	-- every panel opens through (toggleOnly -> closeAllPanels/animatePanel), so one call covers the
+	-- panels that exist now and every one added later. Descendants rather than children: several
+	-- panels put their scroll inside a tab container.
+	--
+	-- Declared inside this `do` block on purpose -- MainUI is at Luau's 200-local register cap and a
+	-- new TOP-LEVEL local takes the whole HUD with it.
+	local function rewindScrolls(panel)
+		for _, d in ipairs(panel:GetDescendants()) do
+			if d:IsA("ScrollingFrame") then
+				d.CanvasPosition = Vector2.zero
+			end
+		end
+	end
+
 	function animatePanel(panel, open)
 		local running = live[panel]
 		if running then
@@ -767,12 +793,14 @@ do
 		-- a panel that never went through registerPanel has no UIScale and no fitted size; it still
 		-- has to open, just without the motion
 		if not scale then
+			if open then rewindScrolls(panel) end
 			panel.Visible = open
 			return
 		end
 		local fit = panel:GetAttribute("FitScale") or 1
 
 		if open then
+			rewindScrolls(panel)
 			panel.Visible = true
 			scale.Scale = fit * 0.86
 			local tween = TweenService:Create(scale, OPEN, { Scale = fit })
@@ -857,7 +885,7 @@ local TILE_START_Y = 100 -- clears the topbar inset and the stage card above it
 -- EIGHT. The Audio tile (Phase 4.6) took the one empty slot in the grid -- order 8, bottom-right,
 -- beside the lone order 7 that this comment used to describe. `rows` is ceil(COUNT / COLS), which is
 -- 4 either way, so nothing that was already on screen moved by a pixel.
-local RIGHT_COUNT = 8
+local RIGHT_COUNT = 9
 local RIGHT_COLS = 2
 local RIGHT_BOTTOM_Y = 46
 local PANEL_ANCHOR = UDim2.new(0.5, 0, 0.5, 0)
@@ -3378,8 +3406,16 @@ end
 		return ("%ds"):format(seconds)
 	end
 
+	-- Held inside this closure rather than as a top-level local: MainUI is at Luau's 200-local
+	-- register cap and one more up there deletes the whole HUD. It is also the only thing `refresh`
+	-- below needs to know about the nag, so it does not want to be visible any wider.
+	local nagUntil = 0
+
 	local function refresh()
 		if not currentData then return end
+		-- a "not ready yet" message on a button gets one and a half seconds to be read before the
+		-- one-second tick below paints the countdown back over it
+		if os.clock() < nagUntil then return end
 		local ready = dayNumber(os.time()) > dayNumber(currentData.LastFreeSpin)
 		if ready then
 			UITheme.SetColor(button, UITheme.Color.Gold)
@@ -3409,10 +3445,28 @@ end
 		end
 	end
 
+	-- A MISSING REMOTE MUST SAY SO. Both spin buttons look their remote up with FindFirstChild
+	-- INSIDE the handler -- correct, because RewardService and RobuxShopService create them on
+	-- demand and the order is not guaranteed -- but the `if remote then` was silent on the else,
+	-- so a button whose service had not finished starting was indistinguishable from a broken one.
+	-- That is half of the "claim/spin buttons do not work" report, and it is the half that leaves
+	-- no evidence behind.
+	--
+	-- The message goes ON THE BUTTON rather than through showNotification, and that is a scope fact
+	-- rather than a design one: showNotification is declared ~2400 lines below here, so a closure
+	-- written at this point captures nil and the click would throw instead of explaining itself.
+	local function nagNotReady(target)
+		nagUntil = os.clock() + 1.5
+		UITheme.SetColor(target, UITheme.Color.Locked)
+		UITheme.SetText(target, "\u{23F3} not ready")
+	end
+
 	button.MouseButton1Click:Connect(function()
 		local remote = Remotes:FindFirstChild("ClaimFreeSpin")
 		if remote then
 			remote:FireServer()
+		else
+			nagNotReady(button)
 		end
 	end)
 
@@ -3423,6 +3477,8 @@ end
 		local remote = Remotes:FindFirstChild("SpinWithShards")
 		if remote then
 			remote:FireServer()
+		else
+			nagNotReady(shardButton)
 		end
 	end)
 
@@ -4671,6 +4727,32 @@ local CHAR_LINE_H = 132
 			cell.Parent = row
 			local cellStroke = styleCard(cell, tint, UDim.new(0.5, 0), 3)
 
+			-- ===== THE DISC IS A RING NOW, NOT A FILLED PUCK =====
+			--
+			-- "Remove the circles around the characters, you cannot see them" (2026-08-11). The
+			-- figure was never hidden -- it is a ViewportFrame lifted above the gloss by
+			-- liftChildren -- it was being drawn on top of an OPAQUE disc in the character's own
+			-- colour, and a green creature on a green puck is a silhouette-shaped hole. The tint is
+			-- also the single worst case for it: the disc is deliberately painted the colour of the
+			-- thing standing on it.
+			--
+			-- So the colour moves from the fill to the RIM, where it still identifies the character
+			-- and still reads at a glance, and the figure gets the panel behind it instead of its
+			-- own colour. The gradient goes with the fill -- a gradient over nothing is a wash of
+			-- grey over the model's legs.
+			--
+			-- The stroke stays `tint` rather than the shared outline colour precisely because the
+			-- fill no longer carries it; drop this and every disc in the Journal becomes identical.
+			cell.BackgroundTransparency = 1
+			local cellGrad = cell:FindFirstChild("Gradient")
+			if cellGrad then cellGrad:Destroy() end
+			-- and the sheen goes with it: a white highlight floating on nothing is not a highlight,
+			-- it is a smear across the model's head
+			local cellGloss = cell:FindFirstChild("Gloss")
+			if cellGloss then cellGloss:Destroy() end
+			cellStroke.Color = tint
+			cellStroke.Thickness = UITheme.SnapStroke(4)
+
 			-- THE CHARACTER ITSELF, not a glyph standing in for it. Half the roster shares an emoji,
 			-- so a hundred discs carrying emoji showed a player perhaps eight distinct pictures for a
 			-- hundred things they had collected -- which is the whole complaint about this panel.
@@ -5112,9 +5194,14 @@ local function refreshCharacterPanel()
 			-- 40% strength and one step of thickness -- enough to find it again when you scroll to
 			-- that stage, not enough to compete with the one you have on. No badge either way but
 			-- the tick, so there is exactly one tick in the panel.
+			-- The resting rim is the CHARACTER'S OWN COLOUR, not the shared outline. That colour used
+			-- to be the disc's fill, and the fill is transparent now so the figure can be seen at all
+			-- (see the cell build) -- if the rim did not pick it up, every unlocked disc in the
+			-- Journal would be the same dark grey ring and the panel would lose its only at-a-glance
+			-- difference between a hundred entries.
 			refs.strokeInst.Color = isWorn and READY_RIM
-				or (chosen and READY_RIM:Lerp(OUTLINE_COLOR, 0.6) or OUTLINE_COLOR)
-			refs.strokeInst.Thickness = isWorn and 5 or (chosen and 4 or 3)
+				or (chosen and READY_RIM:Lerp(refs.rarity.color, 0.6) or refs.rarity.color)
+			refs.strokeInst.Thickness = isWorn and 5 or (chosen and 5 or 4)
 		else
 			setButtonColor(refs.cell, UITheme.Color.Locked)
 			refs.strokeInst.Color = OUTLINE_COLOR
@@ -5648,7 +5735,19 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 				refs.rowStroke.Thickness = 5
 			else
 				band = 2
-				refs.claimBtn.Text = "Claim"
+				-- ===== AN UNFINISHED QUEST DOES NOT OFFER A CLAIM BUTTON =====
+				--
+				-- This said "Claim" in the Locked colour, which is the SAME grey the finished
+				-- "Done" state uses -- so a quest at 0/3 and a quest already claimed looked
+				-- identical, and the only one of the three states that was actually pressable
+				-- (CLAIM!) was the odd one out. Players pressed the grey one, the server answered
+				-- "That quest isn't finished yet!", and it read as "the claim buttons do not work".
+				-- It is the exact thing in the 2026-08-11 screenshot: 0/3 offering Claim while
+				-- 50/50 shows Done.
+				--
+				-- The button now states the requirement instead of inviting a press. The bar under
+				-- it already shows progress, so the button says what is missing, not where you are.
+				refs.claimBtn.Text = ("\u{1F512} %d left"):format(math.max(quest.target - done, 0))
 				setButtonColor(refs.claimBtn, UITheme.Color.Locked)
 				refs.rowStroke.Color = OUTLINE_COLOR
 				refs.rowStroke.Thickness = 4
@@ -6213,13 +6312,20 @@ local function refreshUI()
 	end
 
 	-- Same rule for both shop lists: a row you cannot afford is dimmed rather than left inviting.
+	-- THE CAP IS SHOWN, NOT JUST OBEYED. Five levels per unlocked zone (GetUpgradeMaxLevel), so the
+	-- row reads "Lv 5 / 5" and its price reads "ZONE LOCKED" rather than quoting a number the server
+	-- will refuse -- an upgrade that silently stops being buyable is the same complaint as a claim
+	-- button that does nothing. The diamond rows below have printed their own cap this way for ages.
+	local upgradeMax = GameConfig.GetUpgradeMaxLevel(data)
 	for key, refs in pairs(upgradeButtons) do
 		local level = data.Upgrades[key]
-		local cost = GameConfig.GetUpgradeCost(key, level)
-		refs.levelLabel.Text = "Lv " .. level
-		refs.costLabel.Text = "\u{1F9EC} " .. formatNumber(cost)
+		local cost = GameConfig.GetUpgradeCost(key, level, data)
+		local maxed = (level >= upgradeMax)
+		refs.levelLabel.Text = ("Lv %d / %d"):format(level, upgradeMax)
+		refs.costLabel.Text = maxed and "ZONE LOCKED" or ("\u{1F9EC} " .. formatNumber(cost))
 		if refs.button then
-			setButtonColor(refs.button, data.DNA >= cost and UITheme.Color.Green or UITheme.Color.Locked)
+			setButtonColor(refs.button, (not maxed and data.DNA >= cost)
+				and UITheme.Color.Green or UITheme.Color.Locked)
 		end
 	end
 
@@ -6265,6 +6371,9 @@ Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 	if hudRefs.refreshAudioPanel then hudRefs.refreshAudioPanel(data) end
 	if hudRefs.refreshCodes then hudRefs.refreshCodes(data) end
 	if hudRefs.refreshSpins then hudRefs.refreshSpins() end
+	-- the odds move with luck, and luck moves with a potion, a pet swap or a bought upgrade -- all
+	-- of which arrive as a DataUpdate and none of which the panel could see on its own
+	if hudRefs.refreshEggPanel then hudRefs.refreshEggPanel() end
 	-- the DNA tiles are priced in the player's own stage, so they move when the player does
 	if hudRefs.refreshRobuxShop then hudRefs.refreshRobuxShop() end
 	refreshRebirthPanel()
@@ -6415,8 +6524,8 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 	elseif payload.kind == "playerHurt" then
 		-- Same: this is drawn on the player's own head by CombatClient, in red, where the damage is
 		-- actually happening. A banner for it was the single most frequent thing on screen.
-	elseif payload.kind == "machine" then
-		showNotification("🧬 Machine gave +" .. formatNumber(payload.amount) .. " DNA", Color3.fromRGB(120, 220, 255))
+	-- The `machine` branch is gone with the DNA Machine itself (10.19, owner's decision). Nothing
+	-- sends that payload any more: MachineService was the only producer and it has been deleted.
 	elseif payload.kind == "rebirth" then
 		-- BOTH MULTIPLIERS, AS TOTALS, AND THEN WHERE THE LADDER POINTS NEXT. The player has just
 		-- traded a whole climb for this; a delta ("+100%") describes the transaction, while the
@@ -6720,6 +6829,350 @@ local shopPanels = {
 }
 
 
+-- ================= EGGS (10.19) =================
+--
+-- "Hatch and auto-hatch need their own panel; selecting an egg should first show what your chances
+-- are of getting which creature, and then in that same tab give you hatch and auto-hatch."
+--
+-- Before this the ONLY egg UI in the whole game was two ProximityPrompts on a podium, and the odds
+-- existed only as a SurfaceGui painted on the stall wall -- quoted at luck 0, which is nobody's
+-- actual luck. Auto Hatch was worse: the remote, the pass and the whole `DriveAutoHatch` driver
+-- were written and running, and **nothing in the game could turn it on**.
+--
+-- WHY THE ODDS ARE HONEST HERE AND WERE NOT ON THE WALL. `GameConfig.GetLuckPercent` moved out of
+-- DNAService this session precisely so this panel could call it -- see the note there. The number
+-- shown is the number `rollAndInsert` rolls against, because both call one function.
+--
+-- The whole block is an immediately-called function with only `hudRefs.refreshEggPanel` escaping,
+-- because this file is at Luau's 200-local ceiling. A `do ... end` is NOT enough -- see the note
+-- over the Season Pass panel for the two times that mistake deleted the entire HUD.
+;(function()
+	local eggButton = columnTile("R", 9, "\u{1F95A}", "Eggs", UITheme.Color.Bubblegum)
+
+	local panel = Instance.new("Frame")
+	panel.Name = "EggPanel"
+	panel.Size = UDim2.new(0, 470, 0, 520)
+	panel.Position = PANEL_ANCHOR
+	panel.ZIndex = 20
+	panel.Visible = false
+	panel.Parent = screenGui
+	styleCard(panel, PANEL_SHELL, UDim.new(0, 22), 5)
+	registerPanel(panel)
+	panelClose(panel)
+
+	local title = UITheme.Label(panel, {
+		name = "Title", text = "\u{1F95A} Eggs",
+		size = UDim2.new(1, -80, 0, 40), position = UDim2.new(0, 18, 0, 10),
+		xAlign = "Left", maxTextSize = 34, zIndex = 22,
+	})
+
+	-- WHICH STALL THE PLAYER IS STANDING AT, or nil. Read off the same ProximityPrompts PetService
+	-- wired -- their `EggKey` attribute is already the authority on which egg a podium sells, so
+	-- this needs no new attribute, no new remote and no second source of truth. Distance is measured
+	-- against the prompt's OWN MaxActivationDistance for the reason PetService gives for Auto Hatch:
+	-- it is the range the player can SEE they are in, so anything else reads as arbitrary.
+	local function nearestEggZone()
+		local character = player.Character
+		local hrp = character and character:FindFirstChild("HumanoidRootPart")
+		local zones = workspace:FindFirstChild("Zones")
+		if not (hrp and zones) then return nil end
+		local bestZone, bestDist = nil, nil
+		for _, zoneModel in ipairs(zones:GetChildren()) do
+			local shop = zoneModel:FindFirstChild("PetShop")
+			if shop then
+				for _, prompt in ipairs(shop:GetDescendants()) do
+					if prompt:IsA("ProximityPrompt") and prompt:GetAttribute("EggKey") then
+						local anchor = prompt.Parent
+						if anchor and anchor:IsA("BasePart") then
+							local d = (anchor.Position - hrp.Position).Magnitude
+							if d <= prompt.MaxActivationDistance and (not bestDist or d < bestDist) then
+								bestZone, bestDist = zoneModel.Name, d
+							end
+						end
+					end
+				end
+			end
+		end
+		return bestZone
+	end
+
+	-- Which zone's three eggs are on show. Falls back to the zone the save says the player is in, so
+	-- the panel is a useful price/odds list from anywhere -- only the BUY is gated on standing there.
+	local shownZone = nil
+	local selectedTier = "Basic"
+
+	local tierRow = Instance.new("Frame")
+	tierRow.Name = "TierRow"
+	tierRow.Size = UDim2.new(1, -36, 0, 54)
+	tierRow.Position = UDim2.new(0, 18, 0, 58)
+	tierRow.BackgroundTransparency = 1
+	tierRow.ZIndex = panel.ZIndex + UITheme.Z.Content
+	tierRow.Parent = panel
+
+	local tierButtons = {}
+	for i, suffix in ipairs({ "Basic", "Better", "Premium" }) do
+		local btn = Instance.new("TextButton")
+		btn.Name = suffix
+		btn.Size = UDim2.new(0.32, 0, 1, 0)
+		btn.Position = UDim2.new((i - 1) * 0.34, 0, 0, 0)
+		btn.Text = suffix
+		btn.ZIndex = tierRow.ZIndex
+		btn.Parent = tierRow
+		styleButton(btn, UITheme.Color.Locked, UDim.new(0, 14))
+		tierButtons[suffix] = btn
+	end
+
+	local costLabel = Instance.new("TextLabel")
+	costLabel.Name = "Cost"
+	costLabel.Size = UDim2.new(1, -36, 0, 26)
+	costLabel.Position = UDim2.new(0, 18, 0, 118)
+	costLabel.BackgroundTransparency = 1
+	costLabel.TextXAlignment = Enum.TextXAlignment.Left
+	costLabel.Text = ""
+	costLabel.ZIndex = panel.ZIndex + UITheme.Z.Content
+	costLabel.Parent = panel
+	themeLabel(costLabel, 22, UITheme.Color.Cream)
+
+	local oddsScroll = Instance.new("ScrollingFrame")
+	oddsScroll.Name = "OddsScroll"
+	oddsScroll.Size = UDim2.new(1, -36, 0, 232)
+	oddsScroll.Position = UDim2.new(0, 18, 0, 150)
+	oddsScroll.BackgroundTransparency = 1
+	oddsScroll.BorderSizePixel = 0
+	oddsScroll.ScrollBarThickness = 6
+	oddsScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	oddsScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	oddsScroll.ZIndex = panel.ZIndex + UITheme.Z.Content
+	oddsScroll.Parent = panel
+
+	local oddsLayout = Instance.new("UIListLayout")
+	oddsLayout.Padding = UDim.new(0, 6)
+	oddsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	oddsLayout.Parent = oddsScroll
+
+	local hatchButton = Instance.new("TextButton")
+	hatchButton.Name = "Hatch"
+	hatchButton.Size = UDim2.new(0.48, 0, 0, 50)
+	hatchButton.Position = UDim2.new(0, 18, 0, 396)
+	hatchButton.Text = "HATCH"
+	hatchButton.ZIndex = panel.ZIndex + UITheme.Z.Content
+	hatchButton.Parent = panel
+	styleButton(hatchButton, UITheme.Color.Green, UDim.new(0, 14))
+
+	local bulkButton = Instance.new("TextButton")
+	bulkButton.Name = "HatchBulk"
+	bulkButton.Size = UDim2.new(0.48, 0, 0, 50)
+	bulkButton.Position = UDim2.new(1, -18, 0, 396)
+	bulkButton.AnchorPoint = Vector2.new(1, 0)
+	bulkButton.Text = "HATCH x10"
+	bulkButton.ZIndex = panel.ZIndex + UITheme.Z.Content
+	bulkButton.Parent = panel
+	styleButton(bulkButton, UITheme.Color.Blue, UDim.new(0, 14))
+
+	local autoButton = Instance.new("TextButton")
+	autoButton.Name = "AutoHatch"
+	autoButton.Size = UDim2.new(1, -36, 0, 46)
+	autoButton.Position = UDim2.new(0, 18, 0, 456)
+	autoButton.Text = "AUTO HATCH"
+	autoButton.ZIndex = panel.ZIndex + UITheme.Z.Content
+	autoButton.Parent = panel
+	styleButton(autoButton, UITheme.Color.Locked, UDim.new(0, 14))
+
+	-- ===== REFRESH =====
+	local rows = {}
+	local function refresh()
+		local data = currentData
+		if not data then return end
+
+		local nearZone = nearestEggZone()
+		shownZone = nearZone or data.CurrentZone or "Forest"
+		title.Text = ("\u{1F95A} %s Eggs"):format(shownZone)
+
+		-- the egg being described, and the honest luck it would actually be rolled at
+		local egg = nil
+		for _, e in ipairs(GameConfig.Eggs) do
+			if e.zone == shownZone and e.tierSuffix == selectedTier then egg = e end
+		end
+		for suffix, btn in pairs(tierButtons) do
+			setButtonColor(btn, suffix == selectedTier and UITheme.Color.Purple or UITheme.Color.Locked)
+		end
+		if not egg then return end
+
+		local luck = GameConfig.GetLuckPercent(data) + (egg.luckBonus or 0)
+		local affordable = (data.DNA or 0) >= egg.cost
+		costLabel.Text = ("%s  \u{2022}  \u{1F340} %d%% luck"):format(formatNumber(egg.cost), math.floor(luck))
+
+		-- ONE ROW PER SPECIES, REBUILT ONLY WHEN THE POOL CHANGES. The odds themselves are rewritten
+		-- every refresh (luck moves with potions and pets), but the rows are reused -- rebuilding a
+		-- dozen cards on every DataUpdate is what made the pet list flicker.
+		local odds = GameConfig.GetEggOdds(egg, luck)
+		local key = egg.key
+		if rows.key ~= key then
+			for _, r in ipairs(rows) do r:Destroy() end
+			table.clear(rows)
+			rows.key = key
+			for i, entry in ipairs(odds) do
+				local rarity = GameConfig.GetRarity(entry.def.rarity)
+				local row = Instance.new("Frame")
+				row.Name = entry.def.key
+				row.Size = UDim2.new(1, -10, 0, 52)
+				row.LayoutOrder = i
+				row.ZIndex = oddsScroll.ZIndex
+				row.Parent = oddsScroll
+				styleCard(row, rarity.color, UDim.new(0, 12), 3)
+
+				UITheme.IconSlot(row, {
+					name = "Icon", icon = entry.def.emoji, maxTextSize = 28,
+					size = UDim2.new(0, 42, 1, -10), position = UDim2.new(0, 8, 0, 5),
+				})
+
+				local nameLabel = Instance.new("TextLabel")
+				nameLabel.Name = "NameLabel"
+				nameLabel.Size = UDim2.new(1, -160, 0, 24)
+				nameLabel.Position = UDim2.new(0, 58, 0, 5)
+				nameLabel.BackgroundTransparency = 1
+				nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+				nameLabel.Text = entry.def.name
+				nameLabel.Parent = row
+				themeLabel(nameLabel, 20)
+
+				local rarityLabel = Instance.new("TextLabel")
+				rarityLabel.Name = "Rarity"
+				rarityLabel.Size = UDim2.new(1, -160, 0, 20)
+				rarityLabel.Position = UDim2.new(0, 58, 0, 27)
+				rarityLabel.BackgroundTransparency = 1
+				rarityLabel.TextXAlignment = Enum.TextXAlignment.Left
+				rarityLabel.Text = rarity.name
+				rarityLabel.Parent = row
+				themeLabel(rarityLabel, 16, UITheme.Color.Cream)
+
+				local pct = Instance.new("TextLabel")
+				pct.Name = "Chance"
+				pct.Size = UDim2.new(0, 96, 1, -10)
+				pct.Position = UDim2.new(1, -10, 0, 5)
+				pct.AnchorPoint = Vector2.new(1, 0)
+				pct.BackgroundTransparency = 1
+				pct.TextXAlignment = Enum.TextXAlignment.Right
+				pct.Text = ""
+				pct.Parent = row
+				themeLabel(pct, 24)
+
+				table.insert(rows, row)
+			end
+		end
+		for i, entry in ipairs(odds) do
+			local row = rows[i]
+			local pct = row and row:FindFirstChild("Chance")
+			if pct then
+				-- two decimals under 1%, because "0%" on a Legendary is a lie the player can disprove
+				pct.Text = entry.chance < 1
+					and ("%.2f%%"):format(entry.chance)
+					or ("%.1f%%"):format(entry.chance)
+			end
+		end
+
+		-- ===== THE BUY IS GATED ON STANDING AT THE STALL, AND SAYS SO =====
+		--
+		-- Not because the server enforces it -- it does NOT, see the note in STATUS.md about the
+		-- unused IsNearPetShop -- but because the podium is where the hatch animation plays and
+		-- where the prompts are. A button that silently works from across the map would make the
+		-- stall pointless; one that greys out with no reason given is the "claim buttons do nothing"
+		-- complaint all over again. So it states the requirement.
+		if not nearZone then
+			setButtonColor(hatchButton, UITheme.Color.Locked)
+			setButtonColor(bulkButton, UITheme.Color.Locked)
+			hatchButton.Text = "GO TO A PET SHOP"
+			bulkButton.Text = "\u{1F512}"
+		else
+			setButtonColor(hatchButton, affordable and UITheme.Color.Green or UITheme.Color.Locked)
+			setButtonColor(bulkButton, ((data.DNA or 0) >= egg.cost * 10) and UITheme.Color.Blue or UITheme.Color.Locked)
+			hatchButton.Text = affordable and "HATCH" or "NEED DNA"
+			bulkButton.Text = "HATCH x10"
+		end
+
+		-- Auto Hatch: owned or not, on or off. `nil` counts as ON, exactly as DriveAutoHatch reads it
+		-- (only an explicit `false` stops it) -- so a pass owner who has never touched this sees the
+		-- true state rather than an OFF that does not match what the server is doing.
+		if GameConfig.OwnsPass(data, "AutoHatch") then
+			local on = player:GetAttribute("AutoHatch") ~= false
+			setButtonColor(autoButton, on and UITheme.Color.Green or UITheme.Color.Locked)
+			autoButton.Text = on and "\u{1F504} AUTO HATCH: ON" or "\u{1F504} AUTO HATCH: OFF"
+		else
+			setButtonColor(autoButton, UITheme.Color.Gold)
+			autoButton.Text = "\u{1F512} AUTO HATCH \u{2014} GAME PASS"
+		end
+	end
+
+	for suffix, btn in pairs(tierButtons) do
+		btn.MouseButton1Click:Connect(function()
+			selectedTier = suffix
+			refresh()
+		end)
+	end
+
+	hatchButton.MouseButton1Click:Connect(function()
+		local egg = nil
+		for _, e in ipairs(GameConfig.Eggs) do
+			if e.zone == shownZone and e.tierSuffix == selectedTier then egg = e end
+		end
+		-- Fired unconditionally when in range rather than gated on the local affordability check:
+		-- the client's copy of the save is up to a push behind, and the server's own "Not enough
+		-- DNA" toast is better than a button that silently does nothing. Same rule as the spins.
+		if egg and nearestEggZone() then
+			Remotes.BuyEgg:FireServer(egg.key)
+		end
+	end)
+
+	bulkButton.MouseButton1Click:Connect(function()
+		local egg = nil
+		for _, e in ipairs(GameConfig.Eggs) do
+			if e.zone == shownZone and e.tierSuffix == selectedTier then egg = e end
+		end
+		local bulk = Remotes:FindFirstChild("BuyEggBulk")
+		if egg and bulk and nearestEggZone() then
+			bulk:FireServer(egg.key)
+		end
+	end)
+
+	autoButton.MouseButton1Click:Connect(function()
+		if not (currentData and GameConfig.OwnsPass(currentData, "AutoHatch")) then
+			-- Sends them to the shop rather than doing nothing at all: this is the one control in
+			-- the panel a player can press without owning what it needs.
+			if hudRefs.selectRobuxTab then hudRefs.selectRobuxTab(true) end
+			toggleOnly(robuxPanel)
+			return
+		end
+		local remote = Remotes:FindFirstChild("SetAutoHatch")
+		if remote then
+			remote:FireServer(player:GetAttribute("AutoHatch") == false)
+		end
+	end)
+
+	player:GetAttributeChangedSignal("AutoHatch"):Connect(refresh)
+
+	eggButton.MouseButton1Click:Connect(function()
+		-- Selected fresh on every open: the player has almost certainly walked to a different stall
+		-- since last time, and reopening on a zone they have left is the same class of bug as a
+		-- panel reopening at yesterday's scroll position.
+		selectedTier = "Basic"
+		refresh()
+		toggleOnly(panel)
+	end)
+
+	-- Ticked while the panel is open so walking up to a stall unlocks the buttons without the
+	-- player having to close and reopen it. One second is plenty for "am I standing there".
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			if panel.Visible then
+				refresh()
+			end
+		end
+	end)
+
+	hudRefs.refreshEggPanel = refresh
+end)()
+
 -- ===== The two tile columns, fitted to the screen =====
 -- Both columns are laid out in raw pixels: the left runs DOWN from y=100, the right runs UP from
 -- the bottom, five tiles at a 96 pitch. That needs 596px of height, and a Roblox phone viewport is
@@ -6760,13 +7213,17 @@ local shopPanels = {
 
 	-- THE GAP IS NOT THE GAP YOU SEE, and this is why raising it to 18 did not visibly separate
 	-- anything. Every tile carries a UIStroke of 5 drawn in Border mode -- OUTSIDE the frame's own
-	-- bounds -- and addShadow parks a sibling 5px lower. So between two tiles a nominal gap loses
-	-- 5 to the upper tile's stroke, 5 to its shadow and 5 to the lower tile's stroke: measured live,
-	-- an 18px pitch gap left exactly 3px of air, which is why the column read as one welded strip.
+	-- bounds -- so between two tiles a nominal gap loses 5 to the upper tile's stroke and 5 to the
+	-- lower tile's.
 	--
-	-- 31 for 16px of actual daylight. The number to change is this one, and the arithmetic to
-	-- remember is `visible = GAP - 15`.
-	local GAP_MAX, GAP_MIN = 31, 8
+	-- THE ARITHMETIC CHANGED ON 2026-08-11: it used to lose a third 5 to the sibling drop shadow
+	-- addShadow parked below every tile, i.e. `visible = GAP - 15`. That shadow is gone (see
+	-- UITheme.addShadow for why), so it is **`visible = GAP - 10`** now -- and GAP came 31 -> 26 to
+	-- hold the same 16px of actual daylight. Leaving it at 31 would have quietly opened the column
+	-- to 21px and pushed the bottom row into BOTTOM_CLEAR on a short viewport.
+	--
+	-- 26 for 16px of daylight. The number to change is this one.
+	local GAP_MAX, GAP_MIN = 26, 8
 	-- ...and the gap closes BEFORE the tiles shrink, which is what the note at the top of this block
 	-- promises and what the old fixed gap never actually did. At 31 a four-row cluster needs 93px of
 	-- pure spacing, and on a short viewport that pushed the tiles under their 40px floor and

@@ -62,6 +62,12 @@ GameConfig.XpPerLevelStart = 50
 GameConfig.XpPerLevelGrowth = 1.55
 GameConfig.XpPerLevelRamp = 0.06
 
+-- What the FIRST evolve of a brand new player costs, in XP. 1 = a single kill of anything, because
+-- the weakest creature in the first zone is worth exactly 1 and every other tier is a multiple of
+-- it. Applied in GetEvolveStep, to the first step only -- see the block there for why this is not
+-- a change to the curve.
+GameConfig.FirstEvolveXp = 1
+
 for i, stage in ipairs(GameConfig.Stages) do
 	if stage.cost == math.huge then
 		stage.xpCost = math.huge
@@ -209,40 +215,55 @@ end
 
 -- ===== UPGRADES =====
 -- baseCost grows by costMult per level. effect described per stat.
+--
+-- COST MULTIPLIERS RAISED 2026-08-11 (1.14-1.22 -> 1.28-1.38) on the owner's report that upgrades
+-- came far too fast. They are capped now as well -- see GetUpgradeMaxLevel, five levels per unlocked
+-- zone -- and the two changes are meant to be read together: the cap decides how FAR you may go,
+-- the multiplier decides how long each rung takes.
+--
+-- Measured against the cap rather than guessed. Full ladder totals at the three points that matter:
+--            zone 1 (5 lv)   zone 5 (25 lv)   zone 20 (100 lv)
+--   Speed         216            42.7K             4.7T
+--   Income        175            40.0K             7.9T
+--   Luck          373           129.1K           142.7T
+--   Mutation      596           310.6K             1.9Qa
+--   AutoCollect   1.1K          826.1K            25.6Qa
+-- Cheap enough that a new player can buy the five they are allowed, and a genuine sink at the top
+-- against an endgame DNA balance of roughly 1e18.
 GameConfig.Upgrades = {
 	Speed = {
 		displayName = "Speed",
 		emoji = "👟",
 		baseCost = 25,
-		costMult = 1.14,
+		costMult = 1.28,
 		description = "Moves you faster around the lab",
 	},
 	Income = {
 		displayName = "Income",
 		emoji = "💰",
 		baseCost = 20,
-		costMult = 1.15,
+		costMult = 1.29,
 		description = "+DNA per click and per second",
 	},
 	Luck = {
 		displayName = "Luck",
 		emoji = "🍀",
 		baseCost = 40,
-		costMult = 1.18,
+		costMult = 1.32,
 		description = "Higher chance of Critical DNA & rare mutations",
 	},
 	Mutation = {
 		displayName = "Mutation Chance",
 		emoji = "🧬",
 		baseCost = 60,
-		costMult = 1.2,
+		costMult = 1.35,
 		description = "More frequent mutation rolls",
 	},
 	AutoCollect = {
 		displayName = "Auto Collect",
 		emoji = "⚙️",
 		baseCost = 100,
-		costMult = 1.22,
+		costMult = 1.38,
 		description = "Passively collects DNA every second",
 	},
 }
@@ -539,7 +560,15 @@ GameConfig.PetRarities = {
 	{ name = "Uncommon",  weight = 400,  bonusMult = 1.6, color = Color3.fromRGB(110, 224, 130) },
 	{ name = "Rare",      weight = 150,  bonusMult = 2.6, color = Color3.fromRGB(90, 170, 255) },
 	{ name = "Epic",      weight = 42,   bonusMult = 4.5, color = Color3.fromRGB(190, 110, 255) },
-	{ name = "Legendary", weight = 8,    bonusMult = 8.0, color = Color3.fromRGB(255, 190, 60) },
+	-- WEIGHT 8 -> 4 (2026-08-11). "Legendary pops out of the egg far too easily" -- and measured, it
+	-- did: the Premium egg was handing one over 3.8% of the time in Forest and 4.4% by AbsolutePlane,
+	-- i.e. about one in 22, for the rarity the whole collection is supposed to be chasing. Halving
+	-- the weight is the lever that moves every pool at once; the per-tier `rarityBias` in EGG_TIERS
+	-- came down with it (see the note there), because bias was doing most of the lifting.
+	--
+	-- These weights feed exactly one function -- `poolWeights`, which serves the egg roll and the
+	-- odds board that advertises it -- so this changes what eggs produce and nothing else.
+	{ name = "Legendary", weight = 4,    bonusMult = 8.0, color = Color3.fromRGB(255, 190, 60) },
 }
 
 GameConfig.PetRarityOrder = { "Common", "Uncommon", "Rare", "Epic", "Legendary" }
@@ -885,10 +914,20 @@ local ZONE_EGG_BASE = {
 --   three *different* lists -- the cheap egg cannot hand you the Legendary at all, and the
 --   Premium one has stopped wasting rolls on the Common.
 --   rarityBias then shifts the odds inside whatever slice is left.
+-- BIASES HALVED 2026-08-11, with the Legendary weight 8 -> 4 (see the Rarities table). Between them
+-- the Premium egg went from ~3.8-4.4% Legendary to ~1.6-2.1% and the Better egg from ~1.0-1.4% to
+-- ~0.4-0.7%. Bias was doing most of the work: at the old 2.8 the Premium egg multiplied a
+-- Legendary's weight by nearly seven before luck was counted at all.
+--
+-- The ORDER of the two levers matters if you re-tune. `rarityBias` is scaled by `rarityFactor`, so
+-- it lifts the rarest species hardest and barely touches the commonest; the weight is flat. Reach
+-- for the weight to move the floor and for the bias to move how much the expensive egg is worth
+-- over the cheap one. Basic stays at 0 and `rarityMax = 4`, which is what makes a Legendary
+-- structurally impossible out of it -- that is a feature, not a number to tune.
 local EGG_TIERS = {
-	{ suffix = "Basic",   emoji = "🥚", costMult = 1,   luckAdd = 0,  rarityBias = 0,   rarityMin = 1, rarityMax = 4 },
-	{ suffix = "Better",  emoji = "🐣", costMult = 3.5, luckAdd = 10, rarityBias = 1.1, rarityMin = 1, rarityMax = 5 },
-	{ suffix = "Premium", emoji = "🌟", costMult = 9,   luckAdd = 22, rarityBias = 2.8, rarityMin = 2, rarityMax = 5 },
+	{ suffix = "Basic",   emoji = "🥚", costMult = 1,   luckAdd = 0,  rarityBias = 0,    rarityMin = 1, rarityMax = 4 },
+	{ suffix = "Better",  emoji = "🐣", costMult = 3.5, luckAdd = 10, rarityBias = 0.55, rarityMin = 1, rarityMax = 5 },
+	{ suffix = "Premium", emoji = "🌟", costMult = 9,   luckAdd = 22, rarityBias = 1.4,  rarityMin = 2, rarityMax = 5 },
 }
 
 GameConfig.Eggs = {}
@@ -966,6 +1005,68 @@ function GameConfig.GetPetBonus(tier, rarity, petKey, data)
 		-- two of them without having to re-derive the arithmetic
 		share = share,
 	}
+end
+
+-- ===== WHAT THE EQUIPPED TEAM IS WORTH =====
+--
+-- LIVED IN PetService UNTIL 2026-08-11, and it moved here because it is pure: it reads `data` and
+-- this module and touches nothing else. Sitting on the server meant the CLIENT could not compute
+-- luck, which is what the egg panel needs to show honest odds -- and a UI that recomputes a formula
+-- by hand is exactly how `rollAndInsert` ended up advertising luck it was not using.
+--
+-- `PetService.GetEquippedBonus` is kept as an alias, so every existing call site is unchanged.
+function GameConfig.GetEquippedBonus(data)
+	-- `damageAdd` accumulates each pet's share ABOVE 1 and becomes the multiplier at the end, so an
+	-- empty team returns exactly 1 and nothing downstream has to special-case "no pets".
+	local incomeMult, luckAdd, dnaMult, damageAdd = 1, 0, 1, 0
+	if not data or not data.EquippedPetIds or not data.Pets then
+		return { incomeMult = incomeMult, luckAdd = luckAdd, dnaMult = dnaMult, damageMult = 1 }
+	end
+	local equippedLookup = {}
+	for _, id in ipairs(data.EquippedPetIds) do
+		equippedLookup[id] = true
+	end
+	for _, pet in ipairs(data.Pets) do
+		if equippedLookup[pet.id] then
+			-- rarity is a property of the species, not of the save, so it is looked up rather
+			-- than stored -- pets hatched before rarities existed still resolve correctly
+			local def = GameConfig.GetPetDef(pet.key)
+			-- `pet.key` and `data` are the progression axis: what this pet is worth to THIS player
+			-- at the rung they are standing on, not what its species is worth in the abstract.
+			local bonus = GameConfig.GetPetBonus(pet.tier, def and def.rarity, pet.key, data)
+			-- Both of these are hard 1 now (see PetBaseBonus) so these two lines are no-ops, and
+			-- they are kept as lines rather than deleted because the shape of this loop is the thing
+			-- that was wrong: `*=` over a growing collection is the bug, and leaving the operators
+			-- visible beside the summed damage below is the clearest statement of the rule.
+			incomeMult *= bonus.incomeMult
+			dnaMult *= bonus.dnaMult
+			luckAdd += bonus.luckAdd
+			damageAdd += (bonus.damageMult - 1)
+		end
+	end
+	return { incomeMult = incomeMult, luckAdd = luckAdd, dnaMult = dnaMult, damageMult = 1 + damageAdd }
+end
+
+-- ===== THE ONE LUCK TOTAL IN THE GAME =====
+--
+-- Every luck source is additive percentage points, and this is the only place they are summed.
+-- It used to live in DNAService, which the client cannot reach and PetService could not require
+-- (DNAService requires PetService) -- so the egg roll grew its OWN copy with two of these six terms
+-- and a Luck Potion did nothing at all to what came out of an egg. Both now call this.
+--
+-- Luck starts at zero, so every source ADDS points rather than multiplying: a multiplier would pay
+-- a first-time buyer exactly nothing.
+function GameConfig.GetLuckPercent(data)
+	if not data then return 0 end
+	local upgrades = (data.Upgrades and data.Upgrades.Luck or 0) * 2
+	local megaLevel = data.DiamondUpgrades and data.DiamondUpgrades.MegaLuck or 0
+	local megaAdd = megaLevel * GameConfig.DiamondUpgrades.MegaLuck.effectAdd
+	return upgrades
+		+ GameConfig.GetEquippedBonus(data).luckAdd
+		+ megaAdd
+		+ GameConfig.GetPotionLuckAdd(data)
+		+ GameConfig.GetPassAdd(data, "luckAdd")
+		+ GameConfig.GetEventAdd("luckAdd")
 end
 
 -- The highest tier a paid Rainbow Catalyst may PRODUCE. Fusing is unaffected and still reaches
@@ -1644,10 +1745,11 @@ GameConfig.DiamondUpgrades = {
 -- ===== DIAMONDS FROM PLAYING =====
 --
 -- Until now Diamonds had no gameplay source at all. Every one of them came from a time gate --
--- the daily reward, a playtime milestone, a Season Pass tier -- or from a Robux product, and every
--- RobuxProducts entry still has `productId = 0`, so that route does not work either. A player who
--- simply plays the game could not earn the currency that three permanent upgrades and twenty Stage
--- Masteries are priced in.
+-- the daily reward, a playtime milestone, a Season Pass tier -- or from a Robux product, and at the
+-- time every RobuxProducts entry still had `productId = 0`, so that route did not work either. (The
+-- ids are real since 2026-08-11, but that does not change the argument below: a player who simply
+-- plays must be able to earn the currency that three permanent upgrades and twenty Stage Masteries
+-- are priced in, without paying.)
 --
 -- A per-kill roll fixes that without touching any existing balance: it adds a currency rather than
 -- multiplying an existing one.
@@ -1857,10 +1959,16 @@ GameConfig.PlaytimeGifts = {
 
 -- ===== ROBUX SHOP =====
 -- Real-money packages bought with Robux via MarketplaceService Developer Products.
--- IMPORTANT: productId = 0 is a placeholder. Each of these must be created for real as a
--- Developer Product on the Roblox Creator Dashboard (Create > this game > Monetization >
--- Developer Products) -- that step can't be done from a script, only from the website by
--- the game owner. Once created, replace the matching productId below with the real numeric ID.
+--
+-- THE IDS BELOW ARE REAL AS OF 2026-08-11. All seventeen were created on the Creator Dashboard
+-- against universe **10675543038 ("Evolution Lab BETA V0.2")** -- the experience the play-testers
+-- actually join -- with Managed pricing DISABLED on every one, so the price the dashboard shows is
+-- exactly the price in this table and nothing re-prices them per region.
+--
+-- A PRODUCT ID IS BOUND TO ITS UNIVERSE. If this place is ever published to a different experience
+-- these ids stop resolving and every purchase fails, so they have to be re-created and re-pasted
+-- there. `productId = 0` is still the "not set up yet" sentinel, and RobuxShopService refuses to
+-- prompt on it rather than opening a dialog that cannot complete.
 -- ===== FIVE TIERS PER CURRENCY, AND WHY THE LADDER IS SHAPED THIS WAY =====
 --
 -- There used to be two DNA packs and two Diamond packs. Two price points is not a shop, it is a
@@ -1884,24 +1992,24 @@ GameConfig.PlaytimeGifts = {
 -- does not ride the stage curve, so scaling them would cap every permanent upgrade in one purchase.
 -- The full reasoning sits in the grant block of RobuxShopService.
 GameConfig.RobuxProducts = {
-	{ key = "DNA_1", productId = 0, price = 49,  tierGroup = "DNA", name = "Small DNA Pack",  emoji = "🧬", grantDNA = 1000 },
-	{ key = "DNA_2", productId = 0, price = 99,  tierGroup = "DNA", name = "Medium DNA Pack", emoji = "🧬", grantDNA = 2500 },
-	{ key = "DNA_3", productId = 0, price = 199, tierGroup = "DNA", name = "Large DNA Pack",  emoji = "🧬", grantDNA = 6000 },
-	{ key = "DNA_4", productId = 0, price = 499, tierGroup = "DNA", name = "Huge DNA Pack",   emoji = "🧬", grantDNA = 18000 },
-	{ key = "DNA_5", productId = 0, price = 999, tierGroup = "DNA", name = "Mega DNA Pack",   emoji = "🧬", grantDNA = 40000, ribbon = "BEST VALUE" },
+	{ key = "DNA_1", productId = 3702245508, price = 49,  tierGroup = "DNA", name = "Small DNA Pack",  emoji = "🧬", grantDNA = 1000 },
+	{ key = "DNA_2", productId = 3702247541, price = 99,  tierGroup = "DNA", name = "Medium DNA Pack", emoji = "🧬", grantDNA = 2500 },
+	{ key = "DNA_3", productId = 3702248045, price = 199, tierGroup = "DNA", name = "Large DNA Pack",  emoji = "🧬", grantDNA = 6000 },
+	{ key = "DNA_4", productId = 3702248511, price = 499, tierGroup = "DNA", name = "Huge DNA Pack",   emoji = "🧬", grantDNA = 18000 },
+	{ key = "DNA_5", productId = 3702248961, price = 999, tierGroup = "DNA", name = "Mega DNA Pack",   emoji = "🧬", grantDNA = 40000, ribbon = "BEST VALUE" },
 
 	-- Named with their real numbers, unlike the DNA packs above: a diamond count is not scaled, so
 	-- "50 Diamonds" is true at every stage, and hiding a true number behind an adjective only costs
 	-- the buyer clarity.
-	{ key = "Diamonds_1", productId = 0, price = 49,  tierGroup = "Diamonds", name = "10 Diamonds",  emoji = "💎", grantDiamonds = 10 },
-	{ key = "Diamonds_2", productId = 0, price = 99,  tierGroup = "Diamonds", name = "22 Diamonds",  emoji = "💎", grantDiamonds = 22 },
-	{ key = "Diamonds_3", productId = 0, price = 199, tierGroup = "Diamonds", name = "50 Diamonds",  emoji = "💎", grantDiamonds = 50 },
-	{ key = "Diamonds_4", productId = 0, price = 499, tierGroup = "Diamonds", name = "140 Diamonds", emoji = "💎", grantDiamonds = 140 },
-	{ key = "Diamonds_5", productId = 0, price = 999, tierGroup = "Diamonds", name = "300 Diamonds", emoji = "💎", grantDiamonds = 300, ribbon = "BEST VALUE" },
+	{ key = "Diamonds_1", productId = 3702250279, price = 49,  tierGroup = "Diamonds", name = "10 Diamonds",  emoji = "💎", grantDiamonds = 10 },
+	{ key = "Diamonds_2", productId = 3702250748, price = 99,  tierGroup = "Diamonds", name = "22 Diamonds",  emoji = "💎", grantDiamonds = 22 },
+	{ key = "Diamonds_3", productId = 3702251204, price = 199, tierGroup = "Diamonds", name = "50 Diamonds",  emoji = "💎", grantDiamonds = 50 },
+	{ key = "Diamonds_4", productId = 3702251679, price = 499, tierGroup = "Diamonds", name = "140 Diamonds", emoji = "💎", grantDiamonds = 140 },
+	{ key = "Diamonds_5", productId = 3702252142, price = 999, tierGroup = "Diamonds", name = "300 Diamonds", emoji = "💎", grantDiamonds = 300, ribbon = "BEST VALUE" },
 
 	-- The wheel. Priced against the 99 R$ DNA pack it sits next to -- see the SpinWheel comment for
 	-- why its expected DNA is deliberately the lower of the two.
-	{ key = "LuckySpin",   productId = 0, price = 99,  name = "Lucky Spin",    emoji = "\u{1F3A1}", grantSpin = true },
+	{ key = "LuckySpin",   productId = 3702253641, price = 99,  name = "Lucky Spin",    emoji = "\u{1F3A1}", grantSpin = true },
 
 	-- A COUNTED CHARGE, not a moment. `grantBossRevives` adds to data.BossRevives and BossService
 	-- spends one when there is something to restore; the receipt can therefore arrive late, on
@@ -1910,7 +2018,7 @@ GameConfig.RobuxProducts = {
 	-- it acknowledges, so any design that had to land inside the 34 s heal window would have a tail
 	-- of buyers who paid for nothing. Cheapest product in the shop on purpose: it is bought in a
 	-- moment of frustration, and a frustrated player will not spend 199.
-	{ key = "BossRevive",  productId = 0, price = 49,  name = "Boss Revive",   emoji = "\u{2694}\u{FE0F}", grantBossRevives = 1 },
+	{ key = "BossRevive",  productId = 3702254100, price = 49,  name = "Boss Revive",   emoji = "\u{2694}\u{FE0F}", grantBossRevives = 1 },
 
 	-- ===== THE RAINBOW CATALYST, AND WHY IT IS NOT WHAT THE ROADMAP ASKED FOR =====
 	--
@@ -1931,15 +2039,15 @@ GameConfig.RobuxProducts = {
 	-- them with the PetSlots3 pass), so an unbounded tier-up sold by the token is a compounding
 	-- income multiplier priced like a consumable. Capped at Rainbow it sells the tedious middle of the
 	-- ladder and leaves the ceiling as something only fusing can reach.
-	{ key = "TierUp_1", productId = 0, price = 99,  tierGroup = "TierUp", name = "Rainbow Catalyst",  emoji = "\u{1F308}", grantTierUps = 1 },
-	{ key = "TierUp_3", productId = 0, price = 249, tierGroup = "TierUp", name = "Catalyst x3",       emoji = "\u{1F308}", grantTierUps = 3, ribbon = "BEST VALUE" },
+	{ key = "TierUp_1", productId = 3702254553, price = 99,  tierGroup = "TierUp", name = "Rainbow Catalyst",  emoji = "\u{1F308}", grantTierUps = 1 },
+	{ key = "TierUp_3", productId = 3702254989, price = 249, tierGroup = "TierUp", name = "Catalyst x3",       emoji = "\u{1F308}", grantTierUps = 3, ribbon = "BEST VALUE" },
 
-	{ key = "Potions_3",   productId = 0, price = 99,  name = "Potion Pack",   emoji = "🧪", grantPotions = 3, grantPotionId = "dna_m" },
-	{ key = "Potions_10",  productId = 0, price = 199, name = "Potion Crate",  emoji = "🧪", grantPotions = 4, grantPotionId = "dna_l" },
+	{ key = "Potions_3",   productId = 3702255918, price = 99,  name = "Potion Pack",   emoji = "🧪", grantPotions = 3, grantPotionId = "dna_m" },
+	{ key = "Potions_10",  productId = 3702256409, price = 199, name = "Potion Crate",  emoji = "🧪", grantPotions = 4, grantPotionId = "dna_l" },
 	-- The Season Pass premium track. `grantSeasonPremium` is read by RobuxShopService's
 	-- ProcessReceipt; buying it late is safe, because every premium reward already reached stays
 	-- claimable (see SeasonPassService.GrantPremium).
-	{ key = "SeasonPremium", productId = 0, price = 399, name = "Premium Season Pass", emoji = "\u{1F39F}\u{FE0F}", grantSeasonPremium = true },
+	{ key = "SeasonPremium", productId = 3702256841, price = 399, name = "Premium Season Pass", emoji = "\u{1F39F}\u{FE0F}", grantSeasonPremium = true },
 }
 
 function GameConfig.GetRobuxProduct(key)
@@ -1992,9 +2100,20 @@ end
 
 -- ===== GAME PASSES =====
 -- One-off, permanent, account-wide Robux purchases -- as opposed to the consumable Developer
--- Products above. Same placeholder rule: `passId = 0` until the pass is created for real on the
--- Creator Dashboard (Create > this game > Monetization > Passes) and its numeric id pasted in.
--- PassService refuses to prompt on a zero id rather than opening a dialog that cannot complete.
+-- Products above.
+--
+-- THE IDS BELOW ARE REAL AS OF 2026-08-11. All nine were created against universe
+-- **10675543038 ("Evolution Lab BETA V0.2")** and each one was put ON SALE at the price in its row
+-- (a pass created without "Item for sale" enabled exists and has an id, but nobody can buy it --
+-- that is the single easiest step to miss). Verified through the product-info endpoint: correct
+-- name, correct price, `IsForSale = true` on all nine.
+--
+-- These are **Game Pass ids**, not asset ids. `UserOwnsGamePassAsync` takes the Game Pass id, and
+-- an asset id pasted here would make the call return false forever with no error anywhere -- the
+-- pass would simply never work for anyone who bought it.
+--
+-- `passId = 0` remains the "not set up yet" sentinel; PassService refuses to prompt on a zero id
+-- rather than opening a dialog that cannot complete.
 --
 -- EVERY EFFECT IS A FIELD READ BY GetPassMult / GetPassAdd BELOW, never a special case at the call
 -- site. That is what lets the 2x DNA pass and the VIP bundle both raise income without either hook
@@ -2021,31 +2140,31 @@ GameConfig.GamePasses = {
 	-- delivered 1.18x at the top and a true 2x only through stage 7 of 20. 260 covers the doubled
 	-- top-stage speed (254.5) with a little headroom. The cap exists to stop a player outrunning
 	-- StreamingEnabled, which is why lifting it is a deliberate, measured decision and not a default.
-	{ key = "Speed2x",   passId = 0, price = 99,  emoji = "🏃", name = "2x Speed",
+	{ key = "Speed2x",   passId = 1940815736, price = 99,  emoji = "🏃", name = "2x Speed",
 	  desc = "Move twice as fast, in every zone.", walkMult = 2, walkCap = 260 },
 
-	{ key = "XP2x",      passId = 0, price = 149, emoji = "⭐", name = "2x XP",
+	{ key = "XP2x",      passId = 1943659639, price = 149, emoji = "⭐", name = "2x XP",
 	  desc = "Every kill fills the evolve bar twice as fast.", xpMult = 2 },
 
-	{ key = "AutoHatch", passId = 0, price = 149, emoji = "🥚", name = "Auto Hatch",
+	{ key = "AutoHatch", passId = 1940215660, price = 149, emoji = "🥚", name = "Auto Hatch",
 	  desc = "Eggs keep hatching while you stand at the stall.", autoHatch = true },
 
-	{ key = "DNA2x",     passId = 0, price = 199, emoji = "🧬", name = "2x DNA",
+	{ key = "DNA2x",     passId = 1941325697, price = 199, emoji = "🧬", name = "2x DNA",
 	  desc = "Double DNA from clicks, kills and idle income.", incomeMult = 2 },
 
-	{ key = "Damage2x",  passId = 0, price = 199, emoji = "⚔️", name = "2x Damage",
+	{ key = "Damage2x",  passId = 1941175630, price = 199, emoji = "⚔️", name = "2x Damage",
 	  desc = "Hit twice as hard. Bosses die in half the swings.", damageMult = 2 },
 
-	{ key = "FastAuto",  passId = 0, price = 199, emoji = "⚡", name = "Fast Auto Attack",
+	{ key = "FastAuto",  passId = 1941379666, price = 199, emoji = "⚡", name = "Fast Auto Attack",
 	  desc = "Your auto attack swings 70% faster.", autoSpeedMult = 1.7 },
 
-	{ key = "Lucky",     passId = 0, price = 249, emoji = "🍀", name = "Lucky",
+	{ key = "Lucky",     passId = 1940107710, price = 249, emoji = "🍀", name = "Lucky",
 	  desc = "+50% Luck on every egg, pet and mutation roll.", luckAdd = 50 },
 
-	{ key = "PetSlots3", passId = 0, price = 299, emoji = "🐾", name = "+3 Pet Slots",
+	{ key = "PetSlots3", passId = 1944156329, price = 299, emoji = "🐾", name = "+3 Pet Slots",
 	  desc = "Equip three more pets at once.", petSlots = 3 },
 
-	{ key = "VIP",       passId = 0, price = 499, emoji = "👑", name = "VIP",
+	{ key = "VIP",       passId = 1941409673, price = 499, emoji = "👑", name = "VIP",
 	  desc = "1.5x DNA and damage, +15% Luck, a golden aura, a chat tag and 5 Diamonds a day.",
 	  incomeMult = 1.5, damageMult = 1.5, luckAdd = 15, dailyDiamonds = 5, vip = true },
 }
@@ -2631,9 +2750,33 @@ function GameConfig.GetSpeedUpgradeBonus(data)
 	return level * GameConfig.SpeedPerLevel
 end
 
-function GameConfig.GetUpgradeCost(upgradeKey, currentLevel)
+-- ===== UPGRADES ARE CAPPED BY HOW FAR YOU HAVE ACTUALLY GOT =====
+--
+-- Five levels per unlocked zone (owner's decision, 2026-08-11): 5 at the start, 100 with all twenty
+-- zones open. Before this there was **no ceiling at all** -- not in the price function, which had no
+-- cap path unlike the Diamond upgrades, and not in `HandleBuyUpgrade`, which checked only that the
+-- key existed and that the player could pay. A player who parked in zone 1 could buy Speed to
+-- level 400 and outrun the entire progression the zones are supposed to gate.
+--
+-- Tied to ZONES rather than to stage or rebirth because a zone is the thing the player visibly
+-- earns and can count, and it is already the gate on every other kind of power in the game.
+GameConfig.UpgradeLevelsPerZone = 5
+
+function GameConfig.GetUpgradeMaxLevel(data)
+	local zones = (data and data.UnlockedZones) and #data.UnlockedZones or 1
+	return math.max(zones, 1) * GameConfig.UpgradeLevelsPerZone
+end
+
+-- `data` is optional: without it this is the raw price of the next level, which is what a tool or a
+-- test wants. With it, a level at or past the cap costs `math.huge` -- the same sentinel the Diamond
+-- upgrades already use for a maxed row, so every "can I afford it" check in the game refuses it for
+-- free without a single new branch.
+function GameConfig.GetUpgradeCost(upgradeKey, currentLevel, data)
 	local def = GameConfig.Upgrades[upgradeKey]
 	if not def then return math.huge end
+	if data and currentLevel >= GameConfig.GetUpgradeMaxLevel(data) then
+		return math.huge
+	end
 	return math.floor(def.baseCost * (def.costMult ^ currentLevel))
 end
 
@@ -3444,6 +3587,27 @@ function GameConfig.GetEvolveStep(data)
 		step.cost = stage.cost
 		step.xpCost = stage.xpCost
 	end
+
+	-- ===== THE VERY FIRST EVOLVE COSTS ONE KILL =====
+	--
+	-- Stage 1 costs 50 XP and the weakest creature in the first zone is worth exactly 1, so a new
+	-- player used to be told "Click a creature to attack it" and then had to do it FIFTY TIMES
+	-- before anything happened. That is the whole "the tutorial lasts too long" report: the banner
+	-- is not on a timer, it is the else-branch of the XP test (see FirstJoin.stepFor), so it sat
+	-- there for the entire grind.
+	--
+	-- Only the FIRST step is discounted -- Speck -> Amber Blob, the one the tutorial points at.
+	-- Step two onwards pays the full 50, so the curve, the ramp and every stage above are untouched.
+	--
+	-- Gated on `TutorialDone` rather than on a new save field: the flag already exists, it is set
+	-- server-side on the first successful evolve of any kind (DNAService.HandleEvolve), and both
+	-- sides of the wire have it -- so the client's button and the server's charge agree without
+	-- anything new having to replicate. A rebirth does not reopen it, because rebirthing is not
+	-- being new.
+	if stageIndex == 1 and step.entryIndex == 2 and not (data and data.TutorialDone) then
+		step.xpCost = GameConfig.FirstEvolveXp
+	end
+
 	return step
 end
 

@@ -2243,7 +2243,10 @@ local LOOK_RADIUS = 32
 -- turn is something you watch happen instead of a snap.
 local TURN_RATE = math.rad(200)
 -- how long a counter-attack lunge takes, start to finish
-local LUNGE_TIME = 0.32
+-- 0.32 -> 0.5. The old figure was the whole of a symmetric shove; this one has to hold a wind-up,
+-- a strike and a recovery (see the three-phase curve in driveCreatures), and at 0.32 the telegraph
+-- was nine hundredths of a second -- too short to be seen, let alone reacted to.
+local LUNGE_TIME = 0.5
 -- and how long the flinch off a hit taken lasts. Deliberately shorter than the shortest hit
 -- cooldown in TIERS (0.15) so a fast clicker sees a *new* flinch on every blow rather than one
 -- long smear -- a recoil that never restarts reads as a creature that is simply leaning.
@@ -2388,9 +2391,24 @@ end
 --
 -- One table and one loop, and the table only ever holds creatures that are actually hurt -- the one
 -- or two being fought right now, never the 520 standing in the world.
-local REGEN_DELAY = 7
-local REGEN_TIME = 8
-local hurt = {} -- [model] = { max, hp, lastHit, draw }
+-- ===== WHY THIS READ AS "CREATURES DO NOT HEAL" (10.19) =====
+--
+-- The regeneration was implemented, wired to Heartbeat and provably working -- and no player could
+-- ever see it happen. The health plate is only drawn over the scenery for **5 seconds** after a hit
+-- (`plateHotUntil` in onHit), and healing did not begin until **7**. So the bar stopped being
+-- visible two full seconds before it started moving, every single time. The report was right about
+-- the experience and wrong about the cause, which is why the fix is timing and visibility rather
+-- than logic.
+--
+-- DELAY 7 -> 3: healing now starts while the plate is still hot, so the first thing a player sees
+-- after walking away is the bar climbing. Still comfortably longer than the 0.34 s auto-attack
+-- interval, so it cannot interfere with a fight in progress -- which was the whole point of the
+-- delay and has not changed.
+--
+-- TIME 8 -> 5: a full heal that takes eight seconds to watch is not feedback, it is a screensaver.
+local REGEN_DELAY = 3
+local REGEN_TIME = 5
+local hurt = {} -- [model] = { max, hp, lastHit, draw, plate }
 
 local function driveRegen(dt)
 	if not next(hurt) then return end
@@ -2400,15 +2418,26 @@ local function driveRegen(dt)
 			hurt[model] = nil
 		elseif now - e.lastHit >= REGEN_DELAY then
 			-- the precise value lives on the entry and only the rounded one is published: healing
-			-- 12 health over 8 seconds is 0.025 a frame, and a floor() applied to the attribute
+			-- 12 health over 5 seconds is 0.04 a frame, and a floor() applied to the attribute
 			-- itself would round every one of those steps away and heal nothing at all
 			e.hp = math.min(e.hp + e.max * (dt / REGEN_TIME), e.max)
 			local shown = math.floor(e.hp)
 			model:SetAttribute("Health", shown)
 			e.draw(shown)
+			-- HOLD THE PLATE UP FOR AS LONG AS IT IS HEALING. Without this the bar is occluded again
+			-- 5 s after the last hit and the last two seconds of the climb happen behind the scenery
+			-- -- which is the bug above, just two seconds smaller.
+			if e.plate and e.plate.Parent then
+				e.plate.AlwaysOnTop = true
+			end
 			if e.hp >= e.max then
 				model:SetAttribute("Health", e.max)
 				e.draw(e.max)
+				-- back to occluded now it is whole again: 520 creatures drawing a full bar through
+				-- the walls is exactly the wall of labels AlwaysOnTop = false exists to prevent
+				if e.plate and e.plate.Parent then
+					e.plate.AlwaysOnTop = false
+				end
 				hurt[model] = nil
 			end
 		end
@@ -2570,9 +2599,40 @@ local function driveCreatures(dt)
 				-- the counter-attack, thrown forward along the rig's own -Z. Every heavy tier
 				-- already hit back; without this it did it invisibly, and being taken to half
 				-- health by something standing perfectly still reads as a bug, not as a fight.
-				local lunge = 0
+				-- ===== WIND UP, STRIKE, RECOVER -- NOT ONE SYMMETRIC SHOVE (10.19) =====
+				--
+				-- This was `sin(k * pi)`: an equal glide out and back, with no pitch on it. A push
+				-- that leaves at the same speed it returns has no moment of impact in it, so at any
+				-- distance it read as the creature drifting rather than hitting -- which is the
+				-- "creatures need an animation when they attack" report.
+				--
+				-- Three phases against the clock, because that is what an attack is made of:
+				--   0-28%  pull BACK and rear up, which is the telegraph -- it is what makes the
+				--          strike legible before it lands, and gives the player the beat to react in
+				--   28-55% snap FORWARD, four times faster than the wind-up, pitching down into it
+				--   55-100% ease home on a squared falloff, so it settles instead of stopping dead
+				--
+				-- Position AND pitch move together. Pitch is most of what sells it: the same travel
+				-- with a level body is a lunge by a creature that is not looking at you.
+				local lunge, lungePitch = 0, 0
 				if now < rig.lungeUntil then
-					lunge = math.sin(((rig.lungeUntil - now) / LUNGE_TIME) * math.pi) * rig.size * 0.42
+					local p = 1 - (rig.lungeUntil - now) / LUNGE_TIME -- 0 at the start, 1 at the end
+					-- explicitly initialised: an uninitialised `local` is the one shape
+					-- tools/luanames.py does not reliably bind, and the baseline is worth keeping clean
+					local surge = 0
+					if p < 0.28 then
+						-- eased, so the telegraph is a gather rather than a jerk
+						local k = math.sin((p / 0.28) * math.pi * 0.5)
+						surge, lungePitch = -0.35 * k, 0.24 * k
+					elseif p < 0.55 then
+						local k = (p - 0.28) / 0.27
+						surge, lungePitch = -0.35 + 1.35 * k, 0.24 - 0.58 * k
+					else
+						local k = (p - 0.55) / 0.45
+						local e = (1 - k) * (1 - k)
+						surge, lungePitch = 1.00 * e, -0.34 * e
+					end
+					lunge = surge * rig.size * 0.42
 				end
 				-- The flinch: the same throw as the lunge but BACKWARDS, with a pitch back and a shiver
 				-- on top of the facing. Taking damage used to change a number on a bar and nothing else
@@ -2593,7 +2653,9 @@ local function driveCreatures(dt)
 				-- every rig in this file is built facing -Z, so the lunge is -Z and the recoil is +Z
 				local base = CFrame.new(rig.pos.X, rig.pos.Y + bob, rig.pos.Z)
 					* CFrame.Angles(0, rig.yaw + sway + shiver, 0)
-					* CFrame.Angles(-lean + flinch, 0, 0)
+					-- `lungePitch` rides the same axis as the flinch: positive rears the body back
+					-- (the wind-up), negative drives it down and forward (the strike)
+					* CFrame.Angles(-lean + flinch + lungePitch, 0, 0)
 					* CFrame.new(0, 0, recoil - lunge)
 
 				local parts, cframes = rig.parts, rig.cframes
@@ -2955,9 +3017,20 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 		maxTextSize = 22,
 	})
 
-	-- scaled off the rig: 14 studs was measured against a 7-stud Critter, and both the creatures
-	-- and the player's own body are a great deal bigger than that now
-	local clickReach = math.max(26, tier.size * 2.2)
+	-- ===== A CLICK IS MELEE. It used to be artillery. =====
+	--
+	-- This was `math.max(26, tier.size * 2.2)`, which put an Elite at 57 studs and a Swarmer at 26 --
+	-- so creatures could be picked off from most of the way across a clearing without ever walking
+	-- up to one. That is the "range for fighting creatures is too big" report.
+	--
+	-- The shape changed as well as the number. `size * 2.2` grows the reach FASTER than the body,
+	-- so the biggest creatures were the ones you could hit from furthest away; `size * 0.6` grows it
+	-- slower, so every tier ends up at roughly the same standing gap and the reach only covers the
+	-- part of the distance the creature's own body occupies. 16 is that standing gap.
+	--
+	-- Resulting reach: Swarmer 19.9, Critter 22.6, Brute 25.6, Elite 31.6 -- against bodies of
+	-- 6.5 / 11 / 16 / 26, i.e. you have to be next to it.
+	local clickReach = tier.size * 0.6 + 16
 	-- the ground disc. Not registered as an attachment on purpose: the rig bobs, the ring does
 	-- not, and a ring that bobs with the creature stops reading as something on the floor.
 	local ringColor = TIER_RING[tierName] or TIER_RING.Critter
@@ -3052,20 +3125,24 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 	clickDetector.MaxActivationDistance = clickReach
 	clickDetector.Parent = hitbox
 
-	-- How close auto-attack has to be. Deliberately looser than the click reach: a mouse click is
-	-- aimed, an auto-attack is not, and at the late stages the player's own root floats twenty studs
-	-- over the ground they are standing on.
+	-- ===== AUTO-ATTACK REACHES FURTHER THAN A CLICK, AND NOW IT HAS TO =====
 	--
-	-- FLOOR LOWERED 60 -> 34 with the client's AUTO_REACH.Creatures (55 -> 34). Lowering the client
-	-- alone would have shortened what an honest player sees while leaving the server willing to
-	-- accept a blow from 66.5 to 86 studs, so a modified client would have kept the old reach. The
-	-- floor tracks the client's scan radius; `math.max(clickReach, ...)` still guarantees this is
-	-- never tighter than the aimed click, which is the invariant that matters -- the server cannot
-	-- tell the two paths apart and must not refuse a legitimate one.
+	-- "Auto-attack does not work at all" was measured, not a bug: the wiring is fine end to end (a
+	-- 70 HP Brute died in two seconds once something was in range), but the floor was 34 studs
+	-- centre-to-centre and the nearest creature to the Forest spawn is 109. It simply never found a
+	-- target during ordinary play, and it says nothing when it does not, so it read as dead.
 	--
-	-- Resulting reach: Swarmer 40.5, Critter 45, Brute 51.2, Elite 83.2 (Elite is held up by its own
-	-- 57.2 clickReach, which is size * 2.2 -- a 26-stud body needs room).
-	local autoReach = math.max(clickReach, 34) + tier.size
+	-- The floor is 60 now and tracks the client's AUTO_REACH.Creatures exactly -- keep the two in
+	-- step, or the server accepts blows an honest client can never nominate, which is the difference
+	-- between a generous feature and a hole. `+ tier.size` is slack for the body, not extra range:
+	-- the client measures to the model's centre and the server to the body part's.
+	--
+	-- Deliberately looser than the click reach, and more so than before, because the two are now
+	-- different controls. A click is aimed and should be melee (see clickReach); an auto-attack is
+	-- the convenience feature and is meant to pick up whatever you walk past.
+	--
+	-- Resulting reach: Swarmer 66.5, Critter 71, Brute 76, Elite 86.
+	local autoReach = math.max(clickReach + 4, 60) + tier.size
 
 	model:SetAttribute("Health", tier.health)
 	model.Parent = creaturesFolder
@@ -3113,12 +3190,25 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 		barLabel.Text = shortNumber(health) .. " / " .. shortNumber(tier.health)
 	end
 
-	-- How far a CLICK may land from. The same figure auto-attack is held to, deliberately: the
-	-- server cannot tell the two apart and must not be tighter than the looser of them, or a
-	-- legitimate auto-attack at the edge of its range would be refused.
-	local strikeReach = autoReach
+	-- ===== THE TWO PATHS ARE GATED SEPARATELY NOW =====
+	--
+	-- This used to be one figure (`strikeReach = autoReach`) on the reasoning that the server cannot
+	-- tell a click from an auto-attack and must not refuse a legitimate one of either. That was true
+	-- of the old code and it is what made tightening the click impossible: `MaxActivationDistance`
+	-- is enforced on the CLIENT, so a modified one could still land a click from auto-attack range.
+	--
+	-- The server can tell them apart -- they arrive through two different doors. `MouseClick` calls
+	-- `onHit(player)`; the AutoAttack remote calls `entry.fn(player, true)`. So the flag is passed
+	-- rather than inferred, and each door is held to its own reach. A click now has to be melee on
+	-- an honest client AND on a modified one.
+	--
+	-- `+ 6` is float/lag slack on the click gate: the client checks activation distance a frame or
+	-- two before the server measures it, and a player walking backwards out of range must not have
+	-- an honest click swallowed.
+	local clickGate = clickReach + 6
+	local autoGate = autoReach
 
-	local function onHit(player)
+	local function onHit(player, viaAuto)
 		if dead or not model.Parent then return end
 		-- A DEAD PLAYER DOES NOT SWING, AND NEITHER DOES ONE ACROSS THE ZONE.
 		--
@@ -3131,7 +3221,7 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 		local hrp = character and character:FindFirstChild("HumanoidRootPart")
 		if not (humanoid and hrp) or humanoid.Health <= 0 then return end
-		if (hrp.Position - body.Position).Magnitude > strikeReach then return end
+		if (hrp.Position - body.Position).Magnitude > (viaAuto and autoGate or clickGate) then return end
 		local data = PlayerDataService.Get(player)
 		if not data then return end
 		local now = os.clock()
@@ -3159,7 +3249,9 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 				entry.hp = health
 				entry.lastHit = now
 			else
-				hurt[model] = { max = tier.health, hp = health, lastHit = now, draw = drawHealth }
+				-- `plate` so the regen loop can hold the bar above the scenery while it climbs --
+				-- see the note over REGEN_DELAY for why healing was invisible without it
+				hurt[model] = { max = tier.health, hp = health, lastHit = now, draw = drawHealth, plate = billboard }
 			end
 		end
 
@@ -3328,10 +3420,16 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 		end
 	end
 
-	clickDetector.MouseClick:Connect(onHit)
+	-- Wrapped rather than connected directly, so the `viaAuto` flag can only ever be false here:
+	-- MouseClick's own signature is (player), which would leave the second argument nil and take the
+	-- click gate by accident rather than on purpose. It is the tighter of the two gates -- an
+	-- accident in the other direction would be a silent hole.
+	clickDetector.MouseClick:Connect(function(player)
+		onHit(player, false)
+	end)
 	-- and the same function, reachable by name, for the auto-attack remote. Both paths land in
 	-- exactly one place, so the cooldown, the retaliation, the DNA and the death are identical
-	-- whether the player clicked or the loop did.
+	-- whether the player clicked or the loop did -- only the reach they are held to differs.
 	hitHandlers[model] = { fn = onHit, body = body, reach = autoReach }
 
 	return model
@@ -3492,7 +3590,10 @@ function CreatureService.Init()
 		local hrp = character and character:FindFirstChild("HumanoidRootPart")
 		if not hrp then return end
 		if (hrp.Position - entry.body.Position).Magnitude > entry.reach then return end
-		entry.fn(player)
+		-- `true` = this arrived by auto-attack, so onHit measures against the loose gate rather than
+		-- the melee one a click is held to. Without it every auto-attack past ~26 studs is silently
+		-- dropped by the server and the feature looks dead again.
+		entry.fn(player, true)
 	end)
 end
 

@@ -1,3 +1,406 @@
+# Where the rebuild stands — 2026-08-11, latest
+
+## Friends-test feedback pass (19 reported items) — in progress
+
+**Studio and `src/` are byte-identical.** Verified 2026-08-11 by rolling hash on eight files
+(CreatureService, BossService, PlayerDataService, MainUI, GameConfig, CombatClient, UITheme,
+PetService). Pushes go `src/` → Studio over `http://127.0.0.1:8731` with `UpdateSourceAsync`;
+always re-hash both sides afterwards.
+
+**Re-verified across the WHOLE tree later the same day: 48/49 scripts identical, 0 differing.**
+Studio had been reopened from the `.rbxl` saved 08-10 23:32, which predated this session's work —
+it still held `MachineService` and had no `FirstEvolveXp` anywhere. All 14 changed files were
+re-pushed and `MachineService` moved to `ServerStorage._PushBackup` (moved, not deleted). The
+sweep is worth running whole rather than on a sample: **a place file is a snapshot of one moment
+in a session, so reopening it silently reverts every push made after that moment.**
+
+### The place had no place association — and that is a boot failure, not a save failure
+
+`game.GameId` and `game.PlaceId` were both **0**, so every DataStore call returned *"You must
+publish this place to the web to access DataStore."* The reported symptoms — spawning as your own
+Roblox avatar, a HUD reading zero, a kick after a few seconds — were all one thing:
+
+```
+You must publish this place to the web...  →  ServerScriptService.PlayerDataService, Line 8
+Requested module experienced an error      →  ServerScriptService.ServerMain, Line 7
+```
+
+`PlayerDataService` calls `GetDataStore` at **module scope**, so the `require` threw and
+**`ServerMain` never got past line 7**. No remotes were created at all — that is what the
+`RarityBeam` infinite yield and the `UseBossRevive` / `DeletePets` "never appeared" lines were,
+and why nothing dressed the character. The kick itself was the one part working as designed:
+`Load` separates "never played" from "could not read" and refuses to start a session that would
+overwrite a real save with a blank one.
+
+**Rule: a service that touches a DataStore at module scope converts a configuration problem into a
+total server boot failure.** Every downstream "feature is broken" report then describes a symptom
+of a server that does not exist.
+
+Fixed by publishing to **Evolution Lab BETA V0.2** — universe `10675543038`, place
+`102217824272435`. Verified live: DataStore reads succeed, and the owner's save loads with
+`Stage 1`, `DNA 6844`, `Worn = cell_amber`, `TutorialDone = true`, owning `cell_speck` +
+`cell_amber`.
+
+**Publishing is also what binds the 26 Robux ids** — they were created against this universe, so
+before this the place could not have resolved one of them either.
+
+**Open, and now isolated from the save bug:** on a session that boots cleanly and loads a save
+naming `cell_amber`, the live character is still a **stock R15 avatar** — 18 MeshParts (15 limbs +
+3 accessory handles), the player's own hair/shirt/pants, `Transparency = 0` throughout, **zero
+costume parts anywhere in the model**, and **no error in the console**. Retest after the push.
+
+### Four reported "bugs" were measured and are NOT bugs
+
+| Reported | Measured |
+|---|---|
+| auto-attack does nothing | Works — killed a 70 HP Brute in 2 s. `AUTO_REACH` was **34 studs** and the nearest creature to spawn is **109**, so it never found a target. |
+| creatures never heal | `driveRegen` is wired to Heartbeat (`CreatureService:3483`) and re-armed on every blow. `REGEN_DELAY 7` + `REGEN_TIME 8` is just slow and invisible. |
+| boss never spawned | All 20 spawn at boot. `Boss_Forest` at `(0, 41.25, -368)`, 131 parts, streams to the client from 735 studs, captured on screen as "Alpha Bear". It is 735 studs behind the zone with nothing pointing at it. |
+| leaderboard not in game | Works, real rows, `Status` label correctly hidden. Boards sit at `x = -130, z = 95…280`, off the walking line. |
+
+### Landed
+
+- **Cell 1 is owned on the first join.** `PlayerDataService:219` opened an `else` that does not
+  close until line 380, and the character-repair block had been de-indented to one tab inside it —
+  so it *read* as top-level while the parser had it in the returning-save branch. A brand new
+  profile took `data = defaultData()` and skipped the lot: it spawned owning nothing, wearing
+  nothing, HUD reading `Cell (0/5)` with "Speck (1/5) — needs 19 more XP" for the character it is
+  supposed to already be. The block now sits outside the `if/else`. Verified: fresh profile reads
+  `Cell (1/5)`, wears `cell_speck`, next entry is Amber Blob.
+- **The first evolve costs one kill.** Stage 1 costs 50 XP and a Swarmer is worth exactly 1, so the
+  tutorial banner sat on screen for fifty kills — it is the else-branch of the XP test, not a timer.
+  `GameConfig.FirstEvolveXp = 1`, applied in `GetEvolveStep` to the first step only, gated on
+  `TutorialDone` so no new save field is needed and a rebirth does not reopen it. Verified: new
+  player 1 XP, step two 50, rebirthed player 50, stage 2 unchanged at 82.
+- **Click reach is melee; auto-attack reaches further.** These were one number and could not move
+  apart, because the server could not tell a click from an auto-attack. It can — they arrive
+  through two different doors — so `onHit(player, viaAuto)` now takes the flag and each door has
+  its own gate. `clickReach` `max(26, size*2.2)` → `size*0.6 + 16` (Elite **57.2 → 31.6**);
+  auto floor `34 → 60`, client `AUTO_REACH.Creatures` `34 → 60`. **Keep those two in step.**
+  Verified live: activation distances now 19.9 / 22.6 / 25.6 / 31.6, and an auto-attack lands at 50.
+- **Two auto-attack dead-ends.** The remote wait `return`ed after 30 s and killed auto-attack for
+  the whole session on one slow boot; it retries now. And the **T** key toggled `not autoEnabled()`,
+  which is false while dead — so pressing T on a corpse could only ever switch it ON and it could
+  never be switched off again. It toggles the raw attribute.
+- **Panels open at the top.** `CanvasPosition` was written nowhere in MainUI, so all ten
+  ScrollingFrames reopened where they were last left. `rewindScrolls` in `animatePanel`, the one
+  chokepoint every panel opens through.
+
+### Not reproduced
+
+- **Skin not updating until respawn.** The live rebuild works: `ApplyStage` swapped a live body
+  `cell_speck` → `cell_amber` with no respawn, and `data.WornCharacter` is set before the visual
+  call in `HandleEvolve`. Most likely a side effect of the Cell 1 bug above (a fresh profile wore
+  *nothing*, so there was no skin to change). **Re-test on a fresh profile.**
+
+### Phase 2 landed — the UI that lied
+
+- **Every drop shadow is gone (item 17).** `addShadow` had two variants and both drew outside the
+  shell: the SIBLING one was a full-size opaque rectangle parented next to the button and offset
+  5px down (the hard dark bar under every HUD tile, and it never shrank with the press because the
+  squash is a UIScale on the button and the shadow is not a child of it), and the LIP one was a
+  full-width 6px bar carrying the shell's full corner radius, so it stuck out of both bottom
+  corners and out of a circular shell badly. Nothing replaces them — depth is the shell's own
+  gradient plus the heavy outline, neither of which can cross an edge because they ARE the edge.
+  Verified live: **0 `Shadow` frames in the HUD.**
+- **The sheen can no longer leave the shell.** `addGloss` took a `radius` argument and *ignored*
+  it, hardcoding `UDim.new(1, 0)`, and `ClipsDescendants` is deliberately false on themed
+  surfaces — so on a low-radius button the pill bulged past the corners and on a circle its top
+  corners sat outside entirely. It is inset by the shell's own corner radius now (two cases, round
+  and rectangular; see the note in `UITheme.addGloss` for the circle arithmetic) and softened
+  0.72 -> 0.78. **The >= 0.72 invariant still holds and must.**
+- **`visible = GAP - 10`, not `GAP - 15`.** The HUD tile pitch lost 5px to each neighbour's stroke
+  AND 5 to the sibling shadow. With the shadow gone the third term is dead, so `GAP_MAX` came
+  31 -> 26 to hold the same 16px of daylight. Leaving it would have opened the column to 21 and
+  pushed the bottom row into `BOTTOM_CLEAR` on a short viewport.
+- **Journal discs are rings (item 1).** The figure was never hidden — it is lifted above the gloss
+  by `liftChildren` — it was drawn on an OPAQUE disc painted the character's own colour, which is
+  the worst possible case: a green creature on a green puck. The fill is transparent now, the
+  gradient and gloss are destroyed on those cells, and the colour moved to the RIM (including in
+  `refresh`, which used to overwrite it with the shared outline colour — without that half the fix
+  would have lasted one frame). Verified: 101 cells, **0 with an opaque background**, rims carrying
+  each character's tint, rigs intact.
+  The detail-card `StageBox` was deliberately left alone: it is a neutral grey well, and the
+  complaint was the coloured circles. Removing it would make pale characters vanish.
+- **Claim buttons state what they are (item 5).** Every claim remote was already wired end to end
+  (checked against RewardService, RobuxShopService, SeasonPassService, CodesService,
+  PlaytimeGiftService) — the defect was presentational. An unfinished quest showed "Claim" in the
+  *same grey* as the finished "Done", so the only pressable state was the odd one out; pressing the
+  grey one got "That quest isn't finished yet!" and read as a dead button. It shows a padlock and
+  "N left" now. Both spin buttons also nag on screen when their remote has not appeared instead of
+  returning silently — note the message goes on the BUTTON because `showNotification` is declared
+  ~2400 lines below them and a closure written there captures nil.
+
+**Linter baseline for MainUI is TWO, not one** (`animatePanel` at the `do`-block forward
+declaration, and `stop` in the rebirth beacon). Both are in `HEAD` unchanged; `SYNC.md` undercounted.
+
+### Phase 3 (eggs) — 13a and 8 landed
+
+- **Legendary halved, and the Luck Potion finally does something (item 13a).** Measured first:
+  the Premium egg was handing over a Legendary **3.84% of the time in Forest and 4.43% by
+  AbsolutePlane** — about one in 22, for the rarity the collection is built around. Legendary
+  `weight` 8 -> 4 and the tier `rarityBias` halved (Better 1.1 -> 0.55, Premium 2.8 -> 1.4).
+  Now Premium **1.63 -> 2.36%**, Better **0.43 -> 0.78%**, distribution still sums to 100, and
+  Basic stays structurally 0% (`rarityMax = 4`).
+  Separately, `rollAndInsert` reimplemented luck with **two of GetLuckPercent's six terms** —
+  MegaLuck, the Luck Potion, the Lucky pass, VIP and event luck were all missing, so a Luck Potion
+  had *exactly zero* effect on hatching. It cannot `require` DNAService (DNAService requires
+  PetService), so `PetService.GetLuckPercent` is **injected by ServerMain**, the same pattern that
+  file already uses for `OnEvolve`/`OnCharacterChanged`. There is a two-term fallback if the wire
+  is ever missing.
+- **The hatch is a full-screen reveal now (item 8).** It was a 230x74 billboard on a podium the
+  camera need not even be facing. It borrows `EvolveReveal`'s structure deliberately — dim, 20-unit
+  blur, `0.52 x 0.72` stage on `SizeConstraint.RelativeYY`, Back-eased pop from 0.2, the 12-ray fan,
+  long-lens (FOV 30) ViewportFrame framed off the model's own bounding box, ambient 210. Sequence is
+  what the owner asked for: **egg large on screen -> tap -> three wiggles -> shell flashes and goes
+  -> pet with starburst, name and rarity.**
+  Four things worth keeping in mind:
+  * the egg is a **Block + SpecialMesh(Sphere)**, never `Shape = Ball` — a non-uniform Ball is
+    silently drawn as a sphere of its *smallest* axis;
+  * the tap is an invitation, not a requirement — a 3.5s timeout opens it anyway, or a blurred
+    screen would be the punishment for opening a menu at the wrong moment;
+  * `PetService.HandleBuyEgg` takes an `auto` flag now, stamped onto the notify payload, so
+    **Auto Hatch keeps the old world animation** and a pass buying two a second never seizes the
+    screen. x10 keeps its own path untouched;
+  * `PetModel.Build` hangs a name/rank BillboardGui on every rig, which a ViewportFrame does not
+    render and which duplicated the caption — it is stripped inside the reveal.
+  Verified live end to end: GUI appears with "Tap the egg!", wiggle phase, then
+  `🐉 Draco` / `Legendary!`, then destroyed cleanly with the blur removed.
+
+### Monetization is wired for real — 2026-08-11
+
+**All 26 Robux items now exist and are connected.** Created on the Creator Dashboard against
+universe **10675543038 = "Evolution Lab BETA V0.2"** — the experience the play-testers actually
+join, confirmed by the owner.
+
+Verified from inside Studio with `MarketplaceService:GetProductInfo` on every id: all 26 resolve,
+every name matches, every price matches `GameConfig`, and all 9 passes report `IsForSale = true`.
+**0 problems.**
+
+| Pass | id | R$ | | Product | id | R$ |
+|---|---|---|---|---|---|---|
+| Speed2x | 1940815736 | 99 | | DNA_1 | 3702245508 | 49 |
+| XP2x | 1943659639 | 149 | | DNA_2 | 3702247541 | 99 |
+| AutoHatch | 1940215660 | 149 | | DNA_3 | 3702248045 | 199 |
+| DNA2x | 1941325697 | 199 | | DNA_4 | 3702248511 | 499 |
+| Damage2x | 1941175630 | 199 | | DNA_5 | 3702248961 | 999 |
+| FastAuto | 1941379666 | 199 | | Diamonds_1 | 3702250279 | 49 |
+| Lucky | 1940107710 | 249 | | Diamonds_2 | 3702250748 | 99 |
+| PetSlots3 | 1944156329 | 299 | | Diamonds_3 | 3702251204 | 199 |
+| VIP | 1941409673 | 499 | | Diamonds_4 | 3702251679 | 499 |
+| | | | | Diamonds_5 | 3702252142 | 999 |
+| | | | | LuckySpin | 3702253641 | 99 |
+| | | | | BossRevive | 3702254100 | 49 |
+| | | | | TierUp_1 | 3702254553 | 99 |
+| | | | | TierUp_3 | 3702254989 | 249 |
+| | | | | Potions_3 | 3702255918 | 99 |
+| | | | | Potions_10 | 3702256409 | 199 |
+| | | | | SeasonPremium | 3702256841 | 399 |
+
+**Managed pricing is DISABLED on every one**, so the dashboard price is exactly the price in
+`GameConfig` and nothing re-prices per region. Products default to Managed pricing ON — it has to
+be switched off deliberately at creation.
+
+**A pass created without "Item for sale" enabled has an id but cannot be bought by anyone.** That
+is a separate step from creating it and is the easiest thing in this whole process to miss. All
+nine were switched on and verified.
+
+**These ids are bound to universe 10675543038.** Publishing this place to a different experience
+makes every one of them stop resolving and every purchase fail; they would have to be re-created
+there.
+
+### Studio test mode for passes
+
+`PassService.Refresh` grants **every** pass when `RunService:IsStudio()` — so the whole monetisation
+layer can finally be exercised without spending Robux. It prints a `warn` whenever it fires.
+
+It is a `RunService:IsStudio()` branch rather than a `GameConfig` flag on purpose: a config value is
+exactly the thing that gets flipped on for a test and then shipped. `IsStudio()` is false on every
+real server, including the play-testers', so it cannot ship enabled.
+
+Verified in Play: `IsVIP = true`, `AutoSpeedMult = 1.7` (FastAuto), WalkSpeed 237 (2x Speed).
+
+**It tests EFFECTS, not PURCHASES.** What it cannot prove is the `ProcessReceipt` path and Roblox's
+own billing, so **one real purchase on the published place is still required before launch** — that
+is the only thing that exercises the receipt handler and the grant that follows it.
+
+### KNOWN MISMATCH — the Studio place is in a different universe
+
+`game.GameId` for the place open in Studio is **10619055849** ("Evolution Lab", Private), but the
+live game and all 26 items are on **10675543038** ("Evolution Lab BETA V0.2"). So none of the fixes
+in this file are in the players' hands until the place is published to BETA V0.2
+(**File > Publish to Roblox As...** > Evolution Lab BETA V0.2).
+
+This also qualifies the earlier Phase 0 finding: Studio and `src/` were proven byte-identical to
+each other, **not** to what is running on BETA V0.2. The measured explanations still hold (reach,
+regen timing, boss distance), but the published build may be older than what was measured.
+
+### Item 14b — the egg panel, and the luck refactor under it
+
+**`GetLuckPercent` and `GetEquippedBonus` moved into `GameConfig`.** Both are pure over `data`, and
+both were stranded on the server: `DNAService` owns the luck total, `PetService` cannot require
+`DNAService` (that module requires PetService), and the CLIENT could reach neither. That cycle is
+the actual reason the egg roll had grown its own two-term copy of the luck formula. Moving the
+total removed the cycle instead of working around it — which also let the `PetService.GetLuckPercent`
+injection added earlier in this session be **deleted** from `ServerMain`.
+
+`PetService.GetEquippedBonus` and `DNAService.GetLuckPercent` are kept as one-line aliases, so the
+dozen-odd existing call sites are untouched.
+
+Proved behaviour-identical before building on it: the old DNAService formula, written out by hand,
+matched the new shared one on all four cases (0 / 14 / 26 / 75). And the Lucky + VIP passes now
+visibly move egg odds (Forest Premium legendary 1.63% -> 1.84%) where before they moved them
+**not at all**.
+
+**The panel** (`MainUI`, right column order 9, `RIGHT_COUNT` 8 -> 9, inside an IIFE with only
+`hudRefs.refreshEggPanel` escaping — the file is still at the 200-local cap):
+
+- Basic / Better / Premium selector, and the odds list for the selected egg — species, rarity and
+  chance, with two decimals under 1% because "0%" on a Legendary is a lie the player can disprove.
+- The odds are quoted at the player's REAL luck, because the panel calls the same
+  `GameConfig.GetLuckPercent` the roll uses. The stall's SurfaceGui still advertises luck 0.
+- HATCH / HATCH x10 fire the long-existing `BuyEgg` / `BuyEggBulk` remotes, which **no client had
+  ever fired**. Gated on standing at a stall, and the button says `GO TO A PET SHOP` rather than
+  greying out silently — that is the same complaint as the dead-looking claim buttons.
+- AUTO HATCH fires `SetAutoHatch`. The driver and remote were written, running and **unreachable**:
+  nothing in the game could turn it on. `nil` reads as ON, matching `DriveAutoHatch` (only an
+  explicit `false` stops it). Without the pass the button opens the Robux shop instead of doing
+  nothing.
+- Re-ticks once a second while open, so walking up to a stall unlocks the buttons without
+  reopening; and refreshes on `DataUpdate`, because luck moves with potions, pets and upgrades.
+
+**Verified live, end to end:** panel shows `TimeRift Eggs`, cost `125.00B`, `269% luck`; Basic pool
+correctly has no Legendary and its four rows sum to 100.0%; buttons read `GO TO A PET SHOP` away
+from the stall and flip to `HATCH` / `HATCH x10` on arrival via the 1s tick; `SetAutoHatch(false)`
+lands on the attribute and stops the driver; a manual hatch returns `auto=false` and **opens the
+full-screen reveal**, while auto-hatch purchases return `auto=true` and correctly do not.
+
+### Finding: `PetService.IsNearPetShop` is dead code
+
+It is defined (`PetService.lua`, `PET_SHOP_RANGE = 20`) and its comment claims "a player may only
+buy an egg while standing near the Pet Shop kiosk that sells it -- there is deliberately no way to
+fire this from the Pets UI tab anymore". **Nothing calls it.** `HandleBuyEgg` checks the rate limit,
+the egg key, zone unlock, pet capacity and DNA — never proximity — and the `BuyEgg` / `BuyEggBulk`
+remotes pass straight through.
+
+Left as-is deliberately: enforcing it now would be a new server-side restriction on a path the
+world prompts already use (prompt reach is 42 studs against `PET_SHOP_RANGE` 20), so switching it
+on would start refusing legitimate prompt purchases. The new panel gates itself client-side. **The
+owner's call whether to enforce it properly or delete the function and its comment.**
+
+### Phase 4 — combat feel and economy (items 9, 10, 11, 13b/c)
+
+- **The DNA Machine is gone (item 11).** `MachineService.lua` deleted, its require + `Init()` out of
+  `ServerMain`, the `kind == "machine"` notify branch and the HUD hint out of `MainUI`, the loading
+  tip reworded, the `machine` sound alias dropped. The `MachineService` ModuleScript was destroyed in
+  Studio too (it had no children), and `workspace.DNAMachine` was already absent. Server boots clean
+  and **DNA the currency is untouched** — verified live: leaderstats DNA intact, `GetClickBase`
+  unchanged. `ServerStorage.Models.DNAMachineMesh` is left in place; it is an unused asset, not code.
+
+- **Creature regen: the bug was visibility, not logic (item 10).** The healing was implemented, on
+  Heartbeat, and provably working — and could never be seen. The health plate is only drawn over the
+  scenery for **5 s** after a hit (`plateHotUntil`), and healing did not start until **7 s**. The bar
+  stopped being visible two seconds before it began to move, every time.
+  `REGEN_DELAY` 7 → **3** (starts while the plate is still hot; still 9x the 0.34 s swing interval, so
+  it cannot interfere with a live fight), `REGEN_TIME` 8 → **5**, and the `hurt` entry now carries the
+  billboard so the loop holds the plate above the scenery *while it climbs* and releases it when full.
+  Verified live: Elite 37,800 → 5,366 on one hit, then 8,276 → 19,759 → 31,079 → 37,800 over ~5 s
+  with `AlwaysOnTop = true` throughout and back to `false` on completion.
+
+- **Creatures wind up before they hit (item 9).** The counter-attack was `sin(k * pi)` — an equal
+  glide out and back with no pitch on it, so it had no moment of impact and read as drifting. It is
+  three phases now: **0-28% pull back and rear up** (the telegraph, which is what makes the strike
+  legible and gives the player a beat to react in), **28-55% snap forward** four times faster than
+  the wind-up while pitching down into it, **55-100% eased recovery** on a squared falloff.
+  `LUNGE_TIME` 0.32 → **0.5**, because at 0.32 the telegraph was nine hundredths of a second.
+  Position and pitch move together — pitch is most of what sells it.
+  Curve verified numerically: continuous at both seams (gaps 0.0005 and 0.00006) and lands exactly
+  on (0, 0) at p = 1, so the rig cannot drift. Verified live: an Elite displaced **18.1 studs** from
+  rest through the strike, moving on 87 of 90 sampled frames.
+
+- **Upgrades are capped and cost more (item 13b/c).** There was **no ceiling at all** — not in the
+  price function (unlike the Diamond upgrades, which have had one for ages) and not in
+  `HandleBuyUpgrade`, which checked only that the key existed and that the player could pay. A player
+  parked in zone 1 could buy Speed to level 400.
+  `GameConfig.GetUpgradeMaxLevel(data)` = **5 levels per unlocked zone** (owner's decision): 5 at the
+  start, 100 with all twenty. `GetUpgradeCost` takes optional `data` and returns `math.huge` past the
+  cap — the same sentinel the Diamond rows use, so every affordability check refuses it for free.
+  `costMult` raised 1.14-1.22 → **1.28-1.38**. Full-ladder totals, measured not guessed:
+
+  | | zone 1 (5 lv) | zone 5 (25 lv) | zone 20 (100 lv) |
+  |---|---|---|---|
+  | Speed | 216 | 42.7K | 4.7T |
+  | Income | 175 | 40.0K | 7.9T |
+  | Luck | 373 | 129.1K | 142.7T |
+  | Mutation | 596 | 310.6K | 1.9Qa |
+  | AutoCollect | 1.1K | 826.1K | 25.6Qa |
+
+  `HandleBuyUpgrade` keeps a **separate** maxed branch even though the `math.huge` price alone would
+  refuse the buy — it is the only place that can say *why*, and "Not enough DNA!" on a maxed upgrade
+  is the same lie as a Claim button on an unfinished quest. The HUD row reads `Lv 19 / 65` and prices
+  a capped row as `ZONE LOCKED` rather than quoting a number the server will reject.
+  Verified live: caps resolve 5 / 10 / 25 / 100 for 1 / 2 / 5 / 20 zones with `inf` at the cap;
+  purchases still work (Speed 7 → 19); the HUD renders `Lv 19 / 65` on a 13-zone save.
+
+### Phase 5 — the world you stand on (items 15, 18, 19). BUILD_VERSION 124 -> 126
+
+Every change here is geometry, so it only appears after a rebuild. The world is at **stamp 126**;
+shell parts pinned against streaming went **2,617 -> 3,456**.
+
+**Item 15 — walk-through props.** Re-ran the original audit method (`GetPartBoundsInBox` against the
+LIVE world, not a read of the source) for every prop name in Forest with no solid part at all. That
+confirmed the existing note: ~60 names are genuinely *backed by solid* (all the cliff skins, the
+waterfalls, banners, planters, terrace mushrooms). What was left was a short list of free-standing
+physical objects with nothing behind them: **FallenLog, IdolBrazier, GuardianBrazier, GlintPost,
+MushroomCap, MushroomStem, StallCrate** — now in `SOLID_PROPS`. Each was also checked against the
+street: the corridor is 30 wide and the closest of them is 48 studs off the centre line, so none of
+them blocks the route. Deliberately NOT added: flowers, pennants, bunting, runes, loose statue
+details, the 196-stud `BackdropMesa`, and the portal stonework 138-218 studs up.
+
+**Item 18 — falling through, and snagging.** Measured: **451 solid parts per zone** were still in the
+zone folder, i.e. free to stream out from under a player. Pinning all of them is ~9,000 extra parts
+and most are cliff mass, statue geometry and unreachable stonework — so the new pins are the
+intersection of *solid* + *has a top face* + *at a height players reach*: `PortalStep`,
+`PortalColumnBase`, `IdolPad(Step)`, `IdolPlinthStep`, `LandmarkPlinth(Step)`, `GuardianPlinth`,
+`PoolRim`, `PoolBed`, `Mound`, `StallDeck`, `StallCounter`, `StallStep`, `RuinPillarBase`,
+`DreamStair`, `ThroneStep`. Verified they left the zone folder and are in `WorldShell`.
+
+And the snagging half: **`TerraceRamp` 28 -> 34**. The painted steps are 30 deep and non-colliding;
+the ramp is the only thing you actually stand on, so at 28 there was a stud of nothing down each
+side of every flight. Verified with 80 collidable-only downward probes at the stair edges:
+**80 supported, 0 with nothing underneath** (landing on TerraceRamp 37, TerraceTop 23, Floor 20).
+
+**Item 19 — three ways onto a shelf without the stairs, all closed.** Raised creatures are the only
+Evolution Shard source, so the climb is the price of the currency. Max-jump apex is
+`92^2 / (2 * 196.2)` = **21.6 studs**.
+
+1. *Rises at or under the apex.* DreamDimension 20, Ocean 22, Wormhole 22, Galaxy 24, TimeRift 25 —
+   all now **26**, clearing the apex by 4.4. The fallback profile went 16 -> 26 too. **26 is the
+   floor for any new zone; if `MaxJumpPower` rises, this must rise with it.**
+2. *The buttress ledge.* `CliffJut` hung 6-10 studs proud of the tier edge with its top at up to 92%
+   of the rise — a step you hop onto and walk off. Making it intangible was the obvious fix and is
+   **wrong**: a ray into a riser with the jut excluded hits only `CliffFace`, which is
+   `CanCollide = false`. **The jut IS the riser wall.** It is pushed back into the hill instead
+   (`innerX + d/2 - 2`), keeping the wall and the relief while leaving 2 studs proud.
+   Verified: **0 of 40 juts have a standable ledge**, widest exposed surface 0.5 studs.
+3. *Boulders against the riser.* Outer bound was a flat `outerX - 18` while `rockSize` reaches 48,
+   so big ones overlapped the cliff above. Now `outerX - (rockSize[2]/2 + 24)`, derived from the
+   rock that could actually be rolled there. **ValleyScree needed the same treatment** and was only
+   caught by measuring: it spills at the foot of the first riser, is solid, and its ~4.5-stud top
+   plus the apex is 26.1 against a 26 rise — 9 studs from a shelf. Band pulled to 22-46 studs out.
+   Verified after rebuild: nearest in-jump-range shelf is **ValleyRock 38.6, GroundRock 100.0,
+   ValleyScree 27.0 studs; 0 risky placements of any kind**.
+
+World health after the rebuild: 21 zones (20 Complete + EventArena, which is the Colosseum and has
+its own stamp), 1,400 creatures, 20 bosses, 124 ramps, 784 terrace tops — all unchanged from before.
+
+### Still queued
+
+Items 1, 5, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19 and the tutorial's remaining parts (free
+starter pet, modern arrows). See the plan file for the phase breakdown.
+
+---
+
 # Where the rebuild stands — 2026-08-03, evening
 
 ## A deeper map, a smaller player, nine potions and eight shops — 2026-08-04, latest

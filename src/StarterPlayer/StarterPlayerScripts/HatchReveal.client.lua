@@ -520,9 +520,359 @@ local function playBulk(payload)
 	end
 end
 
+-- ============================================================================
+-- THE FULL-SCREEN REVEAL (2026-08-11 feedback: "there is no animation at all")
+-- ============================================================================
+--
+-- The world sequence above is still the right thing for a pass buying two eggs a second, but for a
+-- hatch the player deliberately paid for it was too small and too far away to register: a 230x74
+-- billboard on a podium the camera is not necessarily even pointing at. The owner asked for what
+-- the evolve card does -- the egg large on screen, a click, three wiggles, then the pet.
+--
+-- BORROWED WHOLESALE FROM EvolveReveal, and deliberately so: the dim, the 20-unit blur, the
+-- 0.52 x 0.72 stage on SizeConstraint.RelativeYY, the Back-eased pop from 0.2, the ray fan and the
+-- long-lens ViewportFrame framed off the model's own bounding box. That file is the house style for
+-- "something big happened" and a second, different-looking full-screen reward would read as another
+-- game's UI. The numbers that matter are copied, not re-derived -- see the notes there for why each
+-- one is what it is (ambient 210, FOV 30, headroom, the RelativeYY constraint).
+--
+-- THREE THINGS THIS HAS TO GET RIGHT
+--   1. ONE AT A TIME. `screenBusy` -- a second reveal opening over the first would leave the first
+--      one's cleanup to run against a live second card, which is how the blur gets stranded on.
+--   2. THE BLUR AND THE GUI MUST DIE ON EVERY PATH, including an error inside the sequence and a
+--      player respawning mid-reveal. Everything is behind one `finish` that is safe to call twice.
+--   3. IT MUST NOT WAIT FOR A CLICK FOREVER. A player who opens a menu, walks away, or simply does
+--      not realise the egg is clickable would otherwise be left with a blurred screen. There is a
+--      hard auto-open timeout, so the click is an invitation and never a requirement.
+local screenBusy = false
+
+-- An egg is a sphere that is taller than it is wide, and Shape = Ball would silently draw it as a
+-- sphere of its SMALLEST axis -- so this is a Block carrying a SpecialMesh, which is the one way to
+-- get a non-uniform ellipsoid in Roblox. Same rule the world eggs are built under.
+local function buildEggFigure(color)
+	local model = Instance.new("Model")
+	model.Name = "RevealEgg"
+
+	local body = Instance.new("Part")
+	body.Name = "Shell"
+	body.Size = Vector3.new(3.1, 4.0, 3.1)
+	body.Color = color
+	body.Material = Enum.Material.SmoothPlastic
+	body.Anchored = true
+	body.CanCollide = false
+	body.CanQuery = false
+	body.CanTouch = false
+	body.CFrame = CFrame.new(0, 0, 0)
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.Sphere
+	mesh.Parent = body
+	body.Parent = model
+	model.PrimaryPart = body
+
+	-- two pale bands, so the egg reads as an egg and not as a coloured pill, and so the wiggle has
+	-- something on it the eye can track
+	for i, y in ipairs({ -0.75, 0.35 }) do
+		local band = Instance.new("Part")
+		band.Name = "Band" .. i
+		band.Size = Vector3.new(3.16, 0.62, 3.16)
+		band.Color = color:Lerp(Color3.new(1, 1, 1), 0.55)
+		band.Material = Enum.Material.SmoothPlastic
+		band.Anchored = true
+		band.CanCollide = false
+		band.CanQuery = false
+		band.CanTouch = false
+		band.CFrame = CFrame.new(0, y, 0)
+		local bm = Instance.new("SpecialMesh")
+		bm.MeshType = Enum.MeshType.Sphere
+		bm.Scale = Vector3.new(1, 0.34, 1)
+		bm.Parent = band
+		band.Parent = model
+	end
+
+	return model, body
+end
+
+local function screenReveal(payload, def, rarity)
+	if screenBusy then return false end
+	screenBusy = true
+
+	local Lighting = game:GetService("Lighting")
+	local playerGui = player:FindFirstChildOfClass("PlayerGui")
+	if not playerGui then
+		screenBusy = false
+		return false
+	end
+
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "HatchReveal"
+	gui.ResetOnSpawn = false
+	gui.IgnoreGuiInset = true
+	gui.DisplayOrder = 90
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.Parent = playerGui
+
+	local blur = Instance.new("BlurEffect")
+	blur.Size = 0
+	blur.Parent = Lighting
+
+	local color = rarity and rarity.color or UITheme.Color.Gold
+
+	local dim = Instance.new("Frame")
+	dim.Size = UDim2.fromScale(1, 1)
+	dim.BackgroundColor3 = Color3.fromRGB(14, 12, 26)
+	dim.BackgroundTransparency = 1
+	dim.BorderSizePixel = 0
+	dim.ZIndex = 1
+	dim.Parent = gui
+
+	local stage = Instance.new("Frame")
+	stage.AnchorPoint = Vector2.new(0.5, 0.5)
+	stage.Position = UDim2.fromScale(0.5, 0.46)
+	stage.Size = UDim2.fromScale(0.52, 0.72)
+	stage.SizeConstraint = Enum.SizeConstraint.RelativeYY
+	stage.BackgroundTransparency = 1
+	stage.ZIndex = 2
+	stage.Parent = gui
+
+	local scale = Instance.new("UIScale")
+	scale.Scale = 0.2
+	scale.Parent = stage
+
+	-- the ray fan, hidden until the shell actually gives -- it is the payoff, not the packaging
+	local burstFrame = Instance.new("Frame")
+	burstFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	burstFrame.Position = UDim2.fromScale(0.5, 0.46)
+	burstFrame.Size = UDim2.fromScale(1, 1)
+	burstFrame.BackgroundTransparency = 1
+	burstFrame.Visible = false
+	burstFrame.ZIndex = 2
+	burstFrame.Parent = stage
+
+	for i = 1, 12 do
+		local ray = Instance.new("Frame")
+		ray.AnchorPoint = Vector2.new(0.5, 0.5)
+		ray.Position = UDim2.fromScale(0.5, 0.5)
+		ray.Size = UDim2.fromScale(i % 2 == 0 and 1.25 or 0.9, 0.045)
+		ray.Rotation = (i - 1) * 30
+		ray.BackgroundColor3 = i % 3 == 0 and UITheme.Color.White or color
+		ray.BackgroundTransparency = 0.35
+		ray.BorderSizePixel = 0
+		ray.ZIndex = 2
+		ray.Parent = burstFrame
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(1, 0)
+		c.Parent = ray
+		local g = Instance.new("UIGradient")
+		g.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.5, 0),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		g.Parent = ray
+	end
+
+	local vp = Instance.new("ViewportFrame")
+	vp.AnchorPoint = Vector2.new(0.5, 0.5)
+	vp.Position = UDim2.fromScale(0.5, 0.44)
+	vp.Size = UDim2.fromScale(1, 1)
+	vp.BackgroundTransparency = 1
+	vp.ZIndex = 3
+	-- a ViewportFrame sees none of the place's Lighting; left at the defaults everything in it is
+	-- near-black. Same values EvolveReveal settled on -- see the long note there.
+	vp.Ambient = Color3.fromRGB(210, 212, 222)
+	vp.LightColor = Color3.fromRGB(255, 252, 244)
+	vp.LightDirection = Vector3.new(-0.4, -0.7, -1)
+	vp.Parent = stage
+
+	local cam = Instance.new("Camera")
+	cam.FieldOfView = 30
+	cam.Parent = vp
+	vp.CurrentCamera = cam
+
+	local caption = Instance.new("TextLabel")
+	caption.AnchorPoint = Vector2.new(0.5, 0)
+	caption.Position = UDim2.fromScale(0.5, 0.78)
+	caption.Size = UDim2.fromScale(1.6, 0.13)
+	caption.BackgroundTransparency = 1
+	caption.Font = UITheme.Font.Display
+	caption.TextScaled = true
+	caption.TextColor3 = UITheme.Color.White
+	caption.Text = "Tap the egg!"
+	caption.ZIndex = 4
+	caption.Parent = stage
+	local capStroke = Instance.new("UIStroke")
+	capStroke.Thickness = 4
+	capStroke.Color = UITheme.Color.Outline
+	capStroke.Parent = caption
+
+	local sub = Instance.new("TextLabel")
+	sub.AnchorPoint = Vector2.new(0.5, 0)
+	sub.Position = UDim2.fromScale(0.5, 0.91)
+	sub.Size = UDim2.fromScale(1.6, 0.1)
+	sub.BackgroundTransparency = 1
+	sub.Font = UITheme.Font.Display
+	sub.TextScaled = true
+	sub.TextColor3 = UITheme.Color.Cream
+	sub.Text = ""
+	sub.ZIndex = 4
+	sub.Parent = stage
+	local subStroke = Instance.new("UIStroke")
+	subStroke.Thickness = 4
+	subStroke.Color = UITheme.Color.Outline
+	subStroke.Parent = sub
+
+	-- a full-screen invisible button rather than a click on the egg: the egg is drawn inside a
+	-- ViewportFrame, which is not an input surface, and asking a player to hit a 3D object through
+	-- one is a worse experience than letting them press anywhere
+	local hit = Instance.new("TextButton")
+	hit.Size = UDim2.fromScale(1, 1)
+	hit.BackgroundTransparency = 1
+	hit.Text = ""
+	hit.ZIndex = 5
+	hit.Parent = gui
+
+	local eggModel, eggBody = buildEggFigure(color)
+	eggModel.Parent = vp
+
+	local function frameOn(model)
+		local cf, size = model:GetBoundingBox()
+		local reach = math.max(size.X, size.Y, size.Z)
+		local dist = reach / (2 * math.tan(math.rad(cam.FieldOfView / 2))) * 1.95
+		return cf.Position, dist, reach
+	end
+
+	local focus, dist, reach = frameOn(eggModel)
+
+	local done = false
+	local spin = 0
+	local wobble = 0
+	local conn
+	conn = RunService.RenderStepped:Connect(function(dt)
+		if not vp.Parent then
+			conn:Disconnect()
+			return
+		end
+		spin += dt * 0.55
+		cam.CFrame = CFrame.lookAt(
+			(CFrame.new(focus) * CFrame.Angles(0, spin, 0) * CFrame.new(0, reach * 0.06, dist)).Position,
+			focus)
+		if burstFrame.Visible then
+			burstFrame.Rotation = -spin * 12
+		end
+		if wobble > 0 and eggBody and eggBody.Parent then
+			eggBody.CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(0, 0, math.sin(os.clock() * 26) * wobble)
+		end
+	end)
+
+	local function finish()
+		if done then return end
+		done = true
+		if conn then conn:Disconnect() end
+		TweenService:Create(blur, TweenInfo.new(0.25), { Size = 0 }):Play()
+		TweenService:Create(dim, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
+		TweenService:Create(scale, TweenInfo.new(0.2), { Scale = 0.2 }):Play()
+		task.delay(0.3, function()
+			gui:Destroy()
+			blur:Destroy()
+			screenBusy = false
+		end)
+	end
+
+	-- open
+	blur.Enabled = true
+	TweenService:Create(blur, TweenInfo.new(0.3), { Size = 20 }):Play()
+	TweenService:Create(dim, TweenInfo.new(0.28), { BackgroundTransparency = 0.4 }):Play()
+	TweenService:Create(scale, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{ Scale = 1 }):Play()
+	SoundLibrary.Play("click", nil, { volume = 0.4 })
+
+	local opened = false
+	local function openEgg()
+		if opened or done then return end
+		opened = true
+		hit.Active = false
+
+		local ok, err = pcall(function()
+			-- 1. THREE WIGGLES, counted rather than timed, because "three" is what was asked for and
+			-- a duration would drift with frame rate.
+			caption.Text = "..."
+			for i = 1, 3 do
+				wobble = math.rad(9 + i * 3)
+				SoundLibrary.Play("hit", nil, { speed = 1.4 + i * 0.15, volume = 0.25 })
+				task.wait(0.26)
+			end
+			wobble = 0
+			if eggBody and eggBody.Parent then eggBody.CFrame = CFrame.new(0, 0, 0) end
+
+			-- 2. THE SHELL GIVES: a white flash, then it is gone
+			if eggBody then eggBody.Color = Color3.new(1, 1, 1) end
+			task.wait(0.12)
+			eggModel:Destroy()
+			burstFrame.Visible = true
+			SoundLibrary.PlayHatch(payload.rarity)
+
+			-- 3. THE PET, framed the same way the egg was
+			if def then
+				local model, body, pieces = PetModel.Build(def, payload.tier or "Normal", { scale = 1 })
+				for _, d in ipairs(model:GetDescendants()) do
+					if d:IsA("BasePart") then
+						d.Anchored = true
+						d.CanCollide = false
+						d.CanQuery = false
+						d.CanTouch = false
+						d.CastShadow = false
+					elseif d:IsA("BillboardGui") then
+						-- PetModel hangs a name/rank plate on every rig it builds. A ViewportFrame does
+						-- not render GUIs at all, so this is dead weight either way -- but it also
+						-- duplicates the caption below it, which is what showed up as the pet's name
+						-- and rarity appearing twice in the reveal's descendants.
+						d:Destroy()
+					end
+				end
+				PetModel.Place(body, pieces, CFrame.new(0, 0, 0))
+				model.Parent = vp
+				focus, dist, reach = frameOn(model)
+			end
+
+			caption.Text = (def and def.emoji or payload.emoji or "\u{1F423}") .. " " .. (payload.name or "?")
+			caption.TextColor3 = color
+			sub.Text = (rarity and rarity.name or "") .. "!"
+		end)
+		if not ok then
+			warn("[HatchReveal] screen reveal failed: " .. tostring(err))
+		end
+
+		task.delay(2.4, finish)
+	end
+
+	hit.MouseButton1Click:Connect(function()
+		if opened then
+			finish()   -- a second press dismisses; nobody should have to wait out theatre twice
+		else
+			openEgg()
+		end
+	end)
+
+	-- THE CLICK IS AN INVITATION, NEVER A REQUIREMENT. A player who tabs away, opens a menu or
+	-- simply does not realise the egg is tappable must not be left staring at a blurred screen.
+	task.delay(3.5, function()
+		if not done then openEgg() end
+	end)
+
+	return true
+end
+
 Remotes:WaitForChild("Notify").OnClientEvent:Connect(function(payload)
 	if type(payload) ~= "table" then return end
 	if payload.kind == "pet" then
+		-- A HATCH THE PLAYER ASKED FOR GETS THE SCREEN; one Auto Hatch bought for them does not.
+		-- `payload.auto` is stamped by PetService.HandleBuyEgg -- see the note on its signature.
+		-- The world sequence is the fallback on both counts: if a reveal is already up (screenBusy)
+		-- or this was automatic, the egg still shakes on its podium the way it always did.
+		if not payload.auto and screenReveal(payload, payload.key and GameConfig.GetPetDef(payload.key),
+			GameConfig.GetRarity(payload.rarity)) then
+			return
+		end
 		task.spawn(play, payload)
 	elseif payload.kind == "petBulk" then
 		task.spawn(playBulk, payload)

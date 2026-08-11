@@ -52,21 +52,17 @@ function DNAService.GetIncomeMult(data, excludeEvents)
 	return mult
 end
 
-function DNAService.GetLuckPercent(data)
-	local megaLuckLevel = data.DiamondUpgrades and data.DiamondUpgrades.MegaLuck or 0
-	local megaLuckAdd = megaLuckLevel * GameConfig.DiamondUpgrades.MegaLuck.effectAdd
-	-- Every luck source in the game is additive percentage points, and the Luck Potion is one more
-	-- of them: this single function is what eggs, pets, characters, mutations and crit chance all
-	-- read, so adding it here reaches every one of them.
-	-- The Lucky pass and VIP are ADDED here, in points, for the same reason everything else is: luck
-	-- starts at zero, so a multiplier would pay a first-time buyer nothing at all.
-	return data.Upgrades.Luck * 2 + PetService.GetEquippedBonus(data).luckAdd + megaLuckAdd
-		+ GameConfig.GetPotionLuckAdd(data) -- each upgrade level = +2% luck, plus pets and potions
-		+ GameConfig.GetPassAdd(data, "luckAdd")
-		-- ...and any live event, in points for the same reason everything else here is. A festival
-		-- that multiplied luck would pay nothing at all to the player who has never bought any.
-		+ GameConfig.GetEventAdd("luckAdd")
-end
+-- MOVED TO GameConfig ON 2026-08-11. The body is unchanged -- upgrades, equipped pets, MegaLuck,
+-- potions, passes and live events, all additive points -- it simply lives somewhere the CLIENT can
+-- also reach, because the egg panel has to quote the same number the egg roll uses.
+--
+-- That move also deleted a real bug rather than just relocating code: PetService could never require
+-- this module (this module requires PetService), so the egg roll had grown its own two-term copy of
+-- the formula and a Luck Potion did nothing at all to a hatch. Both sides read GameConfig now.
+--
+-- Kept under this name because eggs, mutations, characters and crit chance all already call
+-- `DNAService.GetLuckPercent`.
+DNAService.GetLuckPercent = GameConfig.GetLuckPercent
 
 function DNAService.GetClickAmount(data)
 	-- geometric in the stage index, so it tracks the ~5x evolve-cost curve instead of falling
@@ -208,7 +204,23 @@ function DNAService.HandleBuyUpgrade(player, upgradeKey)
 	if not GameConfig.Upgrades[upgradeKey] then return end
 
 	local level = data.Upgrades[upgradeKey]
-	local cost = GameConfig.GetUpgradeCost(upgradeKey, level)
+
+	-- ===== THE CAP IS ENFORCED HERE, NOT ONLY PRICED =====
+	--
+	-- `GetUpgradeCost` returns math.huge past the cap, and `data.DNA >= math.huge` is already false,
+	-- so the affordability test alone would refuse the purchase. This is still a separate branch,
+	-- for one reason: it is the only place that can tell the player WHY. Refused for being maxed and
+	-- refused for being poor are different facts, and "Not enough DNA!" on a maxed upgrade is the
+	-- same lie as a Claim button on an unfinished quest.
+	local maxLevel = GameConfig.GetUpgradeMaxLevel(data)
+	if level >= maxLevel then
+		Remotes.Notify:FireClient(player, { kind = "error",
+			message = ("%s is maxed for now -- unlock another zone to raise the cap (%d)."):format(
+				GameConfig.Upgrades[upgradeKey].displayName or upgradeKey, maxLevel) })
+		return
+	end
+
+	local cost = GameConfig.GetUpgradeCost(upgradeKey, level, data)
 	if data.DNA >= cost then
 		data.DNA -= cost
 		data.Upgrades[upgradeKey] = level + 1
