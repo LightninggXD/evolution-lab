@@ -178,10 +178,14 @@ end
 -- whose creatures hit for x8.4, in a zone their own unlock list no longer contains. Called last,
 -- after OnRebirth above has rebuilt the body at its new size, so the teleport moves a finished
 -- character rather than one halfway through a 0.6s scale tween.
+--
+-- SendToZoneSpawn, not ReturnToCurrentZone: RebirthService has already set `CurrentZone = "Forest"`
+-- by the time this runs, and ReturnToCurrentZone returns early on Forest (the respawn case needs no
+-- move, since the one SpawnLocation is there). That early return is why the body never travelled.
 RebirthService.OnReturnHome = function(player)
 	task.delay(0.8, function()
 		if player.Parent then
-			ZoneService.ReturnToCurrentZone(player)
+			ZoneService.SendToZoneSpawn(player, "Forest")
 		end
 	end)
 end

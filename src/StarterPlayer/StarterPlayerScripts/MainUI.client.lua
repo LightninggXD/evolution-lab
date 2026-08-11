@@ -2008,7 +2008,13 @@ local function refreshPetsPanel()
 	-- NO LEADING 🐾 HERE ANY MORE: the paw is drawn beside this label as a TitleIcon (9.9), and a
 	-- refresh that put the glyph back would show the emoji next to the picture of itself. The
 	-- icon is built once and never changes, so this line only carries the words.
-	petsPanelTitle.Text = string.format("Pets (%d/%d equipped)", #data.EquippedPetIds, GameConfig.MaxEquippedPets)
+	--
+	-- NO COUNT IN THE TITLE EITHER. It used to read "Pets (%d/%d equipped)" against the raw
+	-- `GameConfig.MaxEquippedPets` constant — the base 3, which ignores the diamond PetSlot upgrade
+	-- and the +3 Pet Slots pass. A player who had bought slots saw "5/3", a fraction that says their
+	-- save is broken. The slot capsule directly below already prints the same pair through
+	-- `GetMaxEquippedPets(data)`, which counts both, so the title had nothing left to add.
+	petsPanelTitle.Text = "Pets"
 
 	-- Clear old cells. Matched on NAME alone: a cell is a TextButton now (the whole card is the
 	-- equip button), and the old `IsA("Frame")` test silently stopped clearing anything -- every
@@ -2029,7 +2035,13 @@ local function refreshPetsPanel()
 	-- Strongest first. The old order was insertion order -- literally the order the pets happened
 	-- to hatch in -- so in a collection of two hundred the best one could be anywhere and the three
 	-- that were actually equipped were scattered down the scroll.
-	local ranked = GameConfig.SortedPetsByPower(data.Pets)
+	--
+	-- `data` IS THE SECOND ARGUMENT AND IT WAS MISSING HERE. Without it `GetPetPower` drops the zone
+	-- axis and quotes every pet at its own home zone's strength, so the drawn order stopped matching
+	-- the real one: a zone-matched Epic that beats a Forest Legendary four times over was drawn under
+	-- it. The two server callers (`PetService`, `PlayerDataService`) always passed it, so the list the
+	-- player read and the list Equip Best acted on were sorted differently.
+	local ranked = GameConfig.SortedPetsByPower(data.Pets, data)
 
 	hudRefs.petSlotCount.Text = ("%d/%d"):format(#data.EquippedPetIds, GameConfig.GetMaxEquippedPets(data))
 	-- "17 / 30" rather than "17": a bare number cannot tell the player they are one hatch from being
@@ -2252,9 +2264,9 @@ end)
 -- ===== Release confirmation =====
 --
 -- The one destructive action a player can take on their own save, so it is the one thing in this
--- HUD that asks twice. It exists because the inventory ceiling came down to 30 (GameConfig
--- .MaxOwnedPets): at 600 there was never a reason to remove a pet and so there was never a way to,
--- and a cap without a release is just a wall.
+-- HUD that asks twice. It exists because the inventory ceiling came down from 600 (GameConfig
+-- .MaxOwnedPets, 100 today): at 600 there was never a reason to remove a pet and so there was never
+-- a way to, and a cap without a release is just a wall.
 --
 -- THE DIALOG IS BUILT ONCE AND RE-TARGETED, not built per pet. A confirm built inside the row
 -- handler would allocate a full modal on every click, and the row list is rebuilt from scratch on

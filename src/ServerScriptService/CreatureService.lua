@@ -190,7 +190,13 @@ local TIERS = {
 	Elite = {
 		-- Four times a Brute's health and nearly four times its payout, on a minute-long respawn:
 		-- one per zone-ish, worth going out of your way for, and genuinely able to kill you.
-		health = 280,
+		--
+		-- READ FROM GameConfig, not typed here, because the BOSS curve has to know this number: a
+		-- boss's health is floored at a multiple of a farmed Elite. While this was a private 280 the
+		-- two curves had no connection at all, and the boss table -- built at GameConfig load, long
+		-- before this file runs -- ended up under it in eighteen of twenty zones. See the
+		-- BossTargetHits block in GameConfig for the measurement.
+		health = GameConfig.EliteBaseHealth,
 		minHits = 8,
 		hitCooldown = 0.22,
 		respawnDelay = 55,
@@ -2916,7 +2922,10 @@ local TIER_RING = {
 -- farming one spot gets slowly worse and moving up a zone is always the better play, which is the
 -- pressure the growth is FOR. There is no hidden reward ramp anywhere in the kill path.
 local HEALTH_GROWTH = 0.05   -- +5% of base per clearance
-local HEALTH_GROWTH_MAX = 2.0  -- ...and never more than double, however long a spot is farmed
+-- ...and never more than double, however long a spot is farmed. FROM GameConfig for the same reason
+-- Elite health is: the boss floor is priced against a creature at this cap, so a private copy here
+-- would let the two curves drift the moment either was tuned.
+local HEALTH_GROWTH_MAX = GameConfig.CreatureGenerationMax
 
 -- Kept as a function rather than inlined so the cap is stated once and the HUD, a test or a future
 -- Journal line can ask the same question and get the same answer.

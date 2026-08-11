@@ -132,9 +132,57 @@ GameConfig.DamageBase = 5             -- what rank 1 hits for, bare: a 12hp Fore
 GameConfig.DamageGrowthPerRank = 1.076 -- ^5 = 1.4425 = the per-zone creature health ratio
 
 -- A boss is a gate, so it is priced in the same unit everything else is: how many honest blows it
--- takes. 60 at the reference damage for its own zone -- roughly four times a Brute, about twenty
--- seconds of swinging -- and every multiplier the player has bought or climbed to cuts into that.
-GameConfig.BossTargetHits = 60
+-- takes at the reference damage for its own zone -- and every multiplier the player has bought or
+-- climbed to cuts into that.
+--
+-- 150, UP FROM 60, AND THE OLD FIGURE WAS PRICED AGAINST THE WRONG CREATURE.
+--
+-- 60 blows was chosen as "roughly four times a Brute", which it is: a Brute is 70 base, i.e. 14
+-- blows, in every zone. But the Brute is not the toughest thing in the valley -- the Elite is, at
+-- **280 base, i.e. 56 blows**. So a boss was one Elite. And a creature that has been cleared before
+-- comes back tougher (CreatureService's generation growth, +5% per clearance to a hard x2), which
+-- puts a farmed Elite at 112 blows -- **twice its own zone's boss**.
+--
+-- Measured across all twenty zones before the change, boss health against the Elite guarding the
+-- same ground: 0.84x to 1.07x fresh, and **0.42x to 0.54x** once the Elite had been farmed. Eighteen
+-- of the twenty bosses in this game had less health than an ordinary creep standing a hundred studs
+-- away. That is the bug report "bosses are weaker than the creeps" as arithmetic, and it was not a
+-- feeling: it was true in every zone.
+--
+-- The derivation itself was never the problem and stays -- pricing a boss in blows is what keeps it
+-- the same fight on every rung of the ladder. What was missing is that it knew about one creature
+-- tier and not the other. See BossEliteFloor below for the half that makes it stay fixed.
+GameConfig.BossTargetHits = 150
+
+-- ===== THE TWO CREATURE NUMBERS THE BOSS CURVE HAS TO KNOW ABOUT =====
+--
+-- These are `CreatureService`'s, and they live here because the boss table is built at module load
+-- in this file and has to be able to ask. CreatureService reads them back rather than keeping its
+-- own copies -- the same rule MaxOwnedPets follows, and for the same reason: two private copies of
+-- one number is just a way for them to drift, and this particular drift is what produced a boss
+-- weaker than a creep.
+GameConfig.EliteBaseHealth = 280
+-- CreatureService's generation growth cap: a spawn point that has been cleared enough times brings
+-- its creature back at double health, and never more.
+GameConfig.CreatureGenerationMax = 2.0
+
+-- THE FLOOR, and it is what stops this inverting again the next time a curve is tuned.
+--
+-- A boss must be worth at least this many WORST-CASE Elites -- worst case meaning one that has been
+-- farmed to the generation cap, because that is the creature the player is actually comparing it
+-- against after an hour in the zone. Expressed as a multiple rather than as twenty more hand-typed
+-- numbers, so `mobHealthMult`, `EliteBaseHealth` and the generation cap can all move and the two
+-- curves stay tied by construction.
+--
+-- THE TWO TERMS ARE VERY NEARLY THE SAME CURVE, and that is worth knowing before tuning either.
+-- The damage ladder climbs 1.076^5 = 1.4425 per zone and `mobHealthMult` climbs 1050^(1/19) = 1.442
+-- -- deliberately identical, see the note at the top of this file. So the blows term and the Elite
+-- term run parallel, and which one wins in a given zone comes down to rounding. Measured at 150
+-- hits: the floor binds in zones 2-17 and the blows term binds at both ends, and the ratio the
+-- player experiences is flat at 2.50x a fresh Elite either way. The floor is therefore not a
+-- correction to the shape of the curve -- it is the thing that keeps the boss curve ATTACHED to the
+-- creature curve, so that moving one without the other cannot silently invert them again.
+GameConfig.BossEliteFloor = 1.25
 
 -- Raw damage at a rung of the ladder. Takes a NUMBER, not a save, so it is safe to call at module
 -- load (the boss table below does) and safe on the client (the Journal prints it under every
@@ -485,11 +533,19 @@ for i, zone in ipairs(GameConfig.Zones) do
 	-- defect as the creature `damageCap`, and the same reason a boss never felt like it was being
 	-- worn down: the bar moved 1/12th whatever the player brought to it.
 	--
-	-- Priced in blows instead, off the same ladder as everything else, so a boss is four Brutes'
-	-- worth of fight in the zone it guards and stays that on every rung. The authored `health` is
-	-- now only a relative hint that nothing reads -- `dnaReward` keeps its own authored value and
-	-- its own scaling, because what a boss PAYS is a design decision and what it TAKES is arithmetic.
-	zone.boss.health = math.floor(GameConfig.BossTargetHits * GameConfig.GetZoneReferenceDamage(i))
+	-- Priced in blows instead, off the same ladder as everything else, so a boss is the same length
+	-- of fight in the zone it guards on every rung. The authored `health` is now only a relative hint
+	-- that nothing reads -- `dnaReward` keeps its own authored value and its own scaling, because
+	-- what a boss PAYS is a design decision and what it TAKES is arithmetic.
+	--
+	-- THE MAX IS NOT DECORATION. The blows term alone put every boss in the game under the Elite of
+	-- its own zone -- see the note on BossTargetHits, where the measurement is written out. The floor
+	-- term is what ties the boss curve to the creature curve, so tuning `mobHealthMult` cannot pull
+	-- them apart again in silence.
+	zone.boss.health = math.max(
+		math.floor(GameConfig.BossTargetHits * GameConfig.GetZoneReferenceDamage(i)),
+		math.floor(GameConfig.BossEliteFloor * GameConfig.EliteBaseHealth
+			* GameConfig.CreatureGenerationMax * zone.mobHealthMult))
 
 	-- Exactly HALF a level, in the currency of the stage this zone belongs to (zone i unlocks at
 	-- stage i, so the index is the same one the xpCost curve is written against). Boss XP used to be
@@ -872,17 +928,26 @@ GameConfig.MaxEquippedPets = 3
 
 -- ===== HOW MANY PETS A SAVE MAY HOLD =====
 --
--- 30, down from 600. The old ceiling was set to protect the DataStore (a save past 4 MB stops
--- saving forever with nothing but a warning), not to shape play, and at 600 it did neither: a live
--- save reached **207 pets**, which is not an inventory, it is a spreadsheet nobody scrolls. A cap
--- the player bumps into is a real decision — fuse it, equip it, or let it go — and it is what makes
--- a hatch worth watching.
+-- 100. It was 600 first — a figure set to protect the DataStore (a save past 4 MB stops saving
+-- forever with nothing but a warning) rather than to shape play, and at 600 it did neither: a live
+-- save reached **207 pets**, which is not an inventory, it is a spreadsheet nobody scrolls. It then
+-- went to 30, which shaped play too hard: fusion needs identical copies, so a ceiling of 30 put
+-- Celestial (27 copies at the 3-per-fuse requirement) out of reach of an inventory that also has to
+-- hold anything a player wants to keep.
+--
+-- 100 is the number where both are true: far under the DataStore wall, and roomy enough that the
+-- fusion ladder can actually be climbed while keeping a collection beside it.
+--
+-- RAISING THIS IS SAFE FOR EXISTING SAVES and lowering it is not. `PlayerDataService`'s trim only
+-- runs on `#data.Pets > MaxOwnedPets`, which after a raise is true for nobody; the `PetsTrimmedAt`
+-- stamp left at 30 on already-trimmed saves simply never matches again and goes inert. No save is
+-- touched a second time.
 --
 -- IT LIVES HERE so `PetService`, `TradeService` and `MainUI` all read one number. Both services
 -- kept private copies before, deliberately, because "these two files must not require each other" —
 -- but they both already require GameConfig, so the shared dependency was always available and the
 -- duplication only bought a way for the two ceilings to drift apart.
-GameConfig.MaxOwnedPets = 30
+GameConfig.MaxOwnedPets = 100
 
 -- Each zone's Pet Shop sells 3 eggs -- Basic/Better/Premium -- built by tiering that
 -- zone's base cost/luckBonus (same numbers the old single-egg-per-zone design used).

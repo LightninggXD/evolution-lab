@@ -103,22 +103,34 @@ end
 
 -- The avatar under the skin. Same sweep StageCostume.setBodyHidden does, kept here so this module
 -- can be used on a bare rig (the Journal's stand-in) with no StageCostume involved at all.
+--
+-- ONE ATTRIBUTE NAME FOR BOTH SWEEPS, AND IT IS CLEARED ON RESTORE. This used to write
+-- `SkinBaseTransparency` while StageCostume wrote `StageBaseTransparency`, on the same parts,
+-- neither ever removed -- so each sweep could record the OTHER one's hidden 1 as the "original"
+-- transparency and hand it back on restore. That is a permanently invisible player, and the only
+-- thing keeping it theoretical was the order the two happened to run in inside StageCostume.Clear:
+-- one reordering away from shipping. Clearing the attribute is the half that matters -- a value that
+-- does not survive a restore cannot be misread by the next hide.
+local BASE_TRANSPARENCY = "BodyBaseTransparency"
+
 local function setBodyHidden(character, hidden)
 	for _, part in ipairs(character:GetChildren()) do
 		if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-			if hidden and part:GetAttribute("SkinBaseTransparency") == nil then
-				part:SetAttribute("SkinBaseTransparency", part.Transparency)
+			if hidden and part:GetAttribute(BASE_TRANSPARENCY) == nil then
+				part:SetAttribute(BASE_TRANSPARENCY, part.Transparency)
 			end
-			part.Transparency = hidden and 1 or (part:GetAttribute("SkinBaseTransparency") or 0)
+			part.Transparency = hidden and 1 or (part:GetAttribute(BASE_TRANSPARENCY) or 0)
 			part.LocalTransparencyModifier = hidden and 1 or 0
+			if not hidden then part:SetAttribute(BASE_TRANSPARENCY, nil) end
 			-- a Decal on a fully transparent part still renders, so the avatar's face would
 			-- otherwise float inside the new head
 			for _, d in ipairs(part:GetChildren()) do
 				if d:IsA("Decal") or d:IsA("Texture") then
-					if hidden and d:GetAttribute("SkinBaseTransparency") == nil then
-						d:SetAttribute("SkinBaseTransparency", d.Transparency)
+					if hidden and d:GetAttribute(BASE_TRANSPARENCY) == nil then
+						d:SetAttribute(BASE_TRANSPARENCY, d.Transparency)
 					end
-					d.Transparency = hidden and 1 or (d:GetAttribute("SkinBaseTransparency") or 0)
+					d.Transparency = hidden and 1 or (d:GetAttribute(BASE_TRANSPARENCY) or 0)
+					if not hidden then d:SetAttribute(BASE_TRANSPARENCY, nil) end
 				end
 			end
 		end
@@ -149,11 +161,24 @@ end
 function SkinMesh.Apply(character, key, opts)
 	opts = opts or {}
 	local template = SkinMesh.TemplateFor(key)
-	if not (character and character.Parent and template) then return false end
+	-- A MISSING TEMPLATE IS NORMAL AND IS NOT WARNED ABOUT: only some of the 200 skins have a
+	-- generated mesh, and `false` here is the documented fall-through to StageCostume's primitives.
+	-- The other two halves of this test are not normal, and both used to return in silence -- the
+	-- exact signature (stock avatar, no parts, no errors) recorded in src/STATUS.md.
+	if not template then return false end
+	if not (character and character.Parent) then
+		warn(("[SkinMesh] no character to dress for '%s' -- the body left the workspace before Apply ran")
+			:format(tostring(key)))
+		return false
+	end
 
 	local head = character:FindFirstChild("Head")
 	local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
-	if not (head and torso) then return false end
+	if not (head and torso) then
+		warn(("[SkinMesh] '%s' on %s: head=%s torso=%s -- skin skipped, the player falls back to a costume or a stock avatar")
+			:format(tostring(key), tostring(character.Name), tostring(head ~= nil), tostring(torso ~= nil)))
+		return false
+	end
 
 	SkinMesh.Clear(character)
 
@@ -286,6 +311,7 @@ function SkinMesh.Apply(character, key, opts)
 
 	if placed == 0 then
 		folder:Destroy()
+		warn(("[SkinMesh] template for '%s' contains no BaseParts -- generated model is empty"):format(tostring(key)))
 		return false
 	end
 

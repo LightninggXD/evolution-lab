@@ -246,13 +246,42 @@ local function bodyProbe(character)
 	return torso.Size.X + torso.Size.Y * 3 + torso.Size.Z * 5 + head.Size.X * 7 + head.Size.Y * 11
 end
 
+-- SIZE IS ONLY HALF OF "SETTLED", AND THE OTHER HALF IS THE POSE.
+--
+-- `SkinMesh.Apply` welds with `weld.C0 = host.CFrame:Inverse() * part.CFrame` -- built out of WORLD
+-- CFrames, so the offset it stores is the one the limbs happen to hold at that instant. A weld keeps
+-- what it was given: dress a character mid-stride and the arms are welded into that stride forever,
+-- dress one in the air and the legs stay in the jump. That is one of the two things that reads as
+-- "the skins glitch", and no amount of waiting for the SIZE to stop changing catches it -- a running
+-- body has a perfectly stable size.
+--
+-- So the wait is now for size AND pose: no movement input, and not in Freefall. Both from the
+-- Humanoid, which is the only thing that knows the difference between standing still and being
+-- pushed. `Running` at zero MoveDirection is standing; `Freefall` is a jump, a fall or a ledge.
+--
+-- ONE TIMEOUT COVERS BOTH, deliberately. A player who holds W through the whole animation still has
+-- to be dressed -- a slightly bent skin is a far smaller failure than no skin at all, which is what
+-- an unbounded wait would produce for anyone who never stands still.
+local function poseSettled(character)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return true end
+	if humanoid.MoveDirection.Magnitude > 1e-3 then return false end
+	local state = humanoid:GetState()
+	if state == Enum.HumanoidStateType.Freefall
+		or state == Enum.HumanoidStateType.Jumping
+		or state == Enum.HumanoidStateType.Landed then
+		return false
+	end
+	return true
+end
+
 local function waitForBodySettled(character, timeout)
 	local waited, stable, last = 0, 0, nil
 	timeout = timeout or 2
 	while waited < timeout do
 		local probe = bodyProbe(character)
 		if not probe then return end
-		if last and math.abs(probe - last) < 1e-4 then
+		if last and math.abs(probe - last) < 1e-4 and poseSettled(character) then
 			stable += 1
 			if stable >= 2 then return end
 		else
@@ -271,12 +300,24 @@ end
 function EvolutionVisuals.ApplyStage(player, stageIndex, opts)
 	opts = opts or {}
 	local character = player.Character
-	if not character then return end
+	-- BOTH OF THESE USED TO BE SILENT, and between them they are the top of the skin path: nothing
+	-- below runs, so the player keeps a stock avatar with no costume and no error to explain it.
+	-- See the note on StageCostume.Apply for why that particular silence is expensive.
+	if not character then
+		warn(("[EvolutionVisuals] %s has no character -- stage %s visuals skipped"):format(player.Name, tostring(stageIndex)))
+		return
+	end
 	local stage = GameConfig.Stages[stageIndex]
-	if not stage then return end
+	if not stage then
+		warn(("[EvolutionVisuals] %s: stage index %s is not in GameConfig.Stages"):format(player.Name, tostring(stageIndex)))
+		return
+	end
 
 	character:WaitForChild("HumanoidRootPart", 5)
-	if not character:FindFirstChild("HumanoidRootPart") then return end
+	if not character:FindFirstChild("HumanoidRootPart") then
+		warn(("[EvolutionVisuals] %s: no HumanoidRootPart after 5s -- stage %d visuals skipped"):format(player.Name, stageIndex))
+		return
+	end
 
 	character:SetAttribute("StageIndexForHealth", stageIndex)
 	-- Read back by applyMastery (pace scales with the body) and by the client's floating health bar,
@@ -320,11 +361,39 @@ function EvolutionVisuals.ApplyStage(player, stageIndex, opts)
 	-- applyScale tweens over 0.6s (see SCALE_PROPS), hence the delay when animating; the settle
 	-- wait above covers the un-animated path, where the resize is instant to us and several frames
 	-- away as far as the engine is concerned.
+	-- THE GENERATION TOKEN, AND WHY "SAME CHARACTER" WAS NOT ENOUGH.
+	--
+	-- `dress` sleeps for up to two seconds inside `waitForBodySettled`. The only guard it had was
+	-- "is this still the same character", which two overlapping calls both pass -- so equipping skin
+	-- A and then skin B within that window started two coroutines against one body, and whichever
+	-- woke last won. The evolve path makes it worse rather than better: it delays 0.7s, so against a
+	-- live equip the STALE data has a head start and the player ends up wearing the older skin, with
+	-- nothing in the console to say so.
+	--
+	-- A monotonic counter on the character settles it: every ApplyStage claims the next number, and a
+	-- coroutine that wakes to find the number has moved is no longer the current dress and stops.
+	-- An attribute rather than an upvalue because the state belongs to the BODY -- a fresh character
+	-- starts at nil and therefore at 1, with no per-player table to clean up on leave.
+	local generation = (character:GetAttribute("DressGeneration") or 0) + 1
+	character:SetAttribute("DressGeneration", generation)
+
 	local function dress()
 		if not (character.Parent and player.Character == character) then return end
+		if character:GetAttribute("DressGeneration") ~= generation then return end
 		waitForBodySettled(character)
 		if not (character.Parent and player.Character == character) then return end
-		StageCostume.Apply(character, lookIndex, lookStage, entry)
+		if character:GetAttribute("DressGeneration") ~= generation then return end
+
+		-- READ THE WORN SKIN AGAIN, HERE, rather than using the `entry` captured above. The token
+		-- above stops a stale dress that a newer ApplyStage has superseded; this covers the other
+		-- half -- the save changing during the wait with no second ApplyStage behind it -- and it
+		-- costs one table lookup. Between them, what lands on the body is what the save says now.
+		local liveData = PlayerDataService.Get(player)
+		local liveEntry = liveData and GameConfig.GetWornCharacter(liveData) or entry
+		local liveIndex = (liveEntry and liveEntry.stage) or stageIndex
+		local liveStage = GameConfig.Stages[liveIndex] or stage
+		character:SetAttribute("CharacterKey", liveEntry and liveEntry.key or nil)
+		StageCostume.Apply(character, liveIndex, liveStage, liveEntry)
 	end
 
 	if opts.animate then

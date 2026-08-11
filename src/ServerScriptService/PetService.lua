@@ -128,7 +128,7 @@ end
 
 local EGG_INTERVAL = 0.35   -- comfortably faster than the hatch animation, far slower than a loop
 -- One ceiling for the whole game, read from GameConfig so this file, TradeService and the HUD
--- cannot drift apart -- see the note there for why it is 30 and why it stopped being private.
+-- cannot drift apart -- see the note there for why it is 100 and why it stopped being private.
 local MAX_PETS = GameConfig.MaxOwnedPets
 local lastEgg = {}          -- [userId] = os.clock()
 

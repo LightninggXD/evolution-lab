@@ -65,6 +65,27 @@ local function mk(name, size, color, material, transparency, shape)
 	return p
 end
 
+-- EVERY SPIN BELOW IS AN INFINITE TWEEN, AND DESTROYING A WELD DOES NOT STOP ONE.
+--
+-- `att` starts `TweenInfo.new(..., -1)` on the weld; `Clear` destroys the folder those welds live
+-- in and never cancels a thing. A Tween holds a strong reference to its target, so a destroyed weld
+-- keeps having its C0 written forever and can never be collected -- and the part it carries goes
+-- with it. Every rebuild of a spinning costume leaked another set, and until the generation token in
+-- EvolutionVisuals landed, a single equip could rebuild several times.
+--
+-- WEAK KEYS: a character that leaves takes its list with it, so this needs no PlayerRemoving hook --
+-- which a shared module running on every client has no good place to register anyway.
+local spinTweens = setmetatable({}, { __mode = "k" })
+
+local function cancelSpins(character)
+	local list = spinTweens[character]
+	if not list then return end
+	for _, tween in ipairs(list) do
+		tween:Cancel()
+	end
+	spinTweens[character] = nil
+end
+
 -- Hangs `part` off `hostPart` at `offset`. `spin` is { rx, ry, rz, seconds } and makes the piece
 -- turn forever by tweening the weld. The rotation has to be exactly one step of the arrangement's
 -- own symmetry, or the tween's jump back to its start value is visible as a stutter -- so orbiting
@@ -85,9 +106,17 @@ local function att(ctx, part, hostPart, offset, spin)
 	weld.Parent = part
 
 	if spin then
-		TweenService:Create(weld, TweenInfo.new(spin[4] or 6, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {
+		local tween = TweenService:Create(weld, TweenInfo.new(spin[4] or 6, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {
 			C0 = offset * CFrame.Angles(spin[1] or 0, spin[2] or 0, spin[3] or 0),
-		}):Play()
+		})
+		tween:Play()
+		-- registered so Clear can cancel it; see the note above cancelSpins
+		local list = spinTweens[ctx.character]
+		if not list then
+			list = {}
+			spinTweens[ctx.character] = list
+		end
+		table.insert(list, tween)
 	end
 	return part
 end
@@ -268,20 +297,29 @@ end
 --
 -- Decals need doing by hand: a Decal on a fully transparent part still renders, so without this
 -- the avatar's face floats inside the new head.
+--
+-- THE ATTRIBUTE NAME IS SHARED WITH SkinMesh, and it is cleared on restore. Both modules hide the
+-- same avatar parts, and while they used two different names neither ever removed, each could record
+-- the other's hidden 1 as the "original" transparency -- a player left permanently invisible. See the
+-- longer note above SkinMesh's copy of this sweep; the two must keep the same string.
+local BASE_TRANSPARENCY = "BodyBaseTransparency"
+
 local function setBodyHidden(character, hidden)
 	for _, part in ipairs(character:GetChildren()) do
 		if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-			if hidden and part:GetAttribute("StageBaseTransparency") == nil then
-				part:SetAttribute("StageBaseTransparency", part.Transparency)
+			if hidden and part:GetAttribute(BASE_TRANSPARENCY) == nil then
+				part:SetAttribute(BASE_TRANSPARENCY, part.Transparency)
 			end
-			part.Transparency = hidden and 1 or (part:GetAttribute("StageBaseTransparency") or 0)
+			part.Transparency = hidden and 1 or (part:GetAttribute(BASE_TRANSPARENCY) or 0)
 			part.LocalTransparencyModifier = hidden and 1 or 0
+			if not hidden then part:SetAttribute(BASE_TRANSPARENCY, nil) end
 			for _, d in ipairs(part:GetChildren()) do
 				if d:IsA("Decal") or d:IsA("Texture") then
-					if hidden and d:GetAttribute("StageBaseTransparency") == nil then
-						d:SetAttribute("StageBaseTransparency", d.Transparency)
+					if hidden and d:GetAttribute(BASE_TRANSPARENCY) == nil then
+						d:SetAttribute(BASE_TRANSPARENCY, d.Transparency)
 					end
-					d.Transparency = hidden and 1 or (d:GetAttribute("StageBaseTransparency") or 0)
+					d.Transparency = hidden and 1 or (d:GetAttribute(BASE_TRANSPARENCY) or 0)
+					if not hidden then d:SetAttribute(BASE_TRANSPARENCY, nil) end
 				end
 			end
 		end
@@ -1021,10 +1059,11 @@ local function setAccessoriesHidden(character, hidden)
 				for _, d in ipairs(acc:GetDescendants()) do
 					if d:IsA("BasePart") then
 						d.LocalTransparencyModifier = hidden and 1 or 0
-						d.Transparency = hidden and 1 or (d:GetAttribute("StageBaseTransparency") or 0)
-						if hidden and d:GetAttribute("StageBaseTransparency") == nil then
-							d:SetAttribute("StageBaseTransparency", 0)
+						d.Transparency = hidden and 1 or (d:GetAttribute(BASE_TRANSPARENCY) or 0)
+						if hidden and d:GetAttribute(BASE_TRANSPARENCY) == nil then
+							d:SetAttribute(BASE_TRANSPARENCY, 0)
 						end
+						if not hidden then d:SetAttribute(BASE_TRANSPARENCY, nil) end
 					end
 				end
 			end
@@ -1034,6 +1073,9 @@ end
 
 function StageCostume.Clear(character)
 	if not character then return end
+	-- BEFORE the folder goes, not after: once the weld is destroyed the tween is still running and
+	-- still holding it, and there is nothing left to look it up from
+	cancelSpins(character)
 	local existing = character:FindFirstChild(FOLDER_NAME)
 	if existing then existing:Destroy() end
 	-- a generated skin is the other half of the same wardrobe; leaving one behind would show two
@@ -1051,8 +1093,18 @@ end
 -- `entry` is the GameConfig.StageCharacters row being worn, or nil for the stage's default look.
 -- It is one of the stage's five, so it changes the COLOUR of the whole build and nothing else --
 -- a Cinder Wolf and a Frost Wolf have the same ears, muzzle, ruff and tail.
+--
+-- EVERY BAIL-OUT BELOW SAYS SO. The whole skin path used to have a single `warn` in it, and the
+-- failure it produces -- a stock R15 avatar, zero costume parts, zero errors in the console -- is
+-- indistinguishable from the code never having run at all. That signature is written up in
+-- `src/STATUS.md`, and it cost two sessions of looking in the wrong place. A silent `return` in a
+-- visual path is not a cheap guard, it is a bug report that never gets filed.
 function StageCostume.Apply(character, stageIndex, stage, entry)
-	if not (character and character.Parent) then return end
+	if not (character and character.Parent) then
+		warn(("[StageCostume] no character to dress (stage %s) -- caller kept a reference to a body that has left the workspace")
+			:format(tostring(stageIndex)))
+		return
+	end
 	StageCostume.Clear(character)
 
 	-- A GENERATED MODEL WINS, WHEN THERE IS ONE.
@@ -1070,14 +1122,22 @@ function StageCostume.Apply(character, stageIndex, stage, entry)
 
 	local builder = BUILD[stageIndex]
 	local root = character:FindFirstChild("HumanoidRootPart")
-	if not (builder and root) then return end
+	if not (builder and root) then
+		warn(("[StageCostume] %s: builder=%s root=%s -- the player is left on a stock avatar")
+			:format(tostring(character.Name), tostring(builder ~= nil), tostring(root ~= nil)))
+		return
+	end
 
 	-- R15 first, R6 names as the fallback: a player on an R6 avatar still gets a costume, just
 	-- hung off the two parts R6 actually has.
 	local head = character:FindFirstChild("Head")
 	local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso") or root
 	local lower = character:FindFirstChild("LowerTorso") or character:FindFirstChild("Torso") or root
-	if not head then return end
+	if not head then
+		warn(("[StageCostume] %s has no Head -- costume for stage %s abandoned")
+			:format(tostring(character.Name), tostring(stageIndex)))
+		return
+	end
 
 	local folder = Instance.new("Folder")
 	folder.Name = FOLDER_NAME

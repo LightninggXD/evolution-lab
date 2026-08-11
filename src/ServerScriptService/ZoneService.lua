@@ -244,6 +244,30 @@ function ZoneService.ReturnToCurrentZone(player)
 	travel(player, ZoneBuilder.GetZoneSpawnCFrame(zoneKey), labelForZone(zoneKey))
 end
 
+-- Rebirth's way home, and it is deliberately NOT ReturnToCurrentZone. That one returns early on
+-- `zoneKey == "Forest"` because the game's single SpawnLocation is already in Forest, so a respawn
+-- there needs no move. But a rebirth has written `CurrentZone = "Forest"` BEFORE it asks to be sent
+-- home, while the body is still standing in zone twelve -- so that early return fired on the one
+-- path that needs the teleport most, and the most expensive action in the game left the player on
+-- ground whose creatures hit for x8.4 at stage 1.
+--
+-- No Forest branch here, and no respawn timing to protect: it goes straight through the same
+-- `travel` handshake, so streaming, the anchor and the transition card all behave exactly as they
+-- do for a gate walk.
+function ZoneService.SendToZoneSpawn(player, zoneKey)
+	local data = PlayerDataService.Get(player)
+	if not data then return false end
+	zoneKey = zoneKey or data.CurrentZone or "Forest"
+	-- a zone the save no longer lists is not a place to be dropped; Forest is always unlocked
+	if not hasZone(data, zoneKey) then zoneKey = "Forest" end
+
+	local character = player.Character
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return false end
+
+	return travel(player, ZoneBuilder.GetZoneSpawnCFrame(zoneKey), labelForZone(zoneKey))
+end
+
 function ZoneService.Init()
 	ZoneBuilder.Build()
 
