@@ -257,6 +257,29 @@ local function styleButton(btn, baseColor, radius, thickness)
 	btn.AutoButtonColor = false
 	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	btn.TextStrokeTransparency = 1
+
+	-- ===== EVERY ACTION BUTTON IN THE GAME LOST SIX PIXELS, IN ONE PLACE =====
+	--
+	-- Asked for as "the buttons are too big". Done here rather than at the ~25 sites that author
+	-- one, because a height typed in 25 places drifts the moment somebody writes the 26th -- which
+	-- is the same reasoning that put the egg panel's two action buttons into a list layout below.
+	--
+	-- KEYED ON THE EXACT AUTHORED HEIGHT, NOT A SCALE FACTOR. 50 is the primary action on a panel
+	-- and 46 is everything else; they become 44 and 40, and the gap between the two tiers survives
+	-- so the hierarchy still reads. Everything else in this file is sized against something other
+	-- than "an action button" -- the close X is 42, a tier chip is 34, the Robux hero cards are 60+
+	-- -- and a blanket multiplier would drag every one of them off its own grid. Anything not one
+	-- of those two numbers comes out exactly as it was authored.
+	--
+	-- A Y.Scale term means the parent owns the height, so those are left alone too.
+	-- Mirrored in UITheme.Button, which is the other way a button in this game gets built.
+	do
+		local h = btn.Size.Y.Offset
+		if btn.Size.Y.Scale == 0 and (h == 50 or h == 46) then
+			btn.Size = UDim2.new(btn.Size.X.Scale, btn.Size.X.Offset, 0, h == 50 and 44 or 40)
+		end
+	end
+
 	local strokeInst = styleCard(btn, baseColor, radius, thickness)
 
 	if btn:IsA("TextButton") then
@@ -5639,6 +5662,12 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 
 	questScroll.CanvasSize = UDim2.new(0, 0, 0, questOrder * 78 + 30)
 
+	-- Forward-declared because the HUD tile is built at the BOTTOM of this block (it wants the
+	-- panel and `refresh` to exist first) while `refresh` is what owns the badge. A closure that
+	-- referenced a local declared later would compile to a global read and silently do nothing.
+	local tileBadge, tileBadgeLabel
+	local lastClaimable = 0
+
 	-- ================= REFRESH =================
 
 	local function refresh()
@@ -5657,6 +5686,10 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 		-- brought this data over -- see SeasonPassService
 		local claimedFree = season.claimedFree or {}
 		local claimedPremium = season.claimedPremium or {}
+		-- Counted by the two loops below rather than by a second pass that re-derives the same
+		-- question: each of them already has an exact "this one is pressable" branch, and a
+		-- separate counter written against the same rules is the thing that drifts from them.
+		local claimable = 0
 
 		levelLabel.Text = "Level " .. level
 		xpBarFill.Size = UDim2.new(need > 0 and (into / need) or 1, 0, 1, 0)
@@ -5689,6 +5722,7 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 					cellRefs.strokeInst.Thickness = 4
 				elseif reached and owned then
 					-- the one "press me" state on the board, same bright rim as everywhere else
+					claimable += 1
 					cellRefs.status.Text = "CLAIM!"
 					setButtonColor(cellRefs.btn, UITheme.Color.Green)
 					cellRefs.strokeInst.Color = READY_RIM
@@ -5741,6 +5775,7 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 				refs.rowStroke.Thickness = 4
 			elseif done >= quest.target then
 				band = 1
+				claimable += 1
 				refs.claimBtn.Text = "CLAIM!"
 				setButtonColor(refs.claimBtn, UITheme.Color.Green)
 				refs.rowStroke.Color = READY_RIM
@@ -5782,6 +5817,24 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 				entry.refs.row.LayoutOrder = base + i
 			end
 		end
+
+		-- ===== THE TILE HAS TO SAY THERE IS SOMETHING TO PRESS =====
+		--
+		-- Every other route into this panel was the player deciding to look. The Daily tile has
+		-- carried a claimable-today flag since it was built; the Season tile was authored without
+		-- one, so a finished quest and an unclaimed level sat behind a tile that looked exactly
+		-- like a tile with nothing in it.
+		--
+		-- IT IS A COUNT, NOT A DOT. "3" is a reason to open the panel; a bare mark is a decoration
+		-- the eye learns to skip after the second session -- which is also why it goes dark the
+		-- moment the last thing is claimed rather than staying lit as an advert for the feature.
+		lastClaimable = claimable
+		if tileBadge then
+			tileBadge.Visible = claimable > 0
+			if tileBadgeLabel then
+				tileBadgeLabel.Text = (claimable > 9) and "9+" or tostring(claimable)
+			end
+		end
 	end
 
 	-- the countdown to the next reset, ticking only while somebody is looking at it
@@ -5804,7 +5857,14 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 	end)
 
 	-- ---- HUD tile, bottom of the right column (see RIGHT_COUNT)
-	local tile = columnTile("R", 5, SEASON.emoji, "Season", UITheme.Color.Sunny)
+	-- The badge is authored WITH the tile and hidden immediately, because UITheme.Badge is only
+	-- reachable through the IconTile options table -- there is no "add a badge later" call. Hidden
+	-- rather than left showing its placeholder: the first DataUpdate is a few hundred milliseconds
+	-- out, and a red "1" that flashes on every join and is usually wrong is worse than no badge.
+	local tile = columnTile("R", 5, SEASON.emoji, "Season", UITheme.Color.Sunny, "1", UITheme.Color.Coral)
+	tileBadge = tile:FindFirstChild("Badge")
+	tileBadgeLabel = tileBadge and tileBadge:FindFirstChild("Label")
+	if tileBadge then tileBadge.Visible = false end
 	tile.MouseButton1Click:Connect(function()
 		toggleOnly(panel)
 		setTab(currentTab)
@@ -5816,6 +5876,10 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 	updateTimers()
 
 	hudRefs.refreshSeasonPanel = refresh
+	-- read by the welcome-back card, which has to know whether this feature has anything waiting
+	-- before it offers a row pointing at it. It is the number `refresh` last drew on the badge, so
+	-- the card and the tile can never disagree about what is claimable.
+	hudRefs.seasonClaimCount = function() return lastClaimable end
 	hudRefs.showSeasonPanel = function()
 		toggleOnly(panel)
 		setTab(currentTab)
@@ -6354,6 +6418,202 @@ local function refreshUI()
 	end
 end
 
+-- ===== WELCOME BACK: THE ONE MOMENT THE GAME ASKS FOR ATTENTION INSTEAD OF WAITING FOR IT =====
+--
+-- Two finished features that never called out to anybody. The daily reward's only signal was a
+-- 46 px badge on one tile in a cluster of nine -- and the `dailyReward` toast fires AFTER the
+-- claim, so it is a receipt, not an invitation. The Season Pass was worse: `hudRefs.showSeasonPanel`
+-- was defined and had no caller anywhere in the file, so nothing but the tile itself could ever
+-- open that screen.
+--
+-- ONE CARD LISTING WHAT IS WAITING, each line with the button that goes there.
+--
+--   Not a toast. A toast is dismissed by a timer, and the seconds it would own are the seconds the
+--   player is still walking out of the loading wipe.
+--   Not an auto-open of the Daily panel either. Opening a screen the player did not ask for puts a
+--   Claim button under a cursor that was not aimed at it, and it can only ever say one of the two
+--   things -- the Season Pass would be exactly as silent afterwards as it is now.
+--
+-- GATED ON `TutorialDone`, which is what makes it "welcome BACK". A brand-new save has an unclaimed
+-- daily too, and FirstJoin is driving its own four-beat guide over the same frames; two guides at
+-- once is neither. Note this is the same field 6.3 chose and for the same reason -- `StageIndex == 1`
+-- would have fired on every rebirth.
+--
+-- ONCE PER SESSION, ON THE FIRST PAYLOAD. Re-checking on later pushes would pop a card over the
+-- middle of a fight the moment a quest ticked over, which is the opposite of what a join card is.
+;(function()
+	local shown = false
+
+	local ROW_H, ROW_GAP = 88, 12
+	local panel = Instance.new("Frame")
+	panel.Name = "WelcomeBackPanel"
+	-- 2 rows is the maximum this card can ever have, and it is authored at that height so
+	-- registerPanel's responsive fit is computed once against the largest it can be. A card that
+	-- re-sized itself after being fitted would be measuring against a scale derived from the old
+	-- size -- the feedback loop registerPanel's own comment warns about.
+	panel.Size = UDim2.new(0, 560, 0, 116 + ROW_H * 2 + ROW_GAP + 20)
+	panel.Position = PANEL_ANCHOR
+	panel.ZIndex = 20
+	panel.Visible = false
+	panel.Parent = screenGui
+	styleCard(panel, PANEL_SHELL, UDim.new(0, 22), 5)
+	registerPanel(panel)
+	panelClose(panel)
+
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.Size = UDim2.new(1, -110, 0, 44)
+	title.Position = UDim2.new(0, 24, 0, 16)
+	title.BackgroundTransparency = 1
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Text = "\u{1F44B} Welcome back!"
+	title.ZIndex = panel.ZIndex + UITheme.Z.Content
+	title.Parent = panel
+	themeLabel(title, 36)
+
+	local sub = Instance.new("TextLabel")
+	sub.Name = "Subtitle"
+	sub.Size = UDim2.new(1, -48, 0, 26)
+	sub.Position = UDim2.new(0, 24, 0, 62)
+	sub.BackgroundTransparency = 1
+	sub.TextXAlignment = Enum.TextXAlignment.Left
+	sub.Text = "You have something waiting."
+	sub.ZIndex = panel.ZIndex + UITheme.Z.Content
+	sub.Parent = panel
+	themeLabel(sub, 20, UITheme.Color.Cream)
+
+	-- A list layout rather than hand arithmetic, so hiding one row closes the gap it left instead
+	-- of leaving a hole the size of a card in the middle of the panel (11.3's rule, applied before
+	-- it can become a defect rather than after).
+	local rowHost = Instance.new("Frame")
+	rowHost.Name = "Rows"
+	rowHost.Size = UDim2.new(1, -48, 0, ROW_H * 2 + ROW_GAP)
+	rowHost.Position = UDim2.new(0, 24, 0, 104)
+	rowHost.BackgroundTransparency = 1
+	rowHost.ZIndex = panel.ZIndex + UITheme.Z.Content
+	rowHost.Parent = panel
+
+	local rowLayout = Instance.new("UIListLayout")
+	rowLayout.Padding = UDim.new(0, ROW_GAP)
+	rowLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	rowLayout.Parent = rowHost
+
+	-- one line of the card: what is waiting, and the one button that goes there
+	local function buildRow(order, color, action)
+		local row = Instance.new("Frame")
+		row.Size = UDim2.new(1, 0, 0, ROW_H)
+		row.LayoutOrder = order
+		row.ZIndex = rowHost.ZIndex + UITheme.Z.Content
+		row.Visible = false
+		row.Parent = rowHost
+		styleCard(row, PET_ROW_SHELL, UDim.new(0, 16), 4)
+
+		local head = Instance.new("TextLabel")
+		head.Name = "Head"
+		head.Size = UDim2.new(1, -190, 0, 30)
+		head.Position = UDim2.new(0, 18, 0, 12)
+		head.BackgroundTransparency = 1
+		head.TextXAlignment = Enum.TextXAlignment.Left
+		head.ZIndex = row.ZIndex + UITheme.Z.Content
+		head.Parent = row
+		themeLabel(head, 26)
+
+		local note = Instance.new("TextLabel")
+		note.Name = "Note"
+		note.Size = UDim2.new(1, -190, 0, 26)
+		note.Position = UDim2.new(0, 18, 0, 46)
+		note.BackgroundTransparency = 1
+		note.TextXAlignment = Enum.TextXAlignment.Left
+		note.ZIndex = row.ZIndex + UITheme.Z.Content
+		note.Parent = row
+		themeLabel(note, 19, UITheme.Color.Cream)
+
+		local btn = Instance.new("TextButton")
+		btn.Name = "GoButton"
+		btn.Size = UDim2.new(0, 150, 0, 52)
+		btn.Position = UDim2.new(1, -16, 0.5, 0)
+		btn.AnchorPoint = Vector2.new(1, 0.5)
+		btn.Text = "OPEN"
+		btn.ZIndex = row.ZIndex + UITheme.Z.Content
+		btn.Parent = row
+		styleButton(btn, color, UDim.new(0, 14))
+		-- No explicit close: every one of these opens a panel through `toggleOnly`, which runs
+		-- `closeAllPanels` first, and this card is a registered panel -- so it closes itself on the
+		-- way out, animated, through the same path as everything else.
+		btn.MouseButton1Click:Connect(action)
+
+		return row, head, note, btn
+	end
+
+	local dailyRow, dailyHead, dailyNote = buildRow(1, UITheme.Color.Green, function()
+		refreshRewardPanel()
+		toggleOnly(rewardPanel)
+	end)
+	local seasonRow, seasonHead, seasonNote = buildRow(2, UITheme.Color.Sunny, function()
+		hudRefs.showSeasonPanel()
+	end)
+
+	function hudRefs.maybeWelcomeBack(data, firstPayload)
+		if shown or not firstPayload then return end
+		shown = true
+		if type(data) ~= "table" then return end
+		if not data.TutorialDone then return end
+
+		-- The same question refreshRewardPanel asks, off the same two fields, so the card and the
+		-- tile badge can never disagree about whether today has been claimed.
+		local dailyReady = dayNumber(os.time()) > dayNumber(data.LastRewardClaim)
+		local seasonReady = hudRefs.seasonClaimCount and hudRefs.seasonClaimCount() or 0
+
+		if not dailyReady and seasonReady <= 0 then return end
+
+		if dailyReady then
+			local streak = data.RewardStreak or 0
+			local today = dayNumber(os.time())
+			-- the streak the claim will PRODUCE, not the one on the save: a player who missed a day
+			-- is starting again at 1, and telling them "Day 6 is ready" and then paying Day 1 is
+			-- the kind of small lie that makes the whole board look broken
+			local upcoming = (today == dayNumber(data.LastRewardClaim) + 1) and (streak + 1) or 1
+			local index = ((math.max(upcoming, 1) - 1) % #GameConfig.DailyRewards) + 1
+			dailyHead.Text = ("\u{1F381} Daily reward \u{2014} Day %d is ready"):format(index)
+			dailyNote.Text = (streak > 0)
+				and ("\u{1F525} %d day streak \u{2014} claim to keep it going"):format(streak)
+				or "Claim it to start a streak"
+		end
+		dailyRow.Visible = dailyReady
+
+		if seasonReady > 0 then
+			seasonHead.Text = ("\u{1F3C6} Season Pass \u{2014} %d to claim"):format(seasonReady)
+			seasonNote.Text = "Finished quests and levels you have already passed"
+		end
+		seasonRow.Visible = seasonReady > 0
+
+		sub.Text = (dailyReady and seasonReady > 0)
+			and "Two things are waiting for you."
+			or "You have something waiting."
+
+		task.spawn(function()
+			-- WAIT FOR THE LOADING SCREEN TO GO, and wait for the object rather than for a delay.
+			-- LoadingScreen holds for MIN_SHOW 2.6 s and then fades for another 0.45 -- but it also
+			-- waits on the HUD existing and on preloading, so the real number is a range, and a card
+			-- animating open underneath it would be over by the time the wipe cleared.
+			local lg = player:FindFirstChild("PlayerGui")
+			local screen = lg and lg:FindFirstChild("LoadingScreen")
+			local waited = 0
+			while screen and screen.Parent and waited < 20 do
+				waited += task.wait(0.1)
+			end
+			task.wait(0.35)
+			-- ...and do not shove a card in front of something the player opened in the meantime.
+			-- Twenty seconds is a long time to hold a greeting; if they are already busy, they have
+			-- found their own way in and the badge on the tile is enough.
+			for _, p in ipairs(togglePanels) do
+				if p.Visible then return end
+			end
+			toggleOnly(panel)
+		end)
+	end
+end)()
+
 Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 	local firstPayload = (currentData == nil)
 	currentData = data
@@ -6393,6 +6653,11 @@ Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 	refreshMasteryPanel()
 	refreshInventoryPanel()
 	refreshCharacterPanel()
+
+	-- LAST, and that is load-bearing: the card reads `hudRefs.seasonClaimCount()`, which is the
+	-- number `refreshSeasonPanel` wrote a few lines up. Called before it, the count is 0 on the one
+	-- payload that matters and the Season row would never be offered to anybody.
+	if hudRefs.maybeWelcomeBack then hudRefs.maybeWelcomeBack(data, firstPayload) end
 end)
 
 -- ===== A BOUGHT UPGRADE HAS TO LOOK BOUGHT =====
@@ -6962,23 +7227,61 @@ local shopPanels = {
 	oddsLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	oddsLayout.Parent = oddsScroll
 
+	-- ===== TWO BUTTONS, ONE ROW, AND NO HAND ARITHMETIC (11.3) =====
+	--
+	-- THE OVERLAPPING PAIR IS HATCH AND HATCH x10, not Hatch and Auto Hatch as the report reads it.
+	-- Auto Hatch is on its own full-width line 60 px below and never touched anything. Measured, on
+	-- a 470-wide panel: both of these were `0.48` (225.6 px each), one placed from x=18 and the
+	-- other anchored to the right edge at 452 -- so they ran into each other by 17.2 px, and looked
+	-- like more because styleCard's UIStroke draws OUTSIDE the frame, adding 5 px to each side of
+	-- both. 225.6 + 225.6 + 36 of margin is 487 in a panel 470 wide; the two fractions were the bug.
+	--
+	-- A horizontal UIListLayout divides the row it is given instead of each button being told a
+	-- fraction of the PANEL, so the gap is stated once as padding and neither one can be sized into
+	-- its neighbour again -- including after the height shrink in `styleButton`, which is the sort
+	-- of global change that turns hand arithmetic like this into a defect somewhere else.
+	local actionRow = Instance.new("Frame")
+	actionRow.Name = "ActionRow"
+	-- 44, the shrunk primary height, written here rather than left at 50: both children fill the
+	-- row (`1, 0` on Y), so the row owns their height and `styleButton`'s shrink -- which only ever
+	-- rewrites an OFFSET height -- correctly does not touch them.
+	actionRow.Size = UDim2.new(1, -36, 0, 44)
+	actionRow.Position = UDim2.new(0, 18, 0, 396)
+	actionRow.BackgroundTransparency = 1
+	actionRow.ZIndex = panel.ZIndex + UITheme.Z.Content
+	actionRow.Parent = panel
+
+	local actionLayout = Instance.new("UIListLayout")
+	actionLayout.FillDirection = Enum.FillDirection.Horizontal
+	-- 24, NOT the 12 this was first written with, and the difference is the outline. `styleCard`'s
+	-- UIStroke is 5 px and draws OUTSIDE the frame it belongs to, so the two buttons each spend 5
+	-- of the gap before any daylight appears between them: a 12 px frame gap measured 2 px of
+	-- actual space and the pair read as one merged bar, which is the crowding this row exists to
+	-- remove rather than the overlap arithmetic it was reported as. 24 leaves 14 visible.
+	--
+	-- GENERAL RULE FOR THIS UI: a gap of N between two stroked siblings shows as N - 10.
+	actionLayout.Padding = UDim.new(0, 24)
+	actionLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	actionLayout.Parent = actionRow
+
 	local hatchButton = Instance.new("TextButton")
 	hatchButton.Name = "Hatch"
-	hatchButton.Size = UDim2.new(0.48, 0, 0, 50)
-	hatchButton.Position = UDim2.new(0, 18, 0, 396)
+	-- half the row minus half the padding, which is the one arithmetic left and it cannot drift:
+	-- 24 of padding split between two children is 12 each
+	hatchButton.Size = UDim2.new(0.5, -12, 1, 0)
+	hatchButton.LayoutOrder = 1
 	hatchButton.Text = "HATCH"
-	hatchButton.ZIndex = panel.ZIndex + UITheme.Z.Content
-	hatchButton.Parent = panel
+	hatchButton.ZIndex = actionRow.ZIndex + UITheme.Z.Content
+	hatchButton.Parent = actionRow
 	styleButton(hatchButton, UITheme.Color.Green, UDim.new(0, 14))
 
 	local bulkButton = Instance.new("TextButton")
 	bulkButton.Name = "HatchBulk"
-	bulkButton.Size = UDim2.new(0.48, 0, 0, 50)
-	bulkButton.Position = UDim2.new(1, -18, 0, 396)
-	bulkButton.AnchorPoint = Vector2.new(1, 0)
+	bulkButton.Size = UDim2.new(0.5, -12, 1, 0)
+	bulkButton.LayoutOrder = 2
 	bulkButton.Text = "HATCH x10"
-	bulkButton.ZIndex = panel.ZIndex + UITheme.Z.Content
-	bulkButton.Parent = panel
+	bulkButton.ZIndex = actionRow.ZIndex + UITheme.Z.Content
+	bulkButton.Parent = actionRow
 	styleButton(bulkButton, UITheme.Color.Blue, UDim.new(0, 14))
 
 	local autoButton = Instance.new("TextButton")

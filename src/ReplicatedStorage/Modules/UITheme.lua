@@ -673,6 +673,24 @@ function UITheme.Button(parent, opts)
 
 	local color, base, press = buildSurface(button, parent, opts, UDim.new(0, 16))
 
+	-- ===== THE SAME SIX PIXELS MainUI's `styleButton` TAKES OFF (11.3) =====
+	--
+	-- Two builders make every button in this game and a shrink applied to only one of them is a
+	-- HUD where half the buttons are 44 tall and half are 50 -- which is worse than leaving both
+	-- alone. The rule is identical and deliberately narrow: the two authored action-button heights
+	-- (50 primary, 46 secondary) become 44 and 40, and nothing else is touched, because everything
+	-- else built through here -- a 42 close button, a 68 HUD tile, a 60+ Robux card -- is sized
+	-- against its own grid rather than against "an action button".
+	--
+	-- AFTER buildSurface, not inside it: Card, IconTile and Modal all go through that function and
+	-- none of them is an action button. Doing it there would resize the tile columns.
+	if button.Size.Y.Scale == 0 then
+		local h = button.Size.Y.Offset
+		if h == 50 or h == 46 then
+			button.Size = UDim2.new(button.Size.X.Scale, button.Size.X.Offset, 0, h == 50 and 44 or 40)
+		end
+	end
+
 	local text = opts.text or ""
 	-- ICON AND TEXT ARE STILL ONE LABEL WHEN THERE IS NO ART FOR THE ICON, and that is deliberate:
 	-- a button's text is centred, so splitting the row unconditionally would move every existing
