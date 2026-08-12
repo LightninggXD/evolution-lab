@@ -97,6 +97,54 @@ at some point and nobody updated this file, which is the same failure in the oth
 **If you change this number, say so here in the same commit.** A stale tripwire is worse than none:
 it converts every real regression into "probably just the baseline".
 
+## Reading a big file without loading it — `tools/luamap.py`
+
+Five files in this tree cannot be read whole without spending most of a context window:
+
+| File | Size | ~tokens if read whole |
+|---|---:|---:|
+| `ServerScriptService/ZoneBuilder.lua` | 560 KB | **~147k** |
+| `StarterPlayer/.../MainUI.client.lua` | 379 KB | **~99k** |
+| `ReplicatedStorage/Modules/GameConfig.lua` | 262 KB | ~69k |
+| `ServerScriptService/CreatureService.lua` | 204 KB | ~54k |
+| `ServerScriptService/BossService.lua` | 156 KB | ~41k |
+
+**Never `Read` one of these without an `offset`/`limit`.** One such read poisons the rest of the
+session: every later request re-sends it.
+
+`tools/luamap.py` prints a table of contents — kind, name, start line, line count, byte weight, and
+the exact `offset`/`limit` to read that entry — for a few kilobytes:
+
+```
+python tools/luamap.py --by-size --top 20 --min-lines 5 src/ServerScriptService/ZoneBuilder.lua
+python tools/luamap.py --grep decorationBuilders src/ServerScriptService/ZoneBuilder.lua
+```
+
+Measured on ZoneBuilder: 91 top-level entries covering 81% of the file, and the **largest single
+one is `buildValleySide` at 1,267 lines / 76 KB (~20k tokens)**. So the worst case a targeted read
+can cost is about a seventh of reading the file, and a typical one is 2–5k.
+
+**It is a keyword counter, not a parser, and the counting is the whole trick.** The first version
+counted `function|if|for|while|do` against `end`, which double-counts every loop — `for ... do`
+opens on both keywords and is closed by one `end` — so depth never returned to zero and the map
+reported a single 8,737-line "function" covering 99% of ZoneBuilder. `for`/`while` are therefore not
+openers; their `do` is, tracked through `pending_do` so a wrapped loop header still claims the right
+one. If the coverage percentage ever collapses toward one giant entry again, that counter is why.
+
+## Why ZoneBuilder is NOT split, and what to do instead
+
+It was split once (`ZoneBuilder` + `ZoneDecor`) and the split was reverted; `ZoneDecor` sat as
+orphaned, diverged dead code until 11.27 deleted it. The mechanism was a function module closing
+over ZoneBuilder's top-level locals, with **29 helpers passed in by hand and 4 names returned** — so
+adding a helper call meant editing both lists, and forgetting one produced a `nil` at build time
+rather than an error at edit time. A fresh `require` of a cloned ZoneBuilder also did not give a
+fresh ZoneDecor, which is its own rebuild trap.
+
+The map replaces the reason to split: the unit worth addressing is the **function**, not the file,
+and a split would still hand you a 76 KB `buildValleySide` when that is what you need. If a file
+really must shrink, shrink that function first — it is the actual monolith — and treat it as a
+roadmap row with a rebuild to verify, not as a side quest.
+
 ## What is in here
 
 All 44 scripts in the place, including `ServerStorage/_PushBackup/*` (older snapshots kept
