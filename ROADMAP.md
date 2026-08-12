@@ -468,6 +468,47 @@ Gathered 2026-08-07/08 while writing this plan.
 
 ## Changelog
 
+- **2026-08-12 (end of session)** — **11.7 and 11.8 closed, each having found a hardcoded value
+  that would have shipped a lie.** Both rows were about adding or repricing content, and in both the
+  content was the easy half; what took the time was finding the place that had a copy of the number
+  typed into it.
+
+  **11.7.** `FuseRequirement` 4 → 3, so Celestial costs 27 copies against a 100-pet cap instead of
+  64 — the comment over `MaxOwnedPets` has said "27 copies at the 3-per-fuse requirement" since
+  11.10, so this was the constant catching up with a decision already made. The Catalyst turned out
+  to be **half in the fusion panel already** — every pet row carries a purchase button for it — and
+  that button printed a literal `"R$ 99"`, so repricing to 49 alone would have advertised one number
+  and charged another. Only the x3 bundle got a card of its own. Boss Revive is **`delisted`, not
+  deleted**: a deleted row means a retried receipt resolves to nothing forever, so the row survives
+  and now grants 10 diamonds — exactly what `Diamonds_1` sells for the same 49 R$.
+
+  **11.8.** A fourth potion kind, twelve bottles from four kinds x three sizes with no bottle
+  written by hand. Then the HUD timer strip turned out to be `local KINDS = { "dna", "xp", "luck" }`,
+  typed out (**11.30**), so the new kind reached the config, the shop, the panel, the save and the
+  server and had no countdown anywhere. **A `LABEL[kind] or kind` fallback is a tell: a default that
+  quietly prints a lowercase key is a list that expects to be incomplete.**
+
+  **Two probe runs lied before the code did, again, and both times the lie looked like a bug in the
+  new feature.** A regen measurement came back at 1.0%/sec against a target of 5%, and the expiry
+  undo appeared not to fire — both because the *live* loop reads the *live*
+  `PlayerDataService.Cache` and the fixture was in a freshly-required one. The 1% was **Roblox's own
+  default humanoid regeneration**, which is exactly 1% of MaxHealth per second and therefore looks
+  precisely like a feature working at the wrong strength. The fix was to export the loop
+  (`PotionService.DriveHealthPotions`) so the *real* one can be started in the probe's context
+  against the fixture, rather than reimplementing its body in the probe where two copies can agree
+  with each other while the shipped one is wrong.
+
+  **Also: `require` in the EDIT datamodel is CACHED across `execute_luau` calls.** A push followed
+  immediately by `require(GameConfig)` reported **9 potions** after the fourth kind was already in
+  the file. Nothing was wrong — the module had been required earlier in the same Edit session and
+  the old table came back. Verify config changes from a **fresh Play VM**, not from Edit.
+
+  **State at end of session: `main` and `origin/main` level at the 11.8 commit, all 51 scripts in
+  Studio byte-identical to `src/`, world at `BUILD_VERSION` 127.** The next open row in order is
+  **11.11** (diamond upgrades are too cheap), then the C rows 11.13–11.20, then the D rows
+  11.21–11.27. Everything owed rather than open is listed on the rows themselves: 11.1 and 11.6 both
+  want a real rebirth, 11.4 wants R2/R4 measured, 11.9 wants one real boss fight.
+
 - **2026-08-12 (later still)** — **11.6 built and verified as far as one rebirth allows, and it
   cost three of its own bugs plus two rows.** The terraces now carry a rebirth ladder: the existing
   Brutes and Elites are layer 1 behind one rebirth, and a new **Apex** tier stands on the highest
