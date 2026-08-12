@@ -179,8 +179,19 @@ local function applyMastery(character, data)
 	-- +3% damage a rung and no health at all, so a rank-200 skin was strictly an attack stat and
 	-- wearing something you liked from further back cost you damage and bought you nothing. Folded
 	-- in MULTIPLICATIVELY with Stage Mastery, exactly the way the damage side stacks.
+	--
+	-- ...and the health POTION is the fourth term (11.8). It multiplies into the same product rather
+	-- than setting MaxHealth itself, which is the whole reason the row chose a multiplier: max health
+	-- already climbs with the stage, with Stage Mastery and with the worn skin's rank, and a bottle
+	-- that assigned an absolute number would be a downgrade at stage 15 and a cheat at stage 1.
+	--
+	-- Because the term can go away on its own, THIS FUNCTION IS ALSO THE UNDO. `GetPotionHealthMult`
+	-- returns 1 the moment the boost lapses, so re-running this after expiry restores the exact
+	-- number the other three terms produce -- nothing has to remember what the bottle added.
+	-- PotionService drives both edges; see the transition poll there.
 	applyMaxHealth(humanoid, data.StageIndex or 1, false,
-		(bonus.healthMult or 1) * GameConfig.GetCharacterHealthMult(data))
+		(bonus.healthMult or 1) * GameConfig.GetCharacterHealthMult(data)
+			* GameConfig.GetPotionHealthMult(data))
 end
 
 local function applyScale(character, targetScale, animate, healthMult)

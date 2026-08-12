@@ -1413,8 +1413,20 @@ local hudRefs = {}
 	layout.Padding = UDim.new(0, 6)
 	layout.Parent = stack
 
-	local KINDS = { "dna", "xp", "luck" }
-	local LABEL = { dna = "DNA", xp = "XP" }
+	-- ===== DRIVEN BY GameConfig, NOT BY A LIST TYPED HERE (11.8) =====
+	--
+	-- This was `{ "dna", "xp", "luck" }`, and the fourth kind landed in the config, in the shop, in
+	-- the inventory panel and in the save -- and had no timer on the HUD, because this one list did
+	-- not know about it. A boost with no countdown is a boost the player cannot tell is running or
+	-- about to end. The potion tables were deliberately built as kind x size for exactly this class
+	-- of mistake; the strip is now built the same way, so a fifth kind gets a card by existing.
+	local KINDS = {}
+	for _, k in ipairs(GameConfig.PotionKinds) do table.insert(KINDS, k.key) end
+	-- ...and the word on the card comes from the same table, so "health" cannot print lowercase
+	-- while "DNA" prints in caps. `LABEL[kind] or kind` was the fallback and it was already the
+	-- wrong answer the moment a kind existed that nobody had typed a label for.
+	local LABEL = {}
+	for _, k in ipairs(GameConfig.PotionKinds) do LABEL[k.key] = k.name end
 	local rows = {}
 
 	for order, kind in ipairs(KINDS) do

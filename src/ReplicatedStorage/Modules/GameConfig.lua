@@ -1653,15 +1653,27 @@ GameConfig.PotionKinds = {
 	{ key = "dna",  name = "DNA",  emoji = "\u{1F9EC}", color = Color3.fromRGB(96, 200, 255),  blurb = "DNA from every source" },
 	{ key = "xp",   name = "XP",   emoji = "\u{2B50}",   color = Color3.fromRGB(255, 206, 92),  blurb = "Evolution XP" },
 	{ key = "luck", name = "Luck", emoji = "\u{1F340}", color = Color3.fromRGB(126, 226, 132), blurb = "egg, pet, character and mutation luck" },
+	-- ===== THE FOURTH KIND (11.8) =====
+	--
+	-- Nine potions become twelve without a single new potion being written, because the loop below
+	-- builds every kind x size combination itself -- which is the property the row was protecting:
+	-- a size added later cannot be given to three kinds and forgotten on the fourth.
+	--
+	-- It multiplies MAX HEALTH, and deliberately not by `size.mult`. Max health already scales with
+	-- the stage and with Stage Mastery and with the worn skin's rank; a x5 on top of that product for
+	-- twenty minutes is not a consumable, it is a different game. `healthMult` is its own column on
+	-- the sizes table so the numbers can be gentle (1.5 / 2 / 2.5) while the table still refuses to
+	-- let a new size skip it.
+	{ key = "health", name = "Health", emoji = "\u{2764}\u{FE0F}", color = Color3.fromRGB(255, 104, 118), blurb = "max health, and faster regeneration" },
 }
 
 -- Luck is an ADDITIVE percentage everywhere else in the game (upgrades give +2 a level, pets give
 -- luckAdd), so a luck potion has to add too -- a multiplier on a stat that starts at zero does
 -- nothing at all for a new player, which is exactly who buys the first one.
 GameConfig.PotionSizes = {
-	{ key = "s", name = "Small",  emoji = "\u{1F9EA}", minutes = 5,  mult = 2, luckAdd = 25,  costMult = 1 },
-	{ key = "m", name = "Medium", emoji = "\u{2697}\u{FE0F}", minutes = 10, mult = 3, luckAdd = 55,  costMult = 2.8 },
-	{ key = "l", name = "Large",  emoji = "\u{1F36F}", minutes = 20, mult = 5, luckAdd = 120, costMult = 7 },
+	{ key = "s", name = "Small",  emoji = "\u{1F9EA}", minutes = 5,  mult = 2, luckAdd = 25,  healthMult = 1.5, regenMult = 3, costMult = 1 },
+	{ key = "m", name = "Medium", emoji = "\u{2697}\u{FE0F}", minutes = 10, mult = 3, luckAdd = 55,  healthMult = 2.0, regenMult = 5, costMult = 2.8 },
+	{ key = "l", name = "Large",  emoji = "\u{1F36F}", minutes = 20, mult = 5, luckAdd = 120, healthMult = 2.5, regenMult = 8, costMult = 7 },
 }
 
 -- The nine, built from the two lists above so a size or an effect can never be added to one and
@@ -1681,14 +1693,22 @@ for _, kind in ipairs(GameConfig.PotionKinds) do
 			color = kind.color,
 			minutes = size.minutes,
 			seconds = size.minutes * 60,
-			-- a luck bottle carries luckAdd and no multiplier; the other two carry the multiplier
-			mult = (kind.key ~= "luck") and size.mult or nil,
+			-- Each kind carries exactly the field it acts through and nils the rest: luck is additive
+			-- points, health has its own gentler multiplier plus a regen rate, and DNA and XP take
+			-- the shared `size.mult`. `applyBoost` keeps the STRONGER of each field when a second
+			-- bottle is drunk, so a field that is nil for a kind simply never enters that comparison.
+			mult = (kind.key == "dna" or kind.key == "xp") and size.mult
+				or (kind.key == "health") and size.healthMult
+				or nil,
 			luckAdd = (kind.key == "luck") and size.luckAdd or nil,
+			regenMult = (kind.key == "health") and size.regenMult or nil,
 			costMult = size.costMult,
 			blurb = kind.blurb,
 		}
+		-- %.15g rather than %d, since 11.8's health multipliers are fractional (1.5) and %d on a
+		-- float is an error in Luau, not a rounding. It still prints "x2" for the whole ones.
 		potion.effectText = potion.mult
-			and ("x%d %s"):format(potion.mult, kind.blurb)
+			and ("x%.15g %s"):format(potion.mult, kind.blurb)
 			or ("+%d%% %s"):format(potion.luckAdd, kind.blurb)
 		table.insert(GameConfig.Potions, potion)
 		GameConfig.PotionsById[potion.id] = potion
@@ -1715,6 +1735,22 @@ end
 function GameConfig.GetPotionMult(data, kind)
 	local boost = GameConfig.GetPotionBoost(data, kind)
 	return (boost and boost.mult) or 1
+end
+
+-- ===== THE HEALTH BOTTLE'S TWO NUMBERS (11.8) =====
+--
+-- Kept as their own accessors rather than letting call sites reach for `GetPotionMult(data,
+-- "health")`, because the max-health one is multiplied into a product that already has three terms
+-- in it (stage, Stage Mastery, worn skin rank) and the regen one is a rate, not a multiplier on
+-- anything. Both return the neutral value when nothing is running, so both are safe to apply
+-- unconditionally -- the same contract `GetPotionMult` has.
+function GameConfig.GetPotionHealthMult(data)
+	return GameConfig.GetPotionMult(data, "health")
+end
+
+function GameConfig.GetPotionRegenMult(data)
+	local boost = GameConfig.GetPotionBoost(data, "health")
+	return (boost and boost.regenMult) or 1
 end
 
 -- Additive percentage points, matching every other luck source.

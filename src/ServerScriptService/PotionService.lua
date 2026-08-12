@@ -31,6 +31,10 @@ local function applyBoost(data, potion)
 		-- whichever of the two is stronger; nil for the field this kind does not use
 		mult = potion.mult and math.max(potion.mult, (live and live.mult) or 0) or nil,
 		luckAdd = potion.luckAdd and math.max(potion.luckAdd, (live and live.luckAdd) or 0) or nil,
+		-- 11.8's health bottle carries a second field, and it takes the stronger one for the same
+		-- reason the other two do -- a small bottle drunk during a large one must not slow the regen
+		-- it is already getting.
+		regenMult = potion.regenMult and math.max(potion.regenMult, (live and live.regenMult) or 0) or nil,
 	}
 	data.PotionBoosts[potion.kind] = boost
 	return boost
@@ -64,6 +68,14 @@ function PotionService.HandleUsePotion(player, potionId)
 
 	local boost = applyBoost(data, potion)
 
+	-- THE RISING EDGE (11.8). Max health is a property on the Humanoid, not a number read at the
+	-- point of use, so a health bottle does nothing at all until something re-applies it.
+	-- `RefreshBonuses` recomputes the whole product -- stage, Stage Mastery, worn skin, potion --
+	-- which is also what makes it the correct call on the falling edge, below.
+	if potion.kind == "health" then
+		PotionService.RefreshHealth(player, data)
+	end
+
 	PlayerDataService.PushToClient(player)
 	Remotes.Notify:FireClient(player, {
 		kind = "potion",
@@ -71,6 +83,63 @@ function PotionService.HandleUsePotion(player, potionId)
 		untilTs = boost.untilTs,
 		message = ("%s %s  -  %s"):format(potion.emoji, potion.name, potion.effectText),
 	})
+end
+
+-- ===== THE HEALTH BOTTLE'S TWO EDGES, AND ITS REGENERATION (11.8) =====
+--
+-- `EvolutionVisuals` is required LAZILY, inside the function. Requiring it at the top of this file
+-- would be a cycle -- it requires PlayerDataService and this file is pulled in by ServerMain before
+-- the Systems folder -- and the whole point of `RefreshBonuses` is that it recomputes rather than
+-- remembers, so calling it late is free.
+function PotionService.RefreshHealth(player, data)
+	local ok, EvolutionVisuals = pcall(require, script.Parent.Systems.EvolutionVisuals)
+	if ok and EvolutionVisuals and EvolutionVisuals.RefreshBonuses then
+		EvolutionVisuals.RefreshBonuses(player, data)
+	end
+end
+
+-- POLL THE TRANSITION, NEVER SCHEDULE IT -- Phase 7's rule, and a health bottle is the case it was
+-- written for. `GetPotionBoost` expires lazily, so nothing fires when the twenty minutes are up: a
+-- `task.delay` set at drink time would be lost on a server restart, would drift, and would never be
+-- set at all for a player who joined with a boost already running (which the save allows, because
+-- `untilTs` is an absolute timestamp). Comparing "live now" against "live last tick" is correct
+-- after a restart at any point in the window.
+--
+-- The same tick pays the regeneration, because it already knows the boost is live and already has
+-- the Humanoid in hand. 1% of max health a second at the base rate, times the bottle's `regenMult`.
+-- EXPORTED, not local, purely so it can be verified. A probe cannot reach the live
+-- `PlayerDataService.Cache` (a `require` from outside the server's own tree gets a fresh module with
+-- an empty cache), so the only way to test this loop against a fixture is to start a second copy of
+-- it in the probe's own context, where every require resolves to the same fresh instance. Testing it
+-- by reimplementing the body in the probe would let two copies agree with each other while the
+-- shipped one is wrong -- the trap 5.7 wrote down.
+function PotionService.DriveHealthPotions()
+	local Players = game:GetService("Players")
+	local wasLive = {}
+	while true do
+		task.wait(1)
+		for _, player in ipairs(Players:GetPlayers()) do
+			local data = PlayerDataService.Get(player)
+			if data then
+				local boost = GameConfig.GetPotionBoost(data, "health")
+				local live = boost ~= nil
+				if live ~= (wasLive[player.UserId] or false) then
+					wasLive[player.UserId] = live
+					-- both edges go through the same call: on the way up it multiplies the term in,
+					-- on the way down `GetPotionHealthMult` is 1 again and the number simply returns
+					PotionService.RefreshHealth(player, data)
+				end
+				if live then
+					local character = player.Character
+					local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+					if humanoid and humanoid.Health > 0 and humanoid.Health < humanoid.MaxHealth then
+						humanoid.Health = math.min(humanoid.MaxHealth,
+							humanoid.Health + humanoid.MaxHealth * 0.01 * GameConfig.GetPotionRegenMult(data))
+					end
+				end
+			end
+		end
+	end
 end
 
 -- THE MYSTERY POTION SHOP. Five of these in the whole strip (GameConfig.ZoneShops), and the
@@ -125,6 +194,8 @@ function PotionService.Init()
 		-- the handler then falls back to the first bottle actually held
 		PotionService.HandleUsePotion(player, type(potionId) == "string" and potionId or nil)
 	end)
+	-- one loop for the whole server, not one per player and not one per bottle (11.8)
+	task.spawn(PotionService.DriveHealthPotions)
 	local wired = wireShops()
 	print(("[PotionService] wired %d mystery potion counters"):format(wired))
 end
