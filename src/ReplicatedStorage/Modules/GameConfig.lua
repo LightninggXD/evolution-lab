@@ -2039,10 +2039,66 @@ end
 -- Premium currency, separate from DNA and Evolution Shards. Earned from Daily Rewards
 -- (Day 6+) and spent on the 3 Diamond Upgrades below -- permanent, powerful, and priced
 -- in Diamonds instead of DNA so they stay a long-term grind, not an early-game shortcut.
+--
+-- ===== THE PRICES WERE WRITTEN BEFORE DIAMONDS HAD A GAMEPLAY SOURCE (11.11) =====
+--
+-- `baseCost = 5, costMult = 1.6` for "+10% permanent income per level, forever" was authored when
+-- the only diamonds in the game came from a daily login, a playtime milestone or a Robux product
+-- whose id was still 0. Under those rules five diamonds was several days of showing up. Then 10.x
+-- made a KILL the source -- see DiamondDropChance below -- and none of these three numbers moved.
+--
+-- MEASURED, not estimated (2026-08-12), by driving the real AutoAttack remote at the client's own
+-- 0.34 s cadence in Galaxy and reading the diamond balance off the real DataUpdate payload:
+--
+--   * ROAMING the whole valley with no travel cost -- 254 kills in 180 s, 85 a minute -- pays
+--     **13 diamonds, i.e. ~260 an hour**. That total is not a lucky sample: the observed tier mix
+--     (177 Swarmer / 59 Critter / 16 Brute / 2 Elite) predicts 12.05 against DiamondDropChance
+--     below, so the source and the table agree to within noise.
+--   * PARKED in the densest valley cluster and letting the respawns come back -- which is what
+--     auto-attack farming actually looks like -- pays **4 diamonds in 176 s, ~82 an hour**, with
+--     74% of the swing budget spent with nothing alive inside the 60-stud auto-attack reach.
+--
+-- The band is therefore 80-260 an hour and the only variable is how much the player roams; the
+-- kills themselves are not the constraint, since a player standing in their own zone one-shots
+-- valley creatures (the minHits damage cap came off in the damage-ladder pass). Everything below
+-- is priced against **~120 an hour**, near the bottom of that band. Against it
+-- the OLD first level of Mega Income cost about two and a half minutes of play, for a permanent
+-- multiplier on every click, every kill, every idle tick and every offline payout in the game --
+-- and the whole first ten levels, +100% income forever, cost 903 diamonds, i.e. seven and a half
+-- hours. A permanent upgrade that pays for itself before the player has finished reading its card
+-- is not a purchase, it is a formality.
+--
+-- THE FIX IS PRICES ONLY. Nothing about what these grant changes, no cap is added, and PetSlot
+-- keeps its maxLevel of 3. Bases go up ~5x and the multipliers up a step:
+--
+--     Mega Income  5 -> 25   x1.6 -> x1.75    first 10 levels:   903 ->  8,942
+--     Mega Luck    8 -> 40   x1.6 -> x1.75    first 10 levels: 1,447 -> 14,310
+--     Pet Slot    15 -> 75   x2.2 -> x2.50    all 3 levels:      120 ->    730
+--
+-- At the measured 120/hour that is: a first Mega Income level in ~12 minutes instead of ~2, five
+-- levels (+50% income) in ~4 hours, and the tenth level alone costing ~32 hours -- so the geometric
+-- curve, not a `maxLevel`, is still what caps these. That is deliberate and is why the two
+-- uncapped upgrades stay uncapped: a cap says "you are finished", a price says "not yet".
+--
+-- WHY THE MULTIPLIER MOVES TOO AND NOT JUST THE BASE. Raising only the base shifts the whole ladder
+-- sideways and leaves the shape alone -- the tenth level would still cost 12x the first, and a
+-- player who reached it would still be buying the eleventh the same evening. The effect is LINEAR
+-- in the level (+10% each, +5 luck each) while the price is geometric, so the multiplier is the
+-- only term that decides where the upgrade stops being worth buying. 1.75 puts that wall somewhere
+-- around level 10-12 for a dedicated player, which is where an "endgame" permanent upgrade belongs.
+--
+-- STAGE MASTERY IS DELIBERATELY NOT REPRICED alongside this. It is twenty ONE-SHOT purchases each
+-- gated on reaching its stage, so its ceiling is the climb rather than the wallet; a player cannot
+-- rush it with diamonds however many they hold. These three are the unbounded sink and are the
+-- ones a diamond income can outrun.
+--
+-- EXISTING SAVES KEEP EVERY LEVEL THEY BOUGHT. `GetDiamondUpgradeCost` reads the level out of the
+-- save and prices the NEXT one, so a reprice is never retroactive and never refunds -- a beta
+-- player who bought ten cheap levels keeps them and pays the new rate for the eleventh.
 GameConfig.DiamondUpgrades = {
-	MegaIncome = { displayName = "Mega Income", emoji = "💎", baseCost = 5,  costMult = 1.6, effectPct = 10, description = "+10% permanent income per level" },
-	MegaLuck   = { displayName = "Mega Luck",   emoji = "🍀", baseCost = 8,  costMult = 1.6, effectAdd = 5,  description = "+5% Luck per level" },
-	PetSlot    = { displayName = "Pet Slot",    emoji = "🐾", baseCost = 15, costMult = 2.2, effectAdd = 1, maxLevel = 3, description = "+1 equipped pet slot per level (max 3)" },
+	MegaIncome = { displayName = "Mega Income", emoji = "💎", baseCost = 25, costMult = 1.75, effectPct = 10, description = "+10% permanent income per level" },
+	MegaLuck   = { displayName = "Mega Luck",   emoji = "🍀", baseCost = 40, costMult = 1.75, effectAdd = 5,  description = "+5% Luck per level" },
+	PetSlot    = { displayName = "Pet Slot",    emoji = "🐾", baseCost = 75, costMult = 2.5,  effectAdd = 1, maxLevel = 3, description = "+1 equipped pet slot per level (max 3)" },
 }
 
 -- ===== DIAMONDS FROM PLAYING =====
@@ -2291,7 +2347,7 @@ GameConfig.PlaytimeGifts = {
 -- DNA IS SCALED, DIAMONDS ARE NOT. The DNA figures are authored as "what this is worth in stage-one
 -- clicks" and RobuxShopService puts them through GameConfig.ScaleReward, so a pack buys the same
 -- number of kills at stage 1 and at stage 20. Diamonds are deliberately raw: every diamond sink in
--- the game is a small fixed number (the three DiamondUpgrades at 5 / 8 / 15, Stage Mastery) that
+-- the game is a small fixed number (the three DiamondUpgrades at 25 / 40 / 75, Stage Mastery) that
 -- does not ride the stage curve, so scaling them would cap every permanent upgrade in one purchase.
 -- The full reasoning sits in the grant block of RobuxShopService.
 GameConfig.RobuxProducts = {

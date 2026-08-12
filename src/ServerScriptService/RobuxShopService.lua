@@ -100,7 +100,7 @@ local function processReceipt(receiptInfo)
 	end
 	-- DIAMONDS ARE DELIBERATELY NOT SCALED, and this is not an oversight. Every diamond sink in the
 	-- game is a small fixed number that does NOT move with the stage curve: the three DiamondUpgrades
-	-- cost 5, 8 and 15 with a per-level multiplier, and Stage Mastery is priced the same way. Putting
+	-- cost 25, 40 and 75 with a per-level multiplier, and Stage Mastery is priced the same way. Putting
 	-- these through ScaleReward would hand a stage-14 buyer thousands of diamonds and cap every
 	-- permanent upgrade in the game in one purchase.
 	if product.grantDiamonds then
