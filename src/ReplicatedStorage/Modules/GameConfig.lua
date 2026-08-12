@@ -1083,7 +1083,19 @@ GameConfig.PetTierColor = {
 	Rainbow = Color3.fromRGB(255, 120, 220),
 	Celestial = Color3.fromRGB(120, 220, 255),
 }
-GameConfig.FuseRequirement = 4
+-- ===== THREE COPIES, NOT FOUR (11.7) =====
+--
+-- The whole ladder is this number raised to a power: a Rainbow costs `n^2` Normals of one species
+-- and a Celestial `n^3`. At four that is 16 and **64**, against an inventory ceiling of 100 that also
+-- has to hold a collection -- so Celestial was not really reachable, it was theoretically reachable.
+-- At three it is 9 and **27**, which is what the MaxOwnedPets note above was already written against
+-- when 11.10 raised the cap to 100: that comment has said "27 copies at the 3-per-fuse requirement"
+-- since before this constant moved. This is the line catching up with a decision already made.
+--
+-- Everything reads it: PetService's refusal and its loop, the fusion panel's counter and button, and
+-- the world sign at the fusion pad. That last one is baked at BUILD time, so ZoneBuilder's
+-- BUILD_VERSION has to move with this or the sign in the world keeps advertising four.
+GameConfig.FuseRequirement = 3
 GameConfig.MaxEquippedPets = 3
 
 -- ===== HOW MANY PETS A SAVE MAY HOLD =====
@@ -2273,7 +2285,21 @@ GameConfig.RobuxProducts = {
 	-- it acknowledges, so any design that had to land inside the 34 s heal window would have a tail
 	-- of buyers who paid for nothing. Cheapest product in the shop on purpose: it is bought in a
 	-- moment of frustration, and a frustrated player will not spend 199.
-	{ key = "BossRevive",  productId = 3702254100, price = 49,  name = "Boss Revive",   emoji = "\u{2694}\u{FE0F}", grantBossRevives = 1 },
+	--
+	-- ===== AND IT IS WITHDRAWN (11.7), WITHOUT DELETING THE RECEIPT =====
+	--
+	-- `delisted` hides it from every shop surface. The ROW STAYS, and that is the whole point:
+	-- ProcessReceipt is retried on Roblox's own schedule until it is acknowledged, so a purchase
+	-- already in flight when this shipped -- or one made seconds before the place updated -- still
+	-- arrives, and a receipt with no matching product row is a player charged for nothing, forever,
+	-- with the retry never stopping. Deleting the row is the one change here that could actually
+	-- take money and give nothing back.
+	--
+	-- `grantDiamonds` instead of `grantBossRevives`, because a charge for a feature whose UI is gone
+	-- is worth nothing. 10 diamonds is exactly what Diamonds_1 sells for the same 49 R$, so an
+	-- in-flight buyer is made whole at the shop's own rate rather than at a number invented here.
+	-- **Turning off the sale on the Creator Dashboard is the owner half** -- see the checklist.
+	{ key = "BossRevive",  productId = 3702254100, price = 49,  name = "Boss Revive",   emoji = "\u{2694}\u{FE0F}", grantDiamonds = 10, delisted = true },
 
 	-- ===== THE RAINBOW CATALYST, AND WHY IT IS NOT WHAT THE ROADMAP ASKED FOR =====
 	--
@@ -2294,8 +2320,25 @@ GameConfig.RobuxProducts = {
 	-- them with the PetSlots3 pass), so an unbounded tier-up sold by the token is a compounding
 	-- income multiplier priced like a consumable. Capped at Rainbow it sells the tedious middle of the
 	-- ladder and leaves the ceiling as something only fusing can reach.
-	{ key = "TierUp_1", productId = 3702254553, price = 99,  tierGroup = "TierUp", name = "Rainbow Catalyst",  emoji = "\u{1F308}", grantTierUps = 1 },
-	{ key = "TierUp_3", productId = 3702254989, price = 249, tierGroup = "TierUp", name = "Catalyst x3",       emoji = "\u{1F308}", grantTierUps = 3, ribbon = "BEST VALUE" },
+	--
+	-- REPRICED AND RE-HOMED (11.7). 99/249 -> 49/129, and `panel = "fusion"` moves both cards out of
+	-- the Robux grid and onto the fusion panel. The product ids are untouched -- a price on the
+	-- Creator Dashboard is a separate field from the one below, and this number is only what the card
+	-- prints; the dashboard is the owner's to match.
+	--
+	-- Selling it beside the grid was the mistake. A catalyst answers a question the player only has
+	-- while looking at "(2/3)" under a pet they cannot fuse yet, and that question is asked on the
+	-- fusion panel, not in a wall of currency packs. Cheaper too, because 11.7 also cut the fusion
+	-- requirement to three: the grind it shortcuts is now 9 copies rather than 16, so the shortcut
+	-- has to cost less than it did when it was worth more.
+	--
+	-- `panel` hides it from the grid; `panelCard` asks the fusion panel to draw a card of its own.
+	-- ONLY THE BUNDLE GETS ONE. The single catalyst is already offered on **every pet row** in that
+	-- panel -- that is what `CatalystRow`'s R$ button is -- so a second generic card selling the same
+	-- thing two inches below would be the same product twice on one screen. The x3 has nowhere else
+	-- to be, because a per-pet row is about one pet and a bundle is not.
+	{ key = "TierUp_1", productId = 3702254553, price = 49,  tierGroup = "TierUp", panel = "fusion", name = "Rainbow Catalyst",  emoji = "\u{1F308}", grantTierUps = 1 },
+	{ key = "TierUp_3", productId = 3702254989, price = 129, tierGroup = "TierUp", panel = "fusion", panelCard = true, name = "Catalyst x3", emoji = "\u{1F308}", grantTierUps = 3, ribbon = "BEST VALUE" },
 
 	{ key = "Potions_3",   productId = 3702255918, price = 99,  name = "Potion Pack",   emoji = "🧪", grantPotions = 3, grantPotionId = "dna_m" },
 	{ key = "Potions_10",  productId = 3702256409, price = 199, name = "Potion Crate",  emoji = "🧪", grantPotions = 4, grantPotionId = "dna_l" },

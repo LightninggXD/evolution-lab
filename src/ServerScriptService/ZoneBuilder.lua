@@ -38,7 +38,9 @@ local ZoneBuilder = {}
 -- ways onto a shelf without using the stairs (a sub-apex rise, the buttress ledge, a boulder against
 -- the riser) are closed. Every one of those changes GEOMETRY, so it needs the rebuild this bump
 -- forces -- without it Build() skips every zone that already exists and none of it appears.
-local BUILD_VERSION = 126
+-- 127 (11.7): the fusion pad's sign prints GameConfig.FuseRequirement, which went 4 -> 3. A sign is
+-- baked at build time, so without this bump the world would keep telling players to bring four.
+local BUILD_VERSION = 127
 
 -- The Colosseum carries its own stamp. Bumping BUILD_VERSION drops all 21 zones and rebuilds
 -- ~60,000 parts, which takes long enough that Studio regularly loses the connection partway (see

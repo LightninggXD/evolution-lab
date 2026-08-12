@@ -2479,6 +2479,71 @@ end)()
 	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	listLayout.Parent = scroll
 
+	-- ===== THE CATALYST CARDS LIVE HERE NOW (11.7) =====
+	--
+	-- They used to be two tiles in the Robux grid, between a DNA pack and a potion crate. A catalyst
+	-- answers exactly one question -- "I have two of these and I need three" -- and that question is
+	-- asked here, looking at a row that says (2/3), not while scrolling a wall of currency packs.
+	--
+	-- Built ONCE, outside `refresh`, with negative LayoutOrder so they sit above the fusion rows and
+	-- survive every rebuild of the list below. Driven off `GameConfig.RobuxProducts` rather than
+	-- hand-written, so the price on the button is the price in the table and the two cannot drift --
+	-- which is the same reason the grid prints its own price rather than a typed string.
+	local catalystRows = 0
+	for _, product in ipairs(GameConfig.RobuxProducts) do
+		if product.panelCard and not product.delisted then
+			catalystRows += 1
+			local row = Instance.new("Frame")
+			row.Name = product.key
+			row.Size = UDim2.new(1, -10, 0, 66)
+			row.LayoutOrder = -100 + catalystRows
+			row.Parent = scroll
+			styleCard(row, UITheme.Color.Pink, UDim.new(0, 12), 3)
+
+			UITheme.IconSlot(row, {
+				name = "Icon", icon = product.emoji, maxTextSize = 30,
+				size = UDim2.new(0, 48, 0, 48), position = UDim2.new(0, 10, 0, 9),
+			})
+
+			local title = Instance.new("TextLabel")
+			title.Name = "NameLabel"
+			title.Size = UDim2.new(1, -210, 0, 26)
+			title.Position = UDim2.new(0, 66, 0, 10)
+			title.BackgroundTransparency = 1
+			title.TextXAlignment = Enum.TextXAlignment.Left
+			title.Text = product.name
+			title.ZIndex = row.ZIndex + UITheme.Z.Content
+			title.Parent = row
+			themeLabel(title, 20)
+
+			local sub = Instance.new("TextLabel")
+			sub.Name = "SubLabel"
+			sub.Size = UDim2.new(1, -210, 0, 22)
+			sub.Position = UDim2.new(0, 66, 0, 34)
+			sub.BackgroundTransparency = 1
+			sub.TextXAlignment = Enum.TextXAlignment.Left
+			-- says what it SKIPS, in the unit this panel is already counting in
+			sub.Text = ("%d catalysts \u{2014} raise %d pets a tier, no copies needed")
+				:format(product.grantTierUps or 1, product.grantTierUps or 1)
+			sub.ZIndex = row.ZIndex + UITheme.Z.Content
+			sub.Parent = row
+			themeLabel(sub, 16, UITheme.Color.Cream)
+
+			local buy = Instance.new("TextButton")
+			buy.Name = "BuyButton"
+			buy.Size = UDim2.new(0, 118, 0, 44)
+			buy.Position = UDim2.new(1, -12, 0.5, -22)
+			buy.AnchorPoint = Vector2.new(1, 0)
+			buy.Text = "R$ " .. product.price
+			buy.ZIndex = row.ZIndex + UITheme.Z.Content
+			buy.Parent = row
+			styleButton(buy, UITheme.Color.Green, UDim.new(1, 0))
+			buy.MouseButton1Click:Connect(function()
+				Remotes.PromptRobuxPurchase:FireServer(product.key)
+			end)
+		end
+	end
+
 	local emptyLabel = Instance.new("TextLabel")
 	emptyLabel.Name = "EmptyLabel"
 	emptyLabel.Size = UDim2.new(1, 0, 0, 66)
@@ -2625,7 +2690,11 @@ end)()
 			-- With no token in hand the row is not hidden, it becomes the offer. Hiding it would make a
 			-- product nobody has heard of, and the moment a player is looking at their pets is the one
 			-- moment they care what a tier is worth.
-			btn.Text = tokens > 0 and ("USE (%d)"):format(tokens) or "R$ 99"
+			-- THE PRICE IS READ, NOT TYPED (11.7). This said "R$ 99" as a literal, and 11.7 moved the
+			-- product to 49 -- so the row would have advertised one number and charged another. The
+			-- grid has always read `product.price` for exactly this reason; this row had been missed.
+			btn.Text = tokens > 0 and ("USE (%d)"):format(tokens)
+				or ("R$ " .. tostring(GameConfig.GetRobuxProduct("TierUp_1").price))
 			btn.Parent = row
 			styleButton(btn, tokens > 0 and UITheme.Color.Green or UITheme.Color.Gold, UDim.new(1, 0))
 			btn.MouseButton1Click:Connect(function()
@@ -2720,7 +2789,10 @@ end)()
 			end)
 		end
 
-		scroll.CanvasSize = UDim2.new(0, 0, 0, (#ready + shown) * 78 + 40)
+		-- + the catalyst cards, which are not in `ready` or `shown` because they are built once above
+		-- and never rebuilt. Leaving them out of this sum is how the last two fusion rows become
+		-- unreachable behind the bottom of the scroll.
+		scroll.CanvasSize = UDim2.new(0, 0, 0, (#ready + shown) * 78 + catalystRows * 72 + 40)
 	end
 
 	hudRefs.refreshFusionPanel = refresh
@@ -4004,11 +4076,31 @@ robuxLayout.Parent = robuxGrid
 	-- reason it is a PICK and not a "limited offer": nothing here is discounted and nothing expires,
 	-- so a countdown to a price going up would be a lie told to hurry someone. What the timer counts
 	-- down to is exactly what it says -- when the highlight moves to something else.
-	local function pickIndex()
-		return (math.floor(os.time() / 86400) % #GameConfig.RobuxProducts) + 1
+	-- ===== WHAT THIS GRID IS ALLOWED TO SHOW (11.7) =====
+	--
+	-- Two products are in `RobuxProducts` and not on this wall: Boss Revive is `delisted` (withdrawn,
+	-- but its row has to survive so a retried receipt still resolves -- see the note there), and the
+	-- two Catalysts carry `panel = "fusion"` because they answer a question the player only has while
+	-- looking at a pet they cannot fuse yet.
+	--
+	-- ONE PREDICATE, USED THREE TIMES -- the grid, the pick, and the refresh loop -- because a
+	-- product hidden from the cards but still eligible to be "today's pick" would advertise a tile
+	-- that does not exist, and one still walked by the refresh would write into a label that was
+	-- never built.
+	local function inGrid(product)
+		return not product.delisted and product.panel == nil
 	end
 
-	for i, product in ipairs(GameConfig.RobuxProducts) do
+	local gridProducts = {}
+	for _, product in ipairs(GameConfig.RobuxProducts) do
+		if inGrid(product) then table.insert(gridProducts, product) end
+	end
+
+	local function pickIndex()
+		return (math.floor(os.time() / 86400) % #gridProducts) + 1
+	end
+
+	for i, product in ipairs(gridProducts) do
 		local card = Instance.new("Frame")
 		card.Name = product.key
 		card.LayoutOrder = i
@@ -4132,7 +4224,7 @@ robuxLayout.Parent = robuxGrid
 	-- Re-run on every data push, which is also what makes the countdown in the title tick without a
 	-- loop of its own -- the server pushes about every three seconds.
 	hudRefs.refreshRobuxShop = function()
-		for _, product in ipairs(GameConfig.RobuxProducts) do
+		for _, product in ipairs(gridProducts) do
 			local label = amountLabels[product.key]
 			if label then
 				if product.grantDNA and currentData then

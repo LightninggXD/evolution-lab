@@ -2838,11 +2838,21 @@ function BossService.Init()
 			if not snap or not snap.model or not snap.model.Parent then return end
 			if os.clock() - snap.t > GameConfig.BossReviveTTL then return end
 			local data = PlayerDataService.Get(player)
+			-- ===== ONLY FOR SOMEBODY WHO ALREADY HOLDS ONE (11.7) =====
+			--
+			-- The Boss Revive product is withdrawn, and this card is the thing that sold it: with no
+			-- charge in the save it used to read "REVIVE BOSS" and open a purchase prompt. That is the
+			-- "revive UI" the row removes. The card itself stays for the one case that must keep
+			-- working -- a player who owns a charge, because a receipt that landed before the
+			-- withdrawal is a thing somebody paid for and Roblox will retry until it is honoured.
+			-- Nobody can reach this branch by buying any more; they can only reach it by having.
+			local held = (data and data.BossRevives) or 0
+			if held <= 0 then return end
 			CombatFx:FireClient(player, {
 				k = "reviveOffer",
 				name = snap.name,
 				pct = math.floor(snap.hp / math.max(snap.max, 1) * 100 + 0.5),
-				held = (data and data.BossRevives) or 0,
+				held = held,
 			})
 		end)
 	end

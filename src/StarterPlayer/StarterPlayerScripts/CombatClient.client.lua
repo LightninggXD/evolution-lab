@@ -1242,7 +1242,6 @@ local reviveHeld = 0
 -- and a warn on boot is a bug someone can actually see.
 local remotesFolder = RS:WaitForChild("Remotes")
 local useReviveRemote = remotesFolder:WaitForChild("UseBossRevive", 30)
-local promptBuyRemote = remotesFolder:WaitForChild("PromptRobuxPurchase", 30)
 if not useReviveRemote then
 	warn("[CombatClient] Remotes.UseBossRevive never appeared -- the revive offer is disabled")
 end
@@ -1291,20 +1290,22 @@ local function showReviveOffer(name, pct, held)
 			color = UITheme.Color.Gold,
 			text = "REVIVE",
 		})
+		-- SPENDS A CHARGE, NEVER SELLS ONE (11.7). The other half of this used to open a purchase
+		-- prompt for anyone with none -- that was the whole point of the card, and it is the "revive
+		-- UI" the withdrawal removes. The server now only offers this card to a save that already
+		-- holds a charge, so the branch had nothing left to do but sell something unbuyable.
 		reviveButton.MouseButton1Click:Connect(function()
 			hideReviveOffer()
-			if reviveHeld > 0 then
-				if useReviveRemote then useReviveRemote:FireServer() end
-			elseif promptBuyRemote then
-				promptBuyRemote:FireServer("BossRevive")
+			if reviveHeld > 0 and useReviveRemote then
+				useReviveRemote:FireServer()
 			end
 		end)
 	end
 
 	reviveLabel.Text = ("\u{2620}\u{FE0F} %s was at %d%%"):format(name, pct)
-	UITheme.SetText(reviveButton, reviveHeld > 0
-		and ("\u{2694}\u{FE0F} REVIVE  (%d left)"):format(reviveHeld)
-		or "\u{2694}\u{FE0F} REVIVE BOSS")
+	-- no "or REVIVE BOSS" arm any more: the card is only sent to a save that holds a charge (11.7),
+	-- so the count is always real and the button never advertises something that cannot be bought
+	UITheme.SetText(reviveButton, ("\u{2694}\u{FE0F} REVIVE  (%d left)"):format(reviveHeld))
 	reviveCard.Visible = true
 
 	-- The offer expires with the snapshot behind it. A button that is still on screen after the
