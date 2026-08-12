@@ -2132,11 +2132,31 @@ GameConfig.DiamondUpgrades = {
 -- i.e. **two a minute**: a Swarmer pays about one time in thirty, an Elite one time in three. The
 -- mechanic is now legible from the first few minutes of play, which is what it has to be to read as
 -- a reward at all. The sink is what should absorb this, not the source -- see DiamondUpgrades.
+--
+-- ===== AND THE APEX WAS WORTH LESS THAN A SWARMER (11.31) =====
+--
+-- This table is keyed by tier NAME and had four rows. 11.6 added a fifth tier -- the Apex, on the
+-- highest shelf of every zone, behind three rebirths, with 1.25x an Elite's health, hitting back on
+-- 95% of blows -- and did not add a row here, so `RollDiamondDrop("Apex")` fell through the `or 0`
+-- and returned zero. Measured: 200,000 rolls per tier came back 0.0302 / 0.0604 / 0.1510 / 0.4016
+-- and **0.0000**. The hardest creature in the game paid nothing in the currency every permanent
+-- upgrade is priced in, while the Critter standing at the bottom of the same cliff paid 6%.
+--
+-- The exclusive pet is not an answer to that: it is a 5% roll, so 95% of the fight paid a
+-- rebirth-gated player strictly less than a Swarmer.
+--
+-- 0.60, above the Elite's 0.40, because it must not merely match the tier below it -- but it is a
+-- 120-second respawn and four per zone, so this is 2.4 diamonds a sweep and not a farm.
+--
+-- THE REAL DEFENCE IS THE ASSERT, NOT THE ROW. See `GameConfig.AssertTierCoverage`, called by
+-- CreatureService at load with the tier list it actually spawns: a table keyed by name, read
+-- through `or 0`, cannot report its own gaps, and a sixth tier would be silently free again.
 GameConfig.DiamondDropChance = {
 	Swarmer = 0.03,
 	Critter = 0.06,
 	Brute    = 0.15,
 	Elite    = 0.40,
+	Apex     = 0.60,
 }
 
 -- ===== BOSSES ALWAYS PAY, AND THEY PAY A HANDFUL =====
@@ -2175,9 +2195,22 @@ end
 -- quarter of an hour of deliberate cliff work per spin, against a 55-second Elite respawn. That is
 -- above the "is this mechanic even real" floor the diamond note describes and far enough below a
 -- diamond's rate that the two can never read as the same reward.
+--
+-- ===== THE APEX WAS MISSING FROM HERE TOO (11.31) =====
+--
+-- Same gap as DiamondDropChance, same cause -- a table keyed by tier name that 11.6's new tier was
+-- never added to -- and it is worse here, because this is the currency the shelves exist to mint
+-- and the Apex stands on the highest shelf of the lot. A player who spent three rebirths to be
+-- allowed to fight it was paid less for it than for the Brute two terraces below.
+--
+-- 0.40 against the Elite's 0.25. The sweep arithmetic above becomes, for a 3-rebirth player,
+-- 4*0.40 + 4*0.25 + 6*0.12 = 3.32 shards -- so a spin (25) is about seven and a half sweeps
+-- instead of fifteen. That is the gate paying out, which is what a gate is for; and the roster
+-- figures are 11.29's, not 9.4's, because the raised set went 10 -> 14 per zone.
 GameConfig.ShardDropChance = {
 	Brute = 0.12,
 	Elite = 0.25,
+	Apex  = 0.40,
 }
 
 -- `raised` is PASSED IN rather than inferred from anything on the creature. A Brute on the valley
@@ -2187,6 +2220,42 @@ function GameConfig.RollShardDrop(tierName, raised)
 	if not raised then return 0 end
 	local chance = GameConfig.ShardDropChance[tierName or ""] or 0
 	return math.random() < chance and 1 or 0
+end
+
+-- ===== A TABLE KEYED BY NAME CANNOT REPORT ITS OWN GAPS (11.31) =====
+--
+-- Both drop tables above are read through `... or 0`, and that fallback is right at the call site:
+-- a boss, a loose `DeathBurst` part and a tier that genuinely pays nothing all have to fall through
+-- it without throwing. It is also exactly why a MISSING tier is indistinguishable from a deliberate
+-- zero -- 11.6 added the Apex, neither table heard about it, and nothing anywhere said so until
+-- 200,000 Monte Carlo rolls were run against the tier list by hand.
+--
+-- So the check is inverted rather than the fallback removed. CreatureService owns the list of tiers
+-- it actually spawns and hands it here at load; this file cannot go and read `TIERS` itself, because
+-- GameConfig is required BY CreatureService and would be a require cycle.
+--
+-- Deliberately a `warn` and not an `error`: a missing drop row must never stop a server booting, and
+-- the failure it guards against is silence, not a crash. Naming the table and the tier is the whole
+-- difference. Returns the list so a probe can assert on it instead of reading the output log.
+function GameConfig.AssertTierCoverage(allTiers, raisedTiers)
+	local missing = {}
+	for _, name in ipairs(allTiers or {}) do
+		if GameConfig.DiamondDropChance[name] == nil then
+			missing[#missing + 1] = "DiamondDropChance." .. name
+		end
+	end
+	-- Only tiers that can actually stand on a shelf need a shard row -- `RollShardDrop` returns 0 for
+	-- anything not raised, so a Swarmer row here would be dead weight that reads as a promise.
+	for _, name in ipairs(raisedTiers or {}) do
+		if GameConfig.ShardDropChance[name] == nil then
+			missing[#missing + 1] = "ShardDropChance." .. name
+		end
+	end
+	if #missing > 0 then
+		warn("[GameConfig] no drop row for " .. table.concat(missing, ", ")
+			.. " -- those kills pay nothing. See the 11.31 block in GameConfig.")
+	end
+	return missing
 end
 
 -- `event` picks the Colosseum giant's band instead of a zone boss's. Guaranteed, never zero.

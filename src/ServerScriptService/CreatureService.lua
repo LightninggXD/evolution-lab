@@ -3655,6 +3655,17 @@ local RAISED_LAYOUT = {
 	{ tier = "Elite", count = 4, layer = 1 },
 	{ tier = "Brute", count = 6, layer = 1 },
 }
+-- ...and the moment both lists exist, hand them to GameConfig so the two drop tables can be checked
+-- against what this file REALLY spawns (11.31). It has to happen from here: GameConfig is required
+-- by this file, so it cannot reach back for `TIERS` without a cycle -- which is precisely how the
+-- Apex ended up in every spawn loop and in neither drop table. See GameConfig.AssertTierCoverage.
+do
+	local all, raisedTiers = {}, {}
+	for name in pairs(TIERS) do all[#all + 1] = name end
+	for _, band in ipairs(RAISED_LAYOUT) do raisedTiers[#raisedTiers + 1] = band.tier end
+	GameConfig.AssertTierCoverage(all, raisedTiers)
+end
+
 -- inside the band (TERRAIN_INNER is 415) and inside the spawn keep-out's own 575 edge limit
 local RAISED_IN, RAISED_OUT = 432, 566
 local FLAT_PROBE = { Vector2.new(13, 0), Vector2.new(-13, 0), Vector2.new(0, 13), Vector2.new(0, -13) }
