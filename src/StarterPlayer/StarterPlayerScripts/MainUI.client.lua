@@ -7118,7 +7118,8 @@ local shopPanels = {
 --
 -- WHY THE ODDS ARE HONEST HERE AND WERE NOT ON THE WALL. `GameConfig.GetLuckPercent` moved out of
 -- DNAService this session precisely so this panel could call it -- see the note there. The number
--- shown is the number `rollAndInsert` rolls against, because both call one function.
+-- shown is the number `rollAndInsert` rolls against, because both call one function: since 11.5
+-- that function is `GetPetLuckPercent`, the shared total plus the shop's Luck upgrade.
 --
 -- The whole block is an immediately-called function with only `hudRefs.refreshEggPanel` escaping,
 -- because this file is at Luau's 200-local ceiling. A `do ... end` is NOT enough -- see the note
@@ -7313,7 +7314,10 @@ local shopPanels = {
 		end
 		if not egg then return end
 
-		local luck = GameConfig.GetLuckPercent(data) + (egg.luckBonus or 0)
+		-- `GetPetLuckPercent` is the egg-side total (shared luck + the shop's Luck upgrade at +5 a
+		-- level, 11.5). It is what `rollAndInsert` rolls against, which is the whole point of this
+		-- panel quoting a number at all.
+		local luck = GameConfig.GetPetLuckPercent(data) + (egg.luckBonus or 0)
 		local affordable = (data.DNA or 0) >= egg.cost
 		costLabel.Text = ("%s  \u{2022}  \u{1F340} %d%% luck"):format(formatNumber(egg.cost), math.floor(luck))
 

@@ -118,7 +118,10 @@ local function rollAndInsert(data, eggDef)
 	-- in the other direction is a cycle -- which is the whole reason the duplicate formula existed.
 	-- Moving the total into GameConfig removed the cycle instead of working around it, and the egg
 	-- panel on the client now quotes the same number this rolls against.
-	local luckPercent = GameConfig.GetLuckPercent(data) + (eggDef.luckBonus or 0)
+	--
+	-- `GetPetLuckPercent`, not `GetLuckPercent`: 11.5 took the shop's Luck upgrade out of the shared
+	-- total and gave it to eggs alone at +5 a level. This and the egg panel are its only two readers.
+	local luckPercent = GameConfig.GetPetLuckPercent(data) + (eggDef.luckBonus or 0)
 	-- rolls only within this egg's own pool -- its zone's species, sliced by the egg tier's
 	-- rarity window -- and the tier's bias shifts the odds inside that slice on top of luck
 	local petDef = GameConfig.RollPetForEgg(eggDef, luckPercent)

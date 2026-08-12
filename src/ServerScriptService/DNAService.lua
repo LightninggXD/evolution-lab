@@ -52,9 +52,13 @@ function DNAService.GetIncomeMult(data, excludeEvents)
 	return mult
 end
 
--- MOVED TO GameConfig ON 2026-08-11. The body is unchanged -- upgrades, equipped pets, MegaLuck,
--- potions, passes and live events, all additive points -- it simply lives somewhere the CLIENT can
--- also reach, because the egg panel has to quote the same number the egg roll uses.
+-- MOVED TO GameConfig ON 2026-08-11 -- equipped pets, MegaLuck, potions, passes and live events,
+-- all additive points -- so it lives somewhere the CLIENT can also reach, because the egg panel has
+-- to quote the same number the egg roll uses.
+--
+-- The shop's Luck upgrade is NO LONGER one of the terms (11.5): it pays eggs only, through
+-- `GameConfig.GetPetLuckPercent`. This alias is the everything-else total -- crit DNA and mutations
+-- below, the mystery potion and the Robux wheel elsewhere.
 --
 -- That move also deleted a real bug rather than just relocating code: PetService could never require
 -- this module (this module requires PetService), so the egg roll had grown its own two-term copy of

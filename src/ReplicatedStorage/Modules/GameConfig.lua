@@ -294,11 +294,15 @@ GameConfig.Upgrades = {
 		description = "+DNA per click and per second",
 	},
 	Luck = {
-		displayName = "Luck",
+		-- Renamed and rewritten with 11.5's split: this is now EGG luck and nothing else, at
+		-- +5 points a level (GameConfig.PetLuckPerUpgradeLevel). The old text named crit DNA and
+		-- mutations, which stopped being true the moment the upgrade left GetLuckPercent -- see
+		-- the note over that function.
+		displayName = "Egg Luck",
 		emoji = "🍀",
 		baseCost = 40,
 		costMult = 1.32,
-		description = "Higher chance of Critical DNA & rare mutations",
+		description = "+5% egg luck a level - rarer pets from every hatch",
 	},
 	Mutation = {
 		displayName = "Mutation Chance",
@@ -1112,7 +1116,7 @@ function GameConfig.GetEquippedBonus(data)
 	return { incomeMult = incomeMult, luckAdd = luckAdd, dnaMult = dnaMult, damageMult = 1 + damageAdd }
 end
 
--- ===== THE ONE LUCK TOTAL IN THE GAME =====
+-- ===== THE TWO LUCK TOTALS, AND WHY THERE ARE TWO =====
 --
 -- Every luck source is additive percentage points, and this is the only place they are summed.
 -- It used to live in DNAService, which the client cannot reach and PetService could not require
@@ -1121,17 +1125,42 @@ end
 --
 -- Luck starts at zero, so every source ADDS points rather than multiplying: a multiplier would pay
 -- a first-time buyer exactly nothing.
+--
+-- SPLIT ON 2026-08-12 (11.5). The shop's `Upgrades.Luck` used to enter this sum, which made one
+-- purchase quietly raise FIVE unrelated things at once: crit DNA, the mutation roll, the egg roll,
+-- the mystery potion and the Robux wheel. That is unreadable at the point of sale -- the card said
+-- "Critical DNA & rare mutations" and the biggest thing it actually moved was hatching -- and it is
+-- also the reason the upgrade could never be made strong: any number big enough to be felt on an
+-- egg was a crit-chance clamp on the DNA click.
+--
+-- So the upgrade LEAVES this sum and becomes a pet-luck-only stat, at +5 a level instead of +2.
+-- Everything else -- pets, MegaLuck, potions, passes, events -- stays shared, because those are
+-- sold as "luck" flat and players expect them everywhere. Read `GetPetLuckPercent` for anything
+-- that opens an egg and this one for everything else.
 function GameConfig.GetLuckPercent(data)
 	if not data then return 0 end
-	local upgrades = (data.Upgrades and data.Upgrades.Luck or 0) * 2
 	local megaLevel = data.DiamondUpgrades and data.DiamondUpgrades.MegaLuck or 0
 	local megaAdd = megaLevel * GameConfig.DiamondUpgrades.MegaLuck.effectAdd
-	return upgrades
-		+ GameConfig.GetEquippedBonus(data).luckAdd
+	return GameConfig.GetEquippedBonus(data).luckAdd
 		+ megaAdd
 		+ GameConfig.GetPotionLuckAdd(data)
 		+ GameConfig.GetPassAdd(data, "luckAdd")
 		+ GameConfig.GetEventAdd("luckAdd")
+end
+
+-- Percentage points the shop's Luck upgrade is worth PER LEVEL, and only to an egg. Raised from
+-- the old shared +2 when the split above took it out of everything else -- the same spend has to
+-- stay worth making, and it now buys one clearly-named thing instead of five vague ones.
+GameConfig.PetLuckPerUpgradeLevel = 5
+
+-- The luck an EGG rolls against: the shared total plus the shop upgrade. Two callers only, and
+-- they are the two halves of one promise -- `PetService.rollAndInsert` (what you get) and the egg
+-- panel's odds table (what you were told you would get). They must never diverge, which is why
+-- neither computes this itself.
+function GameConfig.GetPetLuckPercent(data)
+	if not data then return 0 end
+	local upgrades = (data.Upgrades and data.Upgrades.Luck or 0) * GameConfig.PetLuckPerUpgradeLevel
+	return GameConfig.GetLuckPercent(data) + upgrades
 end
 
 -- The highest tier a paid Rainbow Catalyst may PRODUCE. Fusing is unaffected and still reaches
@@ -2187,10 +2216,11 @@ end
 -- Three decisions worth not re-litigating:
 --
 -- 1. LUCK IS ADDITIVE, NOT A MULTIPLIER. Every other luck source in this game adds percentage
---    points (the Luck upgrade +2 a level, pet `luckAdd`, the Luck potion) and luck starts at ZERO.
---    A "2x Luck" pass would therefore do literally nothing for a new player -- the exact person
---    most likely to buy it. See DNAService.GetLuckPercent, which is the one function eggs, pets,
---    characters, mutations and crit chance all read.
+--    points (pet `luckAdd`, the Luck potion, the shop's Egg Luck upgrade at +5 a level) and luck
+--    starts at ZERO. A "2x Luck" pass would therefore do literally nothing for a new player -- the
+--    exact person most likely to buy it. See GameConfig.GetLuckPercent, which mutations, crit
+--    chance, the mystery potion and the wheel all read, and GetPetLuckPercent beside it, which is
+--    that total plus the shop upgrade and is what an egg rolls against.
 --
 -- 2. AUTO-ATTACK ITSELF STAYS FREE. It already ships free on the `AutoAttack` attribute and the T
 --    key. Paywalling something players already have is the fastest way to lose them, so FastAuto
