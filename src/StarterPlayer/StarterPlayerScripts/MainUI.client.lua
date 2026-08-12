@@ -4164,6 +4164,12 @@ robuxLayout.Parent = robuxGrid
 			accent = UITheme.Color.Green
 		elseif product.grantDiamonds then
 			accent = UITheme.Color.SkyBlue
+		elseif product.grantShards then
+			-- Sunny, not the SkyBlue the Diamond tiles use: shards and diamonds are both "premium
+			-- currency" to a developer and are completely different things to a player -- one buys
+			-- twenty-three permanent upgrades, the other buys spins -- so they must not read as one
+			-- group with two amounts.
+			accent = UITheme.Color.Sunny
 		elseif product.grantBossRevives then
 			accent = UITheme.Color.Red
 		elseif product.grantTierUps then

@@ -2435,6 +2435,31 @@ GameConfig.RobuxProducts = {
 	{ key = "Diamonds_4", productId = 3702251679, price = 499, tierGroup = "Diamonds", name = "140 Diamonds", emoji = "💎", grantDiamonds = 140 },
 	{ key = "Diamonds_5", productId = 3702252142, price = 999, tierGroup = "Diamonds", name = "300 Diamonds", emoji = "💎", grantDiamonds = 300, ribbon = "BEST VALUE" },
 
+	-- ===== EVOLUTION SHARDS (11.12) =====
+	--
+	-- Named with their real numbers for the same reason the Diamond packs are: a shard is not scaled,
+	-- so "125 Evolution Shards" is true at every stage and an adjective would only cost the buyer
+	-- clarity.
+	--
+	-- UNSCALED, LIKE DIAMONDS AND FOR A STRONGER REASON. A shard buys exactly one thing --
+	-- `SpinCostShards`, a flat 25 -- so putting these through `ScaleReward` would let a stage-14 buyer
+	-- purchase thousands of spins from one tile. The DNA packs are scaled because DNA prices ride the
+	-- stage curve; nothing a shard buys does.
+	--
+	-- THE LADDER IS THE DIAMOND LADDER x2.5, deliberately: 10/22/50/140/300 becomes 25/55/125/350/750
+	-- at the same five price points, and only three of those five rungs are cut here. That keeps the
+	-- value-per-Robux curve -- which `GetTierBonusPct` derives and the shop's ribbons print -- the
+	-- same shape a buyer already learned on the Diamond tiles. 25 is one spin exactly, so the cheapest
+	-- rung is legible without arithmetic: it is the wheel, once.
+	--
+	-- Only 49 / 199 / 999 exist. Five rungs is the right shape for a currency a player spends
+	-- continuously; a shard is spent 25 at a time on one machine, and three price points already
+	-- cover "one go", "an evening" and "stop thinking about it". Two more rows would be two more ids
+	-- to create on the dashboard for a currency with one sink.
+	{ key = "Shards_1", productId = 3707419817, price = 49,  tierGroup = "Shards", name = "25 Evolution Shards",  emoji = "\u{1F31F}", grantShards = 25 },
+	{ key = "Shards_2", productId = 3707425807, price = 199, tierGroup = "Shards", name = "125 Evolution Shards", emoji = "\u{1F31F}", grantShards = 125 },
+	{ key = "Shards_3", productId = 3707431292, price = 999, tierGroup = "Shards", name = "750 Evolution Shards", emoji = "\u{1F31F}", grantShards = 750, ribbon = "BEST VALUE" },
+
 	-- The wheel. Priced against the 99 R$ DNA pack it sits next to -- see the SpinWheel comment for
 	-- why its expected DNA is deliberately the lower of the two.
 	{ key = "LuckySpin",   productId = 3702253641, price = 99,  name = "Lucky Spin",    emoji = "\u{1F3A1}", grantSpin = true },
@@ -2522,7 +2547,11 @@ end
 -- simply never draw a ribbon.
 function GameConfig.GetValuePerRobux(product)
 	if not product or not product.price or product.price <= 0 then return 0 end
-	local amount = product.grantDNA or product.grantDiamonds or product.grantPotions or product.grantTierUps
+	-- `grantShards` belongs in this list for the same reason every other grant does: the ribbon a tile
+	-- prints is derived here, so a grant field missing from it makes its whole tier group silently
+	-- ribbon-less -- which reads as "no bonus", not as "not implemented".
+	local amount = product.grantDNA or product.grantDiamonds or product.grantShards
+		or product.grantPotions or product.grantTierUps
 	if not amount then return 0 end
 	return amount / product.price
 end

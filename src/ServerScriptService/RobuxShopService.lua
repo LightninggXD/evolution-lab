@@ -106,6 +106,12 @@ local function processReceipt(receiptInfo)
 	if product.grantDiamonds then
 		data.Diamonds = (data.Diamonds or 0) + product.grantDiamonds
 	end
+	-- Shards are unscaled for a STRONGER reason than diamonds (11.12): a shard buys exactly one thing
+	-- in the whole game, a spin at the flat `SpinCostShards` of 25, so ScaleReward here would sell a
+	-- late-stage buyer thousands of spins on one tile.
+	if product.grantShards then
+		data.EvolutionShards = (data.EvolutionShards or 0) + product.grantShards
+	end
 	-- The premium pass is a flag, not a payout, and it pushes its own confirmation -- so it is
 	-- unlocked here and the generic notify below still fires for the receipt itself.
 	if product.grantSeasonPremium then
