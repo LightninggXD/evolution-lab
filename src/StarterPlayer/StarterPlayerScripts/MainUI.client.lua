@@ -6572,12 +6572,20 @@ end
 			-- the streak the claim will PRODUCE, not the one on the save: a player who missed a day
 			-- is starting again at 1, and telling them "Day 6 is ready" and then paying Day 1 is
 			-- the kind of small lie that makes the whole board look broken
-			local upcoming = (today == dayNumber(data.LastRewardClaim) + 1) and (streak + 1) or 1
+			local continuing = (today == dayNumber(data.LastRewardClaim) + 1)
+			local upcoming = continuing and (streak + 1) or 1
 			local index = ((math.max(upcoming, 1) - 1) % #GameConfig.DailyRewards) + 1
 			dailyHead.Text = ("\u{1F381} Daily reward \u{2014} Day %d is ready"):format(index)
-			dailyNote.Text = (streak > 0)
+			-- AND THE NOTE HAS TO ASK THE SAME QUESTION THE HEAD DOES (11.28). It used to test only
+			-- `streak > 0`, so a player who missed a day was told "Day 1 is ready" over "4 day streak
+			-- -- claim to keep it going": the head had already worked out the streak was gone and the
+			-- line under it still promised to keep it. Same lie the comment above was written against,
+			-- one line lower down. A broken streak is worth saying out loud rather than hiding -- it is
+			-- the only thing on this card that asks the player to come back tomorrow.
+			dailyNote.Text = (continuing and streak > 0)
 				and ("\u{1F525} %d day streak \u{2014} claim to keep it going"):format(streak)
-				or "Claim it to start a streak"
+				or (streak > 0 and "\u{1F494} Your streak ended \u{2014} this one starts a new run"
+					or "Claim it to start a streak")
 		end
 		dailyRow.Visible = dailyReady
 
