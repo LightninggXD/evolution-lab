@@ -492,7 +492,17 @@ local shardPill = UITheme.Pill(currencyStack, {
 -- ===== Upgrades panel (centre screen, opened by the Shop tile) =====
 local shopFrame = Instance.new("Frame")
 shopFrame.Name = "ShopFrame"
-shopFrame.Size = UDim2.new(0, 900, 0, 352)
+-- 900 x 352 -> 656 x 392 (11.13).
+--
+-- HEIGHT: the header band is 68 tall where the bare title label was 42, and the two upgrade rows
+-- keep every pixel they had rather than being squeezed to pay for it.
+--
+-- WIDTH: 900 was never a measurement of anything. Both rows are three tiles centred by a
+-- UIListLayout, so the content is 3 x 200 + 2 x 12 = 624 wide and the panel carried ~130 px of dead
+-- shell on each side of it -- which is what "even margins" actually looks like when it is wrong:
+-- not a crooked edge, but a board with nothing on a third of it. 624 + 16 a side = 656, so the two
+-- rows now touch the same margins as the header above them and each other.
+shopFrame.Size = UDim2.new(0, 656, 0, 392)
 shopFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 shopFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 shopFrame.ZIndex = 20
@@ -500,35 +510,32 @@ shopFrame.Visible = false
 shopFrame.Parent = screenGui
 styleCard(shopFrame, PANEL_SHELL, UDim.new(0, 22), 5)
 
-UITheme.Label(shopFrame, {
-	name = "ShopTitle",
-	text = "🛒 Upgrades",
-	size = UDim2.new(0, 420, 0, 42),
-	position = UDim2.new(0, 24, 0, 10),
-	xAlign = "Left",
-	maxTextSize = 34,
-	zIndex = shopFrame.ZIndex + UITheme.Z.Content,
+-- The subtitle is doing real work here, not decoration: this one panel spends TWO currencies -- the
+-- top row is DNA and the bottom row is Diamonds -- and nothing on it said so. A player who had not
+-- already worked that out read six tiles priced in two different marks with one word above them.
+--
+-- Not assigned to anything. This file is at Luau's 200-local register cap and the header needs no
+-- handle: nothing on this panel rewrites its title. See the header block in UITheme.
+UITheme.PanelHeader(shopFrame, {
+	title = "🛒 Upgrades",
+	subtitle = "Top row costs DNA, bottom row costs Diamonds -- every level is permanent",
+	accent = UITheme.Color.Green,
+	maxTextSize = 32,
 })
 
-local shopCloseButton = UITheme.Button(shopFrame, {
-	name = "ShopClose",
-	text = "X",
-	color = UITheme.Color.Red,
-	size = UDim2.new(0, 44, 0, 44),
-	position = UDim2.new(1, -16, 0, 10),
-	anchorPoint = Vector2.new(1, 0),
-	radius = 12,
-	maxTextSize = 30,
-	zIndex = shopFrame.ZIndex + UITheme.Z.Badge,
-})
-shopCloseButton.MouseButton1Click:Connect(function()
-	shopFrame.Visible = false
-end)
+-- ...and the close button is NOT built here any more. It used to be the one panel in the game that
+-- shut by assigning `Visible = false`, so it vanished on a jump cut while all thirteen others
+-- animated out -- and it could not simply be pointed at `animatePanel`, because that is a local
+-- declared two hundred lines further down and a closure written here cannot see it. It goes through
+-- `panelClose` beside `registerPanel(shopFrame)` instead, which is where every other panel gets its
+-- X and is below both. That also gives this file back one top-level register.
 
 local upgradeRow = Instance.new("Frame")
 upgradeRow.Name = "UpgradeRow"
 upgradeRow.Size = UDim2.new(1, -32, 0, 140)
-upgradeRow.Position = UDim2.new(0, 16, 0, 58)
+-- 58 -> 94: the header band is top 14 + height 68 + gap 12. Written out rather than read back off
+-- PanelHeader's second return value, which would cost a top-level register this file does not have.
+upgradeRow.Position = UDim2.new(0, 16, 0, 94)
 upgradeRow.BackgroundTransparency = 1
 upgradeRow.Parent = shopFrame
 
@@ -557,7 +564,10 @@ for i, key in ipairs(upgradeOrder) do
 	local btn = Instance.new("TextButton")
 	btn.Name = key .. "Button"
 	btn.LayoutOrder = i
-	btn.Size = UDim2.new(0, 164, 1, 0)
+	-- 164 -> 200, the width the Diamond tiles below already use. Two rows of three tiles at two
+	-- different widths, both centred, read as two unrelated rows that happen to share a board; at
+	-- one width they line up into a grid and the panel stops needing to be 900 wide to hide it.
+	btn.Size = UDim2.new(0, 200, 1, 0)
 	btn.Text = ""
 	btn.Parent = upgradeRow
 	styleButton(btn, UITheme.Color.Gold, UDim.new(0, 16))
@@ -595,7 +605,11 @@ for i, key in ipairs(upgradeOrder) do
 
 	local levelBadge = Instance.new("Frame")
 	levelBadge.Name = "LevelBadge"
-	levelBadge.Size = UDim2.new(0, 58, 0, 26)
+	-- 58 -> 84 (11.13). The badge was sized for the "Lv 0" it is built with, but the refresh writes
+	-- "Lv %d/%d" against `GetUpgradeMaxLevel`, which is 5 per unlocked zone and therefore 100 at the
+	-- end of the strip -- "Lv 100/100" in a 50 px label clipped at the minimum text size on all three
+	-- tiles. Sized against the widest string the refresh can produce, not against the placeholder.
+	levelBadge.Size = UDim2.new(0, 84, 0, 26)
 	levelBadge.Position = UDim2.new(1, -6, 0, 6)
 	levelBadge.AnchorPoint = Vector2.new(1, 0)
 	-- Z.Badge, so it clears the gloss the shell draws over its own children
@@ -645,7 +659,8 @@ end
 local diamondRow = Instance.new("Frame")
 diamondRow.Name = "DiamondRow"
 diamondRow.Size = UDim2.new(1, -32, 0, 130)
-diamondRow.Position = UDim2.new(0, 16, 0, 206)
+-- 94 + 140 + 12 of gap. Bottom margin is then 392 - (246 + 130) = 16, the same as the sides.
+diamondRow.Position = UDim2.new(0, 16, 0, 246)
 diamondRow.BackgroundTransparency = 1
 diamondRow.Parent = shopFrame
 
@@ -1030,6 +1045,8 @@ end)
 
 -- shared: red X close button in the top-right of a floating panel
 local function panelClose(panel)
+	-- (declared below its first caller's panel on purpose -- see the Upgrades panel, whose X is
+	-- attached at the bottom of this block because `animatePanel` does not exist further up)
 	local btn = UITheme.Button(panel, {
 		name = "Close",
 		text = "X",
@@ -1046,6 +1063,11 @@ local function panelClose(panel)
 	end)
 	return btn
 end
+
+-- The Upgrades panel is built ~500 lines above this, before `animatePanel` and `panelClose` exist,
+-- so its X is attached here -- the first thing that could give it one. It is the whole of 11.13's
+-- "the main shop is the only panel that closes by setting Visible = false".
+panelClose(shopFrame)
 
 -- ===== Zones panel =====
 local zonesPanel = Instance.new("Frame")
@@ -1166,25 +1188,25 @@ styleCard(masteryPanel, PANEL_SHELL, UDim.new(0, 22), 5)
 registerPanel(masteryPanel)
 panelClose(masteryPanel)
 
-local masteryTitle = Instance.new("TextLabel")
-masteryTitle.Name = "TitleLabel"
-masteryTitle.Size = UDim2.new(1, -80, 0, 40)
-masteryTitle.Position = UDim2.new(0, 18, 0, 10)
-masteryTitle.BackgroundTransparency = 1
-masteryTitle.TextXAlignment = Enum.TextXAlignment.Left
-masteryTitle.Text = "⭐ Stage Mastery"
-masteryTitle.Parent = masteryPanel
-themeLabel(masteryTitle, 32)
--- 9.9: the leading glyph becomes a drawing at the title's left edge, or stays a glyph if
--- there is no art for it. One line, and it moves nothing else on the panel.
-UITheme.IconifyLabel(masteryTitle)
+-- The subtitle says what the panel is FOR, which the twenty rows below never do: they are priced in
+-- Diamonds and gated on a stage, and both facts used to have to be inferred from a locked row.
+UITheme.PanelHeader(masteryPanel, {
+	title = "⭐ Stage Mastery",
+	-- Kept short deliberately: this is the narrowest of the four headers (460 wide against the
+	-- Upgrades panel's 900), and the first draft clipped at the minimum text size.
+	subtitle = "One permanent buy per stage -- rebirth never takes it",
+	accent = UITheme.Color.Gold,
+	maxTextSize = 30,
+})
 
 -- running total, so the player can see what the whole collection is currently worth without
 -- adding up twenty rows themselves
 local masterySummaryCard = Instance.new("Frame")
 masterySummaryCard.Name = "SummaryCard"
-masterySummaryCard.Size = UDim2.new(1, -36, 0, 40)
-masterySummaryCard.Position = UDim2.new(0, 18, 0, 54)
+-- 18/36 -> 16/32: the side margin on this panel was 18 on the title and summary and 14 on the
+-- scroll below, which is the "even margins" half of 11.13. Everything here is 16 now.
+masterySummaryCard.Size = UDim2.new(1, -32, 0, 40)
+masterySummaryCard.Position = UDim2.new(0, 16, 0, 94)
 masterySummaryCard.Parent = masteryPanel
 styleCard(masterySummaryCard, UITheme.Color.Gold, UDim.new(0, 12), 3)
 
@@ -1200,8 +1222,9 @@ themeLabel(masterySummaryLabel, 20)
 
 local masteryScroll = Instance.new("ScrollingFrame")
 masteryScroll.Name = "MasteryScroll"
-masteryScroll.Size = UDim2.new(1, -28, 1, -114)
-masteryScroll.Position = UDim2.new(0, 14, 0, 102)
+-- header 14+68, gap 12, summary 40, gap 12 => 146; bottom margin 16, so the scroll is 162 short.
+masteryScroll.Size = UDim2.new(1, -32, 1, -162)
+masteryScroll.Position = UDim2.new(0, 16, 0, 146)
 masteryScroll.BackgroundTransparency = 1
 masteryScroll.BorderSizePixel = 0
 masteryScroll.ScrollBarThickness = 6
@@ -2451,18 +2474,20 @@ end)()
 	registerPanel(panel)
 	panelClose(panel)
 
-	local title = Instance.new("TextLabel")
-	title.Size = UDim2.new(1, -80, 0, 38)
-	title.Position = UDim2.new(0, 18, 0, 10)
-	title.BackgroundTransparency = 1
-	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Text = "\u{1F9EC} Pet Fusion"
-	title.Parent = panel
-	themeLabel(title, 28)
+	-- This panel already had the closest thing to what 11.13 asks for -- a purple hint card under the
+	-- title -- and that card is exactly what the header band generalises. The card STAYS, because it
+	-- carries a number (`FuseRequirement`) that has already changed once; the subtitle carries the
+	-- part that never does.
+	UITheme.PanelHeader(panel, {
+		title = "\u{1F9EC} Pet Fusion",
+		subtitle = "Trade duplicates upward -- Rainbow, then Celestial",
+		accent = UITheme.Color.Purple,
+		maxTextSize = 28,
+	})
 
 	local hint = Instance.new("Frame")
-	hint.Size = UDim2.new(1, -28, 0, 44)
-	hint.Position = UDim2.new(0, 14, 0, 52)
+	hint.Size = UDim2.new(1, -32, 0, 44)
+	hint.Position = UDim2.new(0, 16, 0, 94)
 	hint.Parent = panel
 	styleCard(hint, UITheme.Color.Purple, UDim.new(0, 14), 4)
 
@@ -2478,8 +2503,9 @@ end)()
 
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Name = "FusionScroll"
-	scroll.Size = UDim2.new(1, -28, 1, -122)
-	scroll.Position = UDim2.new(0, 14, 0, 106)
+	-- header 14+68, gap 12, hint 44, gap 12 => 150; bottom margin 16, so 166 short.
+	scroll.Size = UDim2.new(1, -32, 1, -166)
+	scroll.Position = UDim2.new(0, 16, 0, 150)
 	scroll.BackgroundTransparency = 1
 	scroll.BorderSizePixel = 0
 	scroll.ScrollBarThickness = 6
@@ -2534,9 +2560,10 @@ end)()
 			sub.Position = UDim2.new(0, 66, 0, 34)
 			sub.BackgroundTransparency = 1
 			sub.TextXAlignment = Enum.TextXAlignment.Left
-			-- says what it SKIPS, in the unit this panel is already counting in
-			sub.Text = ("%d catalysts \u{2014} raise %d pets a tier, no copies needed")
-				:format(product.grantTierUps or 1, product.grantTierUps or 1)
+			-- says what it SKIPS, in the unit this panel is already counting in -- and SHORT, because
+			-- the label is 226 px wide next to the price button and the first version of this
+			-- sentence clipped at the minimum text size (found by 11.13's sweep, not by reading it)
+			sub.Text = ("%d pets up a tier, no copies"):format(product.grantTierUps or 1)
 			sub.ZIndex = row.ZIndex + UITheme.Z.Content
 			sub.Parent = row
 			themeLabel(sub, 16, UITheme.Color.Cream)
@@ -4037,18 +4064,19 @@ styleCard(robuxPanel, PANEL_SHELL, UDim.new(0, 22), 5)
 registerPanel(robuxPanel)
 panelClose(robuxPanel)
 
-local robuxTitle = Instance.new("TextLabel")
-robuxTitle.Name = "TitleLabel"
-robuxTitle.Size = UDim2.new(1, -80, 0, 38)
-robuxTitle.Position = UDim2.new(0, 18, 0, 10)
-robuxTitle.BackgroundTransparency = 1
-robuxTitle.TextXAlignment = Enum.TextXAlignment.Left
-robuxTitle.Text = "🛍️ Robux Shop"
-robuxTitle.Parent = robuxPanel
-themeLabel(robuxTitle, 30)
--- 9.9: the leading glyph becomes a drawing at the title's left edge, or stays a glyph if
--- there is no art for it. One line, and it moves nothing else on the panel.
-UITheme.IconifyLabel(robuxTitle)
+-- THE COUNTDOWN MOVES OUT OF THE TITLE. It used to be appended to it -- the refresh loop wrote
+-- "Robux Shop   ⭐ pick resets in 3h 04m" into the title label every second, which meant the panel's
+-- name changed length continuously and the leading 🛍️ had to be dropped to make room for a clause
+-- that is not the panel's name. A subtitle is where a sentence about the contents belongs, so the
+-- title is now a constant and `refreshRobuxShop` writes to `Header.Subtitle`.
+--
+-- Reached by path rather than by a handle for the usual reason: this file is at the 200-local cap.
+UITheme.PanelHeader(robuxPanel, {
+	title = "🛍️ Robux Shop",
+	subtitle = "Packs, passes and today's pick",
+	accent = UITheme.Color.Green,
+	maxTextSize = 30,
+})
 
 -- A SCROLLING FRAME, NOT A FRAME. Seventeen products in a 448 x 500 panel is nine rows of two,
 -- about 1,400 px of cards in roughly 350 px of space: as a plain Frame everything below the third
@@ -4064,6 +4092,19 @@ robuxGrid.ScrollBarThickness = 6
 robuxGrid.AutomaticCanvasSize = Enum.AutomaticSize.Y
 robuxGrid.CanvasSize = UDim2.new(0, 0, 0, 0)
 robuxGrid.Parent = robuxPanel
+
+-- THE FIRST ROW'S RIBBON WAS BEING CUT IN HALF (11.13). Every value ribbon hangs 6 px ABOVE its own
+-- card (`Position = 0.5, 0, 0, -6`), which is what makes it read as a ribbon rather than a caption --
+-- and a ScrollingFrame clips at canvas y = 0, so on the top row those 6 px were simply gone. Nine
+-- rows of tiles were fine and the two the player sees first were not. A top pad on the canvas gives
+-- the overhang somewhere to be; the grid layout is untouched.
+-- In an IIFE, not a top-level local and not a `do` block: registers are function-scoped in Luau, so
+-- a `do ... end` would still take one of the twenty this file has left.
+;(function()
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, 10)
+	pad.Parent = robuxGrid
+end)()
 
 local robuxLayout = Instance.new("UIGridLayout")
 robuxLayout.CellSize = UDim2.new(0, 192, 0, 180)
@@ -4256,9 +4297,13 @@ robuxLayout.Parent = robuxGrid
 			end
 		end
 		local left = 86400 - (os.time() % 86400)
-		-- leading 🛍️ dropped for the reason written on the Pets title; the ⭐ mid-string stays,
-		-- because it belongs to the sentence about the pick and has no slot of its own
-		robuxTitle.Text = ("Robux Shop   \u{2B50} pick resets in %dh %02dm"):format(left // 3600, (left % 3600) // 60)
+		-- Into the SUBTITLE now (11.13), so the panel's name stops changing length every second and
+		-- keeps its icon. The ⭐ stays mid-string: it belongs to the sentence about the pick.
+		local sub = robuxPanel:FindFirstChild("Header")
+		sub = sub and sub:FindFirstChild("Subtitle")
+		if sub then
+			sub.Text = ("\u{2B50} Today's pick resets in %dh %02dm"):format(left // 3600, (left % 3600) // 60)
+		end
 	end
 	hudRefs.refreshRobuxShop()
 end)()
@@ -4276,7 +4321,8 @@ end)()
 	local promptPass = Remotes:WaitForChild("PromptGamePassPurchase", 10)
 
 	local TAB_H = 40
-	local TOP = 64 + TAB_H + 8
+	-- header 14 + 68 + gap 12 = 94 for the tab row, then the tabs and a 12 gap under them.
+	local TOP = 94 + TAB_H + 12
 
 	-- the product grid moves down to make room for the tab row above it
 	robuxGrid.Position = UDim2.new(0, 16, 0, TOP)
@@ -4285,16 +4331,33 @@ end)()
 	local tabRow = Instance.new("Frame")
 	tabRow.Name = "TabRow"
 	tabRow.Size = UDim2.new(1, -32, 0, TAB_H)
-	tabRow.Position = UDim2.new(0, 16, 0, 60)
+	tabRow.Position = UDim2.new(0, 16, 0, 94)
 	tabRow.BackgroundTransparency = 1
 	tabRow.ZIndex = robuxPanel.ZIndex + UITheme.Z.Content
 	tabRow.Parent = robuxPanel
 
+	-- ===== THE SAME 2 PX GAP 11.3 HAD TO FIX, IN A SECOND PLACE =====
+	--
+	-- These two tabs were hand-positioned at `0.5, -6` each, i.e. a 12 px frame gap -- and each
+	-- carries a 5 px `UIStroke`, which draws OUTSIDE its frame. A gap of N between two stroked
+	-- siblings shows as N - 2 x thickness, so 12 read as **2**, and the pair looked like one merged
+	-- bar with a seam. Same arithmetic, same wrong answer, same fix as the Hatch row: a UIListLayout
+	-- with 24 of padding, which lands as 14 px of daylight and takes the width arithmetic away from
+	-- whoever edits this next.
+	local tabLayout = Instance.new("UIListLayout")
+	tabLayout.FillDirection = Enum.FillDirection.Horizontal
+	tabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	tabLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	tabLayout.Padding = UDim.new(0, 24)
+	tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	tabLayout.Parent = tabRow
+
 	local function makeTab(text, order)
 		local b = Instance.new("TextButton")
 		b.Name = text .. "Tab"
-		b.Size = UDim2.new(0.5, -6, 1, 0)
-		b.Position = UDim2.new(0.5 * (order - 1), order == 1 and 0 or 6, 0, 0)
+		-- half the row minus half the padding each, so the two fill it exactly
+		b.Size = UDim2.new(0.5, -12, 1, 0)
+		b.LayoutOrder = order
 		b.Text = text
 		b.Parent = tabRow
 		styleButton(b, UITheme.Color.Blue, UDim.new(0, 14))
@@ -6501,7 +6564,8 @@ local function refreshUI()
 		local level = data.Upgrades[key]
 		local cost = GameConfig.GetUpgradeCost(key, level, data)
 		local maxed = (level >= upgradeMax)
-		refs.levelLabel.Text = ("Lv %d / %d"):format(level, upgradeMax)
+		-- no spaces round the slash: this is a 84 px corner badge, not a sentence
+		refs.levelLabel.Text = ("Lv %d/%d"):format(level, upgradeMax)
 		refs.costLabel.Text = maxed and "ZONE LOCKED" or ("\u{1F9EC} " .. formatNumber(cost))
 		if refs.button then
 			setButtonColor(refs.button, (not maxed and data.DNA >= cost)

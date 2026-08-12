@@ -1149,6 +1149,85 @@ function UITheme.Modal(parent, opts)
 end
 
 -- ============================================================================
+-- PUBLIC: PanelHeader - the accent bar every shop-side panel opens with (11.13)
+-- ============================================================================
+--
+-- Every floating panel in MainUI used to open with a bare left-aligned TextLabel sitting on the
+-- panel's own cream shell: no band, no rule, no subtitle, and side margins of 14, 16, 18 and 24
+-- depending on which panel was written on which day. That reads as a document with a heading rather
+-- than a shop with a counter, and it is most of what "the shops look plain" is describing.
+--
+-- One accent band, drawn with the same `applyShell` + `addGloss` every button and card in the game
+-- already uses, so it inherits the chunky look wholesale -- thick outline, hard shadow, glossy top --
+-- rather than restating it. That is also why this is NOT a new visual language: the reference kit
+-- (`ui_kits/evolution-lab/RobuxShopModal.jsx`) is a cream card with a 3 px outline and
+-- `--shadow-panel`, which is exactly what `applyShell` draws.
+--
+-- THE SUBTITLE IS THE POINT, not the band. A shop panel has to answer "what am I spending, and on
+-- what" before the player reads a single tile, and none of the four did -- "Upgrades" over a row of
+-- DNA tiles and a row of Diamond tiles says nothing about which currency buys which. The band is
+-- what gives the subtitle somewhere to live.
+--
+-- `closeGap` reserves the top-right corner for `panelClose`'s 42 px X. The title is clipped to that
+-- width rather than the header being shortened, so the band still runs the full width of the panel
+-- and the X sits ON it -- shortening the band instead leaves a notch that reads as a mistake.
+--
+-- Returns the header AND the y offset content should start at, because the caller's next line is
+-- always positioning something under it and computing that by hand is how the four panels drifted
+-- apart in the first place.
+function UITheme.PanelHeader(panel, opts)
+	opts = opts or {}
+	local base = panel.ZIndex or 20
+	local margin = opts.margin or 16
+	local top = opts.top or 14
+	local subtitle = opts.subtitle
+	local height = opts.height or (subtitle and 68 or 52)
+	local closeGap = opts.closeGap or 62
+
+	local header = Instance.new("Frame")
+	header.Name = "Header"
+	header.Size = UDim2.new(1, -(margin * 2), 0, height)
+	header.Position = UDim2.new(0, margin, 0, top)
+	header.ZIndex = base + Z.Content
+	applyShell(header, opts.accent or Color.PanelBlue, UDim.new(0, 16), 4)
+	header.Parent = panel
+
+	local gloss = addGloss(header, UDim.new(0, 16))
+	gloss.ZIndex = header.ZIndex + Z.Gloss
+
+	local title = UITheme.Label(header, {
+		name = "Title",
+		text = opts.title or "",
+		size = UDim2.new(1, -(14 + closeGap), 0, subtitle and 32 or (height - 12)),
+		position = UDim2.new(0, 14, 0, subtitle and 6 or 6),
+		xAlign = "Left",
+		maxTextSize = opts.maxTextSize or 30,
+		zIndex = header.ZIndex + Z.Content,
+	})
+	-- 9.9's pipeline, unchanged: a mapped leading emoji becomes a drawing at the label's left edge
+	-- and everything else stays a glyph. Called on the header's own title so a panel converted to
+	-- this component keeps the icon it already had.
+	UITheme.IconifyLabel(title)
+
+	local sub
+	if subtitle then
+		sub = UITheme.Label(header, {
+			name = "Subtitle",
+			text = subtitle,
+			size = UDim2.new(1, -(14 + closeGap), 0, 22),
+			position = UDim2.new(0, 14, 0, 38),
+			xAlign = "Left",
+			maxTextSize = 18,
+			minTextSize = 12,
+			color = Color.Cream,
+			zIndex = header.ZIndex + Z.Content,
+		})
+	end
+
+	return header, top + height + (opts.gap or 12), title, sub
+end
+
+-- ============================================================================
 -- PUBLIC: ProgressBar
 -- ============================================================================
 function UITheme.ProgressBar(parent, opts)
