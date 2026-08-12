@@ -3920,8 +3920,10 @@ local function buildValleySide(model, zone, cx, side, p)
 	local poolZ = math.random(-260, 260)
 	local poolLen = math.random(220, 340)
 	-- The widest thing in the corridor is `FallBasinRim` at `wide + 22` = 56 on the bottom step;
-	-- half of that is 28, and 6 more keeps a prop's own edge off the rim's.
-	local FALL_HALF_Z = 34
+	-- half of that is 28, and 10 more absorbs the yaw every prop on the hillside is given -- a 52-stud
+	-- slab turned 14 degrees is 58 wide along z, and measuring it as 52 is how 29 pieces of cladding
+	-- came back still standing in the water after the first cut of this.
+	local FALL_HALF_Z = 38
 	local fallZ = {}
 	if p.water then
 		for i = 1, p.falls do
@@ -3929,11 +3931,16 @@ local function buildValleySide(model, zone, cx, side, p)
 			-- ...and a fall may not land in a stairwell either. The flights were chosen first, so the
 			-- water is what moves. Kept inside the pool it has to arrive in, so the bottom step still
 			-- lands in water rather than on the grass beside it.
+			-- TESTED ON THE CORRIDOR'S OWN WIDTH, not on `inStairwell`'s: a fall centred 30 studs from
+			-- a flight passes a 26-stud test and still runs a 38-stud corridor across half of it.
 			local lo, hi = poolZ - poolLen / 2 + 20, poolZ + poolLen / 2 - 20
 			for _ = 1, 8 do
 				local clash = false
 				for tier = 1, cascade do
-					if inStairwell(tier, z) then clash = true break end
+					for _, t in ipairs({ tier, tier + 1 }) do
+						local si = stairSeg[t]
+						if si and math.abs(z - segZ(si)) < STAIR_HALF_Z + FALL_HALF_Z then clash = true end
+					end
 				end
 				if not clash then break end
 				z = z + STAIR_HALF_Z + FALL_HALF_Z + 6
@@ -4040,9 +4047,10 @@ local function buildValleySide(model, zone, cx, side, p)
 					-- WHERE IT GOES IS DECIDED BEFORE IT IS CLONED (11.24). The cladding hangs in the riser
 					-- plane, which is exactly where a `FallSheet` hangs, so a slot inside a fall corridor is
 					-- a rock mesh growing out of the middle of a waterfall -- 249 of them across the world.
-					-- ~26 is the widest this mesh can come out at after the 52-stud width cap.
+					-- 32, not the 26 the 52-stud width cap implies: the clad is yawed by up to 14 degrees
+					-- on top of its quarter turn, and a 52 x 30 footprint at 14 degrees spans 58 along z.
 					local slotZ = zc + (k - 2) * (segLen / 3) + math.random(-18, 18)
-					if claimedZ(tier, slotZ, 26) then continue end
+					if claimedZ(tier, slotZ, 32) then continue end
 					local clad = cliffFace:Clone()
 					local _, raw = clad:GetBoundingBox()
 					-- SHORTER THAN THE RISER, NOT TALLER. These were sized at 1.06-1.28x the step so their
@@ -4129,7 +4137,8 @@ local function buildValleySide(model, zone, cx, side, p)
 				-- water comes down: 176 of them were found inside a fall corridor. Its width is drawn
 				-- FIRST so the keep-out test is on its body rather than on its centre line.
 				local w = math.random(22, 52)
-				local z = freeZ(tier, zc, -segLen / 2 + 20, segLen / 2 - 20, w / 2)
+				-- + 5 for the yaw it is about to be given, same lesson as the cladding above
+				local z = freeZ(tier, zc, -segLen / 2 + 20, segLen / 2 - 20, w / 2 + 5)
 				if not z then continue end
 				local h = p.rise * math.random(50, 92) / 100
 				local d = math.random(9, 17)
@@ -4245,8 +4254,9 @@ local function buildValleySide(model, zone, cx, side, p)
 				-- half the spire's own width on top of the corridor, so it clears both the flight and
 				-- the fall by its EDGE rather than by its centre. Not built at all if there is no room:
 				-- a crag rerolled onto a spot nothing tested is how the last three ended up in a flight.
-				-- `w * 0.62` is the scree pad's half-width, which is the widest thing this block lays.
-				local sz = freeZ(tier, zc, -segLen / 2 + 20, segLen / 2 - 20, w * 0.62)
+				-- `w * 0.72`: the scree pad is the widest thing this block lays (w * 1.24) and it is
+				-- yawed, so its half-width along z is a little more than half its nominal size.
+				local sz = freeZ(tier, zc, -segLen / 2 + 20, segLen / 2 - 20, w * 0.72)
 				if not sz then continue end
 				local yaw = math.rad(math.random(0, 360))
 				local lean = math.rad(side * -math.random(2, 6))
@@ -4754,7 +4764,11 @@ local function buildValleySide(model, zone, cx, side, p)
 							reach = math.max(reach, side * (pcf.Position.X - cx) + hx)
 						end
 					end
-					local limit = innerX - 2.4
+					-- ...against the FURTHEST-IN edge the curtain's own width covers, not against the edge
+					-- under its centre line. A curtain is 34-56 studs across and the segments meander, so
+					-- one straddling a boundary was measured drilling into the neighbouring segment's slab
+					-- (9 of the 190 falls) while clearing its own perfectly.
+					local limit = math.min(edgeAt(tier, fz - wide * 0.6), innerX, edgeAt(tier, fz + wide * 0.6)) - 2.4
 					if reach > limit then
 						curtain:PivotTo(curtain:GetPivot() - Vector3.new(side * (reach - limit), 0, 0))
 					end
