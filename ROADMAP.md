@@ -470,6 +470,19 @@ Gathered 2026-08-07/08 while writing this plan.
 
 ## Changelog
 
+- **2026-08-12 (session end)** — **`src/` IS AHEAD OF STUDIO ON FIVE FILES. Push before doing
+  anything else.** Only `ZoneBuilder` is in sync (560,420 B, hash 1774987081, world rebuilt at
+  `BUILD_VERSION` 128). Ahead on disk and NOT yet in Studio: `MainUI.client.lua` (349,206 →
+  378,671), `HatchReveal.client.lua` (32,767 → 48,310), `UITheme.lua` (59,872 → 62,024),
+  `BossService.lua` (154,024 → 155,664), `PetService.lua` (45,105 → 44,412). All five were
+  compile-checked by `loadstring` over the HTTP bridge but never written into Studio, because a
+  subagent held Studio and then the session hit its token limit. **This suspends `src/SYNC.md`'s
+  "byte-identical" invariant until that push happens** — do not trust a hash sweep to mean Studio
+  is right; `src/` is right, and the direction is disk → Studio.
+  Rows 11.14–11.27 are all `[~]`: coded, committed, and none of them measured. **Nothing needs
+  re-coding — the whole outstanding job is one verification pass.** Each row's own cell lists what
+  to measure and its control case.
+
 - **2026-08-12** — **11.12's owner block was removed by doing it, not by waiting for it.** Kristina
   granted browser access, so the three shard products were created on the Creator Dashboard from
   inside the session: `25 / 125 / 750 Evolution Shards` at 49 / 199 / 999 R$, ids **3707419817**,
