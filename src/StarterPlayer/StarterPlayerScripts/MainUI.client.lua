@@ -6798,6 +6798,20 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		-- (Phase 6.1), which is the only thing that knows when the reveal moment actually is. This
 		-- branch used to draw the card immediately, which is a second before the egg had finished
 		-- moving. Same reasoning as `creature` and `playerHurt` above.
+	elseif payload.kind == "petDrop" then
+		-- A PET OUT OF A CREATURE IS NOT A HATCH, AND MUST NOT BORROW ONE (11.6). The first version
+		-- of the terrace drop sent `kind = "pet"` with `auto = true`, reasoning that the quiet
+		-- presentation was the right one. It is not quiet -- it is the EGG sequence: HatchReveal's
+		-- fallback shakes and cracks the egg on its podium, which for a kill up on a terrace is an
+		-- animation several hundred studs away, on an egg nobody bought. Measured: the drop produced
+		-- no visible feedback at all where the player was standing.
+		--
+		-- Drawn here instead, on the player, the way a fusion is -- see the note in
+		-- `evolution-lab-feedback-placement`: a thing that happened in the world is shown in the
+		-- world, at the place it happened.
+		local rarity = GameConfig.GetRarity(payload.rarity)
+		worldPopup(payload.emoji .. " " .. payload.name,
+			payload.exclusive and "APEX DROP \u{2014} EGGS CANNOT HATCH THIS" or "DROPPED", rarity.color)
 	elseif payload.kind == "fuse" then
 		local rarity = GameConfig.GetRarity(payload.rarity)
 		worldPopup(payload.emoji .. " " .. payload.name, "FUSED → " .. payload.tier, rarity.color)

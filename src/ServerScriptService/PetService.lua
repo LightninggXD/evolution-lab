@@ -98,6 +98,26 @@ local function eggByKey(key)
 	return nil
 end
 
+-- One ceiling for the whole game, read from GameConfig so this file, TradeService and the HUD
+-- cannot drift apart -- see the note there for why it is 100 and why it stopped being private.
+--
+-- DECLARED UP HERE, above the roll, since 11.6. `GrantPetFromDrop` below is the first pet path that
+-- checks the cap itself, and a `local` declared further down the file is not an upvalue of a
+-- function defined above it -- it would have read as a nil GLOBAL and thrown on the comparison, at
+-- the moment a rare drop landed, on a live server. Nothing that reads this may sit above this line.
+local MAX_PETS = GameConfig.MaxOwnedPets
+
+-- ===== THE ONE PLACE A PET IS CREATED =====
+--
+-- Every pet in the game -- bought, bulk-bought, or dropped by a terrace creature since 11.6 -- is
+-- born here. The shape of an inventory entry is written once, so a path added later cannot invent a
+-- pet with a missing `tier` or a duplicate id and have it half-work everywhere else. Returns the
+-- def, matching what `rollAndInsert` has always handed back.
+local function insertPet(data, petDef)
+	table.insert(data.Pets, { id = HttpService:GenerateGUID(false), key = petDef.key, tier = "Normal" })
+	return petDef
+end
+
 -- ===== ONE ROLL, SHARED BY THE SINGLE AND THE BULK PATH =====
 --
 -- Extracted so x10 cannot become a second implementation of what an egg is worth. It is the roll
@@ -125,14 +145,42 @@ local function rollAndInsert(data, eggDef)
 	-- rolls only within this egg's own pool -- its zone's species, sliced by the egg tier's
 	-- rarity window -- and the tier's bias shifts the odds inside that slice on top of luck
 	local petDef = GameConfig.RollPetForEgg(eggDef, luckPercent)
-	table.insert(data.Pets, { id = HttpService:GenerateGUID(false), key = petDef.key, tier = "Normal" })
-	return petDef
+	return insertPet(data, petDef)
+end
+
+-- ===== A PET FROM A KILL (11.6) =====
+--
+-- The terraces drop pets now: the zone's ordinary five off a layer-1 creature, and off a layer-2
+-- Apex the one species that is in no egg at all. `GameConfig.GetTerracePetPool` decides which, and
+-- returns nil for anything that pays no pet -- so this function asks it once and the whole "does
+-- this creature drop" question is that one `if`.
+--
+-- WHY THIS IS NOT `rollAndInsert` WITH A DIFFERENT POOL, which is what the roadmap row asked for.
+-- Two of that function's three lines are wrong here. It adds the egg's own `luckBonus`, and there is
+-- no egg; and it rolls against `GetPetLuckPercent`, which since 11.5 is the shared luck total PLUS
+-- the shop's upgrade -- an upgrade now called **Egg Luck** whose card promises "rarer pets from
+-- every hatch". A kill is not a hatch, so paying it here would make that card a lie, and 11.5's rule
+-- that the upgrade has exactly two readers exists precisely to keep it honest. A drop rolls against
+-- `GetLuckPercent`, the everything-else total, which is what pets, potions, passes and events feed.
+--
+-- What the row actually wanted protected is that the two paths cannot produce different SHAPES of
+-- pet or disagree about the cap, and both of those are held: `insertPet` below is the only place in
+-- the game a pet is created, and `MAX_PETS` is the same constant the egg paths check.
+--
+-- Returns the def on success and nil when the inventory is full -- a full bag silently drops the
+-- pet rather than refusing the kill, which is the right way round: the DNA, XP and shard are already
+-- paid by the time this is called, and refusing a kill because a bag is full would be a far worse
+-- bug than missing one drop. The caller notifies.
+function PetService.GrantPetFromDrop(data, zoneKey, raised)
+	local pool = GameConfig.GetTerracePetPool(zoneKey, raised)
+	if not pool or #pool == 0 then return nil end
+	local layer = GameConfig.GetRaisedLayer(raised)
+	if not layer or math.random() >= (layer.petChance or 0) then return nil end
+	if #data.Pets >= MAX_PETS then return nil, "full" end
+	return insertPet(data, GameConfig.RollFromPool(pool, GameConfig.GetLuckPercent(data), 0))
 end
 
 local EGG_INTERVAL = 0.35   -- comfortably faster than the hatch animation, far slower than a loop
--- One ceiling for the whole game, read from GameConfig so this file, TradeService and the HUD
--- cannot drift apart -- see the note there for why it is 100 and why it stopped being private.
-local MAX_PETS = GameConfig.MaxOwnedPets
 local lastEgg = {}          -- [userId] = os.clock()
 
 -- `auto` is true only when DriveAutoHatch bought this one. It changes NOTHING about the purchase --

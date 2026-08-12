@@ -184,6 +184,64 @@ GameConfig.CreatureGenerationMax = 2.0
 -- creature curve, so that moving one without the other cannot silently invert them again.
 GameConfig.BossEliteFloor = 1.25
 
+-- ===== AND THE APEX IS CAPPED BY THAT FLOOR, BY CONSTRUCTION (11.6) =====
+--
+-- 11.6 adds a third raised tier, the Apex, on the highest shelf of every zone behind three
+-- rebirths. A new creature tier is exactly the move that produced 11.9 -- a creep the zone's own
+-- boss could not match -- so this number is not authored freely. Read the floor above: a boss is at
+-- least `BossEliteFloor * EliteBaseHealth * CreatureGenerationMax * mobHealthMult`. A farmed Apex is
+-- `ApexBaseHealth * CreatureGenerationMax * mobHealthMult`. Setting the second below the first
+-- reduces to `ApexBaseHealth <= BossEliteFloor * EliteBaseHealth`, with the generation cap and the
+-- zone multiplier cancelling out of both sides -- so the clamp needs neither of them and cannot go
+-- stale when they move. **Every boss in the game stays at least as tough as the toughest creep in
+-- its zone, in every zone, for any authored value below.**
+--
+-- The authored 350 is 1.25x an Elite, and it is deliberately modest, because health is the wrong
+-- lever and 11.9 is the proof: a spongy creature is not a frightening one, it is a slow one. What
+-- makes the Apex dangerous is that it hits back nearly every time and hits hard (see the Apex row in
+-- CreatureService's TIERS), and what makes it worth finding is the payout multiplier below -- not
+-- the size of its health bar.
+GameConfig.ApexBaseHealth = math.min(350, GameConfig.BossEliteFloor * GameConfig.EliteBaseHealth)
+
+-- ===== THE TERRACES ARE A REBIRTH REWARD NOW (11.6) =====
+--
+-- Until this row, `raised` was a boolean and bought exactly one thing: the right to drop an
+-- Evolution Shard (9.4). It is now the LAYER INDEX into this table -- 1 or 2, still nil on the
+-- valley floor, so every `if raised` in the codebase keeps meaning what it meant. That was chosen
+-- over a second parameter because `raised` already has to be threaded through `spawnCreature`'s
+-- respawn, and one thing threaded correctly beats two things threaded nearly correctly.
+--
+-- WHY THE PAYOUT MAY MOVE HERE WHEN GENERATION MAY NOT. There is a rule in CreatureService that a
+-- kill must never pay more just because you have killed more, and the generation growth deliberately
+-- obeys it. This is a different axis and does not touch it: a terrace creature pays more because it
+-- is gated -- behind a climb, and now behind a rebirth that cost the player their whole run -- not
+-- because it has been farmed. Farming an Apex still gets slowly worse, exactly like farming anything
+-- else.
+--
+-- `petChance` is per kill, and layer 2's pool is species that exist in NO egg. That is the actual
+-- reward: layer 1 pays better and can hand over a pet you could also have hatched, layer 2 hands
+-- over one you could not have obtained any other way.
+GameConfig.RaisedLayers = {
+	{ minRebirths = 1, dnaMult = 3.0,  xpMult = 2.0, petChance = 0.02, exclusive = false },
+	{ minRebirths = 3, dnaMult = 12.0, xpMult = 5.0, petChance = 0.05, exclusive = true },
+}
+
+-- The layer a creature belongs to, or nil for the valley floor. Takes the raw `raised` value so
+-- every caller asks the same question of it and nothing indexes the table by hand.
+function GameConfig.GetRaisedLayer(raised)
+	return GameConfig.RaisedLayers[raised or 0]
+end
+
+-- Whether this save may fight a creature of that layer. The CLIENT greys the creature out with this
+-- and the SERVER refuses with it -- one predicate, two independent uses, which is the same shape the
+-- rebirth shrine uses (see RebirthShrineClient's header on why the client copy is never the real
+-- check). A valley creature has no layer and is therefore always fightable.
+function GameConfig.CanFightRaised(data, raised)
+	local layer = GameConfig.GetRaisedLayer(raised)
+	if not layer then return true end
+	return ((data and data.Rebirths) or 0) >= layer.minRebirths
+end
+
 -- Raw damage at a rung of the ladder. Takes a NUMBER, not a save, so it is safe to call at module
 -- load (the boss table below does) and safe on the client (the Journal prints it under every
 -- entry). This is the single place the curve exists.
@@ -546,6 +604,13 @@ for i, zone in ipairs(GameConfig.Zones) do
 	-- its own zone -- see the note on BossTargetHits, where the measurement is written out. The floor
 	-- term is what ties the boss curve to the creature curve, so tuning `mobHealthMult` cannot pull
 	-- them apart again in silence.
+	--
+	-- STILL PRICED ON THE ELITE after 11.6 added a tier above it, and deliberately so. Pricing it on
+	-- the Apex instead would have raised every floor-bound boss (zones 2-17) by 25% -- a balance
+	-- change nobody asked for -- and it is not needed: `ApexBaseHealth` is clamped to
+	-- `BossEliteFloor * EliteBaseHealth`, which is exactly the condition for a farmed Apex to stay
+	-- inside this floor. The guarantee lives in the clamp, so this line did not have to move and a
+	-- future row cannot break it by editing the Apex either. See the ApexBaseHealth block.
 	zone.boss.health = math.max(
 		math.floor(GameConfig.BossTargetHits * GameConfig.GetZoneReferenceDamage(i)),
 		math.floor(GameConfig.BossEliteFloor * GameConfig.EliteBaseHealth
@@ -801,6 +866,36 @@ local ZONE_PETS = {
 	},
 }
 
+-- ===== APEX-ONLY PETS =====
+-- One species per zone that no egg can ever hatch. The only source is a kill on that zone's Apex,
+-- so a player who has not cleared 3 rebirths cannot hold one. Shaped like a ZONE_PETS entry and
+-- keyed by zone, but deliberately kept OUT of ZONE_PETS so the egg roll can never reach it -- the
+-- rarity of these is the whole point. Every key is unique against the 100 in ZONE_PETS, and the
+-- colours are the prestige read of each zone's palette: brighter and cleaner than the egg pets,
+-- never the muddy version.
+local EXCLUSIVE_PETS = {
+	Forest          = { key = "Sylvanking", name = "Sylvan King", emoji = "\u{1F333}",         color = Color3.fromRGB(90, 235, 120) },
+	Desert          = { key = "Vitreon",    name = "Vitreon",     emoji = "\u{1F3FA}",         color = Color3.fromRGB(255, 198, 72) },
+	Ocean           = { key = "Leviathan",  name = "Leviathan",   emoji = "\u{1F40B}",         color = Color3.fromRGB(64, 232, 255) },
+	Volcano         = { key = "Moltenking", name = "Molten King", emoji = "\u{2604}\u{FE0F}",  color = Color3.fromRGB(255, 128, 24) },
+	Moon            = { key = "Lunarch",    name = "Lunarch",     emoji = "\u{1F320}",         color = Color3.fromRGB(222, 240, 255) },
+	Mars            = { key = "Ironcrown",  name = "Iron Crown",  emoji = "\u{1F6E1}\u{FE0F}", color = Color3.fromRGB(255, 96, 64) },
+	Galaxy          = { key = "Spiralux",   name = "Spiralux",    emoji = "\u{1F300}",         color = Color3.fromRGB(196, 148, 255) },
+	BlackHole       = { key = "Abyssos",    name = "Abyssos",     emoji = "\u{1F480}",         color = Color3.fromRGB(172, 72, 255) },
+	Multiverse      = { key = "Manifold",   name = "Manifold",    emoji = "\u{1F9FF}",         color = Color3.fromRGB(255, 110, 235) },
+	Nebula          = { key = "Nebulark",   name = "Nebulark",    emoji = "\u{1F30C}",         color = Color3.fromRGB(236, 126, 255) },
+	Wormhole        = { key = "Elsewhere",  name = "Elsewhere",   emoji = "\u{1F573}\u{FE0F}", color = Color3.fromRGB(186, 130, 255) },
+	QuantumRealm    = { key = "Quanton",    name = "Quanton",     emoji = "\u{1F4A0}",         color = Color3.fromRGB(86, 255, 240) },
+	TimeRift        = { key = "Aeonis",     name = "Aeonis",      emoji = "\u{1F570}\u{FE0F}", color = Color3.fromRGB(255, 220, 96) },
+	AntimatterZone  = { key = "Positron",   name = "Positron",    emoji = "\u{26A1}",          color = Color3.fromRGB(255, 172, 48) },
+	DreamDimension  = { key = "Oneiros",    name = "Oneiros",     emoji = "\u{1F984}",         color = Color3.fromRGB(218, 140, 255) },
+	MirrorUniverse  = { key = "Silverself", name = "Silver Self", emoji = "\u{1F48E}",         color = Color3.fromRGB(238, 248, 255) },
+	VoidExpanse     = { key = "Nullarch",   name = "Nullarch",    emoji = "\u{1F7E3}",         color = Color3.fromRGB(190, 88, 255) },
+	CelestialThrone = { key = "Empyrean",   name = "Empyrean",    emoji = "\u{1F31E}",         color = Color3.fromRGB(255, 230, 130) },
+	Singularity     = { key = "Zeropoint",  name = "Zero Point",  emoji = "\u{2733}\u{FE0F}",  color = Color3.fromRGB(198, 240, 255) },
+	AbsolutePlane   = { key = "Primordia",  name = "Primordia",   emoji = "\u{2600}\u{FE0F}",  color = Color3.fromRGB(255, 246, 196) },
+}
+
 -- Flattened lookup. Each species carries its zone and its rarity; the rarity is positional --
 -- entry i in a zone's list is PetRarityOrder[i] -- so a zone list is always exactly five long.
 GameConfig.Pets = {}
@@ -822,6 +917,67 @@ for _, zone in ipairs(GameConfig.Zones) do
 			table.insert(GameConfig.PetsByZone[zone.key], def)
 		end
 	end
+end
+
+-- ===== THE SPECIES NO EGG CAN REACH (11.6) =====
+--
+-- One per zone, dropped only by that zone's Apex, which stands on the highest shelf behind three
+-- rebirths. **The unreachability is structural, not a rule somebody has to remember**: every egg
+-- path bottoms out in `GetEggPool`, which reads `PetsByZone`, and these are inserted into
+-- `GameConfig.Pets` and `ExclusivePetsByZone` and into neither of those. There is no flag to check
+-- and no branch to forget -- the roll simply has nowhere to find them.
+--
+-- They still enter `GameConfig.Pets` on purpose: that is the table the Journal walks, so an
+-- exclusive shows in the collection as a locked slot with a name. A goal you cannot see is not a
+-- goal. It is also what `GetPetDef` scans, so a save holding one resolves normally everywhere else
+-- in the game -- power, fusion, trading, the follower rig.
+--
+-- Rarity is Legendary rather than a sixth tier. A new rarity would mean a new weight, a new colour,
+-- a new Journal section and a new beam rule, for a distinction the player already reads off "this
+-- came out of an Apex". `exclusive = true` carries that meaning for the code that needs it.
+GameConfig.ExclusivePetsByZone = {}
+for _, zone in ipairs(GameConfig.Zones) do
+	local p = EXCLUSIVE_PETS[zone.key]
+	if p then
+		local def = {
+			key = p.key,
+			name = p.name,
+			emoji = p.emoji,
+			color = p.color,
+			zone = zone.key,
+			rarity = "Legendary",
+			exclusive = true,
+		}
+		table.insert(GameConfig.Pets, def)
+		GameConfig.ExclusivePetsByZone[zone.key] = { def }
+	end
+end
+
+-- ===== AND THE FALLBACK POOL HAD TO STOP BEING `GameConfig.Pets` =====
+--
+-- `RollFromPool` and `GetEggPool` both fall back to the flat list when they are handed a malformed
+-- or empty pool -- an egg with no `zone`, a zone with no species. That fallback is now the ONE way
+-- an exclusive could still come out of an egg, so it points at this list instead: everything that is
+-- not exclusive, built once. The hole is closed at the bottom of the funnel rather than at each of
+-- the three call sites above it, which is the only version of this that a future egg type cannot
+-- reopen by accident.
+GameConfig.EggablePets = {}
+for _, def in ipairs(GameConfig.Pets) do
+	if not def.exclusive then
+		table.insert(GameConfig.EggablePets, def)
+	end
+end
+
+-- The pool a terrace kill rolls against: the zone's ordinary five on layer 1, its one exclusive on
+-- layer 2. Returns nil when the layer pays no pet at all, so the caller's `if pool` is the whole
+-- test -- there is no second question about whether this creature drops.
+function GameConfig.GetTerracePetPool(zoneKey, raised)
+	local layer = GameConfig.GetRaisedLayer(raised)
+	if not layer then return nil end
+	if layer.exclusive then
+		return GameConfig.ExclusivePetsByZone[zoneKey]
+	end
+	return GameConfig.PetsByZone[zoneKey]
 end
 
 function GameConfig.GetPetDef(key)
@@ -1239,7 +1395,10 @@ end
 -- Zone lists are positional (entry i is PetRarityOrder[i]), so the window is a plain index range.
 function GameConfig.GetEggPool(egg)
 	local zonePool = egg and GameConfig.PetsByZone[egg.zone]
-	if not zonePool or #zonePool == 0 then return GameConfig.Pets end
+	-- An egg with no zone rolls against every species in the game, which since 11.6 would have
+	-- included the Apex exclusives -- so it falls back to the eggable list. `PetsByZone` itself never
+	-- holds one, so the slice below is already safe; this is the malformed-egg path only.
+	if not zonePool or #zonePool == 0 then return GameConfig.EggablePets end
 	local out = {}
 	for i, p in ipairs(zonePool) do
 		if i >= (egg.rarityMin or 1) and i <= (egg.rarityMax or #zonePool) then
@@ -1270,7 +1429,9 @@ local function poolWeights(pool, luckPercent, rarityBias)
 end
 
 function GameConfig.RollFromPool(pool, luckPercent, rarityBias)
-	if not pool or #pool == 0 then pool = GameConfig.Pets end
+	-- `EggablePets`, not `Pets` -- see the note over that list. An empty pool arriving here is a bug
+	-- somewhere else, and the safe thing to hand back is a species the player could have got anyway.
+	if not pool or #pool == 0 then pool = GameConfig.EggablePets end
 	local weights, total = poolWeights(pool, luckPercent, rarityBias)
 	local roll = math.random() * total
 	local acc = 0

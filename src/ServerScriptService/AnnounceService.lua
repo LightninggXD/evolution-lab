@@ -73,6 +73,15 @@ end
 -- Called on every hatch, not only on the rare ones: the rarity test belongs here, with the rest of
 -- the policy, and a caller that has to ask first is a caller that can forget to.
 function AnnounceService.PetHatched(player, petDef)
+	return AnnounceService.PetObtained(player, petDef, "HATCH")
+end
+
+-- Same policy, different verb. 11.6 made a pet obtainable by killing something, and "LEGENDARY
+-- HATCH!" over a creature that was never in an egg is the sort of small wrongness that makes a
+-- player distrust the rest of the text. Everything that matters -- the rarity gate, the per-player
+-- cooldown, the "no position, no beam" rule -- stays in one body, because that is the whole reason
+-- this module exists; only the word changes.
+function AnnounceService.PetObtained(player, petDef, verb)
 	if not player or not petDef then return end
 	if not GameConfig.IsBeaconRarity(petDef.rarity) then return end
 
@@ -96,7 +105,7 @@ function AnnounceService.PetHatched(player, petDef)
 		rarity = petDef.rarity,
 		-- Both lines are composed here rather than on the client, so that when 5.4 sends this same
 		-- payload between servers the receiving client needs no second code path to phrase it.
-		headline = ("%s HATCH!"):format(rarity.name:upper()),
+		headline = ("%s %s!"):format(rarity.name:upper(), verb or "HATCH"),
 		subline = ("%s got %s %s"):format(player.DisplayName, petDef.emoji or "", petDef.name or "a pet"),
 	})
 end

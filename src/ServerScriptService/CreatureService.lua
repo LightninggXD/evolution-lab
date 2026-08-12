@@ -9,6 +9,11 @@ local UITheme = require(RS.Modules.UITheme)
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local DNAService = require(script.Parent.DNAService)
 local SeasonPassService = require(script.Parent.SeasonPassService)
+-- 11.6: the terraces drop pets, so the kill path needs the one function that creates one. No cycle
+-- -- PetService requires PlayerDataService, SeasonPassService and AnnounceService, none of which
+-- reaches back here, and DNAService above already pulls PetService in anyway.
+local PetService = require(script.Parent.PetService)
+local AnnounceService = require(script.Parent.AnnounceService)
 local Remotes = RS.Remotes
 
 local CreatureService = {}
@@ -214,6 +219,40 @@ local TIERS = {
 		heavy = true,
 		xp = 14,
 		plateColor = "Gold",
+	},
+	-- ===== THE APEX (11.6): THE THING ON THE HIGHEST SHELF =====
+	--
+	-- Spawned only by the raised loop, only on layer 2, and only fightable after three rebirths. It
+	-- is the one creature in the game that drops a species no egg contains.
+	--
+	-- IT IS BARELY TOUGHER THAN AN ELITE AND THAT IS THE DESIGN. 1.25x health, and the number is not
+	-- even authored here -- `GameConfig.ApexBaseHealth` is clamped against the boss floor so that a
+	-- farmed Apex can never out-last its own zone's boss, which is 11.9 happening again in a new
+	-- costume. Read that block before raising anything here.
+	--
+	-- What makes it dangerous is the retaliation, not the health bar: it hits back on 95% of blows
+	-- for 40-70, with a 20-stud aura at 26-44 every second. A player who wandered up without three
+	-- rebirths' worth of damage would lose the trade badly -- which is the point of a gate you can
+	-- see from below. Size stays at the Elite's 26 deliberately: `raisedSpots` clears its candidate
+	-- shelves with a 26-stud probe, so a bigger Apex would need that probe widened and would quietly
+	-- cost some zones their spots. The crown, the colour and the name carry the distinction instead.
+	Apex = {
+		health = GameConfig.ApexBaseHealth,
+		minHits = 10,
+		hitCooldown = 0.22,
+		respawnDelay = 120,
+		dnaMult = 55,
+		size = 26,
+		colors = { Color3.fromRGB(255, 90, 200), Color3.fromRGB(45, 15, 70) },
+		label = "\u{1F451} Apex",
+		retaliateChance = 0.95,
+		retaliateDamage = { 40, 70 },
+		auraRange = 20,
+		auraDamage = { 26, 44 },
+		auraInterval = 1.0,
+		heavy = true,
+		xp = 30,
+		plateColor = "Purple",
 	},
 }
 
@@ -657,6 +696,46 @@ local CREATURE_NAMES = {
 	Singularity     = { Swarmer = { "\u{1F4A0}", "Infall Speck" },  Critter = { "\u{1F4A0}", "Infall Mote" },   Brute = { "\u{1F30C}", "Collapse Herald" }, Elite = { "\u{1F320}", "Final Density" } },
 	AbsolutePlane   = { Swarmer = { "\u{25AA}\u{FE0F}", "Axiom Chip" }, Critter = { "\u{1F53B}", "Axiom Shard" }, Brute = { "\u{1F53A}", "Absolute Warden" }, Elite = { "\u{1F781}", "The Postulate" } },
 }
+
+-- ===== APEX TIER =====
+-- A fifth creature tier. One Apex per zone: the strongest and rarest thing in the strip, standing
+-- alone on the zone's highest terrace shelf and locked behind 3 rebirths. Shaped exactly like a
+-- CREATURE_NAMES tier entry -- { emoji, name } -- so creatureLabel() can read it unchanged. Each
+-- name is written to out-rank that zone's Elite by one step: the Elite is the boss of the zone,
+-- the Apex is the thing the Elite is afraid of.
+local APEX_NAMES = {
+	Forest          = { "\u{1F332}", "Heartwood Ancient" },
+	Desert          = { "\u{1F3DC}\u{FE0F}", "Glass Pharaoh" },
+	Ocean           = { "\u{1F531}", "Tidefather" },
+	Volcano         = { "\u{1F479}", "Caldera Sovereign" },
+	Moon            = { "\u{1F315}", "Selene Undying" },
+	Mars            = { "\u{1F916}", "Ares Prime" },
+	Galaxy          = { "\u{1FA90}", "Core of Suns" },
+	BlackHole       = { "\u{1F300}", "The Hunger" },
+	Multiverse      = { "\u{267E}\u{FE0F}", "Every Outcome" },
+	Nebula          = { "\u{1F52E}", "Stellar Matriarch" },
+	Wormhole        = { "\u{1F6AA}", "Mouth of Elsewhere" },
+	QuantumRealm    = { "\u{1F3B2}", "Observer Zero" },
+	TimeRift        = { "\u{23EE}\u{FE0F}", "The Last Hour" },
+	AntimatterZone  = { "\u{1F4A3}", "Unmaker Core" },
+	DreamDimension  = { "\u{1F47B}", "The Waking" },
+	MirrorUniverse  = { "\u{1F464}", "Your Other" },
+	VoidExpanse     = { "\u{1F5A4}", "Unbecoming" },
+	CelestialThrone = { "\u{269C}\u{FE0F}", "The Enthroned" },
+	Singularity     = { "\u{26AB}", "Zero Radius" },
+	AbsolutePlane   = { "\u{1F31F}", "First Cause" },
+}
+
+-- MERGED IN rather than typed into the twenty rows above, which are one long line each. Keeping the
+-- Apex names as their own block is what made 11.6 a readable diff instead of twenty rewritten lines,
+-- and `creatureLabel` below needs no change at all -- it looks up CREATURE_NAMES[zone][tier] and by
+-- the time it runs, `Apex` is simply one of the tiers that are there.
+for zoneKey, entry in pairs(APEX_NAMES) do
+	local byZone = CREATURE_NAMES[zoneKey]
+	if byZone then
+		byZone.Apex = entry
+	end
+end
 
 -- Falls back to the tier's own generic label for any zone missing an entry, so a zone added to
 -- GameConfig without a name here still spawns rather than erroring on a nil index.
@@ -2921,6 +3000,16 @@ local TIER_RING = {
 -- is exactly the auto-increment the second rule exists to remove, however it is dressed up. So
 -- farming one spot gets slowly worse and moving up a zone is always the better play, which is the
 -- pressure the growth is FOR. There is no hidden reward ramp anywhere in the kill path.
+-- ===== THE "THIS ONE IS SEALED" NOTICE (11.6) =====
+--
+-- Per-player rather than per-creature: the message is about the player's own save, so a second
+-- locked creature two seconds later has nothing new to say. Declared UP HERE, above `spawnCreature`,
+-- because the gate that reads it lives in `onHit` inside that function -- a `local` further down the
+-- file is not an upvalue of a closure defined above it and would read as a nil global, which throws
+-- on the index at exactly the moment an under-rebirthed player swings at an Apex.
+local lockNoticeAt = {}
+local LOCK_NOTICE_COOLDOWN = 6
+
 local HEALTH_GROWTH = 0.05   -- +5% of base per clearance
 -- ...and never more than double, however long a spot is farmed. FROM GameConfig for the same reason
 -- Elite health is: the boss floor is priced against a creature at this cap, so a private copy here
@@ -3154,6 +3243,29 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 	local autoReach = math.max(clickReach + 4, 60) + tier.size
 
 	model:SetAttribute("Health", tier.health)
+	-- ===== WHAT THE CLIENT IS ALLOWED TO KNOW ABOUT THIS CREATURE (11.6) =====
+	--
+	-- Until now `Health` was the only attribute on a creature, and a client genuinely could not tell
+	-- a terrace Brute from a valley Brute -- same model name, same rig, same tier -- except by
+	-- comparing world Y against terrain it cannot see. So the lock could not be drawn at all.
+	--
+	-- These two are replicated state, not a decision: `MinRebirths` is the number the client compares
+	-- against its own save to grey the plate and drop the creature from auto-attack, and the server
+	-- re-derives the same answer from `raised` in `onHit` without ever reading them back. Publishing
+	-- them tells an exploiter only what the plate above the creature's head already says.
+	--
+	-- `PlateName` is the third, and it exists because of a bug the first version of the client paint
+	-- shipped with. That code read the plate's CURRENT text to remember the creature's name before
+	-- overwriting it with the lock line -- and under streaming the plate goes away and comes back, so
+	-- the remembering happened again on text that had already been decorated. The label grew a fresh
+	-- padlock every pass: measured at 34 of them on one Apex. Publishing the pristine name makes the
+	-- repaint idempotent by construction rather than by being careful.
+	local raisedLayer = GameConfig.GetRaisedLayer(raised)
+	if raisedLayer then
+		model:SetAttribute("Raised", raised)
+		model:SetAttribute("MinRebirths", raisedLayer.minRebirths)
+		model:SetAttribute("PlateName", tier.label)
+	end
 	model.Parent = creaturesFolder
 
 	-- gentle idle bob + sway so creatures read as alive instead of frozen statues.
@@ -3233,6 +3345,31 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 		if (hrp.Position - body.Position).Magnitude > (viaAuto and autoGate or clickGate) then return end
 		local data = PlayerDataService.Get(player)
 		if not data then return end
+
+		-- ===== THE REBIRTH GATE, AND THIS IS THE REAL ONE (11.6) =====
+		--
+		-- The client greys these creatures out and drops them from auto-attack, and none of that is
+		-- authoritative -- the click path arrives through a ClickDetector whose reach is enforced
+		-- client-side, so a hand-fired remote reaches this line with no UI involved at all. Same
+		-- split, and same reasoning, as the rebirth shrine: the paint is a courtesy, this is the
+		-- check. `CanFightRaised` is the one predicate both sides ask.
+		--
+		-- Refused BEFORE the hit cooldown is stamped, so a locked creature does not silently put the
+		-- player on cooldown against the one standing next to it.
+		if not GameConfig.CanFightRaised(data, raised) then
+			local layer = GameConfig.GetRaisedLayer(raised)
+			local last = lockNoticeAt[player.UserId]
+			-- one line every few seconds, not one per swing: auto-attack would otherwise fire this
+			-- at the tick rate for as long as the player stood there
+			if layer and (not last or os.clock() - last > LOCK_NOTICE_COOLDOWN) then
+				lockNoticeAt[player.UserId] = os.clock()
+				Remotes.Notify:FireClient(player, { kind = "error", message =
+					("%s is sealed -- it takes %d %s to touch it"):format(
+						tier.label, layer.minRebirths, layer.minRebirths == 1 and "rebirth" or "rebirths") })
+			end
+			return
+		end
+
 		local now = os.clock()
 		if lastHitByPlayer[player.UserId] and now - lastHitByPlayer[player.UserId] < tier.hitCooldown then
 			return
@@ -3325,9 +3462,21 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 		else
 			dead = true
 			if auraConnection then auraConnection:Disconnect() end
-			local amount = DNAService.GetClickAmount(data) * tier.dnaMult
+			-- ===== THE TERRACE MULTIPLIER (11.6) =====
+			--
+			-- The one place in the kill path where WHERE a creature stands changes what it pays. Note
+			-- what this is not: it is not the generation ramp, which deliberately pays nothing extra
+			-- for a creature you have killed before (see the header over `spawnCreature`). This pays
+			-- for a gate -- a climb, and now a rebirth that cost the player their entire run -- and a
+			-- gate you have to pay to pass is the opposite of an auto-increment.
+			local layer = GameConfig.GetRaisedLayer(raised)
+			local layerDna = layer and layer.dnaMult or 1
+			local layerXp = layer and layer.xpMult or 1
+
+			local amount = DNAService.GetClickAmount(data) * tier.dnaMult * layerDna
 			data.DNA += amount
-			data.XP = (data.XP or 0) + math.max(1, math.floor(tier.xp * GameConfig.GetXPMult(data)))
+			data.XP = (data.XP or 0)
+				+ math.max(1, math.floor(tier.xp * layerXp * GameConfig.GetXPMult(data)))
 
 			-- DIAMONDS, THE ONLY GAMEPLAY SOURCE THERE IS. Every other one is a time gate (daily,
 			-- playtime, Season Pass) or a Robux product whose id is still 0. Odds are per tier and
@@ -3352,6 +3501,44 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 			local shards = GameConfig.RollShardDrop(tierName, raised)
 			if shards > 0 then
 				data.EvolutionShards = (data.EvolutionShards or 0) + shards
+			end
+
+			-- ===== AND A PET, WHICH ONLY THE SHELVES DROP (11.6) =====
+			--
+			-- The second thing the terraces mint that nothing else does. Layer 1 pays one of the
+			-- zone's ordinary five; the layer-2 Apex pays the species that is in no egg -- see
+			-- GameConfig's ExclusivePetsByZone. `GrantPetFromDrop` owns the chance, the pool and the
+			-- cap, so this call site cannot disagree with the egg paths about any of them.
+			--
+			-- Rolled here beside the diamond and the shard, and for the same reason: it rides out on
+			-- the PushToClient a few lines below instead of costing its own replication.
+			--
+			-- A FULL BAG DROPS THE PET RATHER THAN THE KILL. The DNA, XP and shard above are already
+			-- credited by this point; unwinding them would be far worse than missing one drop, and
+			-- refusing the kill outright would mean a full inventory made a creature invincible. The
+			-- player is told, once, because a silent loss of the rarest item in the game is the kind
+			-- of thing that reads as a bug.
+			local droppedPet, dropFail = PetService.GrantPetFromDrop(data, zone.key, raised)
+			if droppedPet then
+				-- ITS OWN KIND, NOT `pet`. The first cut sent the hatch payload with `auto = true`,
+				-- on the reasoning that auto means "the quiet presentation". It does not: it means
+				-- "play the EGG sequence instead of the full-screen one", and HatchReveal duly
+				-- shakes an egg on a podium in the zone's shop -- several hundred studs from the
+				-- terrace where the kill happened, on an egg nobody bought. Measured live: a drop
+				-- produced no visible feedback whatsoever where the player was standing. `petDrop`
+				-- is drawn by MainUI on the player, like a fusion. See the note there.
+				Remotes.Notify:FireClient(player, {
+					kind = "petDrop",
+					key = droppedPet.key,
+					name = droppedPet.name,
+					emoji = droppedPet.emoji,
+					rarity = droppedPet.rarity,
+					exclusive = droppedPet.exclusive == true,
+				})
+				AnnounceService.PetObtained(player, droppedPet, "DROP")
+			elseif dropFail == "full" then
+				Remotes.Notify:FireClient(player, { kind = "error",
+					message = "A pet dropped and your inventory is full -- release or fuse one!" })
 			end
 
 			-- CHARACTERS COME FROM FIGHTING NOW. One per evolve could never keep up with the stage --
@@ -3451,7 +3638,23 @@ end
 -- shelf coordinates to read and copying the generator here would be a second copy to keep in step.
 -- Sampling the band with the same downward ray everything else uses costs a few hundred rays once
 -- at boot and cannot drift out of agreement with the terrain, because it IS the terrain.
-local RAISED_COUNT = { Elite = 4, Brute = 6 }
+-- ===== WHO STANDS WHERE, AND IN WHICH ORDER (11.6) =====
+--
+-- `raisedSpots` returns its shelves sorted DESCENDING BY ALTITUDE, so this list is also the
+-- allocation order: whatever is written first gets the highest ground there is. The Apexes are
+-- therefore first, which is what makes "the new higher points" of the rebirth ladder literally
+-- higher rather than just differently labelled -- you can see them from the valley floor and cannot
+-- reach them for three rebirths.
+--
+-- That does move the Elites down: they used to take shelves 1-4 and now take 5-8. The shelves are
+-- the same shelves and the Elites are still above every Brute; only the four best in each zone
+-- changed hands. 14 raised creatures a zone now against 10, and `raisedSpots` samples up to 24, so
+-- there is still slack for a zone whose terraces are awkward.
+local RAISED_LAYOUT = {
+	{ tier = "Apex",  count = 4, layer = 2 },
+	{ tier = "Elite", count = 4, layer = 1 },
+	{ tier = "Brute", count = 6, layer = 1 },
+}
 -- inside the band (TERRAIN_INNER is 415) and inside the spawn keep-out's own 575 edge limit
 local RAISED_IN, RAISED_OUT = 432, 566
 local FLAT_PROBE = { Vector2.new(13, 0), Vector2.new(-13, 0), Vector2.new(0, 13), Vector2.new(0, -13) }
@@ -3555,7 +3758,10 @@ function CreatureService.Init()
 	for _, zone in ipairs(GameConfig.Zones) do
 		-- Resolved here and not at module load, because it needs the terrain to be standing:
 		-- ZoneBuilder.Build() runs before CreatureService.Init (see ServerMain).
-		local raised = raisedSpots(zone)
+		-- `spots`, not `raised`: since 11.6 `raised` is a layer number carried on a creature, and
+		-- having the shelf list share the name three lines from the call that consumes it was one
+		-- rename away from a very quiet bug.
+		local spots = raisedSpots(zone)
 		local taken = 0
 
 		for _, tierName in ipairs({ "Swarmer", "Critter", "Brute", "Elite" }) do
@@ -3568,20 +3774,23 @@ function CreatureService.Init()
 			end
 		end
 
-		-- ...and then the cliffs, Elites first so that they get the highest ground there is.
-		for _, tierName in ipairs({ "Elite", "Brute" }) do
-			for _ = 1, RAISED_COUNT[tierName] do
+		-- ...and then the cliffs, highest shelf first -- see RAISED_LAYOUT for the order and why the
+		-- Apexes are at the top of it.
+		for _, band in ipairs(RAISED_LAYOUT) do
+			local tierName = band.tier
+			for _ = 1, band.count do
 				taken += 1
-				local spot = raised[taken]
+				local spot = spots[taken]
 				-- A zone whose shelves are all too narrow or too full of boulders simply gets fewer
 				-- creatures up high. Backfilling onto the valley floor is the wrong answer: those
 				-- points are already claimed, and two Elites in one spot is worse than one missing.
 				if not spot then break end
-				-- ...and the `true` is what makes this creature able to drop an Evolution Shard. It is
-				-- the only difference between the two spawn loops in this function.
+				-- ...and `band.layer` is what makes this creature able to drop an Evolution Shard, pay
+				-- its multiplier and refuse a player who has not rebirthed enough. It is the only
+				-- difference between the two spawn loops in this function.
 				spawnCreature(
 					Vector3.new(zone.offset + spot.rel, spot.y + TIERS[tierName].size * 0.56, spot.z),
-					tierName, zone, true)
+					tierName, zone, band.layer)
 			end
 		end
 	end

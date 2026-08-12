@@ -894,6 +894,23 @@ local AUTO_INTERVAL = 0.34
 -- from its centre is barely clear of its own body.
 local AUTO_REACH = { Creatures = 60, Bosses = 70 }
 
+-- ===== THE REBIRTH LOCK, AS SEEN FROM HERE (11.6) =====
+--
+-- The terrace creatures are gated on rebirth count now. NOTHING IN THIS FILE IS AUTHORITATIVE --
+-- CreatureService re-derives the same answer from the creature's own spawn layer on every blow, and
+-- that check is the real one. This exists so the lock is legible and so auto-attack does not spend
+-- the player's swing on something the server is going to refuse. Same split as RebirthShrineClient,
+-- whose header states it at length.
+--
+-- The client can answer this at all only because `spawnCreature` publishes `MinRebirths` as a
+-- replicated attribute; before 11.6 a terrace Brute and a valley Brute were indistinguishable here.
+local myRebirths = 0
+
+local function creatureLocked(model)
+	local need = model:GetAttribute("MinRebirths")
+	return need ~= nil and myRebirths < need
+end
+
 local function autoEnabled()
 	if player:GetAttribute("AutoAttack") ~= true then return false end
 	-- A CORPSE DOES NOT FIGHT. The server refuses the blow now whatever the client sends, but a
@@ -943,8 +960,13 @@ local function nearestTarget()
 					--   * anything in this folder that is not a creature. deathBurst parents its
 					--     confetti host and ground shockwave straight into workspace.Creatures, and
 					--     those carry no Health at all.
+					-- ...and a creature this save may not touch is not a target either (11.6). The
+					-- server would refuse every one of these blows, so without this the auto-attack
+					-- would lock onto a sealed Apex standing three studs away and the player would
+					-- watch their own swings do nothing -- which is exactly the corpse bug above,
+					-- wearing a different hat.
 					local hp = model:GetAttribute("Health")
-					if hp and hp > 0 then
+					if hp and hp > 0 and not creatureLocked(model) then
 						local part = model.PrimaryPart or model:FindFirstChild("Body")
 						if part then
 							local d = (part.Position - at).Magnitude
@@ -1345,3 +1367,113 @@ CombatFx.OnClientEvent:Connect(function(fx)
 		cameraKick(kill and 1.5 or 0.7)
 	end
 end)
+
+-- ===== DRAWING THE REBIRTH LOCK ON THE CREATURE ITSELF (11.6) =====
+--
+-- A creature the player may not fight has to LOOK unfightable, or the only feedback is a swing that
+-- does nothing -- and "I hit it and nothing happened" is the exact complaint this whole file was
+-- written to answer. So the plate above a sealed creature says what it wants instead of how much
+-- health it has, and the body goes to stone.
+--
+-- Modelled on RebirthShrineClient, including the parts that look like details and are not:
+--
+--   * THE ORIGINAL LOOK IS CACHED BEFORE THE FIRST REPAINT, per part, so unlocking restores what the
+--     server actually built rather than a guess. Two greys chosen by luminance rather than one flat
+--     grey, or the silhouette disappears and every zone's creatures become the same blob.
+--   * POLLED, NOT EVENTED. With StreamingEnabled a creature model replicates before its parts do, so
+--     a one-shot pass at spawn paints a shell. Re-running over the handful of models a client
+--     actually holds is cheap and self-healing, and it is also what repaints a respawn.
+--   * The state is recomputed from `myRebirths` every pass rather than remembered, so the moment a
+--     rebirth lands every creature in sight unlocks itself with no bookkeeping.
+local LOCK_STONE = Color3.fromRGB(120, 122, 132)
+local LOCK_STONE_DARK = Color3.fromRGB(74, 76, 86)
+
+-- ===== NO CACHE. THE ORIGINAL LIVES ON THE THING ITSELF =====
+--
+-- The first version of this kept a weak table of "what did this part look like before I greyed it".
+-- That is what RebirthShrineClient does and it is correct THERE, because a shrine is four models
+-- that never move. A creature is not: it stands at the edge of the streaming radius, so its parts
+-- leave and come back, the cache misses, and the next pass records the ALREADY PAINTED look as the
+-- original. Measured on one Apex: a plate reading its own lock line 34 times over, and a body that
+-- would have restored to grey rather than to its own colour on unlock.
+--
+-- So nothing is remembered off to the side. The pristine name is published by the server
+-- (`PlateName`), and each part carries its own original colour in an attribute written the first
+-- time it is painted. Both survive exactly as long as the thing they describe -- a part that streams
+-- out and back is a NEW part, replicated fresh from the server, with its true colour and no
+-- attribute, which is precisely the right state to be in. **A repaint is idempotent by
+-- construction, and "the cache went stale" stops being a failure mode that exists.**
+--
+-- THE GUARD IS PER PART, NOT PER MODEL, and that is the second thing streaming decides. A model-wide
+-- "already painted" flag would skip the whole creature -- including the parts that streamed back in
+-- pristine while it was skipped -- and leave a half-grey Apex standing there. Asking each part
+-- whether IT has been done is the same question at the right granularity, and it costs one attribute
+-- read on a few hundred parts a second.
+local function paintLock(model, locked)
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			if locked then
+				if d:GetAttribute("LockOrigColor") == nil then
+					d:SetAttribute("LockOrigColor", d.Color)
+					d:SetAttribute("LockOrigMaterial", d.Material.Name)
+					-- two greys by luminance, not one flat grey: a single tone erases the silhouette
+					-- and every zone's creatures become the same blob. Same rule as the shrine.
+					local lum = d.Color.R * 0.3 + d.Color.G * 0.6 + d.Color.B * 0.1
+					d.Color = lum > 0.45 and LOCK_STONE or LOCK_STONE_DARK
+					d.Material = Enum.Material.Slate
+				end
+			else
+				local c = d:GetAttribute("LockOrigColor")
+				if c then
+					d.Color = c
+					d.Material = Enum.Material[d:GetAttribute("LockOrigMaterial") or "Plastic"]
+					d:SetAttribute("LockOrigColor", nil)
+					d:SetAttribute("LockOrigMaterial", nil)
+				end
+			end
+		end
+	end
+
+	local plate = model:FindFirstChild("CreaturePlate", true)
+	local label = plate and plate:FindFirstChild("TextLabel")
+	local pristine = model:GetAttribute("PlateName")
+	if label and pristine then
+		if locked then
+			local need = model:GetAttribute("MinRebirths") or 0
+			label.Text = ("\u{1F512} %s \u{2014} %d %s"):format(
+				pristine, need, need == 1 and "rebirth" or "rebirths")
+		else
+			label.Text = pristine
+		end
+	end
+end
+
+task.spawn(function()
+	while true do
+		local folder = workspace:FindFirstChild("Creatures")
+		if folder then
+			for _, model in ipairs(folder:GetChildren()) do
+				-- `MinRebirths` is only ever set on a raised creature, so this skips the valley floor,
+				-- the death-burst parts and anything else living in this folder without a second test
+				if model:IsA("Model") and model:GetAttribute("MinRebirths") then
+					paintLock(model, creatureLocked(model))
+				end
+			end
+		end
+		task.wait(1)
+	end
+end)
+
+-- The one thing this file needs off the save. Cached from the payload the economy is already
+-- pushing rather than asked for on its own, and the repaint above notices on its next pass.
+do
+	local dataRemote = RS:WaitForChild("Remotes", 30)
+	dataRemote = dataRemote and dataRemote:WaitForChild("DataUpdate", 30)
+	if dataRemote then
+		dataRemote.OnClientEvent:Connect(function(data)
+			if type(data) == "table" then
+				myRebirths = data.Rebirths or 0
+			end
+		end)
+	end
+end
