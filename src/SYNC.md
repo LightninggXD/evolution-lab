@@ -52,22 +52,50 @@ checksum (`sum = (sum + byte(i) * i) % 2147483647`), and the place's total
 
 Studio reports **44** `LuaSourceContainer`s; the extraction wrote **44** files.
 
-`tools/luastruct.py` passes on all 44. `tools/luanames.py` reports **six** names across five files,
-all checked and all false positives or dead code. **This is the baseline — six, not zero.** An
-agent that sees six here has regressed nothing; seven means something new.
+`tools/luastruct.py` passes on all 44.
 
-- `MainUI.client.lua:730` `animatePanel` — a forward-declared `local` assigned by
-  `function animatePanel(...)` inside a `do` block. That pattern is deliberate (it keeps the
-  file under Luau's 200-local register cap) and the linter does not pair the two.
-- `EvolutionVisuals.lua:305` `waited`, `LoadingScreen.client.lua:208,231` `modules` / `bar` — the
-  same blind spot: a `local` declared inside a `do` block or before a `repeat`, which the linter's
-  binding collector does not associate with its later use.
-- `LightConfig.server.lua:38`, `Type.lua:23` — `Game`, the deprecated Roblox global, in
-  third-party LightConfig code parked in `ServerStorage` that sets nothing.
-- `ZoneBuilder_pre_gate_axis.lua:110,112` — a `_PushBackup` snapshot, dead code.
+## The `luanames.py` baseline — **re-measured 2026-08-12, and it is 13, not 6**
 
-(An earlier note in this file said four. That count came from a `tail`-truncated run and was
-wrong; the two extra were always there.)
+**This section was badly stale and was actively misleading**, which matters because it is written as
+a tripwire: it used to say "six across five files… an agent that sees six here has regressed
+nothing; seven means something new". A cold agent running the linter today sees **13 names across
+10 files** and, believing this note, would conclude it had broken seven things. Two agents reached
+that conclusion on 2026-08-12 before the count was checked. The file grew from 44 scripts to 56
+between those two measurements; the note did not.
+
+**The baseline is 13 names across 10 files.** Every one is checked and is a false positive or dead
+code. More than 13 means something new; the list below says which are already known.
+
+| File | Line | Name |
+|---|---|---|
+| `MainUI.client.lua` | 804 | `animatePanel` |
+| `MainUI.client.lua` | 3364 | `stop` |
+| `LoadingScreen.client.lua` | 208, 231 | `modules`, `bar` |
+| `SoundLibrary.lua` | 334 | `flatCache` |
+| `StatsService.lua` | 70 | `publish` |
+| `FirstJoin.client.lua` | 333 | `runGuide` |
+| `HatchReveal.client.lua` | 82 | `bestDist` |
+| `RarityBeam.client.lua` | 174 | `toastSeq` |
+| `Type.lua` | 23 | `Game` |
+| `LightConfig.server.lua` | 38 | `Game` |
+| `ZoneBuilder_pre_gate_axis.lua` | 110, 112 | `scatterPoint`, `makeSign` |
+
+They are three causes, not eleven:
+
+- **The linter's binding blind spot** — a `local` declared inside a `do` block, before a `repeat`,
+  or forward-declared and assigned by a later `function name(...)`. That covers `animatePanel`,
+  `stop`, `modules`, `bar`, `flatCache`, `publish`, `runGuide`, `bestDist` and `toastSeq`.
+  `animatePanel`'s pattern is deliberate: it is what keeps MainUI under Luau's 200-local cap.
+- **`Game`, the deprecated Roblox global**, in the third-party LightConfig code parked in
+  `ServerStorage`, which sets nothing.
+- **`_PushBackup` snapshots**, which are dead code by definition — never edit them and never read
+  them for current behaviour.
+
+`EvolutionVisuals.lua:305` `waited` was on the old list and is **no longer reported**; it was fixed
+at some point and nobody updated this file, which is the same failure in the other direction.
+
+**If you change this number, say so here in the same commit.** A stale tripwire is worse than none:
+it converts every real regression into "probably just the baseline".
 
 ## What is in here
 
