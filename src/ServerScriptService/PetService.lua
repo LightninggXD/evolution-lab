@@ -665,41 +665,15 @@ end
 -- twenty zone models every tick. Rebuilt from scratch on each wiring pass, like the connections are.
 local autoEggPoints = {}
 
--- What ten of this egg costs, for the x10 prompt's own label. Nil-safe because the prompt is built
--- from an attribute and an egg key that no longer resolves must not stop the kiosk wiring.
-local function eggDefCost(key)
-	local def = eggByKey(key)
-	return def and def.cost or 0
-end
-
--- The single prompt prints a raw "500 DNA", which is fine at 500 and unreadable at ten times a
--- late-zone egg (90,000,000,000,000,000). Same shortening the HUD and the creature plates use.
-local DNA_SUFFIX = { "", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp" }
-local function shortDNA(n)
-	local mag = 1
-	while n >= 1000 and mag < #DNA_SUFFIX do
-		n /= 1000
-		mag += 1
-	end
-	if mag == 1 then
-		return ("%d DNA"):format(n)
-	end
-	return ("%.1f%s DNA"):format(n, DNA_SUFFIX[mag])
-end
-
--- Half the gap between the two prompts an egg carries, in pixels of the default prompt UI. Each one
--- is pushed this far from the shell's centre in the opposite direction, so the number is HALF the
--- separation, not the separation -- and 36 is therefore the floor, not the target.
+-- ===== THREE HELPERS WENT WITH THE x10 PROMPT (11.18) =====
 --
--- MEASURED, not guessed. The default UI turns UIOffset into `SizeOffset = UIOffset / Size`, and the
--- card it builds for these prompts is 72 px tall (read off PlayerGui.ProximityPrompts in a live
--- session). So separation is 2 * this, and the first value tried -- 34 -- left the two cards
--- overlapping by 4 px, which looks exactly like the bug it was meant to fix. 44 leaves a 16 px gap.
---
--- Distance does not enter into it. A BillboardGui's offset size shrinks as the camera pulls away,
--- but SizeOffset is a FRACTION of that same size, so the two shrink together and the gap stays
--- proportional at every range.
-local PROMPT_STACK = 44
+-- `eggDefCost`, `shortDNA`/`DNA_SUFFIX` and `PROMPT_STACK` existed for exactly one caller between
+-- them: the cloned "Hatch x10" prompt, which needed a price on its label and a measured offset so
+-- the pair did not draw on top of each other. There is one prompt on a podium now and it says
+-- "View Eggs", so all three are deleted rather than left to read as live configuration -- the
+-- PROMPT_STACK block in particular was thirteen lines of measurement notes for a number nothing
+-- multiplies any more. The egg's real price is drawn in the panel, where the cost, the odds and the
+-- two hatch buttons are already together.
 
 -- A ProximityPrompt hangs off either a part or an attachment on one, and which one is ZoneBuilder's
 -- business, not this file's.
@@ -745,56 +719,55 @@ function PetService.WireKiosks()
 					if eggKey then
 						if not prompt:GetAttribute("Wired") then
 							prompt:SetAttribute("Wired", true)
-							prompt.Triggered:Connect(function(player)
-								PetService.HandleBuyEgg(player, eggKey)
-							end)
 
-							-- ===== THE x10 PROMPT IS BUILT HERE, NOT IN ZoneBuilder =====
+							-- ===== THE PROMPT OPENS THE SCREEN; IT NO LONGER BUYS (11.18) =====
 							--
-							-- ZoneBuilder is 8,000 lines behind a BUILD_VERSION guard that regenerates all
-							-- twenty zones when it moves, and this needs neither the world rebuilt nor a
-							-- version bump -- it is a second prompt on a shell that already exists. Same
-							-- precedent as LeaderboardService building its own signs.
+							-- "The egg screen belongs on the egg." Before this, a podium carried TWO
+							-- prompts that between them bought eggs -- and the panel that shows the odds,
+							-- the cost, the tier picker, Auto Hatch and its own HATCH / HATCH x10 pair
+							-- was reachable only from a HUD tile in the corner of the screen. So the
+							-- player who walked to the stall got the least informative half of the
+							-- feature, and the odds for the egg in front of them lived somewhere else.
 							--
-							-- Cloned from the real prompt so reach, line-of-sight and hold all match the one
-							-- beside it by construction; a hand-built second prompt would drift the day
-							-- PROMPT_REACH changed. `Wired` is stripped from the copy so a clone can never
-							-- be mistaken for an already-wired original by a later pass.
+							-- One prompt now, and every purchase happens in the panel. That is not a
+							-- reduction: the panel's two buttons are the same two remotes these prompts
+							-- fired (`BuyEgg` and `BuyEggBulk`, both gated on `nearestEggZone()`), and
+							-- they are drawn beside the odds table for the egg being bought.
 							--
-							-- ===== AND THE PAIR HAS TO BE PULLED APART =====
+							-- SERVER-SIDE, THE PURCHASE PATH IS UNTOUCHED. HandleBuyEgg and
+							-- HandleBuyEggBulk keep every check they had, and Auto Hatch still drives
+							-- HandleBuyEgg through `autoEggPoints` below -- which is built from this same
+							-- `EggKey` attribute and is why that attribute stays exactly as it was.
 							--
-							-- Two prompts on ONE part draw at ONE point. Everything that makes the clone
-							-- faithful -- same parent, same anchor, same default UIOffset of (0,0) -- also
-							-- lands it exactly on top of the original, so "Buy Egg" and "Hatch x10" render
-							-- as one smudged card and only the E key is legible. Neither prompt is broken;
-							-- they are simply invisible to each other. That is the overlap in the shop.
-							--
-							-- The single moves up by PROMPT_STACK and the bulk down by the same, so the
-							-- pair stays centred on the point the lone prompt used to occupy -- the podium
-							-- and the egg's billboard were both composed around it.
-							--
-							-- Symmetric on purpose. Which way UIOffset's Y points is the default prompt
-							-- UI's business, not ours, and a symmetric split cannot overlap whichever way
-							-- it resolves: the worst a flipped sign costs is x10 reading above Buy Egg
-							-- instead of below.
-							prompt.UIOffset = Vector2.new(0, PROMPT_STACK)
+							-- `ShopPanel` is the attribute MainUI's one ProximityPromptService handler
+							-- already dispatches on (the fusion lab and the upgrade counters arrive the
+							-- same way), so this needs no new remote and no new client path.
+							prompt.ActionText = "View Eggs"
+							prompt.ObjectText = "\u{1F95A} Pet Shop"
+							prompt:SetAttribute("ShopPanel", "eggs")
+							-- back to centre: UIOffset existed only to pull the pair apart, and there is
+							-- no pair any more. Left at 44 it would float the lone card off the podium
+							-- the egg's billboard was composed around.
+							prompt.UIOffset = Vector2.new(0, 0)
+							prompt.HoldDuration = 0
 
-							local bulk = prompt:Clone()
-							bulk:SetAttribute("Wired", nil)
-							bulk.Name = "BulkEggPrompt"
-							bulk.ActionText = "Hatch x10"
-							bulk.ObjectText = shortDNA(eggDefCost(eggKey) * 10)
-							bulk.KeyboardKeyCode = Enum.KeyCode.F
-							bulk.GamepadKeyCode = Enum.KeyCode.ButtonY
-							-- a touch longer than the single: ten eggs' worth of DNA is not a press to make
-							-- by brushing past the podium
-							bulk.HoldDuration = 0.6
-							bulk.UIOffset = Vector2.new(0, -PROMPT_STACK)
-							bulk:SetAttribute("BulkPrompt", true)
-							bulk.Parent = prompt.Parent
-							bulk.Triggered:Connect(function(player)
-								PetService.HandleBuyEggBulk(player, eggKey)
-							end)
+							-- ===== AND THE x10 PROMPT IS GONE WITH IT (11.18) =====
+							--
+							-- It used to be cloned here, offset by PROMPT_STACK so the pair did not draw
+							-- on top of each other. Both of those problems disappear with the pair: HATCH
+							-- x10 is a button in the panel, beside HATCH, in the row 11.3 rebuilt so the
+							-- two stop overlapping -- which is the same overlap, solved once, in the place
+							-- that can also show what ten eggs cost and what they are likely to contain.
+							--
+							-- DESTROYED RATHER THAN LEFT ALONE. A live server builds its world fresh, so
+							-- normally there is nothing here to remove; a Studio session that has already
+							-- run a server, or any future path that calls WireKiosks twice, would
+							-- otherwise leave an orphaned "Hatch x10" prompt still wired to a purchase.
+							for _, sibling in ipairs(prompt.Parent:GetChildren()) do
+								if sibling:IsA("ProximityPrompt") and sibling:GetAttribute("BulkPrompt") then
+									sibling:Destroy()
+								end
+							end
 						end
 
 						local anchor = promptAnchor(prompt)

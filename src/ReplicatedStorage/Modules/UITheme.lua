@@ -642,6 +642,44 @@ function UITheme.HasIcon(emoji)
 	return IconLibrary.Has(emoji)
 end
 
+-- ============================================================================
+-- PUBLIC: NotifyRank - how much a toast is worth keeping (11.15)
+-- ============================================================================
+--
+-- The toast stack holds four. Everything past that is destroyed, and until now the victim was
+-- simply the OLDEST -- which during a fight means the newest four are all `crit` and `diamond`,
+-- because those fire several times a second while a NEW ZONE UNLOCKED fires once in an hour. The
+-- one message a player cannot afford to miss was reliably the one thrown away.
+--
+-- Ranked by WHAT IS LOST IF IT SCROLLS PAST, not by how exciting the event is:
+--
+--   3  An answer to something the player just pressed. A refusal is the only message whose absence
+--      is itself a bug report -- "I clicked and nothing happened" is what an evicted error looks
+--      like from the outside. Never dropped.
+--   2  One-off progress, and anything that was paid for. A zone unlock, an evolve, a rebirth, a
+--      Robux purchase, a daily claim: none of these will be said again.
+--   1  The default, and what an unlisted kind gets. Repeatable but deliberate -- an upgrade
+--      bought, a potion drunk.
+--   0  Combat chatter. `crit` and `diamond` are the two kinds that fire on a timer rather than on
+--      a decision, and they are the reason this table exists at all.
+--
+-- Keyed by notify `kind`, the same key `SoundLibrary.NOTIFY_SOUND` uses, so a new kind is a row in
+-- two tables rather than an edit inside MainUI's twenty-branch handler. It lives here rather than
+-- there for the register reason every shared table in this file cites.
+local NOTIFY_RANK = {
+	error = 3,
+	zone = 2,          evolve = 2,          character = 2,       rebirth = 2,
+	bossDefeated = 2,  robuxPurchase = 2,   dailyReward = 2,     playtimeGift = 2,
+	offline = 2,       reward = 2,          questComplete = 2,   stageMastery = 2,
+	fuse = 2,          spin = 2,            bossRevive = 2,
+	upgrade = 1,       diamondUpgrade = 1,  potion = 1,
+	crit = 0,          diamond = 0,
+}
+
+function UITheme.NotifyRank(kind)
+	return NOTIFY_RANK[kind] or 1
+end
+
 local function buildLabelChild(inst, opts, base, text, maxText)
 	local label = Instance.new("TextLabel")
 	label.Name = "Label"

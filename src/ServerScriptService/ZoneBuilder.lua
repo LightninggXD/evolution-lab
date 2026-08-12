@@ -40,7 +40,12 @@ local ZoneBuilder = {}
 -- forces -- without it Build() skips every zone that already exists and none of it appears.
 -- 127 (11.7): the fusion pad's sign prints GameConfig.FuseRequirement, which went 4 -> 3. A sign is
 -- baked at build time, so without this bump the world would keep telling players to bring four.
-local BUILD_VERSION = 127
+-- 128 (11.21-11.27, the world-geometry pass): the terrace band now stops at the walls' inner faces
+-- instead of two studs inside them, the boundary ramparts no longer stand inside the terraces, the
+-- buttresses are scenery rather than collision, the waterfalls reserve their corridor before any
+-- prop is placed, the pool's kerb has its own ground, and 37 renamed litter/mound props are solid
+-- again. All of it is geometry, so none of it appears without this bump.
+local BUILD_VERSION = 128
 
 -- The Colosseum carries its own stamp. Bumping BUILD_VERSION drops all 21 zones and rebuilds
 -- ~60,000 parts, which takes long enough that Studio regularly loses the connection partway (see
@@ -80,6 +85,21 @@ local PLATFORM_WIDTH = 1250
 local WALL_HEIGHT = 180
 local WALL_THICK = 4
 local PORTAL_GAP = 100
+
+-- ===== WHERE THE TERRACE BAND STARTS AND STOPS (11.23) =====
+-- These two used to be declared down beside TERRAIN_PROFILE, ~3,300 lines below, which is where
+-- the long note explaining them still lives. They are up here now because the WALLS have to know
+-- them: `addRockRampart` runs 1,500 lines above the terrain section and it is the one thing in the
+-- file that stands in the same ground the terraces occupy, so it cannot be written without them.
+-- Read the note over TERRAIN_PROFILE for what the band is FOR; these are just the two numbers.
+--
+-- 623, NOT 625. The X wall's sealing slab is WALL_THICK thick centred on cx +/- 625, i.e. it
+-- occupies 623..627 -- so a terrace slab that ran to 625 put two studs of solid ground inside a
+-- solid wall, 1,032 times across the world. The band now stops exactly at the wall's inner face.
+local TERRAIN_INNER = 415        -- where the valley floor ends and the first cliff begins
+local TERRAIN_OUTER = 623        -- the inner face of the boundary wall
+-- ...and the same two studs at each end of the depth, for the Z walls.
+local TERRAIN_DEPTH = PLATFORM_DEPTH - WALL_THICK
 
 -- How close you have to stand for any shop prompt in the world to offer itself. A player's body
 -- scales from 1x at Cell to 9x at The Absolute, and a ProximityPrompt measures to the character's
@@ -266,7 +286,58 @@ local SOLID_PROPS = {
 	-- "a player who walks through a crate stack is being told the world is a painting" -- the note
 	-- over CrateStack, which was solid while the loose crates beside it were not
 	StallCrate = true,
+
+	-- ===== THE SAME TWO OBJECTS UNDER TWENTY NAMES (11.21) =====
+	--
+	-- `GroundRock` and `Mound` above are not two props. They are the DEFAULT names of
+	-- `addGroundLitter` and `addMounds` -- and eighteen of the twenty litter configs and nineteen of
+	-- the twenty mound configs pass a `name` of their own, because a moon rock should not be called
+	-- GroundRock in the explorer. Both builders write `CanCollide = false` and rely entirely on this
+	-- table to put it back, so the two zones that kept the default were solid and the other eighteen
+	-- were not. Measured on a fresh build: 621 litter parts and 169 mounds, 0 of them colliding.
+	--
+	-- The names are listed rather than pattern-matched on purpose. A rule like "anything ending in
+	-- Rock" would have swept up scenery nobody should collide with, and the warn at the end of
+	-- Build() is what stops this list rotting again -- see SOLID_SEEN.
+	Shell = true, LavaRock = true, MoonRock = true, MarsRock = true, Meteorite = true,
+	Debris = true, RealityChip = true, Cinder = true, Fragment = true, Quanta = true,
+	Cog = true, SlagChunk = true, Pebble = true, GlassShard = true, VoidGrit = true,
+	GildedStone = true, CollapsedGrit = true, AbsoluteChip = true,
+	Sandbar = true, AshMound = true, RegolithMound = true, DustRidge = true,
+	StardustDrift = true, CollapsedRidge = true, VoidMound = true, DustBank = true,
+	WarpSwell = true, FieldSwell = true, SandDrift = true, BlastBerm = true,
+	CloudBank = true, PolishedSwell = true, AshSwell = true, DrawnSwell = true, WhiteSwell = true,
 }
+
+-- Names in SOLID_PROPS that a build is NOT expected to produce, so the audit below stays worth
+-- reading. Both of these belong to `addLamp`'s primitive fallback, which every zone now skips
+-- because a `Vill_Lamp` mesh is filed -- they are correct entries guarding a branch that is still
+-- reachable if that mesh is ever missing, not rot. Anything else silent is rot.
+local SOLID_PROPS_OPTIONAL = { LampPost = true, LampFoot = true }
+-- Every SOLID_PROPS name this build actually created. Cleared at the top of Build().
+local SOLID_SEEN = {}
+
+-- ===== WHY THIS AUDIT EXISTS (11.21) =====
+-- The list above is a set of NAMES, and names are the one thing in this file that a per-biome
+-- config can change without anything noticing. Eighteen zones renamed their ground litter and
+-- nineteen renamed their mounds, and the whole solidity rule silently stopped applying to them for
+-- as long as it took somebody to walk through a boulder and measure it. A name that never appears
+-- is either a typo or a prop that has been renamed out from under this table; either way it is a
+-- rule that is not doing anything, and it should say so once per build rather than never.
+local function auditSolidProps()
+	local unseen = {}
+	for name in pairs(SOLID_PROPS) do
+		if not SOLID_SEEN[name] and not SOLID_PROPS_OPTIONAL[name] then
+			unseen[#unseen + 1] = name
+		end
+	end
+	if #unseen > 0 then
+		table.sort(unseen)
+		warn(("[ZoneBuilder] SOLID_PROPS has %d name(s) nothing in this build ever created -- "
+			.. "either the prop was renamed and is now walk-through, or the entry is dead: %s")
+			:format(#unseen, table.concat(unseen, ", ")))
+	end
+end
 
 local function shouldCastShadow(p)
 	if p.Transparency >= 0.5 or p.Material == Enum.Material.Neon then
@@ -305,6 +376,7 @@ local function newPart(props)
 	-- this and the list above has to be explicit.
 	if SOLID_PROPS[p.Name] then
 		p.CanCollide = true
+		SOLID_SEEN[p.Name] = true
 	end
 	return p
 end
@@ -331,6 +403,12 @@ end
 -- function is *written* rather than where it runs -- without these names in scope up here every
 -- call would silently resolve to a nil global and blow up at world-build time.
 local addLight, scatterPoint
+
+-- Forward-declared for the same reason, and needed by the WALLS. `terrainCrestY(zoneKey)` is how
+-- high the terrace band stands where it meets the boundary -- the outermost tier's tread, which at
+-- x = TERRAIN_OUTER is simply `rise * tiers` whatever the segment edges did. It is defined beside
+-- TERRAIN_PROFILE, which is the table it reads, but `addRockRampart` is written far above that.
+local terrainCrestY
 
 -- Same reason, for the soft-prop vocabulary (knobs, scallops, bunting, planters). They are written
 -- down in the village section beside the structures that use them most, but addZoneProps -- which
@@ -957,7 +1035,33 @@ end
 -- One course of overlapping boulders standing against a boundary wall. `axis` is the axis the wall
 -- runs along, `fixed` the wall's coordinate on the other axis, `inward` which way the zone is.
 -- `skipHalf` keeps a stretch centred on 0 clear so a rampart can never bury a portal gateway.
-local function addRockRampart(model, zone, axis, fixed, center, halfLen, inward, skipHalf)
+--
+-- ===== THE RAMPART AND THE TERRACES STAND IN THE SAME GROUND (11.23) =====
+--
+-- This was written when a zone was a flat slab and the wall was the only relief at the rim. The
+-- terrace band now occupies x = TERRAIN_INNER..TERRAIN_OUTER on BOTH sides, i.e. exactly where the
+-- X wall's rampart stands and across the outer third of each Z wall -- and both are solid. Measured
+-- before this note existed: 5,129 CliffBlock-vs-TerraceTop intersections across the world, 1,308 of
+-- them blocks whose CENTRE was inside a terrace slab, i.e. entirely invisible rock rendering forever
+-- inside a hill.
+--
+-- Two options, one per wall, and which one applies falls out of the geometry rather than out of a
+-- flag:
+--
+--   `baseY`      the ground here is not y = 0 but a shelf. Every block STANDS ON that shelf with
+--                its top left exactly where it was, and any block that would be swallowed whole is
+--                not built at all. That is the X wall, where the crest height is the same at every
+--                z (the outermost tread reaches the wall, so it is always `rise * tiers`).
+--                Nothing visible changes from the valley -- what is dropped is what was already
+--                buried -- and what survives now sits ON the top shelf instead of growing through it.
+--
+--   `stopAt`     past this distance from `center` along the wall, do not build. That is the Z wall,
+--                whose course sweeps straight through the terrace belt at both ends at every
+--                elevation the band has; there is no single shelf height to stand on out there, and
+--                the terraced hillside is already the boundary's rock. The sealing slab behind is
+--                untouched, so nothing opens up.
+local function addRockRampart(model, zone, axis, fixed, center, halfLen, inward, skipHalf, baseY, stopAt)
+	baseY = baseY or 0
 	-- The generated rock face for this biome, if one has been filed. Looked up ONCE per rampart
 	-- rather than per block -- this loop runs ~34 times per wall, four walls per zone.
 	-- Absent means the zone keeps the plain blocks exactly as before, so the rollout is safe at
@@ -978,16 +1082,30 @@ local function addRockRampart(model, zone, axis, fixed, center, halfLen, inward,
 		local h = spire and math.random(150, 205) or math.random(52, 116)
 		local w = step + math.random(8, 20)
 		local d = spire and math.random(22, 34) or math.random(18, 32)
+		-- OUT OF THE TERRACE BELT ENTIRELY, tested on the block's own footprint and not on its centre
+		-- -- a course block is 50-62 studs long, so a centre that clears the band by 20 still puts a
+		-- third of the block inside it.
+		if stopAt and math.abs(t - center) + w / 2 > stopAt then continue end
 		local off = inward * (d / 2 - 1)
-		local size = (axis == "z") and Vector3.new(d, h, w) or Vector3.new(w, h, d)
+		-- The block keeps its TOP where it was and gives up whatever is below `baseY`. `h` still
+		-- decides the silhouette; `bh` is what actually gets built.
+		local top = h - 4
+		local bh = top - baseY
+		-- 18 studs is about the point at which a block still reads as rock rather than as a kerb; at
+		-- the crest of a four-tier zone that leaves the spires, which are the pieces whose whole job
+		-- is to break the line of the wall against the sky.
+		if bh < 18 then continue end
+		local size = (axis == "z") and Vector3.new(d, bh, w) or Vector3.new(w, bh, d)
 		local capSize = (axis == "z") and Vector3.new(d + 4, 7, w + 5) or Vector3.new(w + 5, 7, d + 4)
 		local px = (axis == "z") and (fixed + off) or t
 		local pz = (axis == "z") and t or (fixed + off)
 		local yaw = math.random(-13, 13)
 		local orient = Vector3.new(math.random(-3, 3), yaw, math.random(-3, 3))
-		newPart({ Name = "CliffBlock", Size = size, Orientation = orient, Position = Vector3.new(px, h / 2 - 4, pz), Color = tones[math.random(1, 3)], Material = mat, Parent = model })
-		-- a paler cap so the top edge catches light instead of dying into the sky
-		newPart({ Name = "CliffCap", Size = capSize, Orientation = orient, Position = Vector3.new(px, h - 7, pz), Color = tones[3], Material = mat, CanCollide = false, Parent = model })
+		newPart({ Name = "CliffBlock", Size = size, Orientation = orient, Position = Vector3.new(px, baseY + bh / 2, pz), Color = tones[math.random(1, 3)], Material = mat, Parent = model })
+		-- a paler cap so the top edge catches light instead of dying into the sky. SOLID, like the
+		-- block it caps (11.22): it is wider than the block on every side, so it is the thing anything
+		-- coming down from above actually meets first, and it used to be walked straight through.
+		newPart({ Name = "CliffCap", Size = capSize, Orientation = orient, Position = Vector3.new(px, top - 3, pz), Color = tones[3], Material = mat, Parent = model })
 
 		-- ===== ROCK FACE CLADDING =====
 		--
@@ -1010,7 +1128,9 @@ local function addRockRampart(model, zone, axis, fixed, center, halfLen, inward,
 			-- sized on HEIGHT and capped on WIDTH, the same rule the props and the Titan use: these are
 			-- authored ~26 wide by 30 tall, and height-matching a 116-stud block alone would throw a
 			-- 100-stud-wide slab sideways across three of its neighbours
-			clad:ScaleTo(math.min((h * 0.94) / math.max(raw.Y, 1), (w + 14) / math.max(raw.X, raw.Z, 1)))
+			-- `bh`, not `h`: on a raised course the block itself is only what stands above the shelf,
+			-- and cladding cut to the full nominal height would bury three quarters of itself in it.
+			clad:ScaleTo(math.min((bh * 0.94) / math.max(raw.Y, 1), (w + 14) / math.max(raw.X, raw.Z, 1)))
 			for _, part in ipairs(clad:GetDescendants()) do
 				if part:IsA("BasePart") then
 					-- generated meshes arrive UNANCHORED; an unanchored cliff falls through the floor on
@@ -1033,11 +1153,13 @@ local function addRockRampart(model, zone, axis, fixed, center, halfLen, inward,
 			local outX = (axis == "z") and inward * (d * 0.5 + 4) or 0
 			local outZ = (axis == "z") and 0 or inward * (d * 0.5 + 4)
 			seatModel(clad, px + outX, pz + outZ, faceYaw + math.rad(math.random(-8, 8)), 2)
+			-- seatModel drops to y = 0; on a raised course the ground here is the shelf.
+			if baseY > 0 then clad:PivotTo(clad:GetPivot() + Vector3.new(0, baseY, 0)) end
 		end
 		-- a boulder at the foot so the rampart meets the ground in rubble, not a clean seam
 		if math.random(1, 2) == 1 then
 			local s = math.random(9, 19)
-			newPart({ Name = "CliffRubble", Shape = Enum.PartType.Ball, Size = Vector3.new(s, s * 0.8, s * 1.1), Orientation = Vector3.new(0, math.random(0, 360), 0), Position = Vector3.new(px + (axis == "z" and inward * math.random(12, 22) or math.random(-8, 8)), s * 0.3, pz + (axis == "z" and math.random(-8, 8) or inward * math.random(12, 22))), Color = tones[math.random(1, 2)], Material = mat, CanCollide = false, Parent = model })
+			newPart({ Name = "CliffRubble", Shape = Enum.PartType.Ball, Size = Vector3.new(s, s * 0.8, s * 1.1), Orientation = Vector3.new(0, math.random(0, 360), 0), Position = Vector3.new(px + (axis == "z" and inward * math.random(12, 22) or math.random(-8, 8)), baseY + s * 0.3, pz + (axis == "z" and math.random(-8, 8) or inward * math.random(12, 22))), Color = tones[math.random(1, 2)], Material = mat, CanCollide = false, Parent = model })
 		end
 	end
 end
@@ -2477,21 +2599,29 @@ end
 local function buildXWall(model, zone, wallX, wallColor, target)
 	local inward = (wallX > zone.offset) and -1 or 1
 	local halfDepth = PLATFORM_DEPTH / 2
+	-- The X wall runs the whole depth of the platform at the OUTER edge of the terrace band, so
+	-- every position on this course stands on the outermost tread rather than on the valley floor.
+	-- One number for the whole wall, because the top tier reaches TERRAIN_OUTER at every z. (11.23)
+	local crest = terrainCrestY(zone.key)
 
 	if target then
 		local gapHalf = PORTAL_GAP / 2
 		local segLen = (PLATFORM_DEPTH - PORTAL_GAP) / 2
 		newPart({ Name = "Wall", Size = Vector3.new(WALL_THICK, WALL_HEIGHT, segLen), Position = Vector3.new(wallX, WALL_HEIGHT/2, -(gapHalf + segLen/2)), Color = wallColor, Material = Enum.Material.Slate, Parent = model })
 		newPart({ Name = "Wall", Size = Vector3.new(WALL_THICK, WALL_HEIGHT, segLen), Position = Vector3.new(wallX, WALL_HEIGHT/2, (gapHalf + segLen/2)), Color = wallColor, Material = Enum.Material.Slate, Parent = model })
-		addRockRampart(model, zone, "z", wallX, 0, halfDepth - 8, inward, PORTAL_CLEAR_HALF)
+		addRockRampart(model, zone, "z", wallX, 0, halfDepth - 8, inward, PORTAL_CLEAR_HALF, crest, nil)
 		buildPortal(model, wallX, target)
 	else
 		newPart({ Name = "Wall", Size = Vector3.new(WALL_THICK, WALL_HEIGHT, PLATFORM_DEPTH), Position = Vector3.new(wallX, WALL_HEIGHT/2, 0), Color = wallColor, Material = Enum.Material.Slate, Parent = model })
-		addRockRampart(model, zone, "z", wallX, 0, halfDepth - 8, inward, nil)
+		addRockRampart(model, zone, "z", wallX, 0, halfDepth - 8, inward, nil, crest, nil)
 	end
 
 	addBackdropMesas(model, zone, "z", wallX, 0, halfDepth + 30, -inward)
 end
+
+-- How far out along a Z wall the rampart is still standing on the valley floor. The first cliff
+-- begins at TERRAIN_INNER, and the six studs of margin cover the yaw the blocks are given. (11.23)
+local TERRACE_STOP = TERRAIN_INNER - 6
 
 local function buildZWall(model, zone, cx, cz, wallColor, target)
 	local inward = (cz > 0) and -1 or 1
@@ -2500,11 +2630,11 @@ local function buildZWall(model, zone, cx, cz, wallColor, target)
 		local segLen = (PLATFORM_WIDTH - PORTAL_GAP) / 2
 		newPart({ Name = "Wall", Size = Vector3.new(segLen, WALL_HEIGHT, WALL_THICK), Position = Vector3.new(cx - (gapHalf + segLen/2), WALL_HEIGHT/2, cz), Color = wallColor, Material = Enum.Material.Slate, Parent = model })
 		newPart({ Name = "Wall", Size = Vector3.new(segLen, WALL_HEIGHT, WALL_THICK), Position = Vector3.new(cx + (gapHalf + segLen/2), WALL_HEIGHT/2, cz), Color = wallColor, Material = Enum.Material.Slate, Parent = model })
-		addRockRampart(model, zone, "x", cz, cx, PLATFORM_WIDTH / 2 - 8, inward, PORTAL_CLEAR_HALF)
+		addRockRampart(model, zone, "x", cz, cx, PLATFORM_WIDTH / 2 - 8, inward, PORTAL_CLEAR_HALF, 0, TERRACE_STOP)
 		buildPortalInZWall(model, cx, cz, target)
 	else
 		newPart({ Name = "Wall", Size = Vector3.new(PLATFORM_WIDTH, WALL_HEIGHT, WALL_THICK), Position = Vector3.new(cx, WALL_HEIGHT/2, cz), Color = wallColor, Material = Enum.Material.Slate, Parent = model })
-		addRockRampart(model, zone, "x", cz, cx, PLATFORM_WIDTH / 2 - 8, inward, nil)
+		addRockRampart(model, zone, "x", cz, cx, PLATFORM_WIDTH / 2 - 8, inward, nil, 0, TERRACE_STOP)
 	end
 	addBackdropMesas(model, zone, "x", cz, cx, PLATFORM_WIDTH / 2 + 30, -inward)
 	-- the guardian only goes behind the far wall, where it fills the view you get walking in
@@ -2526,9 +2656,10 @@ end
 -- and waterfalls (see buildTerrain), and every scattered prop in the game is placed at y = 0 with
 -- no idea what the ground under it is doing -- so anything dropped out there would be buried in a
 -- terrace or left standing in mid-air. Props keep to the flat middle; the sides become scenery.
--- 350, not 400: the pool at the cliff foot has its inner rim at x = 363, and at 400 the scatter
--- was dropping trees into the water. The number that matters is the POOL's edge, not the
--- terrace's -- measure against the innermost thing terrain builds, never against the band.
+-- 350, not 400: the pool at the cliff foot has its inner rim at x = 355.5 (it was 363 before 11.26
+-- moved the pool four studs off the cliff foot), and at 400 the scatter was dropping trees into the
+-- water. The number that matters is the POOL's edge, not the terrace's -- measure against the
+-- innermost thing terrain builds, never against the band.
 local DECO_SPREAD_X = 350 -- was 595. The platform still reaches 625; the last 275 is terrain.
 local DECO_SPREAD_Z = 548 -- and |z| <= 575
 local CLEAR_HALF = 60     -- centre stays clear: Pet Shop + creature spawns live there
@@ -2601,8 +2732,33 @@ local LEGACY_SPREAD_X, LEGACY_SPREAD_Z = 205, 255
 -- is simply not in scope up there -- it compiles as a nil global lookup and dies at run time.
 -- `scatterPoint` below gets away with being used early only because it is a GLOBAL function.
 
+-- ===== THE RESERVATION SYSTEM EXISTED AND ALMOST NOTHING USED IT (11.27) =====
+--
+-- Counted: 88 calls to this function in the file, NINE of which pass a `halfSize`. Seventy of the
+-- remaining seventy-nine are in `decorationBuilders`, i.e. every zone's signature props -- the
+-- cacti, the dunes, the crystal clusters, the pottery, the lava vents. They all look like
+-- `scatterPoint(cx, 200, 250)`: no size, so the clearance tests are on a dimensionless point, and
+-- no `reserveScatter` afterwards, so the ground they take stays advertised as empty and the next
+-- call happily picks it again. Measured on a fresh build: 621 props across the twenty zones with
+-- their CENTRE inside another solid prop.
+--
+-- Passing a real half-footprint at all seventy sites is seventy separate judgements about props
+-- that are built in loops at random sizes, and each one is a chance to type the wrong number.
+-- A FLOOR is the honest version of the same fix: a call that declines to say how big it is gets
+-- treated as `DEFAULT_HALF` wide, and -- this is the half that actually matters -- it CLAIMS that
+-- much ground on the way out. Nine calls know their size exactly and still do; the other
+-- seventy-nine stop pretending they are points.
+--
+-- 14 is a floor and not a measurement, and it is chosen from below rather than above: it is a
+-- little larger than the small stuff (pottery at 3, shards at 6) and a lot smaller than the big
+-- stuff (dunes at 55, vents at 40), so it costs the small props nothing they will miss and gives
+-- the big ones a partial guard instead of none. A prop that wants the real thing passes it.
+local DEFAULT_HALF = 14
+
 function scatterPoint(cx, spreadX, spreadZ, halfSize)
-	halfSize = halfSize or 0
+	-- an undeclared size is the case above: assume the floor AND register it
+	local autoClaim = halfSize == nil
+	halfSize = halfSize or DEFAULT_HALF
 	spreadX = spreadX and math.floor(math.min(DECO_SPREAD_X, spreadX * (DECO_SPREAD_X / LEGACY_SPREAD_X))) or DECO_SPREAD_X
 	spreadZ = spreadZ and math.floor(math.min(DECO_SPREAD_Z, spreadZ * (DECO_SPREAD_Z / LEGACY_SPREAD_Z))) or DECO_SPREAD_Z
 	-- Clamped so the band never inverts: a prop bigger than the platform's usable half would
@@ -2616,6 +2772,16 @@ function scatterPoint(cx, spreadX, spreadZ, halfSize)
 	-- The best near-miss seen so far, in case none of the tries comes back completely clear. See
 	-- the note on the fallback below for why blind is not good enough.
 	local bestX, bestZ, bestGap = nil, nil, -math.huge
+
+	-- Every exit goes through here, so there is no path out of this function that takes ground
+	-- without saying so. The claim is a little smaller than the clearance it was tested against --
+	-- being asked to stand 14 studs off a neighbour and to reserve 14 for yourself compounds into a
+	-- 28-stud exclusion around a prop that may be four studs wide, and twenty zones' worth of that
+	-- empties the platform.
+	local function claim(x, z)
+		if autoClaim then reserveScatter(x, z, halfSize * 0.65) end
+		return x, z
+	end
 
 	for _ = 1, 40 do
 		local x = math.random(-spreadX, spreadX)
@@ -2641,7 +2807,7 @@ function scatterPoint(cx, spreadX, spreadZ, halfSize)
 				gap = math.min(gap, math.sqrt(bx * bx + bz * bz) - (b.r + halfSize))
 			end
 			if gap >= 0 then
-				return wx, z
+				return claim(wx, z)
 			end
 			if gap > bestGap then
 				bestGap, bestX, bestZ = gap, wx, z
@@ -2662,12 +2828,12 @@ function scatterPoint(cx, spreadX, spreadZ, halfSize)
 	-- The least-bad candidate already seen beats a fresh guess every time: it is the point that
 	-- overlaps the least, and it has already passed the street, centre, gate and arena tests.
 	if bestX then
-		return bestX, bestZ
+		return claim(bestX, bestZ)
 	end
 	-- and only if literally every try failed the fixed geography as well. Pushed past BOSS_CLEAR
 	-- rather than CLEAR_HALF: the boss arena is the widest reservation on the platform.
 	local sign = math.random(1, 2) == 1 and -1 or 1
-	return cx + sign * math.random(math.min(boss + 12, spreadX), spreadX), math.random(-spreadZ, -centre)
+	return claim(cx + sign * math.random(math.min(boss + 12, spreadX), spreadX), math.random(-spreadZ, -centre))
 end
 
 function addLight(part, color, range, brightness)
@@ -2945,7 +3111,10 @@ local function addLandmark(model, cx, cfg)
 		end
 		for i = 1, 6 do
 			local s = math.random(36, 58)
-			newPart({ Name = "GreatCanopy", Shape = Enum.PartType.Ball, Size = Vector3.new(s, s * 0.82, s), Position = Vector3.new(cx + math.random(-24, 24), 80 + math.random(-10, 16), z + math.random(-16, 16)), Color = i % 2 == 0 and base or darken(base, 0.22), Material = Enum.Material.Grass, CanCollide = false, Parent = model })
+			-- solid like the trunk it grows out of (11.22). NOTE: every zone now has a filed
+			-- Landmark_<key> mesh, so this whole block-built branch is unreachable in the shipped world
+			-- -- measured, 0 GreatCanopy parts across all 20 zones. Kept correct rather than kept true.
+			newPart({ Name = "GreatCanopy", Shape = Enum.PartType.Ball, Size = Vector3.new(s, s * 0.82, s), Position = Vector3.new(cx + math.random(-24, 24), 80 + math.random(-10, 16), z + math.random(-16, 16)), Color = i % 2 == 0 and base or darken(base, 0.22), Material = Enum.Material.Grass, Parent = model })
 		end
 		local fruit = newPart({ Name = "GreatGlow", Shape = Enum.PartType.Ball, Size = Vector3.new(11, 11, 11), Position = Vector3.new(cx, 110, z), Color = accent, Material = Enum.Material.Neon, CanCollide = false, Parent = model })
 		table.insert(lit, fruit)
@@ -2957,7 +3126,9 @@ local function addLandmark(model, cx, cfg)
 			newPart({ Name = "SpireBlock", Size = Vector3.new(w, h, w * 0.78), Orientation = Vector3.new(0, i * 11, 0), Position = Vector3.new(cx, y + h / 2, z), Color = i % 2 == 0 and base or darken(base, 0.2), Material = mat, Parent = model })
 			y = y + h
 		end
-		local tip = newPart({ Name = "SpireTip", Size = Vector3.new(12, 24, 12), Orientation = Vector3.new(0, 45, 0), Position = Vector3.new(cx, y + 12, z), Color = accent, Material = Enum.Material.Neon, CanCollide = false, Parent = model })
+		-- solid like the SpireBlock stack under it (11.22); unreachable today for the reason noted on
+		-- GreatCanopy above
+		local tip = newPart({ Name = "SpireTip", Size = Vector3.new(12, 24, 12), Orientation = Vector3.new(0, 45, 0), Position = Vector3.new(cx, y + 12, z), Color = accent, Material = Enum.Material.Neon, Parent = model })
 		table.insert(lit, tip)
 	elseif style == "arch" then
 		for _, side in ipairs({ -1, 1 }) do
@@ -3375,8 +3546,9 @@ end
 -- All of it is part-built rather than Roblox Terrain: the world is a 36,000-stud strip with
 -- streaming on, and voxel terrain neither streams the same way nor matches the chunky look the
 -- rest of the game is cut from.
-local TERRAIN_INNER = 415        -- where the valley floor ends and the first cliff begins
-local TERRAIN_OUTER = 625        -- the platform edge, where the boundary wall stands
+-- TERRAIN_INNER / TERRAIN_OUTER / TERRAIN_DEPTH are declared at the top of the file, beside
+-- PLATFORM_WIDTH -- see the note there. They moved because `addRockRampart` needs them and it is
+-- written 2,400 lines above this point.
 
 -- Per-zone character. Anything absent falls back to the defaults in buildTerrain, so a new zone
 -- costs nothing and the twenty here are genuinely different rather than recoloured copies of one
@@ -3426,6 +3598,15 @@ local TERRAIN_PROFILE = {
 	AbsolutePlane   = { tiers = 4, rise = 32, water = true,  falls = 4, rocks = 10, rockSize = { 16, 36 } },
 }
 
+-- The fallback here is the one buildTerrain uses when a zone has no profile, and the two have to
+-- agree: a wall that raised its rampart onto a crest the terrain never built would leave a course
+-- of boulders hanging in the air.
+local TERRAIN_FALLBACK = { tiers = 3, rise = 26, water = false, falls = 0, rocks = 9, rockSize = { 14, 32 } }
+function terrainCrestY(zoneKey)
+	local p = TERRAIN_PROFILE[zoneKey] or TERRAIN_FALLBACK
+	return p.rise * p.tiers
+end
+
 -- One side of one zone. `side` is -1 or 1; everything is mirrored, and the two sides are given
 -- different random seeds by the caller so a zone is not symmetrical.
 --
@@ -3466,7 +3647,10 @@ local function buildValleySide(model, zone, cx, side, p)
 	local accent = vivid(zone.accentColor)
 	local ground = GROUND_MATERIAL[zone.key] or Enum.Material.Grass
 	local band = (TERRAIN_OUTER - TERRAIN_INNER) / p.tiers
-	local halfZ = PLATFORM_DEPTH / 2
+	-- TERRAIN_DEPTH, not PLATFORM_DEPTH: the Z walls' sealing slabs are WALL_THICK thick centred on
+	-- +/- PLATFORM_DEPTH/2, so a terrace cut to the full depth put its two end segments two studs
+	-- inside a solid wall on both sides of every zone. (11.23)
+	local halfZ = TERRAIN_DEPTH / 2
 
 	-- the two numbers every piece below is placed from: where tier N's riser stands, and how high
 	-- you are once you have walked up onto it
@@ -3492,11 +3676,15 @@ local function buildValleySide(model, zone, cx, side, p)
 			Color = rock, Material = Enum.Material.Rock, Parent = model })
 
 		-- a smaller block riding on top and off-centre -- this is the piece that turns a slab into a
-		-- rock, because it breaks the silhouette's top edge
+		-- rock, because it breaks the silhouette's top edge.
+		-- SOLID, LIKE THE MASS IT RIDES ON (11.22). This is the top third of the boulder's silhouette
+		-- and it was the one third you fell through: a drop-ray onto all 410 of them landed on
+		-- `ValleyRock` underneath, every time. A base you cannot walk into with a lid you can is worse
+		-- than either choice made consistently.
 		newPart({ Name = "ValleyRockCap", Size = Vector3.new(s * 0.72, s * 0.44, s * 0.66),
 			CFrame = CFrame.new(x + s * 0.1, y + s * 0.66, z - s * 0.08)
 				* CFrame.Angles(math.rad(math.random(-12, 12)), math.rad(math.random(0, 360)), math.rad(math.random(-12, 12))),
-			Color = rockLit, Material = Enum.Material.Rock, CanCollide = false, Parent = model })
+			Color = rockLit, Material = Enum.Material.Rock, Parent = model })
 
 		-- two chips fallen off it, out on the ground
 		for i = 1, 2 do
@@ -3626,7 +3814,7 @@ local function buildValleySide(model, zone, cx, side, p)
 	local keyHash = 0
 	for i = 1, #zone.key do keyHash = (keyHash * 31 + string.byte(zone.key, i)) % 9973 end
 	local SEGMENTS = 5 + (keyHash % 4)          -- 5..8
-	local segLen = PLATFORM_DEPTH / SEGMENTS
+	local segLen = TERRAIN_DEPTH / SEGMENTS
 
 	-- math.random errors outright on an empty interval, and several placements below derive BOTH
 	-- ends from the jittered edge -- so on the outermost tier of a 4-tier profile the low end can
@@ -3712,6 +3900,79 @@ local function buildValleySide(model, zone, cx, side, p)
 		return false
 	end
 
+	-- ===== AND WHERE THE WATER COMES DOWN, FOR EXACTLY THE SAME REASON (11.24) =====
+	--
+	-- The stairs above are the only keep-out this slope had, and the note over `stairSeg` says why
+	-- the ordering is the whole point. The falls were the same shape of problem with none of the
+	-- answer: `fz` was picked ~600 lines below, inside `if p.water`, long after every crag, buttress,
+	-- boulder, conifer, mushroom and tuft on the hillside had already chosen its spot -- and nothing
+	-- tested it. A cascade is not a thin sheet either: `FallSpillway` is a cut across the lip,
+	-- `FallHead` runs the full depth of the top tread and `FallBasin` runs the full depth of every
+	-- tread below it, so the corridor is the whole shelf at that z, from the riser to the next edge.
+	-- Measured before this existed: 2,007 props standing inside a fall corridor across the twenty
+	-- zones -- 906 grass tufts, 249 pieces of cliff cladding, 176 buttresses and, in several zones,
+	-- an entire flight of stairs with a waterfall running down it.
+	--
+	-- So the pool and the falls are laid out HERE, before the first prop, on the same pattern: the
+	-- numbers are chosen, the corridors are published, and everything placed afterwards tests them.
+	-- The pool builder below consumes these instead of rolling its own.
+	local cascade = math.min(p.tiers, 3)
+	local poolZ = math.random(-260, 260)
+	local poolLen = math.random(220, 340)
+	-- The widest thing in the corridor is `FallBasinRim` at `wide + 22` = 56 on the bottom step;
+	-- half of that is 28, and 6 more keeps a prop's own edge off the rim's.
+	local FALL_HALF_Z = 34
+	local fallZ = {}
+	if p.water then
+		for i = 1, p.falls do
+			local z = poolZ + (i - (p.falls + 1) / 2) * (poolLen / math.max(1, p.falls))
+			-- ...and a fall may not land in a stairwell either. The flights were chosen first, so the
+			-- water is what moves. Kept inside the pool it has to arrive in, so the bottom step still
+			-- lands in water rather than on the grass beside it.
+			local lo, hi = poolZ - poolLen / 2 + 20, poolZ + poolLen / 2 - 20
+			for _ = 1, 8 do
+				local clash = false
+				for tier = 1, cascade do
+					if inStairwell(tier, z) then clash = true break end
+				end
+				if not clash then break end
+				z = z + STAIR_HALF_Z + FALL_HALF_Z + 6
+				if z > hi then z = lo end
+			end
+			fallZ[i] = z
+		end
+	end
+
+	-- The one question everything on a shelf asks before it puts itself down: is this z spoken for?
+	-- `ownHalf` is the prop's own half-width along z, so the test is on its BODY and not on its
+	-- centre -- the same correction `halfSize` made to scatterPoint, and the reason a 52-stud crag
+	-- that "cleared" a staircase by its middle still stood in it.
+	local function claimedZ(tier, z, ownHalf)
+		ownHalf = ownHalf or 0
+		for _, t in ipairs({ tier, tier + 1 }) do
+			local i = stairSeg[t]
+			if i and math.abs(z - segZ(i)) < STAIR_HALF_Z + ownHalf then return true end
+		end
+		-- only the tiers a cascade actually reaches; there is no fall above `cascade`
+		if tier <= cascade then
+			for _, fz in ipairs(fallZ) do
+				if math.abs(z - fz) < FALL_HALF_Z + ownHalf then return true end
+			end
+		end
+		return false
+	end
+
+	-- A free z inside this segment, or nil if the corridors have eaten it. Nil means DO NOT BUILD:
+	-- the shelves are planted densely and one missing mushroom is invisible, where a mushroom shoved
+	-- to a spot chosen by arithmetic rather than by a test is how props ended up in the next segment.
+	local function freeZ(tier, zc, lo, hi, ownHalf)
+		for _ = 1, 12 do
+			local z = zc + span(lo, hi)
+			if not claimedZ(tier, z, ownHalf) then return z end
+		end
+		return nil
+	end
+
 	for tier = 1, p.tiers do
 		local top = treadY(tier)
 
@@ -3776,6 +4037,12 @@ local function buildValleySide(model, zone, cx, side, p)
 			-- that stops a player seeing through the terrace. A mesh is scenery hung on the front of it.
 			if cliffFace then
 				for k = 1, 3 do
+					-- WHERE IT GOES IS DECIDED BEFORE IT IS CLONED (11.24). The cladding hangs in the riser
+					-- plane, which is exactly where a `FallSheet` hangs, so a slot inside a fall corridor is
+					-- a rock mesh growing out of the middle of a waterfall -- 249 of them across the world.
+					-- ~26 is the widest this mesh can come out at after the 52-stud width cap.
+					local slotZ = zc + (k - 2) * (segLen / 3) + math.random(-18, 18)
+					if claimedZ(tier, slotZ, 26) then continue end
 					local clad = cliffFace:Clone()
 					local _, raw = clad:GetBoundingBox()
 					-- SHORTER THAN THE RISER, NOT TALLER. These were sized at 1.06-1.28x the step so their
@@ -3795,9 +4062,8 @@ local function buildValleySide(model, zone, cx, side, p)
 					end
 					clad.Name = "TerraceRock"
 					clad.Parent = model
-					-- spread across the segment with jitter, so three shelves stacked above one another
-					-- never line their outcrops up into a column
-					local slotZ = zc + (k - 2) * (segLen / 3) + math.random(-18, 18)
+					-- (`slotZ` is chosen above, before the clone: spread across the segment with jitter, so
+					-- three shelves stacked above one another never line their outcrops up into a column)
 					-- PivotTo, not seatModel: seatModel drops a model to y = 0, and this one belongs on
 					-- the tier's own foot, `p.rise` below the shelf it is facing.
 					local _, fit = clad:GetBoundingBox()
@@ -3857,16 +4123,14 @@ local function buildValleySide(model, zone, cx, side, p)
 			-- half-sunk in the lawn. Kept below the tread and pulled back against the face, the same part
 			-- reads as a buttress broken out of the cliff, which is what it was always meant to be.
 			for j = 1, 2 do
-				local z = zc + span(-segLen / 2 + 20, segLen / 2 - 20)
 				-- A buttress stands at this tier's inner edge and hangs BELOW its tread, which is the
 				-- exact volume the top half of this tier's flight occupies -- 13 of them were found
-				-- driven through a staircase. Pushed clear along z rather than dropped: the buttresses
-				-- are what stop the cliff face reading as a painted board, and a bare segment would
-				-- undo that everywhere the stairs happen to be.
+				-- driven through a staircase -- and it stands in the riser plane, which is where the
+				-- water comes down: 176 of them were found inside a fall corridor. Its width is drawn
+				-- FIRST so the keep-out test is on its body rather than on its centre line.
 				local w = math.random(22, 52)
-				if inStairwell(tier, z) or inStairwell(tier, z + w / 2) or inStairwell(tier, z - w / 2) then
-					z = zc + (z < zc and 1 or -1) * (STAIR_HALF_Z + w / 2 + math.random(6, 20))
-				end
+				local z = freeZ(tier, zc, -segLen / 2 + 20, segLen / 2 - 20, w / 2)
+				if not z then continue end
 				local h = p.rise * math.random(50, 92) / 100
 				local d = math.random(9, 17)
 				-- ===== THE BUTTRESS IS THE WALL, SO IT STAYS SOLID -- BUT IT IS NO LONGER A STEP =====
@@ -3876,20 +4140,32 @@ local function buildValleySide(model, zone, cx, side, p)
 				-- to 92% of the rise, so it was a ledge you could jump onto and then step off onto the
 				-- shelf -- two hops past a staircase that is meant to be the only way up (item 19).
 				--
-				-- Making it intangible was the obvious fix and is WRONG. A ray fired horizontally into
-				-- a riser with the jut excluded hits only `CliffFace`, which is `CanCollide = false`:
-				-- there is no other collision at that height. The jut IS the riser wall, and removing
-				-- it would let players walk into the cliff.
+				-- ===== ...AND THE REASON IT HAD TO STAY SOLID WAS ALREADY FALSE (11.23) =====
 				--
-				-- So it is pushed back into the hill instead. `innerX + d/2 - 2` leaves exactly two
-				-- studs proud of the edge -- enough to keep the relief that stops the cliff face
-				-- reading as a painted board, too little for a character to stand on -- while the rest
-				-- of its bulk sits inside the cliff, still spanning the riser plane and still solid.
+				-- What used to be written here: "a ray fired horizontally into a riser with the jut
+				-- excluded hits only CliffFace, which is CanCollide = false; there is no other collision
+				-- at that height, so the jut IS the riser wall." That was true when the risers were thin
+				-- facings. It has not been true since the tiers became slabs: `TerraceTop` is `rise`
+				-- thick, spans innerX out to the rim, is solid, and is PINNED in the world shell -- its
+				-- own front face is the riser wall, and it cannot stream out from behind the jut either.
+				--
+				-- Measured rather than argued, 224 rays and a player-sized Blockcast per case:
+				--   nothing excluded            -> 207 CliffJut, 12 CliffCrag,  5 CliffBlock, 0 through
+				--   CliffJut excluded           -> 207 TerraceTop, 12 CliffCrag, 5 CliffBlock, 0 through
+				--   CliffJut + TerraceTop out   -> 172 of 224 pass clean through
+				-- So nothing opens up, and what closes is 2,621 solid-on-solid intersections with the
+				-- terrace slabs (1,568 of them juts buried whole) plus 1,568 parts -- 45% of it -- taken
+				-- out of the persistent shell.
+				--
+				-- It stays exactly where it is, two studs proud of the edge: that is the relief that
+				-- keeps the face from reading as a painted board, and intangible it also cannot be the
+				-- two-hop shortcut past a staircase that this offset was chosen to prevent.
 				local jutX = innerX + d * 0.5 - 2
 				newPart({ Name = "CliffJut", Size = Vector3.new(d, h, w),
 					CFrame = CFrame.new(cx + side * jutX, top - p.rise + h / 2, z)
 						* CFrame.Angles(0, math.rad(math.random(-4, 4)), math.rad(side * math.random(-3, 3))),
-					Color = (j % 2 == 0) and rock or rockLit, Material = Enum.Material.Rock, Parent = model })
+					Color = (j % 2 == 0) and rock or rockLit, Material = Enum.Material.Rock,
+					CanCollide = false, Parent = model })
 				-- a shoulder on the taller ones: an unbroken vertical box is a pillar, and a pillar with
 				-- a sloped top is a rock. Kept at the same offset RELATIVE to the jut it caps, so it
 				-- travels with the change above instead of being left hanging in the air.
@@ -3906,23 +4182,32 @@ local function buildValleySide(model, zone, cx, side, p)
 			-- rather than as terrain. Kept off the outer strip so nothing grows through the wall.
 			-- `treadOut`, NOT TERRAIN_OUTER -- see the note where treadOut is worked out. Scattering to
 			-- the rim planted most of every lower shelf's mushrooms and grass inside the cliff above it.
-			local function spot()
-				return cx + side * span(innerX + 10, treadOut - 12),
-					zc + span(-segLen / 2 + 12, segLen / 2 - 12)
+			-- ...and off the stairs and out of the water (11.24). These are the densest thing on the
+			-- hillside -- 9 clumps per segment, ~2,300 tufts across the world -- and 906 of them were
+			-- standing inside a fall corridor, which is what a stream of water running through a lawn
+			-- looks like. `spot` returns nil when the corridors have eaten this z, and the callers
+			-- simply skip: one missing tuft out of nine is invisible, and a nudged one lands somewhere
+			-- nothing tested.
+			local function spot(ownHalf)
+				local tz = freeZ(tier, zc, -segLen / 2 + 12, segLen / 2 - 12, ownHalf or 8)
+				if not tz then return nil end
+				return cx + side * span(innerX + 10, treadOut - 12), tz
 			end
 			for k = 1, 5 do
 				local tx, tz = spot()
-				tuft(tx, top, tz, math.random(12, 20), k % 4 == 0 and lighten(moss, 0.2) or moss, Enum.Material.Grass)
+				if tz then
+					tuft(tx, top, tz, math.random(12, 20), k % 4 == 0 and lighten(moss, 0.2) or moss, Enum.Material.Grass)
+				end
 			end
 			for _ = 1, 3 do
 				local tx, tz = spot()
-				mushroom(tx, top, tz, math.random(7, 14))
+				if tz then mushroom(tx, top, tz, math.random(7, 14)) end
 			end
 			-- one lit crystal clump per segment, in the zone accent -- the point of focus after dark,
 			-- and the only thing up here that carries the zone's own colour
 			do
 				local tx, tz = spot()
-				tuft(tx, top, tz, math.random(14, 24), accent, Enum.Material.Neon)
+				if tz then tuft(tx, top, tz, math.random(14, 24), accent, Enum.Material.Neon) end
 			end
 			-- A CONIFER IS THE ONE PLANT BIG ENOUGH TO BLOCK THE WAY UP. The grass, mushrooms and
 			-- crystals above are 7 to 24 studs and non-colliding, so a few of them standing beside the
@@ -3930,11 +4215,10 @@ local function buildValleySide(model, zone, cx, side, p)
 			-- to the far side of the segment rather than dropped -- the shelves are planted densely on
 			-- purpose and a bald segment would read as the one place the world forgot.
 			if p.trees and math.random() < p.trees then
-				local tx, tz = spot()
-				if inStairwell(tier, tz) then
-					tz = zc + (tz < zc and 1 or -1) * (STAIR_HALF_Z + math.random(6, 18))
-				end
-				conifer(tx, top, tz, math.random(46, 80))
+				-- 24 covers the widest canopy this call can produce (h * 0.7 / 2 at h = 80, before the
+				-- mesh's own width cap), so the test is on the tree and not on its trunk.
+				local tx, tz = spot(24)
+				if tz then conifer(tx, top, tz, math.random(46, 80)) end
 			end
 
 			-- CRAGS: a spire standing on the tread, and the only thing in the band taller than one
@@ -3958,12 +4242,12 @@ local function buildValleySide(model, zone, cx, side, p)
 				local h = math.random(math.floor(p.rise * 1.5), math.floor(p.rise * 2.8))
 				local w = math.random(22, 40)
 				local sx = cx + side * span(innerX + (treadOut - innerX) * 0.55, treadOut - 16)
-				local sz = zc + span(-segLen / 2 + 20, segLen / 2 - 20)
-				-- half the spire's own width on top of the stairwell, so it clears the flight by its
-				-- edge rather than by its centre
-				if inStairwell(tier, sz) or inStairwell(tier, sz + w / 2) or inStairwell(tier, sz - w / 2) then
-					sz = zc + (sz < zc and 1 or -1) * (STAIR_HALF_Z + w / 2 + math.random(4, 16))
-				end
+				-- half the spire's own width on top of the corridor, so it clears both the flight and
+				-- the fall by its EDGE rather than by its centre. Not built at all if there is no room:
+				-- a crag rerolled onto a spot nothing tested is how the last three ended up in a flight.
+				-- `w * 0.62` is the scree pad's half-width, which is the widest thing this block lays.
+				local sz = freeZ(tier, zc, -segLen / 2 + 20, segLen / 2 - 20, w * 0.62)
+				if not sz then continue end
 				local yaw = math.rad(math.random(0, 360))
 				local lean = math.rad(side * -math.random(2, 6))
 				-- barely proud of the grass: this is a contact shadow, not a paving slab. At 2.2 studs
@@ -3975,12 +4259,15 @@ local function buildValleySide(model, zone, cx, side, p)
 				newPart({ Name = "CliffCrag", Size = Vector3.new(w, h * 0.52, w * 0.88),
 					CFrame = CFrame.new(sx, top + h * 0.24, sz) * CFrame.Angles(0, yaw, lean),
 					Color = rock, Material = Enum.Material.Rock, Parent = model })
+				-- Both SOLID, like the base course (11.22). A crag is 39-90 studs of stone standing on a
+				-- shelf a player now walks along; with only the bottom half of the stack solid, a drop-ray
+				-- onto every one of the 426 mids and 426 caps in the world fell through to `CliffCrag`.
 				newPart({ Name = "CliffCragMid", Size = Vector3.new(w * 0.68, h * 0.42, w * 0.6),
 					CFrame = CFrame.new(sx, top + h * 0.66, sz) * CFrame.Angles(0, yaw + 0.5, lean * 1.6),
-					Color = rockLit, Material = Enum.Material.Rock, CanCollide = false, Parent = model })
+					Color = rockLit, Material = Enum.Material.Rock, Parent = model })
 				newPart({ Name = "CliffCragCap", Size = Vector3.new(w * 0.36, h * 0.3, w * 0.34),
 					CFrame = CFrame.new(sx, top + h * 0.94, sz) * CFrame.Angles(0, yaw + 1.1, lean * 2.4),
-					Color = rockDark, Material = Enum.Material.Rock, CanCollide = false, Parent = model })
+					Color = rockDark, Material = Enum.Material.Rock, Parent = model })
 			end
 		end
 	end
@@ -4115,12 +4402,14 @@ local function buildValleySide(model, zone, cx, side, p)
 		-- from the whole depth rather than from inside a segment, so rerolling is cheaper than
 		-- reasoning about where else it could go -- and the edges are tested, not just the centre,
 		-- for the same reason the crags are.
+		-- ...and out of the fall corridors too (11.24): a 48-stud boulder parked in the middle of a
+		-- basin is the same problem as one parked on the steps, and 41 of them were.
 		local half = p.rockSize[2] / 2
-		for _ = 1, 4 do
-			if not (inStairwell(tier, z) or inStairwell(tier, z + half) or inStairwell(tier, z - half)) then break end
+		for _ = 1, 6 do
+			if not claimedZ(tier, z, half) then break end
 			z = math.random(-halfZ + 40, halfZ - 40)
 		end
-		if inStairwell(tier, z) then continue end
+		if claimedZ(tier, z, half) then continue end
 		-- edgeAt, not riserX: the segment under this z may have pulled back forty studs, and a
 		-- boulder placed off the nominal edge would be standing in the air over the tier below.
 		-- Bounded on the far side by the NEXT tier's edge for the same reason the plants are -- past
@@ -4168,12 +4457,22 @@ local function buildValleySide(model, zone, cx, side, p)
 
 	-- ---- water at the foot of the cliff, and the falls that feed it
 	if p.water then
-		local poolZ = math.random(-260, 260)
-		local poolLen = math.random(220, 340)
-		local poolX = cx + side * (TERRAIN_INNER - 26)
-		-- The pool sits just INSIDE the first cliff, in the strip between the valley floor and the
-		-- terraces -- 15 studs clear of DECO_SPREAD_X, so no scattered prop can ever land in it.
-		newPart({ Name = "PoolBed", Size = Vector3.new(52, 1.6, poolLen + 12),
+		-- `poolZ` / `poolLen` are chosen at the top of this function now, with the falls -- see the
+		-- note there. Nothing here rolls its own any more.
+		--
+		-- ===== 30, NOT 26, AND THE BED IS 46 RATHER THAN 52 (11.26) =====
+		--
+		-- The rim is 6 studs of solid stone at +/- 27, i.e. it occupied 24..30 from the pool's axis.
+		-- The BED is 52 wide, i.e. 0..26 -- so every one of the 52 rims in the world had three studs
+		-- of itself inside the slab it was supposed to be sitting beside, both solid. And its OUTER
+		-- face landed at TERRAIN_INNER + 4, which is inside the first terrace slab: 20 more.
+		--
+		-- Cutting the bed to the width of the water it holds (46, the same as `PoolWater`) and moving
+		-- the whole pool four studs off the cliff foot gives the kerb its own ground on both sides:
+		-- 23.5..29.5 from the axis, outer face at TERRAIN_INNER - 0.5, inner face still well outside
+		-- DECO_SPREAD_X. Nothing about how the pool reads changes -- the water is the same size.
+		local poolX = cx + side * (TERRAIN_INNER - 30)
+		newPart({ Name = "PoolBed", Size = Vector3.new(46, 1.6, poolLen + 12),
 			Position = Vector3.new(poolX, 0.8, poolZ), Color = darken(rock, 0.3),
 			Material = Enum.Material.Slate, Parent = model })
 		local water = newPart({ Name = "PoolWater", Size = Vector3.new(46, 2.4, poolLen),
@@ -4181,7 +4480,7 @@ local function buildValleySide(model, zone, cx, side, p)
 			Material = Enum.Material.Glass, Transparency = 0.35, CanCollide = false, CastShadow = false, Parent = model })
 		addLight(water, Color3.fromRGB(120, 220, 250), 30, 0.7)
 		-- a stone rim, so the water is held by something instead of lying on the grass
-		for _, dx in ipairs({ -27, 27 }) do
+		for _, dx in ipairs({ -26.5, 26.5 }) do
 			newPart({ Name = "PoolRim", Size = Vector3.new(6, 3, poolLen + 12),
 				Position = Vector3.new(poolX + dx, 1.5, poolZ), Color = rockLit,
 				Material = Enum.Material.Rock, Parent = model })
@@ -4287,11 +4586,22 @@ local function buildValleySide(model, zone, cx, side, p)
 		-- stone kerb reads as a swimming pool
 		for i = 1, 7 do
 			local rz = poolZ + (i - 4) * (poolLen / 8)
-			tuft(poolX - side * 30, 0, rz, math.random(10, 18), moss, Enum.Material.Grass)
+			tuft(poolX - side * 33, 0, rz, math.random(10, 18), moss, Enum.Material.Grass)
 			local s = math.random(7, 14)
+			-- ===== THE STONES STAND BESIDE THE KERB, NOT ON IT (11.26) =====
+			--
+			-- They used to land at `poolX + side * random(20, 30)`, i.e. squarely on top of the rim at
+			-- 23.5..29.5 -- and `PoolStone` is in SOLID_PROPS, so `newPart` turns the CanCollide = false
+			-- written here straight back on. Two solid bodies interpenetrating exactly where the player
+			-- walks up to the water: 161 of them across the twenty zones.
+			--
+			-- The VALLEY side is the only side with room. Outward of the kerb there are four studs
+			-- before the first terrace slab, and a 14-stud stone is a sphere of its smallest axis
+			-- (see the Ball note in the codebase memory) -- 4.3 studs of radius. 36 clears the rim's
+			-- outer face by two studs at the worst case and still reads as stones along the shore.
 			newPart({ Name = "PoolStone", Shape = Enum.PartType.Ball, Size = Vector3.new(s, s * 0.62, s * 0.9),
 				Orientation = Vector3.new(0, math.random(0, 360), math.random(-18, 18)),
-				Position = Vector3.new(poolX + side * math.random(20, 30), s * 0.2, rz + math.random(-14, 14)),
+				Position = Vector3.new(poolX - side * math.random(36, 48), s * 0.2, rz + math.random(-14, 14)),
 				Color = rockDark, Material = Enum.Material.Rock, CanCollide = false, Parent = model })
 		end
 
@@ -4319,9 +4629,10 @@ local function buildValleySide(model, zone, cx, side, p)
 		-- basin on the tread below and going over the next edge. This is also the second thing the
 		-- one-step-tall tiers above bought -- on the old full-height slabs there was no tread to land
 		-- on in the first place.
-		local cascade = math.min(p.tiers, 3)
+		-- `cascade` and every `fz` were fixed at the top of this function, BEFORE a single prop was
+		-- placed, and every prop above tested them. This loop only reads them. (11.24)
 		for i = 1, p.falls do
-			local fz = poolZ + (i - (p.falls + 1) / 2) * (poolLen / math.max(1, p.falls))
+			local fz = fallZ[i]
 			for tier = cascade, 1, -1 do
 				-- the ACTUAL edge under this fall's z. On the old straight tiers this was riserX(tier);
 				-- with a meandering edge that hangs the sheet in mid-air wherever a segment pulled back.
@@ -4331,7 +4642,17 @@ local function buildValleySide(model, zone, cx, side, p)
 				-- the sheet hangs on the riser, proud of it, so it is never coplanar with the rock, and
 				-- it runs PAST both ends of the drop -- up behind the lip and down into the water -- so
 				-- there is no seam where the water starts or stops
-				local fx = cx + side * (innerX - 1.8)
+				--
+				-- ===== 4.2, NOT 1.8 (11.25) =====
+				-- `CliffJut` is the one piece of geometry that lives IN the riser plane and it is sunk
+				-- into the hill from `innerX - 2` outward. The sheet is 4 wide, so centred at
+				-- `innerX - 1.8` it occupied innerX-3.8 .. innerX+0.2 and overlapped the jut by 2.2
+				-- studs -- 135 of the 190 sheets in the world were inside one. At 4.2 the sheet ends at
+				-- innerX - 2.2 and the two are separated by two tenths of a stud. The gap this opens
+				-- behind the sheet is 1.2 studs of rock face that the `FallCurtain` mesh in front of it
+				-- covers completely; the corridor reservation above is what keeps a jut out of the
+				-- water's z band in the first place, and this is the belt to that pair of braces.
+				local fx = cx + side * (innerX - 4.2)
 				local wide = 34 - (tier - 1) * 5
 				local sheetH = p.rise + 9
 				local sheet = newPart({ Name = "FallSheet", Size = Vector3.new(4, sheetH, wide),
@@ -4410,6 +4731,33 @@ local function buildValleySide(model, zone, cx, side, p)
 					-- opposite quarter turns and both curtains face the middle
 					curtain:PivotTo(CFrame.new(fx - side * 1.5, foot + fit.Y / 2 - 3, fz)
 						* CFrame.Angles(0, side > 0 and math.rad(90) or math.rad(-90), 0))
+					-- ===== ...AND THEN PUSHED OFF THE ROCK (11.25) =====
+					--
+					-- `ScaleTo(math.max(byH, byW))` is deliberate and stays -- it is what guarantees the
+					-- curtain covers the drop on BOTH axes -- but max means one axis is always oversized,
+					-- and after the quarter turn the axis that grows is the one pointing INTO the hill.
+					-- A 2.1x curtain is ~12 studs deep, so it was reaching several studs past `innerX`
+					-- and drawing through the terrace slab and the buttress behind it.
+					--
+					-- Measured rather than assumed: the true world extent along x is summed from each
+					-- part's own rotated box, and the whole model is slid outward until its innermost
+					-- face clears the jut. Sliding costs nothing -- a waterfall standing a stud or two
+					-- further out over the drop is indistinguishable -- where scaling to `min` would
+					-- leave a bare stripe of rock down one side of every fall in the game.
+					local reach = -math.huge
+					for _, part in ipairs(curtain:GetDescendants()) do
+						if part:IsA("BasePart") then
+							local pcf, ps = part.CFrame, part.Size
+							local hx = 0.5 * (math.abs(pcf.RightVector.X) * ps.X
+								+ math.abs(pcf.UpVector.X) * ps.Y
+								+ math.abs(pcf.LookVector.X) * ps.Z)
+							reach = math.max(reach, side * (pcf.Position.X - cx) + hx)
+						end
+					end
+					local limit = innerX - 2.4
+					if reach > limit then
+						curtain:PivotTo(curtain:GetPivot() - Vector3.new(side * (reach - limit), 0, 0))
+					end
 				end
 
 				-- and a churned splash where it lands, on the bottom step only -- that is where the
@@ -4533,7 +4881,7 @@ local function buildTerrain(model, zone, cx)
 	-- rise 26, not 16, for the reason given over TERRAIN_PROFILE: anything at or under the 21.6-stud
 	-- max-jump apex is a shelf you hop onto instead of climbing to, and a fallback is exactly the
 	-- case nobody re-measures.
-	local p = TERRAIN_PROFILE[zone.key] or { tiers = 3, rise = 26, water = false, falls = 0, rocks = 9, rockSize = { 14, 32 } }
+	local p = TERRAIN_PROFILE[zone.key] or TERRAIN_FALLBACK
 	for _, side in ipairs({ -1, 1 }) do
 		buildValleySide(model, zone, cx, side, p)
 	end
@@ -7887,7 +8235,10 @@ local ALWAYS_LOADED = {
 	-- Two more parts per zone per side; the cliff faces, rocks and water are NOT pinned, because
 	-- nothing stands on them.
 	TerraceTop = true,
-	CliffJut = true,
+	-- CliffJut was here and is NOT any more (11.23). It became non-colliding once it was measured
+	-- that TerraceTop's own front face is what actually walls the riser -- and a part nobody can
+	-- stand on has no business in a set whose whole purpose is "never let the floor vanish under
+	-- somebody". That is 1,568 parts, 45% of the shell, given back.
 	-- and the ramps that reach them, for exactly the same reason: a walkable surface that streams
 	-- out while a player is halfway up it drops them off the side of the hill, and it is the ONE
 	-- route onto a shelf. This is why the flight's collision is a single slab and its steps are
@@ -7916,7 +8267,14 @@ local ALWAYS_LOADED = {
 	LandmarkPlinth = true, LandmarkPlinthStep = true,
 	GuardianPlinth = true,
 	PoolRim = true, PoolBed = true,
-	Mound = true,               -- 3,460-stud footprint of walkable hillock
+	-- 3,460-stud footprint of walkable hillock -- and the nineteen names below are the SAME PROP.
+	-- `addMounds` defaults to "Mound" and every biome but Forest renames it, which is the whole of
+	-- 11.21: this entry and the SOLID_PROPS one both matched one zone out of twenty.
+	Mound = true,
+	Sandbar = true, AshMound = true, RegolithMound = true, DustRidge = true,
+	StardustDrift = true, CollapsedRidge = true, VoidMound = true, DustBank = true,
+	WarpSwell = true, FieldSwell = true, SandDrift = true, BlastBerm = true,
+	CloudBank = true, PolishedSwell = true, AshSwell = true, DrawnSwell = true, WhiteSwell = true,
 	StallDeck = true, StallCounter = true, StallStep = true,
 	RuinPillarBase = true,
 	-- these two belong to zones Forest does not have, and are the same case as the terrace ramp:
@@ -8115,6 +8473,7 @@ end
 
 function ZoneBuilder.Build()
 	applyDistanceFog()
+	table.clear(SOLID_SEEN)
 
 	local zonesFolder = workspace:FindFirstChild("Zones")
 
@@ -8240,19 +8599,27 @@ function ZoneBuilder.Build()
 			-- extra rock clusters scattered inward from the edges so the walkable area
 			-- itself feels like an irregular clearing among rocks, not a clean rectangle
 			if cliffTemplate then
-				for i = 1, 16 do
+				for _ = 1, 16 do
 					local edge = math.random(1, 4)
 					local rx, rz
 					if edge <= 2 then
 						-- off the centre line, like everything else: this row runs along the Z walls,
 						-- which is exactly where a gate opens at one end and the walk out of it begins
-						-- at the other
+						-- at the other. |x| stays under 200, so this branch is on the valley floor and
+						-- never in the terrace band.
 						rx = cx + (math.random(1, 2) == 1 and -1 or 1) * math.random(STREET_HALF + 12, 200)
 						local zSign = edge == 1 and -1 or 1
 						rz = zSign * (PLATFORM_DEPTH / 2 - math.random(15, 65))
 					else
+						-- ===== "INWARD FROM THE EDGES" MEANS THE EDGE OF THE PLAYABLE GROUND (11.23) =====
+						--
+						-- This was written when a zone was a flat slab to the wall, and it still said so:
+						-- `PLATFORM_WIDTH / 2 - random(15, 55)` puts a 40-stud rock mesh at |dx| 570..610,
+						-- which is the third terrace up. Eight of them were measured intersecting a
+						-- TerraceTop, six of those buried whole. The walkable edge has been TERRAIN_INNER
+						-- since the terraces went in, so that is where the clearing's rim now is.
 						local xSign = edge == 3 and -1 or 1
-						rx = cx + xSign * (PLATFORM_WIDTH / 2 - math.random(15, 55))
+						rx = cx + xSign * math.random(TERRAIN_INNER - 55, TERRAIN_INNER - 18)
 						rz = (math.random(1, 2) == 1) and math.random(80, 320) or math.random(-320, -80)
 					end
 					local rock = cliffTemplate:Clone()
@@ -8261,6 +8628,18 @@ function ZoneBuilder.Build()
 					local geom = rock:FindFirstChild("body") and rock.body:FindFirstChild("body_geom")
 					local halfHeight = (geom and geom.Size.Y / 2 or 65) * scale
 					rock:PivotTo(CFrame.new(rx, halfHeight - 3, rz) * CFrame.Angles(0, math.random() * math.pi * 2, 0))
+					-- EVERY OTHER :Clone() IN THIS FILE DOES THIS AND THIS ONE NEVER DID. Generated
+					-- meshes arrive unanchored and colliding: unanchored is a rock that falls through the
+					-- world on the first physics step (the loose-part sweep at the end of Build catches
+					-- it, which is why nobody noticed), and colliding is a mesh whose collision box is
+					-- not its silhouette standing where players walk. Scenery, like every other cliff
+					-- mesh in the file.
+					for _, part in ipairs(rock:GetDescendants()) do
+						if part:IsA("BasePart") then
+							part.Anchored = true
+							part.CanCollide = false
+						end
+					end
 					rock.Parent = model
 				end
 			end
@@ -8460,6 +8839,7 @@ function ZoneBuilder.Build()
 	end
 
 	keepShellLoaded(zonesFolder)
+	auditSolidProps()
 end
 
 -- Where a player lands when they enter `zoneKey`, and which way they are turned: ALWAYS at the +Z

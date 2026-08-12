@@ -2698,6 +2698,32 @@ end
 -- whether it is worth waiting, so it says either how long is left or that the fight is on.
 local function driveCountdown()
 	local boss = GameConfig.EventBoss
+	local live = eventState.model ~= nil and eventState.model.Parent ~= nil
+	local hp = live and (eventState.model:GetAttribute("Health") or 0) or 0
+	local left = math.max(eventState.nextSpawn - os.clock(), 0)
+
+	-- ===== PUBLISHED TO EVERY CLIENT, NOT JUST TO THE BOARD (11.20) =====
+	--
+	-- The board hangs over the arena entrance, so the only player it can inform is one who has
+	-- already walked to the arena -- which is backwards: the countdown exists to make somebody
+	-- decide to GO. Attributes on ReplicatedStorage rather than a remote, the same no-request trick
+	-- 5.7's GlobalStats and 7.1's LiveEvents use: a client that joins late reads the current value
+	-- for free and there is no handler to answer.
+	--
+	-- SECONDS REMAINING, NOT A TIMESTAMP, and that is what makes it immune to the clock problem 7.1
+	-- had to solve with SetEventClock. `eventState.nextSpawn` is `os.clock()`, which is monotonic
+	-- time since THIS server process started and is meaningless on any other machine; publishing it
+	-- raw would have every client counting down to a moment in its own past. A remainder is the same
+	-- number everywhere. It is republished every second, which is exactly the granularity of the
+	-- mm:ss the HUD draws, so the client never has to interpolate.
+	--
+	-- BEFORE the board lookup below, deliberately. That lookup returns early when the arena has not
+	-- been built yet -- and a HUD strip that silently never appears because a sign is missing in
+	-- another zone is precisely the class of failure this row is fixing.
+	RS:SetAttribute("ArenaBossLive", live)
+	RS:SetAttribute("ArenaBossHealth", live and hp or 0)
+	RS:SetAttribute("ArenaBossSeconds", live and 0 or math.floor(left))
+
 	local label
 	for _, anchor in ipairs(CollectionService:GetTagged("ArenaCountdown")) do
 		local board = anchor:FindFirstChild("CountdownBoard")
@@ -2705,11 +2731,10 @@ local function driveCountdown()
 	end
 	if not label then return end
 
-	if eventState.model and eventState.model.Parent then
-		local hp = eventState.model:GetAttribute("Health") or 0
+	-- the board says the same thing the HUD does, off the same three values, so the two cannot drift
+	if live then
 		label.Text = ("%s %s  \u{2764}\u{FE0F} %s"):format(boss.emoji, boss.name:upper(), formatNumber(hp))
 	else
-		local left = math.max(eventState.nextSpawn - os.clock(), 0)
 		label.Text = ("\u{2694}\u{FE0F} NEXT BOSS IN  %d:%02d"):format(left // 60, left % 60)
 	end
 end

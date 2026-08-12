@@ -330,8 +330,14 @@ local function play(payload)
 end
 
 -- ============================================================================
--- x10 (Phase 10.4)
+-- x10 IN THE WORLD (Phase 10.4) -- NOW THE FALLBACK ONLY
 -- ============================================================================
+--
+-- 11.19 moved the x10 to the screen (`screenRevealBulk`, at the bottom of this file). Everything
+-- below runs only when the screen cannot be had: a reveal is already up, or there is no PlayerGui
+-- yet. That is the same relationship `play` has with `screenReveal`. Do not add to the grid here --
+-- it is the degraded path, and its cards are unreadable from more than a few studs away by design
+-- of BillboardGui itself.
 --
 -- TEN OF THE SEQUENCE ABOVE IS NOT THE ANSWER. Back to back it is ~35 seconds of theatre for one
 -- button press, and run at once they fight over the same egg: `busy` would drop nine of them and the
@@ -546,62 +552,35 @@ end
 --      hard auto-open timeout, so the click is an invitation and never a requirement.
 local screenBusy = false
 
--- An egg is a sphere that is taller than it is wide, and Shape = Ball would silently draw it as a
--- sphere of its SMALLEST axis -- so this is a Block carrying a SpecialMesh, which is the one way to
--- get a non-uniform ellipsoid in Roblox. Same rule the world eggs are built under.
-local function buildEggFigure(color)
-	local model = Instance.new("Model")
-	model.Name = "RevealEgg"
+-- ============================================================================
+-- THE SHELL, BUILT ONCE AND SHARED BY BOTH REVEALS
+-- ============================================================================
+-- A single hatch and a x10 are the same event at two scales, so they are the same shell: the dim,
+-- the 20-unit blur, the 0.52 x 0.72 RelativeYY stage, the Back-eased pop from 0.2, the ray fan, the
+-- ambient-210 / FOV-30 viewport, the caption pair and the full-screen tap target. This is one
+-- function rather than two copies for a reason that is not tidiness: the moment they are two copies,
+-- one of them gets a tweak and the game has two different-looking "something big happened" cards.
+--
+-- IT ALSO OWNS `screenBusy`, AND THAT IS THE FIX 11.19 ASKED FOR. Taking the lock at construction
+-- means there is exactly one place that can raise it and exactly one place (`finish`) that can drop
+-- it, so a caller cannot forget -- which is precisely how the x10 used to come up over a live single
+-- hatch and let the first card's cleanup run against the second card's blur.
+--
+-- Returns nil when the lock is held or there is no PlayerGui yet, and a caller that gets nil is
+-- expected to fall back to the world sequence rather than to skip the hatch.
+local SHELL_MAX_LIFE = 16
 
-	local body = Instance.new("Part")
-	body.Name = "Shell"
-	body.Size = Vector3.new(3.1, 4.0, 3.1)
-	body.Color = color
-	body.Material = Enum.Material.SmoothPlastic
-	body.Anchored = true
-	body.CanCollide = false
-	body.CanQuery = false
-	body.CanTouch = false
-	body.CFrame = CFrame.new(0, 0, 0)
-	local mesh = Instance.new("SpecialMesh")
-	mesh.MeshType = Enum.MeshType.Sphere
-	mesh.Parent = body
-	body.Parent = model
-	model.PrimaryPart = body
-
-	-- two pale bands, so the egg reads as an egg and not as a coloured pill, and so the wiggle has
-	-- something on it the eye can track
-	for i, y in ipairs({ -0.75, 0.35 }) do
-		local band = Instance.new("Part")
-		band.Name = "Band" .. i
-		band.Size = Vector3.new(3.16, 0.62, 3.16)
-		band.Color = color:Lerp(Color3.new(1, 1, 1), 0.55)
-		band.Material = Enum.Material.SmoothPlastic
-		band.Anchored = true
-		band.CanCollide = false
-		band.CanQuery = false
-		band.CanTouch = false
-		band.CFrame = CFrame.new(0, y, 0)
-		local bm = Instance.new("SpecialMesh")
-		bm.MeshType = Enum.MeshType.Sphere
-		bm.Scale = Vector3.new(1, 0.34, 1)
-		bm.Parent = band
-		band.Parent = model
-	end
-
-	return model, body
-end
-
-local function screenReveal(payload, def, rarity)
-	if screenBusy then return false end
+local function buildScreenShell(color)
+	if screenBusy then return nil end
 	screenBusy = true
 
-	local Lighting = game:GetService("Lighting")
 	local playerGui = player:FindFirstChildOfClass("PlayerGui")
 	if not playerGui then
 		screenBusy = false
-		return false
+		return nil
 	end
+
+	local Lighting = game:GetService("Lighting")
 
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "HatchReveal"
@@ -614,8 +593,6 @@ local function screenReveal(payload, def, rarity)
 	local blur = Instance.new("BlurEffect")
 	blur.Size = 0
 	blur.Parent = Lighting
-
-	local color = rarity and rarity.color or UITheme.Color.Gold
 
 	local dim = Instance.new("Frame")
 	dim.Size = UDim2.fromScale(1, 1)
@@ -634,9 +611,9 @@ local function screenReveal(payload, def, rarity)
 	stage.ZIndex = 2
 	stage.Parent = gui
 
-	local scale = Instance.new("UIScale")
-	scale.Scale = 0.2
-	scale.Parent = stage
+	local uiScale = Instance.new("UIScale")
+	uiScale.Scale = 0.2
+	uiScale.Parent = stage
 
 	-- the ray fan, hidden until the shell actually gives -- it is the payoff, not the packaging
 	local burstFrame = Instance.new("Frame")
@@ -697,7 +674,7 @@ local function screenReveal(payload, def, rarity)
 	caption.Font = UITheme.Font.Display
 	caption.TextScaled = true
 	caption.TextColor3 = UITheme.Color.White
-	caption.Text = "Tap the egg!"
+	caption.Text = ""
 	caption.ZIndex = 4
 	caption.Parent = stage
 	local capStroke = Instance.new("UIStroke")
@@ -731,6 +708,126 @@ local function screenReveal(payload, def, rarity)
 	hit.ZIndex = 5
 	hit.Parent = gui
 
+	local conns = {}
+
+	local shell = {
+		gui = gui,
+		blur = blur,
+		stage = stage,
+		burstFrame = burstFrame,
+		vp = vp,
+		cam = cam,
+		caption = caption,
+		sub = sub,
+		hit = hit,
+		done = false,
+	}
+
+	-- Every per-frame loop a caller opens is handed back here, so `finish` is the ONE place that has
+	-- to remember to disconnect. A RenderStepped handler that outlives its ViewportFrame is a leak
+	-- that keeps running for the rest of the session.
+	function shell.track(conn)
+		table.insert(conns, conn)
+		return conn
+	end
+
+	-- Safe to call twice, from a click, from a timer, from an error path. `done` is per-shell rather
+	-- than a shared flag on purpose: a late timer belonging to a reveal that already closed must not
+	-- be able to tear down the reveal that replaced it.
+	function shell.finish()
+		if shell.done then return end
+		shell.done = true
+		for _, c in ipairs(conns) do
+			if c.Connected then c:Disconnect() end
+		end
+		TweenService:Create(blur, TweenInfo.new(0.25), { Size = 0 }):Play()
+		TweenService:Create(dim, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
+		TweenService:Create(uiScale, TweenInfo.new(0.2), { Scale = 0.2 }):Play()
+		task.delay(0.3, function()
+			gui:Destroy()
+			blur:Destroy()
+			screenBusy = false
+		end)
+	end
+
+	function shell.open()
+		blur.Enabled = true
+		TweenService:Create(blur, TweenInfo.new(0.3), { Size = 20 }):Play()
+		TweenService:Create(dim, TweenInfo.new(0.28), { BackgroundTransparency = 0.4 }):Play()
+		TweenService:Create(uiScale, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+			{ Scale = 1 }):Play()
+		SoundLibrary.Play("click", nil, { volume = 0.4 })
+	end
+
+	-- THE LAST LINE OF DEFENCE FOR THE BLUR. Every sequence below already ends on a timer, and the
+	-- auto-open below that guarantees the sequence starts -- but both of those live inside code that
+	-- can be edited. This one does not depend on any of it: whatever happens, the blur and the lock
+	-- are gone by SHELL_MAX_LIFE. A stranded blur is a game the player cannot un-blur without
+	-- rejoining, which makes an unconditional deadline worth one line.
+	task.delay(SHELL_MAX_LIFE, shell.finish)
+
+	return shell
+end
+
+-- An egg is a sphere that is taller than it is wide, and Shape = Ball would silently draw it as a
+-- sphere of its SMALLEST axis -- so this is a Block carrying a SpecialMesh, which is the one way to
+-- get a non-uniform ellipsoid in Roblox. Same rule the world eggs are built under.
+--
+-- `scale` exists for the x10, where ten of these share one stage and the hero slot is built larger
+-- than the nine around it. It defaults to 1, so the single reveal gets the egg it always had.
+local function buildEggFigure(color, scale)
+	scale = scale or 1
+	local model = Instance.new("Model")
+	model.Name = "RevealEgg"
+
+	local body = Instance.new("Part")
+	body.Name = "Shell"
+	body.Size = Vector3.new(3.1, 4.0, 3.1) * scale
+	body.Color = color
+	body.Material = Enum.Material.SmoothPlastic
+	body.Anchored = true
+	body.CanCollide = false
+	body.CanQuery = false
+	body.CanTouch = false
+	body.CFrame = CFrame.new(0, 0, 0)
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.Sphere
+	mesh.Parent = body
+	body.Parent = model
+	model.PrimaryPart = body
+
+	-- two pale bands, so the egg reads as an egg and not as a coloured pill, and so the wiggle has
+	-- something on it the eye can track
+	for i, y in ipairs({ -0.75, 0.35 }) do
+		local band = Instance.new("Part")
+		band.Name = "Band" .. i
+		band.Size = Vector3.new(3.16, 0.62, 3.16) * scale
+		band.Color = color:Lerp(Color3.new(1, 1, 1), 0.55)
+		band.Material = Enum.Material.SmoothPlastic
+		band.Anchored = true
+		band.CanCollide = false
+		band.CanQuery = false
+		band.CanTouch = false
+		band.CFrame = CFrame.new(0, y * scale, 0)
+		local bm = Instance.new("SpecialMesh")
+		bm.MeshType = Enum.MeshType.Sphere
+		bm.Scale = Vector3.new(1, 0.34, 1)
+		bm.Parent = band
+		band.Parent = model
+	end
+
+	return model, body
+end
+
+local function screenReveal(payload, def, rarity)
+	local color = rarity and rarity.color or UITheme.Color.Gold
+	local shell = buildScreenShell(color)
+	if not shell then return false end
+
+	local vp, cam = shell.vp, shell.cam
+	local burstFrame, caption, sub = shell.burstFrame, shell.caption, shell.sub
+	caption.Text = "Tap the egg!"
+
 	local eggModel, eggBody = buildEggFigure(color)
 	eggModel.Parent = vp
 
@@ -743,11 +840,10 @@ local function screenReveal(payload, def, rarity)
 
 	local focus, dist, reach = frameOn(eggModel)
 
-	local done = false
 	local spin = 0
 	local wobble = 0
 	local conn
-	conn = RunService.RenderStepped:Connect(function(dt)
+	conn = shell.track(RunService.RenderStepped:Connect(function(dt)
 		if not vp.Parent then
 			conn:Disconnect()
 			return
@@ -762,35 +858,17 @@ local function screenReveal(payload, def, rarity)
 		if wobble > 0 and eggBody and eggBody.Parent then
 			eggBody.CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(0, 0, math.sin(os.clock() * 26) * wobble)
 		end
-	end)
+	end))
 
-	local function finish()
-		if done then return end
-		done = true
-		if conn then conn:Disconnect() end
-		TweenService:Create(blur, TweenInfo.new(0.25), { Size = 0 }):Play()
-		TweenService:Create(dim, TweenInfo.new(0.25), { BackgroundTransparency = 1 }):Play()
-		TweenService:Create(scale, TweenInfo.new(0.2), { Scale = 0.2 }):Play()
-		task.delay(0.3, function()
-			gui:Destroy()
-			blur:Destroy()
-			screenBusy = false
-		end)
-	end
+	local finish = shell.finish
 
-	-- open
-	blur.Enabled = true
-	TweenService:Create(blur, TweenInfo.new(0.3), { Size = 20 }):Play()
-	TweenService:Create(dim, TweenInfo.new(0.28), { BackgroundTransparency = 0.4 }):Play()
-	TweenService:Create(scale, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-		{ Scale = 1 }):Play()
-	SoundLibrary.Play("click", nil, { volume = 0.4 })
+	shell.open()
 
 	local opened = false
 	local function openEgg()
-		if opened or done then return end
+		if opened or shell.done then return end
 		opened = true
-		hit.Active = false
+		shell.hit.Active = false
 
 		local ok, err = pcall(function()
 			-- 1. THREE WIGGLES, counted rather than timed, because "three" is what was asked for and
@@ -845,7 +923,7 @@ local function screenReveal(payload, def, rarity)
 		task.delay(2.4, finish)
 	end
 
-	hit.MouseButton1Click:Connect(function()
+	shell.hit.MouseButton1Click:Connect(function()
 		if opened then
 			finish()   -- a second press dismisses; nobody should have to wait out theatre twice
 		else
@@ -856,7 +934,267 @@ local function screenReveal(payload, def, rarity)
 	-- THE CLICK IS AN INVITATION, NEVER A REQUIREMENT. A player who tabs away, opens a menu or
 	-- simply does not realise the egg is tappable must not be left staring at a blurred screen.
 	task.delay(3.5, function()
-		if not done then openEgg() end
+		if not shell.done then openEgg() end
+	end)
+
+	return true
+end
+
+-- ============================================================================
+-- THE FULL-SCREEN x10 (Phase 11.19)
+-- ============================================================================
+--
+-- What this replaces: a 74x46 grid of emoji squares on a BillboardGui by the podium. A billboard
+-- shrinks with distance no matter how its size is authored -- offset units are not screen pixels and
+-- there is no constant-size mode -- so ten cards that measure 74 pixels at point blank are unreadable
+-- from anywhere a player actually stands. Ten pets is a screen event, so it moves to the screen, in
+-- the SAME shell the single hatch uses. The grid survives below as the fallback only.
+--
+-- THE LAYOUT IS A WREATH, NOT A GRID, AND THAT IS THE WHOLE DESIGN DECISION.
+--   * ONE ViewportFrame, ten egg models in it -- not ten small ViewportFrames. Ten viewports is ten
+--     scenes with ten cameras, and worse, it is ten framed thumbnails: the eye reads that as a
+--     receipt of what you were given. One scene means one camera move carries all ten together, and
+--     the eggs can occlude and part like objects, which is what makes it an event.
+--   * NINE ON AN ELLIPSE AROUND ONE IN THE MIDDLE. A 5x2 grid is 1.9 times wider than tall and the
+--     stage is 0.72 as wide as it is tall, so a grid frames to a strip across the middle with the
+--     eggs at a quarter of the size the ellipse gives them. The ellipse (rx 6.4, ry 8.2) is 0.78
+--     wide-to-tall, which is the stage's own shape, so it fills the frame.
+--   * THE HERO SLOT IS THE EMPHASIS, and it is structural rather than a second card: the best pull
+--     sits dead centre, in front, built 1.25x while the ring is 0.82x, inside the ray fan (which is
+--     centred on the same point), and it is the LAST to open. It gets the caption. There is no
+--     second full-screen reveal to sit through.
+--
+-- A ROCK, NOT AN ORBIT. The single hatch spins its camera all the way round because one egg looks
+-- the same from every angle. A ring does not: a quarter turn puts it edge-on and stacks ten eggs
+-- into a line. So the camera sways +-15 degrees instead -- enough parallax to say "these are
+-- objects", never enough to hide one behind another.
+local BULK_RX, BULK_RY = 6.4, 8.2
+local BULK_HERO_SCALE = 1.25
+local BULK_RING_SCALE = 0.82
+local BULK_RIPPLE = 0.07
+local BULK_SCREEN_HOLD = 3.0
+-- The stage is 0.52 x 0.72 of the viewport HEIGHT -- both axes, because of the RelativeYY
+-- constraint -- so the ViewportFrame inside it has this aspect on every screen there is. That is
+-- what lets the framing below solve for width as well as height instead of guessing a distance.
+local VP_ASPECT = 0.52 / 0.72
+
+-- Slot 1 is the hero. `f` shrinks the ring when the server delivered fewer than ten (it can: the
+-- batch stops when the DNA runs out) so four eggs do not sit on a ten-egg circle.
+local function bulkSlots(n)
+	local slots = { { cf = CFrame.new(0, 0, 3.4), scale = BULK_HERO_SCALE } }
+	local ring = n - 1
+	if ring > 0 then
+		local f = math.clamp(ring / 9, 0.7, 1)
+		for i = 1, ring do
+			local a = math.pi / 2 + (i - 1) * (math.pi * 2 / ring)
+			slots[i + 1] = {
+				cf = CFrame.new(math.cos(a) * BULK_RX * f, math.sin(a) * BULK_RY * f, -1.6),
+				scale = BULK_RING_SCALE,
+			}
+		end
+	end
+	return slots
+end
+
+-- Framed off the cluster's own bounding box, and against BOTH axes. A Camera's FieldOfView is the
+-- VERTICAL angle, so a layout that is wide for its height -- which this one is, at the edges -- is
+-- cropped left and right by a distance solved from height alone. The half-depth is added on so the
+-- hero egg, which sits 3.4 studs nearer the lens than the ring, is not pushed through the near plane.
+local function frameCluster(model, cam)
+	local cf, size = model:GetBoundingBox()
+	local halfTan = math.tan(math.rad(cam.FieldOfView / 2))
+	local dist = math.max((size.Y / 2) / halfTan, (size.X / 2) / (halfTan * VP_ASPECT)) * 1.12
+	return cf.Position, dist + size.Z / 2
+end
+
+local function screenRevealBulk(payload)
+	local pets = payload.pets
+	if type(pets) ~= "table" or #pets == 0 then return false end
+
+	-- `payload.best` ARRIVES AS A COPY, not as one of the entries in `pets`. The server sets
+	-- `best = rolled[k]` -- the same table twice -- but a RemoteEvent does not preserve a shared
+	-- reference across a payload, it serialises it twice. So the hero is found by value; matching by
+	-- identity would silently never match and hand the wreath eleven pets for ten eggs.
+	local best = payload.best
+	local heroIndex = 1
+	if type(best) == "table" then
+		for i, e in ipairs(pets) do
+			if e.key == best.key and e.rarity == best.rarity then
+				heroIndex = i
+				break
+			end
+		end
+	end
+	best = pets[heroIndex]
+	local bestRarity = GameConfig.GetRarity(best.rarity)
+
+	local shell = buildScreenShell(bestRarity.color)
+	if not shell then return false end
+
+	-- hero first, then the rest in the order they were rolled
+	local order = { best }
+	for i, e in ipairs(pets) do
+		if i ~= heroIndex then table.insert(order, e) end
+	end
+
+	local vp, cam = shell.vp, shell.cam
+	local slots = bulkSlots(#order)
+
+	-- One Model holding all ten, so the framing below can be taken from a real bounding box rather
+	-- than from the radii it was written against -- move the ellipse and the camera follows.
+	local cluster = Instance.new("Model")
+	cluster.Name = "BulkEggs"
+
+	local eggs = {}
+	for i, entry in ipairs(order) do
+		local slot = slots[i]
+		local rarity = GameConfig.GetRarity(entry.rarity)
+		local model = buildEggFigure(rarity.color, slot.scale)
+		-- the probe hook: ten of these is the row's "10 figures drawn", and an attribute is
+		-- countable from outside without depending on what anything was named
+		model:SetAttribute("BulkSlot", i)
+		model:PivotTo(slot.cf)
+		model.Parent = cluster
+		eggs[i] = { model = model, slot = slot, entry = entry, rarity = rarity }
+	end
+	cluster.Parent = vp
+
+	local focus, dist = frameCluster(cluster, cam)
+
+	shell.caption.Text = ("Tap to open all %d!"):format(#order)
+
+	local t0 = os.clock()
+	local wobble = 0
+	local conn
+	conn = shell.track(RunService.RenderStepped:Connect(function()
+		if not vp.Parent then
+			conn:Disconnect()
+			return
+		end
+		local t = os.clock() - t0
+		cam.CFrame = CFrame.lookAt(
+			(CFrame.new(focus) * CFrame.Angles(0, math.sin(t * 0.55) * math.rad(15), 0)
+				* CFrame.new(0, 0, dist)).Position,
+			focus)
+		if shell.burstFrame.Visible then
+			shell.burstFrame.Rotation = -t * 9
+		end
+		if wobble > 0 then
+			-- PivotTo, not a write to the shell part: the two bands are separate anchored parts, so
+			-- rotating only the body would tilt the egg inside its own stripes. A small per-egg phase
+			-- offset keeps ten identical wobbles from reading as one mechanical object.
+			for i, egg in ipairs(eggs) do
+				if egg.model.Parent then
+					egg.model:PivotTo(egg.slot.cf * CFrame.Angles(0, 0, math.sin(t * 26 + i * 0.35) * wobble))
+				end
+			end
+		end
+	end))
+
+	shell.open()
+
+	local opened = false
+	local function openAll()
+		if opened or shell.done then return end
+		opened = true
+		shell.hit.Active = false
+
+		local ok, err = pcall(function()
+			-- 1. ALL TEN SHAKE AT ONCE -- three builds, the same count and rhythm as one egg, because
+			-- this is the same event and not a different one.
+			shell.caption.Text = "..."
+			for i = 1, 3 do
+				if shell.done then return end
+				wobble = math.rad(7 + i * 3)
+				SoundLibrary.Play("hit", nil, { speed = 1.3 + i * 0.15, volume = 0.3 })
+				task.wait(0.26)
+			end
+			wobble = 0
+			for _, egg in ipairs(eggs) do
+				if egg.model.Parent then egg.model:PivotTo(egg.slot.cf) end
+			end
+			task.wait(0.1)
+
+			-- 2. THE RIPPLE. Ten shells giving in one frame is a single flash nobody can read; 70ms
+			-- apart is still "at once" to the eye but it sweeps the ring, and the HERO IS LAST so the
+			-- batch lands on its headline instead of opening with it and then listing nine also-rans.
+			shell.burstFrame.Visible = true
+			local openOrder = {}
+			for i = 2, #eggs do table.insert(openOrder, i) end
+			table.insert(openOrder, 1)
+
+			for step, i in ipairs(openOrder) do
+				-- A SECOND TAP CAN LAND MID-RIPPLE and `finish` destroys the ScreenGui 0.3s later.
+				-- Destroy() locks the Parent property of everything under it, so the next
+				-- `model.Parent = vp` would throw -- caught by the pcall, but as a warning per pet.
+				if shell.done then return end
+				local egg = eggs[i]
+				egg.model:Destroy()
+
+				-- Built one per ripple step rather than ten up front, and that is not a nicety: ten
+				-- PetModel.Build calls in one frame is ~200 parts created between two renders, which
+				-- is a visible hitch at exactly the moment the player is looking. Spread over the
+				-- ripple it costs nothing.
+				local def = egg.entry.key and GameConfig.GetPetDef(egg.entry.key)
+				if def then
+					local model, body, pieces = PetModel.Build(def, egg.entry.tier or "Normal",
+						{ scale = egg.slot.scale })
+					for _, d in ipairs(model:GetDescendants()) do
+						if d:IsA("BasePart") then
+							d.Anchored = true
+							d.CanCollide = false
+							d.CanQuery = false
+							d.CanTouch = false
+							d.CastShadow = false
+						elseif d:IsA("BillboardGui") then
+							-- a ViewportFrame renders no GUIs at all; the nameplate is dead weight here
+							d:Destroy()
+						end
+					end
+					model:SetAttribute("BulkSlot", i)
+					-- TURNED AROUND AND DROPPED. A rig's root is its BODY and its face is on -Z, while
+					-- the camera sits on +Z looking back -- placed at the slot unrotated, every pet
+					-- would show the player its tail. The drop is because the root is not the rig's
+					-- centre either: the head is a stud and a half above it, so a pet placed at the
+					-- egg's middle stands with its feet where the egg's middle was.
+					PetModel.Place(body, pieces,
+						egg.slot.cf * CFrame.new(0, -0.65 * egg.slot.scale, 0) * CFrame.Angles(0, math.pi, 0))
+					model.Parent = vp
+				end
+
+				SoundLibrary.Play("hit", nil, { speed = 1.15 + step * 0.06, volume = 0.14 })
+				-- the hero and any beacon-rarity pull get the real hatch sting on top of the tick, so
+				-- a good roll is still an event inside a batch rather than one square among ten
+				if i == 1 or GameConfig.IsBeaconRarity(egg.rarity.name) then
+					SoundLibrary.PlayHatch(egg.rarity.name)
+				end
+				task.wait(BULK_RIPPLE)
+			end
+
+			shell.caption.Text = (best.emoji or "\u{1F423}") .. " " .. (best.name or "?")
+			shell.caption.TextColor3 = bestRarity.color
+			shell.sub.Text = ("%s  -  %d hatched"):format(bestRarity.name, #order)
+		end)
+		if not ok then
+			warn("[HatchReveal] bulk screen reveal failed: " .. tostring(err))
+		end
+
+		-- handed back only now, so a double tap on the way in cannot dismiss the ripple it started
+		shell.hit.Active = true
+		task.delay(BULK_SCREEN_HOLD, shell.finish)
+	end
+
+	shell.hit.MouseButton1Click:Connect(function()
+		if opened then
+			shell.finish()
+		else
+			openAll()
+		end
+	end)
+
+	-- the same invitation, never a requirement -- see the note on the single reveal's timeout
+	task.delay(3.5, function()
+		if not shell.done then openAll() end
 	end)
 
 	return true
@@ -875,6 +1213,17 @@ Remotes:WaitForChild("Notify").OnClientEvent:Connect(function(payload)
 		end
 		task.spawn(play, payload)
 	elseif payload.kind == "petBulk" then
+		-- THE SAME RULE, AND THIS IS THE 11.19 FIX. `playBulk` never consulted `screenBusy`: a batch
+		-- landing while a single reveal was up ran its own theatre alongside it, and whichever
+		-- finished first tore down a blur the other one was still using. It now goes through the same
+		-- lock as the single hatch, and when it cannot get the lock the world sequence -- one shake,
+		-- one burst, the billboard grid -- is the fallback, exactly as `play` is for a single.
+		-- (`payload.auto` is never set on a batch today: a x10 is always a button somebody pressed.
+		-- It is checked anyway so that an automated batch would degrade the same way an Auto Hatch
+		-- does rather than seizing the screen.)
+		if not payload.auto and screenRevealBulk(payload) then
+			return
+		end
 		task.spawn(playBulk, payload)
 	end
 end)

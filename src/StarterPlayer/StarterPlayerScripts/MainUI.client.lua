@@ -163,7 +163,16 @@ local function liftChildren(inst)
 	local baseZ = inst.ZIndex
 	local function lift(child)
 		if not child:IsA("GuiObject") then return end
-		if child.Name == "Gloss" or child.Name == "Shadow" then return end
+		-- `IconShadow` joined this list in 11.15, and it was a real bug rather than a tidy-up.
+		-- `iconSlot` draws an icon's hard shadow as a SIBLING one ZIndex below the icon (it has to
+		-- be a sibling: under ZIndexBehavior.Sibling a child always draws above its parent). That
+		-- puts it at `target - 1`, so this function lifted it to exactly `target` -- level with the
+		-- icon it is shadowing -- and a tie under Sibling is broken by tree order, where the shadow
+		-- is the LATER child. So the dark silhouette was drawn ON TOP of the drawing, offset a few
+		-- pixels down-right at 55% transparency: a muddy edge on every icon sitting inside a
+		-- styleCard surface. Skipped by name here rather than fixed at the call sites, because it is
+		-- one bug with one cause and the toast chip is only the newest of the places it reaches.
+		if child.Name == "Gloss" or child.Name == "Shadow" or child.Name == "IconShadow" then return end
 		local target = baseZ + UITheme.Z.Content
 		if child.ZIndex >= target then return end
 		local delta = target - child.ZIndex
@@ -923,7 +932,11 @@ local TILE_START_Y = 100 -- clears the topbar inset and the stage card above it
 -- EIGHT. The Audio tile (Phase 4.6) took the one empty slot in the grid -- order 8, bottom-right,
 -- beside the lone order 7 that this comment used to describe. `rows` is ceil(COUNT / COLS), which is
 -- 4 either way, so nothing that was already on screen moved by a pixel.
-local RIGHT_COUNT = 9
+-- ...and back to EIGHT (11.18). The ninth was Eggs, and it is gone: the egg panel is opened by the
+-- prompt on the podium now, which is the only place that knows WHICH egg you are looking at. `rows`
+-- is ceil(COUNT / COLS) = 4 at both 8 and 9, so the column's shape is unchanged -- what disappears
+-- is the lone ninth tile that was sitting on a row of its own.
+local RIGHT_COUNT = 8
 local RIGHT_COLS = 2
 local RIGHT_BOTTOM_Y = 46
 local PANEL_ANCHOR = UDim2.new(0.5, 0, 0.5, 0)
@@ -1199,26 +1212,29 @@ UITheme.PanelHeader(masteryPanel, {
 	maxTextSize = 30,
 })
 
--- running total, so the player can see what the whole collection is currently worth without
--- adding up twenty rows themselves
-local masterySummaryCard = Instance.new("Frame")
-masterySummaryCard.Name = "SummaryCard"
--- 18/36 -> 16/32: the side margin on this panel was 18 on the title and summary and 14 on the
--- scroll below, which is the "even margins" half of 11.13. Everything here is 16 now.
-masterySummaryCard.Size = UDim2.new(1, -32, 0, 40)
-masterySummaryCard.Position = UDim2.new(0, 16, 0, 94)
-masterySummaryCard.Parent = masteryPanel
-styleCard(masterySummaryCard, UITheme.Color.Gold, UDim.new(0, 12), 3)
-
-local masterySummaryLabel = Instance.new("TextLabel")
-masterySummaryLabel.Name = "SummaryLabel"
-masterySummaryLabel.Size = UDim2.new(1, -24, 1, -8)
-masterySummaryLabel.Position = UDim2.new(0, 12, 0, 2)
-masterySummaryLabel.BackgroundTransparency = 1
-masterySummaryLabel.TextXAlignment = Enum.TextXAlignment.Left
-masterySummaryLabel.Text = "0 / " .. #GameConfig.Stages .. " mastered"
-masterySummaryLabel.Parent = masterySummaryCard
-themeLabel(masterySummaryLabel, 20)
+-- Running total, so the player can see what the whole collection is currently worth without
+-- adding up twenty rows themselves -- AND HOW FAR ALONG IT IS (11.16).
+--
+-- It was a flat gold card carrying "7/20 mastered — +21% Power, ...". The words were already
+-- right; what a card cannot do is answer "how much of this is left" without the reader doing the
+-- division. This is the one place in the panel where twenty rows collapse into a single ratio, so
+-- it is the one place a bar belongs -- a bar per ROW would be a two-state bar, which is a tick box
+-- drawn the long way.
+--
+-- Same size, same position, same colour, same text: the card became the bar's background rather
+-- than being replaced by one, so nothing below it moved. 18/36 -> 16/32 on the margins was 11.13's
+-- "even margins" half and still holds.
+local masterySummaryFill, masterySummaryLabel = select(2, UITheme.ProgressBar(masteryPanel, {
+	name = "SummaryCard",
+	size = UDim2.new(1, -32, 0, 40),
+	position = UDim2.new(0, 16, 0, 94),
+	color = UITheme.Color.Gold,
+	radius = UDim.new(0, 12),
+	thickness = 3,
+	text = "0 / " .. #GameConfig.Stages .. " mastered",
+	maxTextSize = 20,
+	zIndex = masteryPanel.ZIndex + UITheme.Z.Content,
+}))
 
 local masteryScroll = Instance.new("ScrollingFrame")
 masteryScroll.Name = "MasteryScroll"
@@ -1297,6 +1313,9 @@ local function refreshMasteryPanel()
 		bonus.owned, #GameConfig.Stages,
 		math.floor((bonus.damageMult - 1) * 100 + 0.5), bonus.walkSpeed,
 		math.floor((bonus.healthMult - 1) * 100 + 0.5))
+	-- the same ratio the words state, drawn (11.16). Written as a Scale so it stays correct when the
+	-- responsive UIScale shrinks the panel -- an offset width here would be right on one screen only.
+	masterySummaryFill.Size = UDim2.new(bonus.owned / math.max(1, #GameConfig.Stages), 0, 1, 0)
 
 	local anyAffordable = false
 
@@ -1648,6 +1667,72 @@ local hudRefs = {}
 		end
 	end
 
+	-- ============================================================================
+	-- THE ARENA BOSS CLOCK (11.20)
+	-- ============================================================================
+	-- Same argument the event card above makes, and it applies harder here: the countdown already
+	-- existed, on a board hanging over the arena entrance, where the only player who can read it is
+	-- one who has already decided to go. A timer whose job is to MAKE somebody go has to be where
+	-- they are.
+	--
+	-- It joins this strip rather than becoming a new HUD element, and that is the whole reason it is
+	-- cheap: the strip is already a budgeted, bottom-aligned, drop-lowest-first stack (see 10.17
+	-- below), so a fifth card inherits the phone-viewport behaviour, the tile-column clearance and
+	-- the ordering without a line of new layout.
+	--
+	-- Fed by ReplicatedStorage attributes BossService republishes every second -- no remote, nothing
+	-- to request, and a client that joins mid-interval reads the current value on its first tick.
+	local arenaCard = Instance.new("Frame")
+	arenaCard.Name = "ArenaBoss"
+	arenaCard.Size = UDim2.new(0, 244, 0, 48)
+	arenaCard.LayoutOrder = -2                -- above the event card (-1), which is above the chips (0)
+	arenaCard.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
+	arenaCard.Visible = false
+	arenaCard.ZIndex = UITheme.Z.Content + 1
+	arenaCard.Parent = stack
+	styleCard(arenaCard, UITheme.Color.Red, UDim.new(0, 12), 3)
+
+	local arenaBadge = Instance.new("TextLabel")
+	arenaBadge.Name = "Badge"
+	arenaBadge.Size = UDim2.new(0, 36, 0, 36)
+	arenaBadge.Position = UDim2.new(0, 6, 0, 6)
+	arenaBadge.BackgroundColor3 = UITheme.Color.Red
+	arenaBadge.Text = GameConfig.EventBoss.emoji
+	arenaBadge.ZIndex = arenaCard.ZIndex + 1
+	arenaBadge.Parent = arenaCard
+	corner(arenaBadge, UDim.new(0.5, 0))
+	themeLabel(arenaBadge, 20)
+
+	local arenaName = Instance.new("TextLabel")
+	arenaName.Name = "ArenaName"
+	arenaName.Size = UDim2.new(1, -132, 0, 20)
+	arenaName.Position = UDim2.new(0, 50, 0, 4)
+	arenaName.BackgroundTransparency = 1
+	arenaName.TextXAlignment = Enum.TextXAlignment.Left
+	arenaName.ZIndex = arenaCard.ZIndex + 1
+	arenaName.Parent = arenaCard
+	themeLabel(arenaName, 17)
+
+	local arenaClock = Instance.new("TextLabel")
+	arenaClock.Name = "Clock"
+	arenaClock.Size = UDim2.new(0, 76, 0, 20)
+	arenaClock.Position = UDim2.new(1, -82, 0, 4)
+	arenaClock.BackgroundTransparency = 1
+	arenaClock.TextXAlignment = Enum.TextXAlignment.Right
+	arenaClock.ZIndex = arenaCard.ZIndex + 1
+	arenaClock.Parent = arenaCard
+	themeLabel(arenaClock, 17)
+
+	local arenaSub = Instance.new("TextLabel")
+	arenaSub.Name = "Sub"
+	arenaSub.Size = UDim2.new(1, -62, 0, 18)
+	arenaSub.Position = UDim2.new(0, 50, 1, -20)
+	arenaSub.BackgroundTransparency = 1
+	arenaSub.TextXAlignment = Enum.TextXAlignment.Left
+	arenaSub.ZIndex = arenaCard.ZIndex + 1
+	arenaSub.Parent = arenaCard
+	themeLabel(arenaSub, 15)
+
 	local eventCard = Instance.new("Frame")
 	eventCard.Name = "EventBoost"
 	eventCard.Size = UDim2.new(0, 244, 0, 48)
@@ -1785,6 +1870,29 @@ local hudRefs = {}
 				eventCard.Visible = false
 			end
 
+			-- The arena half (11.20). Read off the attributes rather than computed here: the interval,
+			-- the spawn and the boss's health all live on the server, and a client that did its own
+			-- arithmetic would drift from the board in the arena within one interval.
+			--
+			-- `nil` is a real state and is NOT zero -- it means BossService has not published yet
+			-- (the first second of a server, or a client that got here first). Drawing "0:00" for that
+			-- would announce a boss that is not coming, so the card simply stays hidden.
+			local arenaSecs = RS:GetAttribute("ArenaBossSeconds")
+			if arenaSecs == nil then
+				arenaCard.Visible = false
+			elseif RS:GetAttribute("ArenaBossLive") then
+				arenaCard.Visible = true
+				arenaName.Text = GameConfig.EventBoss.name
+				arenaClock.Text = "LIVE"
+				arenaSub.Text = ("\u{2764}\u{FE0F} %s  \u{2022}  in the Colosseum"):format(
+					formatNumber(RS:GetAttribute("ArenaBossHealth") or 0))
+			else
+				arenaCard.Visible = true
+				arenaName.Text = "Arena Boss"
+				arenaClock.Text = ("%d:%02d"):format(arenaSecs // 60, arenaSecs % 60)
+				arenaSub.Text = ("%s %s returns"):format(GameConfig.EventBoss.emoji, GameConfig.EventBoss.name)
+			end
+
 			-- ================================================================================
 			-- BOUNDED, AND OUT FROM UNDER THE BUTTONS (10.17)
 			-- ================================================================================
@@ -1844,8 +1952,11 @@ local hudRefs = {}
 				return total + math.max(n - 1, 0) * 6 <= budget
 			end
 			if not fits() then
-				-- longest remaining last, so the first potion dropped is the one with most time left
-				local order = { passCard, eventCard }
+				-- longest remaining last, so the first potion dropped is the one with most time left.
+				-- The arena card is dropped AFTER the pass chips and BEFORE the event card (11.20):
+				-- a pass is permanent and has nothing to miss, the arena boss returns every half hour
+				-- and is also announced on its own board, and a live event runs once a week.
+				local order = { passCard, arenaCard, eventCard }
 				local byTime = {}
 				for _, kind in ipairs(KINDS) do
 					local b = boosts and boosts[kind]
@@ -1916,8 +2027,92 @@ end)()
 		return btn
 	end
 
-	local equipBestButton = actionButton(1, "Equip Best Pets", UITheme.Color.Green)
-	local unequipAllButton = actionButton(2, "Unequip All Pets", UITheme.Color.Red)
+	-- 178 -> 146 each, which is what buys the select toggle its place in this row without pushing the
+	-- two counter capsules off the end: 146 + 146 + 46 + 150 + 150 + 4 gaps of 10 = 678, inside the
+	-- row's 744. Both labels still fit -- checked, not assumed.
+	local equipBestButton = actionButton(1, "Equip Best Pets", UITheme.Color.Green, 146)
+	local unequipAllButton = actionButton(2, "Unequip All Pets", UITheme.Color.Red, 146)
+
+	-- ===== SELECT MODE (11.17) =====
+	--
+	-- The server has taken a LIST since 10.3; this is the client half that was never built, and
+	-- releasing a hundred pets one confirm at a time is the reason the cap reads as a chore.
+	--
+	-- THE ROW SWAPS, IT DOES NOT GROW. While selecting, the two action buttons are hidden and one
+	-- wide red button stands in their place at exactly their combined width (146 + 10 + 146 = 302),
+	-- so nothing in the row moves by a pixel when the mode changes -- a bar that reflows on a toggle
+	-- makes the player re-find every control. The counters stay visible throughout: "how many do I
+	-- own" is the question that got them here.
+	--
+	-- The selection lives on `hudRefs`, not in a local, because `refreshPetsPanel` DESTROYS AND
+	-- REBUILDS EVERY CELL ON EVERY DataUpdate -- roughly every three seconds, and on every kill.
+	-- State held on the cards would be wiped mid-selection by an unrelated creature dying. The set is
+	-- keyed by pet id and the rebuild reads it, so the ticks come back exactly where they were.
+	local selectToggle = actionButton(3, "\u{2611}", UITheme.Color.Blue, 46)
+	local releaseButton = actionButton(0, "RELEASE", UITheme.Color.Red, 302)
+	releaseButton.Visible = false
+
+	hudRefs.petSelect = { on = false, ids = {}, n = 0 }
+	-- `sel.n` is also decremented by refreshPetsPanel when a selected pet stops existing, and that
+	-- function is 200 lines below and cannot name anything in here -- so the repaint is handed over.
+
+	-- One place that redraws the bar, called by every path that can change either the mode or the
+	-- count -- so "the button says 3 and the grid shows 4 ticks" cannot happen.
+	local function paintSelectBar()
+		local sel = hudRefs.petSelect
+		equipBestButton.Visible = not sel.on
+		unequipAllButton.Visible = not sel.on
+		releaseButton.Visible = sel.on
+		-- plain `.Text`, the way every other call site in this file writes a button: styleButton
+		-- subscribes a proxy label to it, so the visible text follows
+		releaseButton.Text = sel.n > 0 and ("RELEASE %d"):format(sel.n) or "SELECT PETS TO RELEASE"
+		setButtonColor(releaseButton, sel.n > 0 and UITheme.Color.Red or UITheme.Color.Locked)
+		setButtonColor(selectToggle, sel.on and UITheme.Color.Green or UITheme.Color.Blue)
+	end
+	hudRefs.petSelectRepaint = paintSelectBar
+
+	-- Leaving select mode always clears the set. A selection that survived the toggle would be
+	-- invisible -- no ticks are drawn outside the mode -- and the next RELEASE press would act on
+	-- pets the player picked minutes ago and cannot see.
+	hudRefs.petSelectExit = function()
+		local sel = hudRefs.petSelect
+		sel.on, sel.ids, sel.n = false, {}, 0
+		paintSelectBar()
+		if hudRefs.refreshPetsPanel then hudRefs.refreshPetsPanel() end
+	end
+
+	hudRefs.petSelectToggleId = function(petId)
+		local sel = hudRefs.petSelect
+		if sel.ids[petId] then
+			sel.ids[petId] = nil
+			sel.n -= 1
+		else
+			sel.ids[petId] = true
+			sel.n += 1
+		end
+		paintSelectBar()
+	end
+
+	selectToggle.MouseButton1Click:Connect(function()
+		local sel = hudRefs.petSelect
+		if sel.on then
+			hudRefs.petSelectExit()
+		else
+			sel.on, sel.ids, sel.n = true, {}, 0
+			paintSelectBar()
+			if hudRefs.refreshPetsPanel then hudRefs.refreshPetsPanel() end
+		end
+	end)
+
+	releaseButton.MouseButton1Click:Connect(function()
+		local sel = hudRefs.petSelect
+		if sel.n <= 0 then return end
+		local list = {}
+		for id in pairs(sel.ids) do table.insert(list, id) end
+		if hudRefs.confirmReleaseMany then hudRefs.confirmReleaseMany(list) end
+	end)
+
+	paintSelectBar()
 
 	-- The two blue counter capsules. The reference puts a green [+] on each of them -- an upsell for
 	-- more slots -- and ours is not decoration: the equipped cap really is buyable, it is the PetSlot
@@ -2101,6 +2296,29 @@ local function refreshPetsPanel()
 	-- player read and the list Equip Best acted on were sorted differently.
 	local ranked = GameConfig.SortedPetsByPower(data.Pets, data)
 
+	-- ===== PRUNE THE SELECTION AGAINST WHAT STILL EXISTS (11.17) =====
+	--
+	-- The set is keyed by pet id and outlives the cards, which is what makes it survive the rebuild
+	-- this function does on every DataUpdate -- but it also means a pet that left the save by some
+	-- OTHER route while select mode was open (a fusion consuming it, a release from the single-pet
+	-- x, a trade) would stay ticked forever in a set nobody can see. The count on the RELEASE button
+	-- would then be larger than the number of ticks on screen, which is the one thing a confirm
+	-- dialog must never be.
+	local sel = hudRefs.petSelect
+	if sel and sel.n > 0 then
+		local alive, dropped = {}, false
+		for _, p in ipairs(data.Pets) do alive[p.id] = true end
+		for id in pairs(sel.ids) do
+			if not alive[id] then
+				sel.ids[id] = nil
+				sel.n -= 1
+				dropped = true
+			end
+		end
+		-- the button carries the count, so it has to hear about this
+		if dropped and hudRefs.petSelectRepaint then hudRefs.petSelectRepaint() end
+	end
+
 	hudRefs.petSlotCount.Text = ("%d/%d"):format(#data.EquippedPetIds, GameConfig.GetMaxEquippedPets(data))
 	-- "17 / 30" rather than "17": a bare number cannot tell the player they are one hatch from being
 	-- refused, and being refused at the podium with no warning is how the 600-cap read as a bug.
@@ -2143,7 +2361,33 @@ local function refreshPetsPanel()
 		cell.Size = UDim2.new(0, 232, 0, 126)
 		cell.ZIndex = petsScroll.ZIndex + UITheme.Z.Content
 		cell.Parent = petsScroll
+		-- assigned further down, once the card exists to hang it on; the handler below closes over
+		-- the LOCAL, so it sees the box whenever it is clicked rather than whatever was built first
+		local selectBox = nil
 		cell.MouseButton1Click:Connect(function()
+			-- ===== IN SELECT MODE THE CELL PICKS, IT DOES NOT EQUIP (11.17) =====
+			-- Read at CLICK time rather than captured when the row was built: the mode can be
+			-- toggled between a refresh and a click, and a captured flag would leave a grid of cards
+			-- still equipping while the bar says RELEASE.
+			local sel = hudRefs.petSelect
+			if sel and sel.on then
+				-- An equipped pet is not offered: the server refuses to delete one, so letting it be
+				-- ticked would build a selection whose count and whose outcome disagree. Same rule
+				-- the single-pet x already follows -- absent, never drawn-then-refused.
+				if isEquipped then return end
+				if hudRefs.petSelectToggleId then hudRefs.petSelectToggleId(pet.id) end
+				-- ONE CELL REPAINTED, NOT THE WHOLE GRID. refreshPetsPanel destroys and rebuilds
+				-- every card, and each card builds a real PetModel rig -- a hundred pets is roughly
+				-- three thousand parts. Rebuilding that on every tick of a checkbox would make
+				-- selecting ten pets the most expensive thing in the HUD. The bar's own count is
+				-- redrawn by petSelectToggleId; this is the other half of the same state.
+				if selectBox then
+					local ticked = sel.ids[pet.id] == true
+					selectBox.Text = ticked and "\u{2714}" or ""
+					setButtonColor(selectBox, ticked and UITheme.Color.Green or Color3.fromRGB(236, 238, 246))
+				end
+				return
+			end
 			if isEquipped then
 				Remotes.UnequipPet:FireServer(pet.id)
 			else
@@ -2216,7 +2460,13 @@ local function refreshPetsPanel()
 		-- ABSENT ON AN EQUIPPED PET, not disabled. The server refuses to release an equipped pet, so
 		-- a button that is drawn and then refused would teach the player the UI is lying to them;
 		-- unequipping is one click on the same cell and puts the x back.
-		if not isEquipped then
+		--
+		-- IN SELECT MODE THE x IS REPLACED BY A CHECKBOX, in the same corner (11.17). Not shown
+		-- alongside it: two small controls in one corner, one of which deletes immediately and one of
+		-- which does not, is the worst possible pairing. The two modes are exclusive, so the corner
+		-- says exactly one thing at a time.
+		local selecting = hudRefs.petSelect and hudRefs.petSelect.on
+		if not isEquipped and not selecting then
 			local release = Instance.new("TextButton")
 			release.Name = "Release"
 			release.Size = UDim2.new(0, 26, 0, 26)
@@ -2233,6 +2483,22 @@ local function refreshPetsPanel()
 					hudRefs.confirmRelease(pet.id, info.name, rarity.name, rarity.color)
 				end
 			end)
+		elseif selecting and not isEquipped then
+			-- A LABEL, NOT A BUTTON. The whole cell is already the hit area in select mode, so a
+			-- clickable box inside it would swallow clicks aimed at the card and leave the pet's
+			-- picture -- the biggest part of the target -- doing nothing.
+			local box = Instance.new("TextLabel")
+			box.Name = "SelectBox"
+			box.Size = UDim2.new(0, 28, 0, 28)
+			box.Position = UDim2.new(1, -8, 0, -8)
+			box.AnchorPoint = Vector2.new(1, 0)
+			box.Text = hudRefs.petSelect.ids[pet.id] and "\u{2714}" or ""
+			box.ZIndex = card.ZIndex + UITheme.Z.Badge
+			box.Parent = card
+			styleCard(box, hudRefs.petSelect.ids[pet.id] and UITheme.Color.Green
+				or Color3.fromRGB(236, 238, 246), UDim.new(0, 8), 3)
+			themeLabel(box, 20)
+			selectBox = box
 		end
 
 		-- the pet itself, hanging off the card's top-left corner with nothing behind it. The rig is
@@ -2304,6 +2570,10 @@ local function refreshPetsPanel()
 	petsScroll.CanvasSize = UDim2.new(0, 0, 0, math.ceil(#data.Pets / 3) * 138 + 12)
 end
 
+-- Handed over so the select-mode block above -- which is built ~200 lines earlier and cannot name a
+-- local declared below it -- can force a redraw when the mode changes (11.17).
+hudRefs.refreshPetsPanel = refreshPetsPanel
+
 -- One turntable for every row, and only while the panel is actually open: a ViewportFrame costs
 -- nothing when nobody is looking at it, and a pet standing dead still in a box looks like a
 -- screenshot of a pet.
@@ -2338,7 +2608,11 @@ end)
 -- Built inside an immediately-called function so its locals get a register file of their own --
 -- see the note on the Season Pass panel for why a `do` block is not enough. Handles via `hudRefs`.
 ;(function()
-	local pendingId = nil
+	-- A LIST SINCE 11.17, never a single id. `HandleDeletePets` has taken a list since 10.3 and the
+	-- one-pet confirm already sent `{ id }`, so making the dialog itself list-shaped removes the last
+	-- place the two paths could drift -- the multi-select confirm is the same frames, the same
+	-- handler and the same remote call, differing only in how many ids went in.
+	local pendingIds = nil
 
 	-- Newer than the authored Remotes folder, so it is waited for by name rather than indexed --
 	-- PetService creates it on server start. Resolved once here instead of on every confirm: a
@@ -2428,7 +2702,7 @@ end)
 	themeLabel(confirm, 24)
 
 	local function close()
-		pendingId = nil
+		pendingIds = nil
 		shade4.Visible = false
 	end
 
@@ -2437,19 +2711,43 @@ end)
 	-- a player will try first
 	shade4.MouseButton1Click:Connect(close)
 	confirm.MouseButton1Click:Connect(function()
-		local id = pendingId
+		local ids = pendingIds
 		close()
-		if id and deleteRemote then
-			-- a list of one: the server has a single handler for one pet and for many, so there is
-			-- no second path here that could drift from the multi-select one
-			deleteRemote:FireServer({ id })
+		if ids and #ids > 0 and deleteRemote then
+			deleteRemote:FireServer(ids)
+			-- leave select mode on the way out, so the panel does not come back still armed with a
+			-- selection whose pets no longer exist
+			if hudRefs.petSelectExit then hudRefs.petSelectExit() end
 		end
 	end)
 
 	hudRefs.confirmRelease = function(petId, displayName, rarityName, rarityColor)
-		pendingId = petId
+		pendingIds = { petId }
+		title.Text = "Release Pet?"
 		petLine.Text = ("%s  %s"):format(displayName or "Pet",
 			colorTag(rarityName or "", rarityColor or UITheme.Color.White))
+		warn4.Text = "This pet will be permanently deleted."
+		shade4.Visible = true
+	end
+
+	-- ===== THE SAME DIALOG, MANY PETS (11.17) =====
+	--
+	-- It names the COUNT rather than listing them: a release of thirty cannot show thirty names in a
+	-- 420 px box, and a truncated list ("Wolf, Wolf, Wolf and 27 more") is worse than a number
+	-- because it invites the reader to believe they have checked it. The place to check WHICH pets
+	-- is the grid behind this dialog, where every one of them is drawn with a lit checkbox.
+	--
+	-- Copied rather than referenced: the caller's table is the live selection set and it keeps
+	-- changing while this box is open, so holding a reference would let a click behind the dim
+	-- change what CONFIRM is about to do.
+	hudRefs.confirmReleaseMany = function(ids)
+		if type(ids) ~= "table" or #ids == 0 then return end
+		local copy = table.create(#ids)
+		table.move(ids, 1, #ids, 1, copy)
+		pendingIds = copy
+		title.Text = ("Release %d Pets?"):format(#copy)
+		petLine.Text = ("%d selected"):format(#copy)
+		warn4.Text = ("All %d will be permanently deleted. Equipped pets are never included."):format(#copy)
 		shade4.Visible = true
 	end
 end)()
@@ -2891,7 +3189,8 @@ end
 -- ===== Rebirth panel =====
 local rebirthPanel = Instance.new("Frame")
 rebirthPanel.Name = "RebirthPanel"
-rebirthPanel.Size = UDim2.new(0, 430, 0, 392)
+-- 392 -> 416: the 20 px ladder bar plus its gaps, added below the info card (11.16)
+rebirthPanel.Size = UDim2.new(0, 430, 0, 416)
 rebirthPanel.Position = PANEL_ANCHOR
 rebirthPanel.ZIndex = 20
 rebirthPanel.Visible = false
@@ -2934,10 +3233,39 @@ rebirthInfoLabel.Text = "Rebirths  0 / 4"
 rebirthInfoLabel.Parent = rebirthInfoCard
 themeLabel(rebirthInfoLabel, 19, UITheme.Color.Cream)
 
+-- ===== THE CLIMB TO THE NEXT RUNG, DRAWN (11.16) =====
+--
+-- The card below states it in words -- "You are Stage 12 -- 3 stages to go" -- and words are the
+-- wrong shape for a distance. This is the one thing on the panel a player checks repeatedly during
+-- a run, and until now checking it meant reading a sentence.
+--
+-- IT MEASURES THE RUN, NOT THE LADDER. The obvious other candidate was `Rebirths / MaxRebirths`,
+-- and that is the same mistake as a bar per Journal stage: four rungs is four, and a four-step bar
+-- says less than the "0 / 4" already printed above it. The stage climb is 1..20, it resets to 1 on
+-- every rebirth, and it is what the player actually moves along -- so the bar is
+-- (stage - 1) / (required stage - 1), which is 0 the moment a rebirth drops you back to Stage 1 and
+-- exactly 1 when the button lights up.
+--
+-- One local, not three: the fill and the label are reached by name in the refresh. This file is at
+-- Luau's 200-register cap.
+local rebirthLadderBar = UITheme.ProgressBar(rebirthPanel, {
+	name = "LadderBar",
+	size = UDim2.new(1, -28, 0, 20),
+	position = UDim2.new(0, 14, 0, 126),
+	color = UITheme.Color.Purple,
+	radius = UDim.new(1, 0),
+	thickness = 3,
+	text = "",
+	maxTextSize = 16,
+	zIndex = rebirthPanel.ZIndex + UITheme.Z.Content,
+})
+
 local rebirthReqCard = Instance.new("Frame")
 rebirthReqCard.Name = "ReqCard"
 rebirthReqCard.Size = UDim2.new(1, -28, 0, 176)
-rebirthReqCard.Position = UDim2.new(0, 14, 0, 132)
+-- 132 -> 154, clearing the ladder bar above it. The panel grew by the same 24 (see its Size), so
+-- nothing below this moved relative to the bottom edge.
+rebirthReqCard.Position = UDim2.new(0, 14, 0, 154)
 rebirthReqCard.Parent = rebirthPanel
 styleCard(rebirthReqCard, UITheme.Color.Gold, UDim.new(0, 14), 4)
 
@@ -3134,6 +3462,27 @@ local function refreshRebirthPanel()
 			togo, togo == 1 and "STAGE" or "STAGES")
 		setButtonColor(rebirthActionButton, UITheme.Color.Locked)
 		rebirthActionButton.Active = false
+	end
+
+	-- ===== THE LADDER BAR (11.16) =====
+	-- Computed here rather than in each of the three branches above, because all three want the same
+	-- number and only the wording differs. `ready` and `done` both read FULL: at `ready` the climb is
+	-- literally finished and the button below is lit, and at `done` there is no further rung -- a bar
+	-- that sat at 90% in either state would be describing a distance that does not exist.
+	do
+		local stage = data.StageIndex or 1
+		local frac, text
+		if ready or why == "done" then
+			frac = 1
+			text = (why == "done") and "Ladder complete" or ("Stage %d \u{2014} ready"):format(stage)
+		else
+			local reqStageIndex = GameConfig.GetRebirthTierStageIndex(nextTier)
+			-- from Stage 1, which is where every run starts and where a rebirth puts you back
+			frac = math.clamp((stage - 1) / math.max(1, reqStageIndex - 1), 0, 1)
+			text = ("Stage %d / %d"):format(stage, reqStageIndex)
+		end
+		rebirthLadderBar.Fill.Size = UDim2.new(frac, 0, 1, 0)
+		rebirthLadderBar.Label.Text = text
 	end
 
 	-- and tell the HUD tile whether to shine -- see the Rebirth beacon block
@@ -4718,7 +5067,12 @@ characterPanel.Name = "CharacterPanel"
 -- looking at is on the right, at a size where you can actually see it -- a grid of thumbnails with
 -- no detail view is a contact sheet, and it is the reason the old panel needed a hover tooltip to
 -- say anything at all about what the cursor was over.
-characterPanel.Size = UDim2.new(0, 968, 0, 548)
+-- 548 -> 604 with 11.14's header and 11.16's collection bar. The title used to hang 54 px ABOVE the
+-- panel, so the space it occupied on screen was never counted in this number; folding it inside as a
+-- band would otherwise have cost the list its third visible row for no change in footprint. 604 is
+-- still under the old 548 + 54, so the panel got slightly SHORTER on screen while the list kept its
+-- height and gained a header and a bar.
+characterPanel.Size = UDim2.new(0, 968, 0, 604)
 characterPanel.Position = PANEL_ANCHOR
 characterPanel.ZIndex = 20
 characterPanel.Visible = false
@@ -4734,33 +5088,68 @@ end
 registerPanel(characterPanel)
 panelClose(characterPanel)
 
--- ON A WHITE PANEL EVERY LABEL HAS TO NAME ITS COLOUR, and that is not automatic: themeLabel only
--- rescues a colour to white when none was given, so anything left to default -- or set to Cream --
--- ends up white on white and disappears.
-local characterTitle = Instance.new("TextLabel")
-characterTitle.Size = UDim2.new(0, 460, 0, 48)
-characterTitle.Position = UDim2.new(0, 6, 0, -54)
-characterTitle.BackgroundTransparency = 1
-characterTitle.TextXAlignment = Enum.TextXAlignment.Left
-characterTitle.Text = "\u{1F4D2} Journal!"
-characterTitle.Parent = characterPanel
-themeLabel(characterTitle, 40)
+-- ===== THE HEADER (11.14) =====
+--
+-- This panel's title used to be a bare 40px TextLabel at y = -54 -- i.e. FIFTY-FOUR PIXELS ABOVE THE
+-- PANEL'S OWN TOP EDGE, floating on the dim with nothing behind it -- and the count sat separately
+-- inside at y=14 in grey. That is the exact shape 11.13 replaced on the four shop-side panels, and
+-- it is the plainest of the lot because the Journal is the widest panel in the game: 968 px of white
+-- sheet opening with an unbacked line of text.
+--
+-- The count becomes the SUBTITLE rather than a second floating label, which is what the band is for.
+-- It is the only line on the panel that answers "how far in am I", and 11.13's rule is that the
+-- subtitle carries the thing a player would otherwise have to work out -- here, that the hundred
+-- discs are not a lottery: they unlock strictly in order, so the next dim disc is always the one
+-- being worked towards. See GameConfig.GetEvolveStep.
+--
+-- Lavender because that is the Journal tile's own colour in the right-hand column -- a panel whose
+-- accent disagrees with the button that opened it reads as a different screen.
+--
+-- Only the subtitle is kept: refreshCharacterPanel rewrites the count and nothing rewrites the
+-- title. That trades two top-level registers for one, which this file cares about more than most --
+-- see the register note over the Journal's build block.
+local characterCount = select(4, UITheme.PanelHeader(characterPanel, {
+	title = "\u{1F4D2} Journal",
+	subtitle = "Discovered 0 / 100",
+	accent = UITheme.Color.Lavender,
+	maxTextSize = 34,
+	-- 68 -> 84 to carry the collection bar below the subtitle; see the bar itself
+	height = 84,
+}))
 
-local characterCount = Instance.new("TextLabel")
-characterCount.Name = "CountLabel"
-characterCount.Size = UDim2.new(1, -44, 0, 26)
-characterCount.Position = UDim2.new(0, 20, 0, 14)
-characterCount.BackgroundTransparency = 1
-characterCount.TextXAlignment = Enum.TextXAlignment.Left
-characterCount.Text = "Discovered 0 / 100"
-characterCount.Parent = characterPanel
-themeLabel(characterCount, 22, Color3.fromRGB(124, 134, 156))
+-- ===== HOW FULL THE COLLECTION IS, DRAWN (11.16) =====
+--
+-- It rides INSIDE the header band rather than above the list, which is the only reason it costs the
+-- grid no height at all: the band already exists and had 20 px of dead space under its subtitle.
+-- The alternative -- a bar between the header and the scroll -- would have taken a row of discs off
+-- the visible list to say something the subtitle directly above it already says in words.
+--
+-- This is the one bar in the Journal. A bar per STAGE ROW was the obvious other candidate and is
+-- wrong: a stage is five discs, and five discs already show three lit and two dark. A progress bar
+-- over five steps is a tick box drawn the long way.
+--
+-- Parented through `characterCount.Parent` rather than through a second local for the header --
+-- this file is at Luau's 200-register cap, and the subtitle's parent IS the band.
+local characterFill = select(2, UITheme.ProgressBar(characterCount.Parent, {
+	name = "CollectionBar",
+	size = UDim2.new(1, -28, 0, 14),
+	position = UDim2.new(0, 14, 0, 62),
+	color = UITheme.Color.Gold,
+	radius = UDim.new(1, 0),
+	thickness = 3,
+	shadow = false, -- it sits on a coloured band, not on the panel sheet; a drop shadow reads as a smear
+	text = "",
+	zIndex = characterCount.Parent.ZIndex + UITheme.Z.Content,
+}))
 
 local characterScroll = Instance.new("ScrollingFrame")
 characterScroll.Name = "CharacterScroll"
--- the left column only: the detail card owns the right 330 and is built further down
-characterScroll.Size = UDim2.new(0, 604, 1, -62)
-characterScroll.Position = UDim2.new(0, 14, 0, 48)
+-- the left column only: the detail card owns the right 322 and is built further down.
+-- y = 94 is the header band's own bottom edge (top 14 + height 68 + gap 12), written out rather than
+-- read off PanelHeader's second return value, which would cost a top-level register this file does
+-- not have. -108 is that 94 plus the 14 of bottom margin, so the panel's four margins agree.
+characterScroll.Size = UDim2.new(0, 598, 1, -124)
+characterScroll.Position = UDim2.new(0, 16, 0, 110)
 characterScroll.BackgroundTransparency = 1
 characterScroll.BorderSizePixel = 0
 -- The Journal is twenty rows deep and only three and a bit fit on screen, so the scrollbar is the
@@ -5011,7 +5400,20 @@ local CHAR_LINE_H = 132
 			local lock = Instance.new("TextLabel")
 			lock.Name = "Lock"
 			lock.Size = UDim2.new(1, 0, 1, 0)
-			lock.BackgroundColor3 = tint:Lerp(Color3.fromRGB(18, 16, 26), 0.72)
+			-- ...and it is mixed the way this project learned to mix a dark variant (11.14). The old
+			-- line was `tint:Lerp(Color3.fromRGB(18, 16, 26), 0.72)`, which is "blend toward black,
+			-- then take the result" -- and a lerp toward one fixed point does not just darken, it
+			-- pulls every hue toward THAT point's hue as well. At 0.72 only 28% of the character's
+			-- own colour survives and all hundred discs converge on the same brown-grey, which is
+			-- precisely the outcome the comment above says it exists to avoid.
+			--
+			-- Hue and saturation come from the character, the VALUE is set outright. That is the
+			-- world-look pass's rule ("blend then darken cancels; take hue/saturation from the blend
+			-- and set the value") applied to a disc instead of a rock. Saturation is pushed UP, not
+			-- down: a colour loses apparent chroma as it gets darker, so holding S constant would
+			-- still read as a row of near-blacks.
+			local lockH, lockS = Color3.toHSV(tint)
+			lock.BackgroundColor3 = Color3.fromHSV(lockH, math.clamp(lockS * 1.15 + 0.22, 0, 1), 0.27)
 			lock.BackgroundTransparency = 0
 			lock.Text = "?"
 			lock.ZIndex = cell.ZIndex + UITheme.Z.Badge + 1
@@ -5057,8 +5459,10 @@ local CHAR_LINE_H = 132
 	-- a character and deciding to become it are two different actions again.
 	local detail = Instance.new("Frame")
 	detail.Name = "Detail"
-	detail.Size = UDim2.new(0, 322, 1, -62)
-	detail.Position = UDim2.new(1, -14, 0, 48)
+	-- lines up with characterScroll: same top (the header band's bottom edge), same bottom, and a
+	-- right margin of 16 to match the scroll's left. 16 + 598 + 16 + 322 + 16 = 968 exactly.
+	detail.Size = UDim2.new(0, 322, 1, -124)
+	detail.Position = UDim2.new(1, -16, 0, 110)
 	detail.AnchorPoint = Vector2.new(1, 0)
 	detail.ZIndex = characterPanel.ZIndex + UITheme.Z.Content
 	detail.Parent = characterPanel
@@ -5356,7 +5760,11 @@ local function refreshCharacterPanel()
 	local wornKey = currentData.WornCharacter
 
 	local have, total = GameConfig.CountCharacters(owned)
-	characterCount.Text = ("Discovered %d / %d"):format(have, total)
+	-- The header's subtitle since 11.14. It says the RULE as well as the count, because the count on
+	-- its own reads as a lottery scorecard -- and the discs are not a lottery, they are a queue.
+	characterCount.Text = ("Discovered %d / %d  --  they unlock in order, so the next one is always the cheapest"):format(have, total)
+	-- and the same fraction as a bar in the band below it (11.16)
+	characterFill.Size = UDim2.new(have / math.max(1, total), 0, 1, 0)
 
 	for stageIndex in ipairs(GameConfig.Stages) do
 		local entries = GameConfig.GetCharactersForStage(stageIndex)
@@ -5394,6 +5802,12 @@ local function refreshCharacterPanel()
 		refs.art.Visible = isOwned and refs.rig ~= nil
 		refs.icon.Visible = isOwned and refs.rig == nil
 		refs.check.Visible = isOwned and isWorn
+		-- NOTE (11.14): the two setButtonColor calls below paint NOTHING and are kept only because
+		-- they cost nothing. The disc became a ring (see the cell build) -- BackgroundTransparency 1,
+		-- Gradient and Gloss both destroyed -- so SetColor writes a BackgroundColor3 nobody can see
+		-- and a BaseColor attribute nothing in the repo reads. The visible colour of a disc is
+		-- entirely `strokeInst.Color` below. Anyone chasing "why does changing the disc colour do
+		-- nothing" should start there and not here.
 		if isOwned then
 			setButtonColor(refs.cell, refs.rarity.color)
 			-- the one being worn gets a bright rim, the same "this is active" signal the Daily
@@ -6112,11 +6526,37 @@ local NOTIF_MAX = 4
 --
 -- ALL OF IT LIVES INSIDE THIS FUNCTION. MainUI is at Luau's 200-register cap -- one more
 -- top-level local deletes the entire HUD -- so the helpers below are nested, not hoisted.
-local function showNotification(text, color)
+--
+-- 11.15 added the two the list above was missing. THE TIMER BAR IT ASKED FOR WAS ALREADY HERE --
+-- point 4 above, shipped with the rebuild -- so the row is really two things:
+--
+--   5. THE CHIP CARRIES A DRAWING, not a glyph. 9.9 generated 44 icons keyed by emoji and every
+--      other surface in the game routes through them; the toast was the last place still showing
+--      the raw system emoji, which is a different art style at a different weight in the one
+--      element whose whole job is to say what kind of event this is at a glance. Unmapped emoji
+--      keep the glyph -- that is the icon layer's design, not a gap in it.
+--   6. THE STACK IS RANKED. See UITheme.NotifyRank for why: the cap made the eviction victim the
+--      OLDEST, and during a fight the four newest are all combat chatter, so the one-in-an-hour
+--      message was the one reliably destroyed. Rank decides both who dies and who sits on top.
+local function showNotification(text, color, rank)
+	rank = rank or 1
+	-- Monotonic, and parked on the frame rather than in a top-level local -- this file is at Luau's
+	-- 200-register cap. It doubles as the tie-break inside a rank (older sits higher) and as the
+	-- unique part of each toast's Name, which UIListLayout needs: with every child called "Notif"
+	-- and every LayoutOrder equal, the sort order among them is not defined by anything.
+	local seq = (notifFrame:GetAttribute("Seq") or 0) + 1
+	notifFrame:SetAttribute("Seq", seq)
+
+	-- EVICT THE LEAST IMPORTANT, OLDEST -- not simply the oldest.
 	local live = {}
 	for _, c in ipairs(notifFrame:GetChildren()) do
 		if c:IsA("Frame") then table.insert(live, c) end
 	end
+	table.sort(live, function(a, b)
+		local ra, rb = a:GetAttribute("Rank") or 1, b:GetAttribute("Rank") or 1
+		if ra ~= rb then return ra < rb end
+		return (a:GetAttribute("Seq") or 0) < (b:GetAttribute("Seq") or 0)
+	end)
 	for i = 1, #live - (NOTIF_MAX - 1) do
 		live[i]:Destroy()
 	end
@@ -6138,9 +6578,18 @@ local function showNotification(text, color)
 	end
 
 	local notif = Instance.new("Frame")
-	notif.Name = "Notif"
-	notif.Size = UDim2.new(1, 0, 0, 46)
+	-- unique, so the layout has a defined order to fall back on -- see `seq` above
+	notif.Name = "Notif" .. seq
+	-- 46 -> 52: a drawn icon needs more of the card than a glyph does. Four of these plus the 6 px
+	-- padding is 232 against notifFrame's 260, so the stack still cannot reach its own bottom edge.
+	notif.Size = UDim2.new(1, 0, 0, 52)
 	notif.ZIndex = notifFrame.ZIndex
+	-- HIGHER RANK SITS HIGHER, and within one rank the older one does. Negated because UIListLayout
+	-- draws the SMALLEST LayoutOrder first and rank counts the other way; the 100000 spacing is wide
+	-- enough that no sequence number can ever reach the next rank's band.
+	notif.LayoutOrder = -rank * 100000 + seq
+	notif:SetAttribute("Rank", rank)
+	notif:SetAttribute("Seq", seq)
 	notif.Parent = notifFrame
 	styleCard(notif, vivid, UDim.new(1, 0), 3)
 
@@ -6157,7 +6606,7 @@ local function showNotification(text, color)
 	if icon then
 		local chip = Instance.new("Frame")
 		chip.Name = "Chip"
-		chip.Size = UDim2.new(0, 32, 0, 32)
+		chip.Size = UDim2.new(0, 38, 0, 38)
 		chip.Position = UDim2.new(0, 7, 0.5, -2)
 		chip.AnchorPoint = Vector2.new(0, 0.5)
 		chip.ZIndex = notif.ZIndex + UITheme.Z.Content
@@ -6166,21 +6615,29 @@ local function showNotification(text, color)
 		-- and the card is already at the top of its own range
 		styleCard(chip, UITheme.Shade(vivid, -0.3), UDim.new(1, 0), 2)
 
-		local glyph = Instance.new("TextLabel")
-		glyph.Size = UDim2.new(1, 0, 1, 0)
-		glyph.BackgroundTransparency = 1
-		glyph.Text = icon
-		glyph.ZIndex = chip.ZIndex + UITheme.Z.Content
-		glyph.Parent = chip
-		themeLabel(glyph, 20)
+		-- THE DRAWING IF THERE IS ONE, THE GLYPH IF THERE IS NOT (11.15). IconSlot decides which,
+		-- so this call site never has to know the emoji table -- and an emoji with no art is a
+		-- normal answer rather than a missing asset, which is why the fallback is the glyph and not
+		-- a placeholder. Inset 6 px: the icons are drawn to fill their square and the chip is a
+		-- circle, so a full-bleed icon clips its own corners on the rim.
+		UITheme.IconSlot(chip, {
+			icon = icon,
+			size = UDim2.new(1, -6, 1, -6),
+			position = UDim2.new(0.5, 0, 0.5, 0),
+			anchorPoint = Vector2.new(0.5, 0.5),
+			zIndex = chip.ZIndex + UITheme.Z.Content,
+			maxTextSize = 22,
+		})
 	end
 
 	local message = Instance.new("TextLabel")
 	message.Name = "Message"
 	-- left-aligned and inset past the chip when there is one. Centred text that starts at a
 	-- different x on every toast is what made a stack of them read as noise.
-	message.Size = UDim2.new(1, icon and -54 or -20, 1, -12)
-	message.Position = UDim2.new(0, icon and 46 or 10, 0.5, -2)
+	-- clears the chip: it starts at x=7 and is 38 wide, so its right edge is 45 and the words start
+	-- at 53. The old 46 was written against a 32 px chip and would now sit one pixel off the rim.
+	message.Size = UDim2.new(1, icon and -61 or -20, 1, -12)
+	message.Position = UDim2.new(0, icon and 53 or 10, 0.5, -2)
 	message.AnchorPoint = Vector2.new(0, 0.5)
 	message.BackgroundTransparency = 1
 	message.TextWrapped = true
@@ -6218,6 +6675,14 @@ local function showNotification(text, color)
 		for _, d in ipairs(notif:GetDescendants()) do
 			if d:IsA("TextLabel") then
 				TweenService:Create(d, info, { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
+			elseif d:IsA("ImageLabel") then
+				-- AN IMAGE DOES NOT FADE ON BackgroundTransparency, and 11.15 is what makes this
+				-- branch necessary: before the icon chip carried a drawing there were no ImageLabels
+				-- in a toast, so the generic GuiObject arm below covered everything. Without this the
+				-- card, its outline and its words fade out and the icon stays at full opacity until
+				-- Destroy blinks it away -- the one element left behind by its own exit animation.
+				-- IconShadow is an ImageLabel too and is caught by the same line.
+				TweenService:Create(d, info, { ImageTransparency = 1, BackgroundTransparency = 1 }):Play()
 			elseif d:IsA("GuiObject") then
 				TweenService:Create(d, info, { BackgroundTransparency = 1 }):Play()
 			elseif d:IsA("UIStroke") then
@@ -6245,8 +6710,11 @@ local function worldPopup(text, subText, color)
 	local character = player.Character
 	local head = character and character:FindFirstChild("Head")
 	if not head then
-		-- no body to hang it on (mid-respawn): fall back to the toast rather than losing the message
-		showNotification(text, color)
+		-- no body to hang it on (mid-respawn): fall back to the toast rather than losing the message.
+		-- Rank 2, because everything routed through worldPopup is a one-off -- a fusion, an Apex pet
+		-- drop -- and this branch is already the unlucky path. Losing it to a crit toast would be
+		-- the second thing to go wrong for the same event.
+		showNotification(text, color, 2)
 		return
 	end
 
@@ -6916,16 +7384,23 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 	-- both tween, and the sound belongs to the moment the event arrived, not to the end of an animation.
 	SoundLibrary.PlayNotify(payload)
 
+	-- HOW MUCH THIS ONE IS WORTH KEEPING, computed once for the whole payload and handed to every
+	-- toast below (11.15). It is one number per EVENT, not per wording, which is the same split
+	-- PlayNotify is built on -- so a new kind is a row in UITheme.NotifyRank and nothing in here
+	-- changes. Passed explicitly rather than left ambient: a toast raised from a button click a
+	-- second later must not inherit the last server message's importance.
+	local notifRank = UITheme.NotifyRank(payload.kind)
+
 	if payload.kind == "crit" then
-		showNotification("💥 CRITICAL! +" .. formatNumber(payload.amount) .. " DNA", Color3.fromRGB(255, 200, 60))
+		showNotification("💥 CRITICAL! +" .. formatNumber(payload.amount) .. " DNA", Color3.fromRGB(255, 200, 60), notifRank)
 	elseif payload.kind == "upgrade" then
 		local def = GameConfig.Upgrades[payload.upgrade]
-		showNotification("⬆️ " .. def.displayName .. " upgraded to Lv." .. payload.level, Color3.fromRGB(90, 200, 255))
+		showNotification("⬆️ " .. def.displayName .. " upgraded to Lv." .. payload.level, Color3.fromRGB(90, 200, 255), notifRank)
 		-- nil-guarded like every other hudRefs consumer: a panel that failed to build must not take
 		-- the notification with it
 		if hudRefs.punchUpgrade then hudRefs.punchUpgrade(payload.upgrade) end
 	elseif payload.kind == "diamond" then
-		showNotification("\u{1F48E} Diamond found!  +" .. (payload.amount or 1), Color3.fromRGB(130, 225, 255))
+		showNotification("\u{1F48E} Diamond found!  +" .. (payload.amount or 1), Color3.fromRGB(130, 225, 255), notifRank)
 	elseif payload.kind == "evolve" then
 		-- TWO DIFFERENT EVENTS SHARE THIS PAYLOAD. Four presses in five hand over the next skin and
 		-- leave the stage where it is, so announcing "EVOLVED into Worm" on all of them would be
@@ -6933,12 +7408,12 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		-- The reveal card draws the picture; this line is the words that go with it.
 		if payload.advanced then
 			showNotification("\u{1F31F} EVOLVED into " .. payload.emoji .. " " .. payload.stage .. "!",
-				Color3.fromRGB(190, 120, 255))
+				Color3.fromRGB(190, 120, 255), notifRank)
 		else
 			showNotification(("\u{2728} NEW FORM: %s %s  (%d/%d)"):format(
 				(GameConfig.GetCharacter(payload.character or "") or {}).emoji or "\u{2B50}",
 				(GameConfig.GetCharacter(payload.character or "") or {}).name or payload.stage,
-				payload.step or 1, payload.steps or 5), Color3.fromRGB(190, 120, 255))
+				payload.step or 1, payload.steps or 5), Color3.fromRGB(190, 120, 255), notifRank)
 		end
 	elseif payload.kind == "character" then
 		-- THE CLIENT HALF OF A CHANGE THAT ONLY LANDED ON THE SERVER.
@@ -6954,18 +7429,18 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		if payload.isNew then
 			celebratePurchase(("📒 NEW CHARACTER!\n%s %s%s"):format(payload.emoji, payload.name, gain), tint)
 		else
-			showNotification(("%s %s%s"):format(payload.emoji, payload.name, gain), tint)
+			showNotification(("%s %s%s"):format(payload.emoji, payload.name, gain), tint, notifRank)
 		end
 	elseif payload.kind == "questComplete" then
 		-- finishing one is worth a toast; the reward itself is a separate, deliberate press, so the
 		-- message says where to go rather than implying it has already been paid out
 		showNotification(("%s %s \u{2014} ready to claim in %s!")
 			:format(payload.emoji, payload.name, GameConfig.Season.emoji .. " Season"),
-			UITheme.Color.Gold)
+			UITheme.Color.Gold, notifRank)
 	-- The "mutation" toast is gone: DNAService stopped sending it. Mutations roll every ten
 	-- seconds and the banner fired over and over during ordinary play.
 	elseif payload.kind == "zone" then
-		showNotification("🗺️ NEW ZONE UNLOCKED: " .. payload.emoji .. " " .. payload.name .. "!", Color3.fromRGB(60, 160, 220))
+		showNotification("🗺️ NEW ZONE UNLOCKED: " .. payload.emoji .. " " .. payload.name .. "!", Color3.fromRGB(60, 160, 220), notifRank)
 	elseif payload.kind == "pet" then
 		-- Deliberately silent here now. The whole hatch -- the egg shaking, cracking, the rarity
 		-- flash, the pet rising out of it and the card naming what it is -- belongs to HatchReveal
@@ -7029,19 +7504,19 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		if payload.diamonds and payload.diamonds > 0 then
 			text = text .. " +" .. payload.diamonds .. " 💎 Diamonds"
 		end
-		showNotification(text, Color3.fromRGB(255, 180, 60))
+		showNotification(text, Color3.fromRGB(255, 180, 60), notifRank)
 	elseif payload.kind == "stageMastery" then
-		showNotification("⭐ " .. payload.emoji .. " " .. payload.stage .. " MASTERED! (" .. payload.owned .. "/" .. #GameConfig.Stages .. ")", Color3.fromRGB(255, 215, 70))
+		showNotification("⭐ " .. payload.emoji .. " " .. payload.stage .. " MASTERED! (" .. payload.owned .. "/" .. #GameConfig.Stages .. ")", Color3.fromRGB(255, 215, 70), notifRank)
 	elseif payload.kind == "diamondUpgrade" then
 		local def = GameConfig.DiamondUpgrades[payload.upgrade]
-		showNotification("💎 " .. (def and def.displayName or payload.upgrade) .. " upgraded to Lv." .. payload.level .. "!", Color3.fromRGB(120, 200, 255))
+		showNotification("💎 " .. (def and def.displayName or payload.upgrade) .. " upgraded to Lv." .. payload.level .. "!", Color3.fromRGB(120, 200, 255), notifRank)
 	elseif payload.kind == "potion" then
 		local remaining = math.max(0, (payload.untilTs or 0) - os.time())
 		local potion = payload.potionId and GameConfig.GetPotion(payload.potionId)
 		showNotification(string.format("%s %s  \u{2022}  %dm %02ds left",
 			potion and potion.emoji or "\u{1F9EA}",
 			potion and potion.effectText or "Potion used",
-			remaining // 60, remaining % 60), (potion and potion.color) or Color3.fromRGB(120, 255, 180))
+			remaining // 60, remaining % 60), (potion and potion.color) or Color3.fromRGB(120, 255, 180), notifRank)
 	elseif payload.kind == "offline" then
 		-- A card, not a toast: this is the first thing a returning player sees and it is the entire
 		-- argument for having come back. `away` and `capped` are computed server-side (see
@@ -7057,7 +7532,7 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 			formatNumber(payload.amount or 0), payload.away or "?",
 			payload.capped and " (max)" or ""), Color3.fromRGB(150, 190, 255))
 	elseif payload.kind == "playtimeGift" then
-		showNotification("⏰ Playtime Gift (" .. payload.minutes .. " min)! Reward claimed!", Color3.fromRGB(255, 150, 90))
+		showNotification("⏰ Playtime Gift (" .. payload.minutes .. " min)! Reward claimed!", Color3.fromRGB(255, 150, 90), notifRank)
 	elseif payload.kind == "bossRevive" then
 		celebratePurchase(("\u{2694}\u{FE0F} REVIVED!\n%s is back to %d%%"):format(payload.name or "The boss", payload.pct or 0),
 			UITheme.Color.Gold)
@@ -7077,7 +7552,7 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 	elseif payload.kind == "bossDefeated" then
 		celebratePurchase("👑 " .. payload.name .. " defeated!\n+" .. formatNumber(payload.amount) .. " DNA", UITheme.Color.Gold)
 	elseif payload.kind == "error" then
-		showNotification("❌ " .. payload.message, Color3.fromRGB(200, 60, 60))
+		showNotification("❌ " .. payload.message, Color3.fromRGB(200, 60, 60), notifRank)
 	end
 end)
 
@@ -7321,7 +7796,20 @@ local shopPanels = {
 -- because this file is at Luau's 200-local ceiling. A `do ... end` is NOT enough -- see the note
 -- over the Season Pass panel for the two times that mistake deleted the entire HUD.
 ;(function()
-	local eggButton = columnTile("R", 9, "\u{1F95A}", "Eggs", UITheme.Color.Bubblegum)
+	-- ===== NO HUD TILE ANY MORE (11.18) =====
+	--
+	-- "The egg screen belongs on the egg." This panel used to be reachable only from a tile in the
+	-- corner of the screen -- the ninth in the right column -- while the podium the player had
+	-- actually walked to carried two prompts that bought eggs and showed nothing. The two halves of
+	-- the feature were in the two places the other one was not.
+	--
+	-- The prompt on the egg opens it now (PetService stamps `ShopPanel = "eggs"` on it, so it
+	-- arrives through the one ProximityPromptService handler at the bottom of this file, beside the
+	-- fusion lab and the upgrade counters). The tile is deleted rather than kept as a second route,
+	-- for the reason the fusion lab already documents: two ways in means the one that cannot show
+	-- you which egg you are standing at is the one people use. RIGHT_COUNT went 9 -> 8 with it.
+	--
+	-- The panel itself is unchanged, and `hudRefs.refreshEggPanel` is still called from refreshUI.
 
 	local panel = Instance.new("Frame")
 	panel.Name = "EggPanel"
@@ -7665,14 +8153,31 @@ local shopPanels = {
 
 	player:GetAttributeChangedSignal("AutoHatch"):Connect(refresh)
 
-	eggButton.MouseButton1Click:Connect(function()
-		-- Selected fresh on every open: the player has almost certainly walked to a different stall
-		-- since last time, and reopening on a zone they have left is the same class of bug as a
-		-- panel reopening at yesterday's scroll position.
+	-- ===== OPENED BY THE EGG IN FRONT OF YOU (11.18) =====
+	--
+	-- `eggKey` is the attribute PetService already keeps on every podium prompt for Auto Hatch, so
+	-- the panel can open ON THE EGG THE PLAYER PRESSED rather than always on Basic. That is the
+	-- difference between "the egg screen" and "a shop that happens to be near an egg": press the
+	-- Premium podium and the odds table you get is Premium's.
+	--
+	-- Falls back to Basic when the key does not resolve, which is also what happens for any future
+	-- caller with nothing to say -- the same "selected fresh on every open" rule the HUD tile had,
+	-- and for the same reason: the player has almost certainly walked to a different stall since
+	-- last time, and reopening on a zone they have left is the same class of bug as a panel
+	-- reopening at yesterday's scroll position.
+	hudRefs.showEggPanel = function(eggKey)
 		selectedTier = "Basic"
+		if eggKey then
+			for _, e in ipairs(GameConfig.Eggs) do
+				if e.key == eggKey and e.tierSuffix then
+					selectedTier = e.tierSuffix
+					break
+				end
+			end
+		end
 		refresh()
 		toggleOnly(panel)
-	end)
+	end
 
 	-- Ticked while the panel is open so walking up to a stall unlocks the buttons without the
 	-- player having to close and reopen it. One second is plenty for "am I standing there".
@@ -7800,6 +8305,14 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt, playerWhoTrigger
 	-- This is the ONLY way into fusing -- there is deliberately no HUD button for it any more.
 	if which == "fusion" then
 		if hudRefs.showFusionPanel then hudRefs.showFusionPanel() end
+		return
+	end
+	-- Same shape as fusion, and same reason: the egg panel is built inside a block and only escapes
+	-- as functions on hudRefs. It is handed the prompt's `EggKey` so it opens on the egg that was
+	-- pressed rather than on Basic (11.18) -- and since 11.18 this is the ONLY way in, the HUD tile
+	-- having gone with it.
+	if which == "eggs" then
+		if hudRefs.showEggPanel then hudRefs.showEggPanel(prompt:GetAttribute("EggKey")) end
 		return
 	end
 	local panel = shopPanels[which]
