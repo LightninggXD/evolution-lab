@@ -442,9 +442,9 @@ Collect these once; each one blocks agents until it exists.
 | `[x]` | Create the 9 game passes, paste ids | 2.11 — done 2026-08-11, all with "Item for sale" on |
 | `[x]` | Create the 10 new developer products, paste ids (the shop is 17 rows now — see 3.8) | 3.8 — done 2026-08-11, 26 ids in total |
 | `[ ]` | Game icon and thumbnail | 6.5 |
-| `[ ]` | **Turn off the Boss Revive product's sale** on the dashboard. The receipt branch stays in code on purpose so in-flight purchases are still honoured — see 11.7 | 11.7 |
+| `[x]` | **Turn off the Boss Revive product's sale** on the dashboard. The receipt branch stays in code on purpose so in-flight purchases are still honoured — see 11.7 | 11.7 — **done 2026-08-12**: product `3702254100` now reads **Offsale** on the Developer Products list. Note for anyone who assumed otherwise: a developer product **does** carry an `Item for sale` toggle, same as a pass |
 | `[ ]` | **Create a shard pack** developer product and paste the real `productId` | 11.12 |
-| `[ ]` | **Match the two Catalyst prices on the dashboard** — 11.7 moved them to **49** (`TierUp_1`, id 3702254553) and **129** (`TierUp_3`, id 3702254989). The number in `GameConfig` is only what the card prints; the dashboard is what actually charges | 11.7 |
+| `[x]` | **Match the two Catalyst prices on the dashboard** — 11.7 moved them to **49** (`TierUp_1`, id 3702254553) and **129** (`TierUp_3`, id 3702254989). The number in `GameConfig` is only what the card prints; the dashboard is what actually charges | 11.7 — **done 2026-08-12**, both verified back on the Developer Products list: Rainbow Catalyst **49**, Catalyst x3 **129**. `GameConfig` and the dashboard now agree |
 | `[ ]` | **One real rebirth** from a late zone on the published place, to close 11.1 end-to-end. It costs the runner their progress, which is why no agent has done it | 11.1 |
 | `[x]` | Prism Festival dates in `GameConfig.Events` — a design decision, not an id, so edit freely | 7.4 — decided 2026-08-10: 4–7 September 2026, the authored window, unchanged |
 
@@ -502,6 +502,16 @@ Gathered 2026-08-07/08 while writing this plan.
   immediately by `require(GameConfig)` reported **9 potions** after the fourth kind was already in
   the file. Nothing was wrong — the module had been required earlier in the same Edit session and
   the old table came back. Verify config changes from a **fresh Play VM**, not from Edit.
+
+  **AND 11.7'S TWO OWNER ITEMS WERE DONE FROM HERE, ON THE CREATOR DASHBOARD.** Kristina said to
+  go ahead, so the three products were edited directly in the browser and read back off the
+  Developer Products list afterwards: Rainbow Catalyst (`3702254553`) **99 → 49**, Catalyst x3
+  (`3702254989`) **249 → 129**, Boss Revive (`3702254100`) **→ Offsale**. Nothing else on the
+  seventeen-product list was touched. **A developer product does carry an `Item for sale` toggle**,
+  which is worth writing down because the assumption behind 11.7's design was that only passes do —
+  the withdrawal is a real offsale now, not merely a product with no UI pointing at it. The
+  `delisted` row and its diamond conversion stay exactly as they are: an offsale product still
+  retries receipts that were already in flight, which is the case that row exists for.
 
   **State at end of session: `main` and `origin/main` level at the 11.8 commit, all 51 scripts in
   Studio byte-identical to `src/`, world at `BUILD_VERSION` 127.** The next open row in order is
