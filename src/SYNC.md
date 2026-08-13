@@ -14,9 +14,16 @@
 > Studio is simply behind and the push cannot destroy work; a miss means Studio holds something that
 > exists nowhere else and must be pulled first. `tools/` has the rolling hash both sides use.
 >
-> **`game:Save()` is not a member of `DataModel` in this Studio version**, so no agent can save the
-> place. Ask for a manual Ctrl+S at the end of any session that pushed — this was the third
-> recorded loss.
+> **The six were not lost work — the WRONG DOCUMENT was open.** `game.GameId` and `game.PlaceId`
+> were both **0** and the window title read `...\evolution-lab\Evolution-lab.rbxl`: Studio was on the
+> **local place file** (written 2026-08-12 16:27), not the published cloud place. **Read
+> `game.GameId` before you interpret a sweep** — 0 means the local file and the differences are just
+> that snapshot's age. `game:Save()` does not exist in this version, but `AppActivate` + `SendKeys ^s`
+> does and the local file now holds the restore.
+>
+> ⚠️ **These pushes are in the LOCAL file only.** When Studio next opens **Evolution Lab BETA
+> V0.2** (`10675543038` / `102217824272435`), sweep again before anything else — expect a different
+> set of differences there.
 
 **This tree is extracted directly from the place file and is byte-identical to Studio.**
 Read code from here, not through `script_read` — pulling this place through the MCP costs

@@ -484,9 +484,23 @@ Gathered 2026-08-07/08 while writing this plan.
   `HatchReveal`, `MainUI` — and every one of them hashed **byte-identical to an older commit**
   (`e4b6c17`, `416cb67`, `444bd44`, `416cb67`, `796a83f`, `975b07b`, spanning 11–12 August). That is
   the proof that made the push safe: **Studio held no work of its own, only old work**, so restoring
-  `src/` could not destroy anything. All six pushed and verified byte-identical. **`game:Save()` is
-  not a member of `DataModel` in this Studio version**, so an agent cannot protect the session
-  itself — the place must be saved by hand, and this is the third recorded loss.
+  `src/` could not destroy anything. All six pushed and verified byte-identical.
+
+  **The cause was found afterwards and it is not a loss at all: the WRONG DOCUMENT WAS OPEN.**
+  `game.GameId` and `game.PlaceId` are both **0** and the window title reads
+  `C:\Users\Kristina\Documents\evolution-lab\Evolution-lab.rbxl` — Studio was on the **local place
+  file**, last written 2026-08-12 16:27, not on the published cloud place. Every one of the six
+  "reverted" files is simply what that snapshot held. **So check `game.GameId` before diagnosing a
+  sweep**: 0 means the local file, and a local file is one moment rather than a session. `game:Save()`
+  is not a member of `DataModel` in this version, but the OS route works — `AppActivate` the Studio
+  pid and `SendKeys ^s` — and it was used here: the local place is saved with the restore in it
+  (22.1 → 24.4 MB, 21:00).
+
+  ⚠️ **THE CLOUD PLACE HAS NOT BEEN TOUCHED THIS SESSION.** Everything above — the six
+  restores and the 11.19 fix — is in the local file only. When Studio is next opened on **Evolution
+  Lab BETA V0.2** (`10675543038` / `102217824272435`), sweep `src/` against it before anything else
+  and expect a different set of differences; the 11.19 measurement itself is unaffected, since the
+  reveal is client theatre driven by one payload and touches no DataStore.
 
   **11.19 · the disagreement between the probe and the model was a false choice.** Both were
   measuring truthfully and neither was measuring the same frame. A real bulk was fired down the real
