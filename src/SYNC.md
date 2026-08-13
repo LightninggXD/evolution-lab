@@ -1,6 +1,29 @@
 # `src/` — Luau mirror of the Evolution Lab place
 
-> ## ✅ IN SYNC (2026-08-13, fourth session) — after Studio had reverted SIX files
+> ## ✅ IN SYNC WITH THE CLOUD PLACE (2026-08-13, fifth session)
+>
+> **The sweep the block below asked for has been run, and it predicted correctly.** Studio on
+> **Evolution Lab BETA V0.2** (`GameId` 10675543038 / `PlaceId` 102217824272435), 58 scripts. Every
+> shared file hashed identical except the two whose fixes had landed in the *local* file only:
+> `MainUI` at **378,671** (pre-11.32) and `HatchReveal` at **48,310** (pre-11.19). Both pushed from
+> `src/` over the HTTP bridge and verified byte-identical — `MainUI` **380,324 / roll 144286258**,
+> `HatchReveal` **54,074 / roll 648462907** — and `MainUI` `loadstring`s clean.
+>
+> **Direction was proven before writing:** both Studio hashes reproduce byte-exactly from the git
+> blob at `ab93230^`, so Studio was simply behind that commit. That is the cheap version of the rule
+> in the block below — hash the historical blobs rather than guessing.
+>
+> Remaining known differences, both fine to leave: three `ServerStorage.LightConfig` files carry
+> **CRLF** where `src/` has LF (dead third-party code — the byte counts differ by exactly the line
+> count), and two Studio-only backups exist, `_PushBackup.MachineService_removed_2026_08_11` and
+> `_RewardFresh`.
+>
+> ⚠️ **`tools/push_two.lua` has served its purpose** — its baked hashes describe a push that is now
+> done. Re-hash both sides before trusting it again.
+>
+> ---
+>
+> ## Historical: IN SYNC (2026-08-13, fourth session) — after Studio had reverted SIX files
 >
 > A full sweep of all 59 live scripts found six behind, and **each hashed byte-identical to an older
 > commit** rather than to anything Studio had authored: `UITheme` (`e4b6c17`), `BossService`

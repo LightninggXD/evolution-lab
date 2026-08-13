@@ -14,8 +14,10 @@ local FILES = {
 	{
 		inst = game.StarterPlayer.StarterPlayerScripts:FindFirstChild("HatchReveal"),
 		url  = "http://127.0.0.1:8731/src/StarterPlayer/StarterPlayerScripts/HatchReveal.client.lua",
-		wasLen = 48310,  wasHash = 169269412,   -- Studio, verified 2026-08-13
-		wantLen = 52514, wantHash = 909702846,  -- src/ on disk now
+		wasLen = 48310,  wasHash = 169269412,   -- Studio, re-verified 2026-08-13 (fifth) on the CLOUD place
+		-- Was 52,514/909702846 when this script was staged in the third session. The FOURTH session
+		-- closed 11.19 with another 20 lines in this file (commit 5b0d983), so the target moved.
+		wantLen = 54074, wantHash = 648462907,  -- src/ on disk now
 	},
 	{
 		inst = game.StarterPlayer.StarterPlayerScripts:FindFirstChild("MainUI"),
