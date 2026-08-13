@@ -9,3 +9,6 @@
 # Python caches from tools/
 __pycache__/
 *.pyc
+
+# Studio session lock, present only while the place is open
+*.rbxl.lock
