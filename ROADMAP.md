@@ -475,6 +475,27 @@ Gathered 2026-08-07/08 while writing this plan.
 
 ## Changelog
 
+- **2026-08-13 (third session)** — **No code changed. The session was blocked on the MCP handshake,
+  and the diagnosis is worth keeping because it is not the failure it looks like.** Studio was
+  running, `StudioMCP.exe` was running, and the proxy reported itself healthy on
+  `http://127.0.0.1:13469/health` — **`Studios: 1 / Proxies: 1 / Tools cached: 25`**. The bridge to
+  Studio was up the whole time; what was missing was the `mcp__roblox-studio__*` tools on the
+  *Claude* side, which are bound once at session start and cannot be attached mid-session.
+  **So "the Studio MCP is not connected" is two different faults, and `/health` tells them apart:**
+  a dead proxy shows `Studios: 0`, while this one shows a live Studio and a client that never got
+  the tool list. The fix is on Kristina's side — reconnect MCP or restart Claude Code — not a
+  Studio restart, and **not** re-opening the place, which would lose the unsaved session.
+
+  Probing the proxy for a way in from Bash is a dead end worth not repeating: every path 404s
+  except `/health`, and `/studio` and `/proxy` answer **400 on GET / 405 on POST**, i.e. they are
+  WebSocket upgrade endpoints, not a JSON-RPC surface. There is no HTTP route that invokes a tool.
+
+  **Staged and ready, so the next session's first move is one call:** the file server is up
+  (`python -m http.server 8731`, repo root) and the push script is written with the before/after
+  hashes baked in — Studio must still read `HatchReveal` **48,310 / 169269412** and `MainUI`
+  **378,671 / 120848007**, and must come back **52,514 / 909702846** and **380,324 / 144286258**.
+  It refuses to write on drift rather than overwriting blind. `git status` is clean.
+
 - **2026-08-13 (second session)** — **Phase 11's last two open pieces of CODE are written and
   neither is measured: the Studio MCP is not connected this session, so nothing could be run.**
   `src/` is now ahead of Studio on two files — `HatchReveal.client.lua` and `MainUI.client.lua`.
