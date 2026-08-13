@@ -77,6 +77,22 @@ end
 -- which a shared module running on every client has no good place to register anyway.
 local spinTweens = setmetatable({}, { __mode = "k" })
 
+-- Everything that moves forever goes through here or `cancelSpins` cannot reach it, and the note
+-- above is describing a leak that is still live. Three sites -- `beadRing`, `orbitals` and
+-- BUILD[19] -- started their tweens straight off TweenService and registered nothing, so the halo
+-- and the orbital sets, which is most of the late game, kept writing to destroyed welds after every
+-- rebuild. Anything with a `Cancel` method may be registered, not only a Tween: the turn chains
+-- below hand in a table.
+local function register(ctx, canceller)
+	local list = spinTweens[ctx.character]
+	if not list then
+		list = {}
+		spinTweens[ctx.character] = list
+	end
+	table.insert(list, canceller)
+	return canceller
+end
+
 local function cancelSpins(character)
 	local list = spinTweens[character]
 	if not list then return end
@@ -86,11 +102,120 @@ local function cancelSpins(character)
 	spinTweens[character] = nil
 end
 
+-- A FULL TURN CANNOT BE ONE REPEATING TWEEN, and both ways of writing it fail in silence.
+-- `CFrame.Angles(0, 0, math.pi * 2)` is the IDENTITY, so the tween's goal is its own start value and
+-- the piece never moves at all -- which is precisely what the stage 13 clock hands did. Overshooting
+-- is worse than useless: a CFrame tween interpolates the rotation the SHORT way, so a goal of 4pi/3
+-- runs backwards by 2pi/3. So a full circle is walked in THIRDS, each third its own tween, the next
+-- one starting from where the last one landed. Three keyframes a revolution, and still no per-frame
+-- work anywhere -- which is the promise at the top of this file and the reason this is not a
+-- Heartbeat loop.
+--
+-- `symmetry` is the escape hatch and the cheaper path: an arrangement that repeats every 2pi/n
+-- (six gear teeth, fourteen halo beads) only ever has to travel one gap, and one gap is under a
+-- half turn for any n >= 3, so a single repeating tween is exact and the jump back is invisible.
+-- That is `orbitals`' trick, taught to turn around a pivot.
+--
+-- `pivot` is the frame the piece turns AROUND, which is not the frame the piece IS AT. A clock hand
+-- is a bar whose offset already carries it half its own length off the spindle; post-multiplying a
+-- rotation onto that offset -- what `spin` does -- turns it about its own middle instead, which
+-- reads as a bar wobbling in place rather than as a hand sweeping the dial.
+-- AND A CARRIED PIECE MUST NEVER BE TWEENED DIRECTLY, because a CFrame tween is not a rotation:
+-- it slerps the rotation but LERPS THE POSITION, in a straight line between the two keyframes. A
+-- piece whose C0 is `pivot * R * rel` therefore crosses the CHORD instead of riding the arc, and its
+-- distance from the pivot collapses to cos(half the step) at the midpoint. Measured on the shipped
+-- build before this: the minute hand fell to exactly **50.0%** of its own reach every third of a
+-- turn (a 120-degree step) and the gear teeth to 86.6% (60 degrees) -- a clock hand telescoping in
+-- and out of its own spindle, which is worse than the dead hand it replaced.
+--
+-- So what turns is a HUB: an empty part pinned at the pivot, whose own C0 is `pivot * R`. That has
+-- the SAME position component at every angle, so the lerp is between two identical points and only
+-- the slerp is left -- an exact circle at constant speed. The pieces hang off the hub with fixed
+-- offsets and are carried perfectly. One hub serves every piece sharing a pivot and a period, which
+-- is also what keeps six gear teeth in lockstep rather than in six independent tweens.
+local TURN_STEPS = 3
+
+local function driveHub(ctx, weld, pivot, axis, seconds, symmetry)
+	local n = math.max(symmetry or 1, 1)
+	-- negative seconds means the other way round, the convention `beadRing` already uses. It is
+	-- read HERE rather than handed to TweenInfo, where a negative duration is simply invalid.
+	local dir = seconds < 0 and -1 or 1
+	local period = math.abs(seconds)
+
+	if n >= TURN_STEPS then
+		local tween = TweenService:Create(weld,
+			TweenInfo.new(period / n, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1),
+			{ C0 = pivot * CFrame.fromAxisAngle(axis, dir * math.pi * 2 / n) })
+		tween:Play()
+		register(ctx, tween)
+		return
+	end
+
+	local goals = {}
+	for k = 0, TURN_STEPS - 1 do
+		goals[k] = pivot * CFrame.fromAxisAngle(axis, dir * k * math.pi * 2 / TURN_STEPS)
+	end
+
+	local chain = { k = 0 }
+	function chain:Cancel()
+		self.stopped = true
+		if self.tween then self.tween:Cancel() end
+	end
+
+	local function play()
+		if chain.stopped or not weld.Parent then return end
+		chain.k = (chain.k + 1) % TURN_STEPS
+		local tween = TweenService:Create(weld, TweenInfo.new(period / TURN_STEPS, Enum.EasingStyle.Linear),
+			{ C0 = goals[chain.k] })
+		chain.tween = tween
+		-- A cancelled tween reports `Cancelled` here, and that is the only way this chain ever
+		-- learns to stop: `Clear` destroys the welds and would otherwise leave it starting a fresh
+		-- tween on a dead one every third of a turn, forever.
+		tween.Completed:Connect(function(state)
+			if state == Enum.PlaybackState.Completed then play() end
+		end)
+		tween:Play()
+	end
+
+	register(ctx, chain)
+	play()
+end
+
+-- The turning hub for one (host, pivot, axis, period) group, made once and shared.
+local function turnHub(ctx, hostPart, turn)
+	local pivot = turn.pivot or CFrame.new()
+	local axis = turn.axis or Vector3.new(0, 0, 1)
+	local seconds = turn.seconds or 6
+	local key = ("%s|%s|%s|%s|%s"):format(hostPart:GetFullName(), tostring(pivot), tostring(axis),
+		tostring(seconds), tostring(turn.symmetry))
+	ctx.turnHubs = ctx.turnHubs or {}
+	local hub = ctx.turnHubs[key]
+	if hub then return hub, pivot end
+
+	-- Transparent and 0.05 on every axis: it is a frame, not a shape. It still has to be a real Part
+	-- because a Weld needs two of them, and it is parented into the costume folder like everything
+	-- else so `Clear` takes it with the rest.
+	hub = mk("StageTurnHub", Vector3.new(0.05, 0.05, 0.05), Color3.new(1, 1, 1), nil, 1)
+	hub.CFrame = hostPart.CFrame * pivot
+	hub.Parent = ctx.folder
+
+	local weld = Instance.new("Weld")
+	weld.Name = "CostumeWeld"
+	weld.Part0 = hostPart
+	weld.Part1 = hub
+	weld.C0 = pivot
+	weld.Parent = hub
+
+	driveHub(ctx, weld, pivot, axis, seconds, turn.symmetry)
+	ctx.turnHubs[key] = hub
+	return hub, pivot
+end
+
 -- Hangs `part` off `hostPart` at `offset`. `spin` is { rx, ry, rz, seconds } and makes the piece
 -- turn forever by tweening the weld. The rotation has to be exactly one step of the arrangement's
 -- own symmetry, or the tween's jump back to its start value is visible as a stutter -- so orbiting
 -- sets are always built evenly spaced and spun by one full gap.
-local function att(ctx, part, hostPart, offset, spin)
+local function att(ctx, part, hostPart, offset, spin, turn)
 	if not hostPart then
 		part:Destroy()
 		return nil
@@ -98,33 +223,41 @@ local function att(ctx, part, hostPart, offset, spin)
 	part.CFrame = hostPart.CFrame * offset
 	part.Parent = ctx.folder
 
+	-- A turning piece is welded to the hub instead of to the limb, at the offset that puts it exactly
+	-- where it would have been -- so a builder writes the piece's place in the limb's frame either
+	-- way and never has to know a hub exists.
+	local anchorPart, anchorOffset = hostPart, offset
+	if turn then
+		local hub, pivot = turnHub(ctx, hostPart, turn)
+		anchorPart, anchorOffset = hub, pivot:Inverse() * offset
+	end
+
 	local weld = Instance.new("Weld")
 	weld.Name = "CostumeWeld"
-	weld.Part0 = hostPart
+	weld.Part0 = anchorPart
 	weld.Part1 = part
-	weld.C0 = offset
+	weld.C0 = anchorOffset
 	weld.Parent = part
 
 	if spin then
 		local tween = TweenService:Create(weld, TweenInfo.new(spin[4] or 6, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {
-			C0 = offset * CFrame.Angles(spin[1] or 0, spin[2] or 0, spin[3] or 0),
+			C0 = anchorOffset * CFrame.Angles(spin[1] or 0, spin[2] or 0, spin[3] or 0),
 		})
 		tween:Play()
 		-- registered so Clear can cancel it; see the note above cancelSpins
-		local list = spinTweens[ctx.character]
-		if not list then
-			list = {}
-			spinTweens[ctx.character] = list
-		end
-		table.insert(list, tween)
+		register(ctx, tween)
 	end
 	return part
 end
 
--- The one call every builder below uses. opts: { mat, tr, shape, spin }
+-- The one call every builder below uses. opts: { mat, tr, shape, spin, turn }
+--
+-- `spin` turns the piece about its OWN centre by a fixed angle and loops there; `turn` carries it
+-- around a pivot for a whole revolution. Use `spin` only where the angle is a real symmetry step of
+-- the arrangement -- it is the older of the two and half its uses were a rotation nobody can see.
 local function P(ctx, hostPart, name, size, offset, color, opts)
 	opts = opts or {}
-	return att(ctx, mk(name, size, color, opts.mat, opts.tr, opts.shape), hostPart, offset, opts.spin)
+	return att(ctx, mk(name, size, color, opts.mat, opts.tr, opts.shape), hostPart, offset, opts.spin, opts.turn)
 end
 
 -- A flat disc lying in the XZ plane: haloes, rings, clock faces, gears. Cylinders point along
@@ -434,10 +567,12 @@ local function beadRing(ctx, hostPart, name, count, radius, bead, color, opts, c
 			color, { mat = opts.mat or Enum.Material.Neon, tr = opts.tr or 0.15 })
 		if p and opts.seconds then
 			local weld = p:FindFirstChild("CostumeWeld")
-			TweenService:Create(weld, TweenInfo.new(math.abs(opts.seconds), Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {
+			local tween = TweenService:Create(weld, TweenInfo.new(math.abs(opts.seconds), Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {
 				C0 = (centreCF or CFrame.new()) * CFrame.Angles(0, a + (opts.seconds > 0 and step or -step), 0)
 					* CFrame.new(radius, 0, 0) * CFrame.Angles(0, math.rad(90), 0),
-			}):Play()
+			})
+			tween:Play()
+			register(ctx, tween)
 		end
 	end
 end
@@ -468,9 +603,11 @@ local function orbitals(ctx, count, color, size, radius, seconds, shape, mat, yF
 		-- keeps the whole thing to one weld per piece.
 		if p then
 			local weld = p:FindFirstChild("CostumeWeld")
-			TweenService:Create(weld, TweenInfo.new(seconds, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {
+			local tween = TweenService:Create(weld, TweenInfo.new(seconds, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {
 				C0 = lift * CFrame.Angles(0, a + step, 0) * CFrame.new(ts.X * radius, 0, 0),
-			}):Play()
+			})
+			tween:Play()
+			register(ctx, tween)
 		end
 	end
 end
@@ -854,7 +991,18 @@ BUILD[12] = function(ctx)
 	orbitals(ctx, 5, lighten(ctx.glow, 0.35), 0.2, 1.9, 16)
 end
 
--- 13 TIME WALKER: a clock worn on the chest, gears on the shoulders, and the hands actually turn.
+-- 13 TIME WALKER: a clock worn on the chest, gears on the shoulders, and the hands actually turn --
+-- clockwise, at a true 12:1, one minute-hand revolution every 8 seconds. [decision 2026-08-13]
+--
+-- NOTHING ON THIS COSTUME USED TO MOVE, and every piece of it looked like it should. Both hands were
+-- `spin = { 0, 0, math.pi * 2, n }`, i.e. a tween whose goal is the identity; and a gear asked for
+-- the other direction with a NEGATIVE DURATION, which is `beadRing`'s convention arriving at a
+-- consumer that never implemented it. See `startTurn` for both.
+--
+-- The gear DISC is not what turns now. A smooth cylinder is a solid of revolution: spinning one
+-- about its own axis is bit-for-bit the same picture at every angle, so that tween was invisible
+-- even in the frames where it worked. The six teeth are what read as rotation, and they were the
+-- one part of the gear standing still -- so the disc is now static and the teeth go round it.
 BUILD[13] = function(ctx)
 	local brass, face = Color3.fromRGB(206, 168, 88), Color3.fromRGB(244, 236, 214)
 	local t, ts = ctx.torso, ctx.torsoSize
@@ -867,21 +1015,32 @@ BUILD[13] = function(ctx)
 		P(ctx, t, "StageHourMark", Vector3.new(ts.X * 0.05, ts.X * (i % 3 == 0 and 0.14 or 0.08), ts.Z * 0.06),
 			CFrame.new(0, ts.Y * 0.04, -ts.Z * 0.62) * CFrame.Angles(0, 0, -a) * CFrame.new(0, ts.X * 0.35, 0), brass)
 	end
+	-- The dial's own axis, and the sign of "clockwise". The chest faces the torso's -Z, so a viewer
+	-- standing in front of a player is looking down +Z with the torso's +X on their LEFT -- and a
+	-- POSITIVE rotation about +Z carries the tip from 12 towards where they see 3. Clockwise is
+	-- therefore the positive direction here, which is the opposite of what it would be on a piece
+	-- worn on the back.
+	local axis = Vector3.new(0, 0, 1)
+	local hourPivot = CFrame.new(0, ts.Y * 0.04, -ts.Z * 0.64)
+	local minutePivot = CFrame.new(0, ts.Y * 0.04, -ts.Z * 0.66)
 	P(ctx, t, "StageHourHand", Vector3.new(ts.X * 0.07, ts.X * 0.5, ts.Z * 0.06),
-		CFrame.new(0, ts.Y * 0.04, -ts.Z * 0.64) * CFrame.new(0, ts.X * 0.2, 0), INK,
-		{ spin = { 0, 0, math.pi * 2, 30 } })
+		hourPivot * CFrame.new(0, ts.X * 0.2, 0), INK,
+		{ turn = { pivot = hourPivot, axis = axis, seconds = 96 } })
 	P(ctx, t, "StageMinuteHand", Vector3.new(ts.X * 0.05, ts.X * 0.72, ts.Z * 0.06),
-		CFrame.new(0, ts.Y * 0.04, -ts.Z * 0.66) * CFrame.new(0, ts.X * 0.3, 0), ctx.glow,
-		{ mat = Enum.Material.Neon, spin = { 0, 0, math.pi * 2, 8 } })
+		minutePivot * CFrame.new(0, ts.X * 0.3, 0), ctx.glow,
+		{ mat = Enum.Material.Neon, turn = { pivot = minutePivot, axis = axis, seconds = 8 } })
 	for _, side in ipairs({ -1, 1 }) do
-		P(ctx, t, "StageGear", Vector3.new(ts.Z * 0.24, ts.X * 0.6, ts.X * 0.6),
-			CFrame.new(side * ts.X * 0.66, ts.Y * 0.34, 0) * FACE, brass,
-			{ shape = Enum.PartType.Cylinder, mat = Enum.Material.Metal, spin = { math.pi / 3, 0, 0, side > 0 and 5 or -5 } })
+		local hub = CFrame.new(side * ts.X * 0.66, ts.Y * 0.34, 0)
+		P(ctx, t, "StageGear", Vector3.new(ts.Z * 0.24, ts.X * 0.6, ts.X * 0.6), hub * FACE, brass,
+			{ shape = Enum.PartType.Cylinder, mat = Enum.Material.Metal })
 		for g = 1, 6 do
 			local a = g * math.pi / 3
+			-- Six teeth are a six-fold arrangement, so one tween of one tooth-gap loops seamlessly
+			-- and no chain is needed; `seconds` is still the period of a WHOLE turn, and its sign is
+			-- what makes the two gears counter-rotate the way a real pair has to.
 			P(ctx, t, "StageGearTooth", Vector3.new(ts.Z * 0.2, ts.X * 0.14, ts.X * 0.14),
-				CFrame.new(side * ts.X * 0.66, ts.Y * 0.34, 0) * CFrame.Angles(0, 0, a) * CFrame.new(0, ts.X * 0.32, 0), brass,
-				{ mat = Enum.Material.Metal })
+				hub * CFrame.Angles(0, 0, a) * CFrame.new(0, ts.X * 0.32, 0), brass,
+				{ mat = Enum.Material.Metal, turn = { pivot = hub, axis = axis, seconds = side * 5, symmetry = 6 } })
 		end
 	end
 	cloak(ctx, darken(ctx.color, 0.2), brass, 1.5)
@@ -954,13 +1113,30 @@ BUILD[16] = function(ctx)
 end
 
 -- 17 CHRONOS BEING: three rings turning at three speeds, and an hourglass where a chest was.
+--
+-- The rings had the SAME PAIR OF DEFECTS as stage 13's clock and were written a hundred lines apart
+-- from it: the middle ring asked to turn the other way with a negative DURATION, and all three were
+-- spun about their own axis -- which for a smooth cylinder is no picture change at all. So the row's
+-- one promise, "three rings turning at three speeds", was the one thing it did not do.
+--
+-- A ring can only be SEEN to turn about an axis that is not its own, so each one now precesses about
+-- the torso's vertical while tilted out of that plane -- a gyroscope, which is also what the name
+-- wants. That requires the first ring to gain a tilt (it lay perfectly flat, and a flat ring
+-- precessing about the vertical is again the same picture forever); 16 degrees is enough to read and
+-- small enough that the stack still stands as three level bands from the front.
 BUILD[17] = function(ctx)
 	local t, ts = ctx.torso, ctx.torsoSize
-	for i, spec in ipairs({ { 2.5, 0.4, 14, 0 }, { 2.0, 0.1, -10, math.rad(38) }, { 1.5, -0.2, 8, math.rad(-30) } }) do
+	-- { diameter, y, seconds (sign = direction), tilt }
+	for i, spec in ipairs({ { 2.5, 0.4, 14, math.rad(16) }, { 2.0, 0.1, -10, math.rad(38) }, { 1.5, -0.2, 8, math.rad(-30) } }) do
+		-- the pivot carries the height but NOT the tilt: the tilt has to sit inside the piece's own
+		-- offset, or the axis it precesses about would tilt with it and we are back to a ring
+		-- turning about itself.
+		local pivot = CFrame.new(0, ts.Y * spec[2], 0)
 		P(ctx, t, "StageChronoRing", Vector3.new(ts.X * 0.08, ts.X * spec[1], ts.X * spec[1]),
-			CFrame.new(0, ts.Y * spec[2], 0) * CFrame.Angles(spec[4], 0, 0) * FLAT,
+			pivot * CFrame.Angles(spec[4], 0, 0) * FLAT,
 			i == 2 and lighten(ctx.glow, 0.4) or ctx.glow,
-			{ shape = Enum.PartType.Cylinder, mat = Enum.Material.Neon, tr = 0.28, spin = { math.pi, 0, 0, spec[3] } })
+			{ shape = Enum.PartType.Cylinder, mat = Enum.Material.Neon, tr = 0.28,
+				turn = { pivot = pivot, axis = Vector3.new(0, 1, 0), seconds = spec[3] } })
 	end
 	for _, dy in ipairs({ 0.26, -0.26 }) do
 		P(ctx, t, "StageHourglass", Vector3.new(ts.X * 0.5, ts.Y * 0.3, ts.Z * 0.5),
@@ -1005,9 +1181,11 @@ BUILD[19] = function(ctx)
 			{ mat = Enum.Material.Neon, tr = 0.1 })
 		if chunk then
 			local weld = chunk:FindFirstChild("CostumeWeld")
-			TweenService:Create(weld, TweenInfo.new(11, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {
+			local tween = TweenService:Create(weld, TweenInfo.new(11, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {
 				C0 = CFrame.new(0, ts.Y * 0.1, 0) * CFrame.Angles(0, a + step, 0) * CFrame.new(ts.X * 1.7, 0, 0),
-			}):Play()
+			})
+			tween:Play()
+			register(ctx, tween)
 			if i == 1 then emitter(chunk, col, ts.X * 0.18, 14, ts.X * 0.5, 1.3) end
 		end
 	end
