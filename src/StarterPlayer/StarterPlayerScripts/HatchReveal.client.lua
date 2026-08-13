@@ -840,6 +840,14 @@ local function screenReveal(payload, def, rarity)
 
 	local focus, dist, reach = frameOn(eggModel)
 
+	-- THE POSE IS SET HERE, NOT ONLY IN THE LOOP BELOW. A fresh Camera's CFrame is not the identity
+	-- -- Roblox hands it (0, 20, 20) looking at the origin -- and RenderStepped does not run until
+	-- after this frame has been drawn, so the first frame of every reveal was rendered from that
+	-- default: a 45-degree downward view from 27 studs instead of the fitted one. See the long note
+	-- on the same line in the bulk reveal, where ten eggs made it visible.
+	cam.CFrame = CFrame.lookAt(
+		(CFrame.new(focus) * CFrame.new(0, reach * 0.06, dist)).Position, focus)
+
 	local spin = 0
 	local wobble = 0
 	local conn
@@ -1145,6 +1153,18 @@ local function screenRevealBulk(payload)
 	-- left standing and walk the camera in as the ring empties.
 	local focus, dist = frameCluster(cluster, cam, vp)
 	local measured = vp.AbsoluteSize.Y > 0
+
+	-- THE FIRST FRAME WAS NEVER FRAMED, AND THAT -- NOT THE SWAY -- IS 11.19's "eggs outside the
+	-- viewport". Measured live: on frame 1 the camera sits at (0, 20, 20) looking down at 45
+	-- degrees, 27.24 studs from the focus, and slots 4, 9 and 2 put their CENTRES at 1.146, 1.146
+	-- and 1.095 of the half frame. On frame 2 the loop below takes over at the solved 46.26 and the
+	-- worst centre for the rest of the reveal is 0.71. (0, 20, 20) is not a pose anything here
+	-- chose: it is the CFrame Roblox gives a new Camera, and RenderStepped does not fire until
+	-- after this frame is drawn. So the fitted pose has to be written here, at the t = 0 of the
+	-- loop's own expression -- sin(0) is 0, so that is the focus pushed straight back by `dist`.
+	-- The re-solve on the frame AbsoluteSize first reports is unaffected: it happens inside the
+	-- loop, which writes the camera on that same frame.
+	cam.CFrame = CFrame.lookAt((CFrame.new(focus) * CFrame.new(0, 0, dist)).Position, focus)
 
 	shell.caption.Text = ("Tap to open all %d!"):format(#order)
 

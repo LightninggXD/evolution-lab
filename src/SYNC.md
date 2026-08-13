@@ -1,19 +1,22 @@
 # `src/` — Luau mirror of the Evolution Lab place
 
-> ## ⚠️ `src/` IS AHEAD OF STUDIO ON TWO FILES (2026-08-13, second session)
+> ## ✅ IN SYNC (2026-08-13, fourth session) — after Studio had reverted SIX files
 >
-> Edited on disk and **never pushed** — the Studio MCP was not connected that session, so nothing
-> could be written to Studio and nothing could be measured:
+> A full sweep of all 59 live scripts found six behind, and **each hashed byte-identical to an older
+> commit** rather than to anything Studio had authored: `UITheme` (`e4b6c17`), `BossService`
+> (`416cb67`), `PetService` (`444bd44`), `ZoneBuilder` (`416cb67`), `HatchReveal` (`796a83f`),
+> `MainUI` (`975b07b`). All six were pushed from `src/` and verified byte-identical. **57 shared
+> paths now agree**; `ServerScriptService.ZoneDecor` is Studio-only (orphaned dead code) and the six
+> `ServerStorage._PushBackup.*` are disk-only.
 >
-> | File | What changed |
-> |---|---|
-> | `StarterPlayer/StarterPlayerScripts/HatchReveal.client.lua` | 11.19 — `frameCluster` rewritten as a projection across the sway; `BULK_SWAY` / `BULK_FILL` added; the horizontal half-angle now read off `vp.AbsoluteSize` |
-> | `StarterPlayer/StarterPlayerScripts/MainUI.client.lua` | 11.32 — `refreshPetsPanel` skips while the panel is shut, plus a `Visible` listener that rebuilds it on open |
+> **Prove the DIRECTION before pushing, and this is how it is cheap:** hash every historical git
+> blob of the differing file and look for the revision that reproduces Studio's hash. A hit means
+> Studio is simply behind and the push cannot destroy work; a miss means Studio holds something that
+> exists nowhere else and must be pulled first. `tools/` has the rolling hash both sides use.
 >
-> **Push both before doing anything else in Studio**, over the HTTP bridge below, and verify
-> byte-identity. Then measure them: both rows are `[~]` in `ROADMAP.md` for want of a live run, and
-> 11.19 additionally carries a disagreement with the previous session's probe that only a live read
-> of the reveal camera can settle.
+> **`game:Save()` is not a member of `DataModel` in this Studio version**, so no agent can save the
+> place. Ask for a manual Ctrl+S at the end of any session that pushed — this was the third
+> recorded loss.
 
 **This tree is extracted directly from the place file and is byte-identical to Studio.**
 Read code from here, not through `script_read` — pulling this place through the MCP costs
