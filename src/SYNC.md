@@ -1,5 +1,20 @@
 # `src/` — Luau mirror of the Evolution Lab place
 
+> ## ⚠️ `src/` IS AHEAD OF STUDIO ON TWO FILES (2026-08-13, second session)
+>
+> Edited on disk and **never pushed** — the Studio MCP was not connected that session, so nothing
+> could be written to Studio and nothing could be measured:
+>
+> | File | What changed |
+> |---|---|
+> | `StarterPlayer/StarterPlayerScripts/HatchReveal.client.lua` | 11.19 — `frameCluster` rewritten as a projection across the sway; `BULK_SWAY` / `BULK_FILL` added; the horizontal half-angle now read off `vp.AbsoluteSize` |
+> | `StarterPlayer/StarterPlayerScripts/MainUI.client.lua` | 11.32 — `refreshPetsPanel` skips while the panel is shut, plus a `Visible` listener that rebuilds it on open |
+>
+> **Push both before doing anything else in Studio**, over the HTTP bridge below, and verify
+> byte-identity. Then measure them: both rows are `[~]` in `ROADMAP.md` for want of a live run, and
+> 11.19 additionally carries a disagreement with the previous session's probe that only a live read
+> of the reveal camera can settle.
+
 **This tree is extracted directly from the place file and is byte-identical to Studio.**
 Read code from here, not through `script_read` — pulling this place through the MCP costs
 roughly 180k tokens, which does not fit in one session.

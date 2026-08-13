@@ -2256,6 +2256,20 @@ local petPreviewRigs = {}
 
 local function refreshPetsPanel()
 	if not currentData then return end
+	-- SHUT MEANS SKIPPED (11.32). This function destroys every cell and rebuilds each one with a real
+	-- `PetModel.Build` -- ~30 parts a pet, so a full 100-pet bag is ~3,000 parts -- and it used to run
+	-- on every `DataUpdate`, which the server sends about every three seconds AND on every kill. Most
+	-- of that work was drawn into a panel nobody was looking at. Raising `MaxOwnedPets` 30 -> 100 in
+	-- 11.10 tripled the bill without anything flagging it; the turntable beside this already checked
+	-- `petsPanel.Visible`, which is what made the omission look deliberate.
+	--
+	-- A bare guard would leave the panel opening stale, so the pair to this is the `Visible` listener
+	-- below `hudRefs.refreshPetsPanel` -- and it is hung on the PROPERTY, not on the open handlers,
+	-- because there are three ways in (the HUD button, the tab strip, `toggleOnly` from elsewhere)
+	-- and a fourth would silently open stale. Everything this function writes -- the title, both
+	-- counter capsules, the empty label, the grid -- is parented inside `petsPanel`, so there is
+	-- nothing here that a closed panel still owes the rest of the HUD.
+	if not petsPanel.Visible then return end
 	local data = currentData
 
 	-- NO LEADING 🐾 HERE ANY MORE: the paw is drawn beside this label as a TitleIcon (9.9), and a
@@ -2573,6 +2587,14 @@ end
 -- Handed over so the select-mode block above -- which is built ~200 lines earlier and cannot name a
 -- local declared below it -- can force a redraw when the mode changes (11.17).
 hudRefs.refreshPetsPanel = refreshPetsPanel
+
+-- The other half of the skip-while-shut guard (11.32): the grid is rebuilt the moment the panel
+-- becomes visible, off whatever `currentData` holds by then, so skipping the pushes that arrived
+-- while it was closed costs nothing a player can see. It is one connection on the property rather
+-- than a call in each open path, and it cannot fire on a close.
+petsPanel:GetPropertyChangedSignal("Visible"):Connect(function()
+	if petsPanel.Visible then refreshPetsPanel() end
+end)
 
 -- One turntable for every row, and only while the panel is actually open: a ViewportFrame costs
 -- nothing when nobody is looking at it, and a pet standing dead still in a box looks like a

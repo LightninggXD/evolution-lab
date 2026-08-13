@@ -973,9 +973,16 @@ local BULK_HERO_SCALE = 1.25
 local BULK_RING_SCALE = 0.82
 local BULK_RIPPLE = 0.07
 local BULK_SCREEN_HOLD = 3.0
+-- ONE sway angle, read by the framing solve AND by the camera loop. It used to be a literal in the
+-- loop only, which is what let the two disagree: the frame was fitted to a pose the camera leaves.
+local BULK_SWAY = math.rad(15)
+-- How much of the half-frame the cluster may fill at its worst moment. 0.9 is a tenth of the frame
+-- of daylight on every side, and it replaces the old blind x1.12 fudge on the distance.
+local BULK_FILL = 0.9
 -- The stage is 0.52 x 0.72 of the viewport HEIGHT -- both axes, because of the RelativeYY
--- constraint -- so the ViewportFrame inside it has this aspect on every screen there is. That is
--- what lets the framing below solve for width as well as height instead of guessing a distance.
+-- constraint -- so the ViewportFrame inside it has this aspect on every screen there is. This is
+-- now only the FALLBACK for the frame before layout has run: the solve reads `AbsoluteSize`, the
+-- engine's own answer, rather than trusting a second copy of a number the layout owns.
 local VP_ASPECT = 0.52 / 0.72
 
 -- Slot 1 is the hero. `f` shrinks the ring when the server delivered fewer than ten (it can: the
@@ -996,15 +1003,88 @@ local function bulkSlots(n)
 	return slots
 end
 
--- Framed off the cluster's own bounding box, and against BOTH axes. A Camera's FieldOfView is the
--- VERTICAL angle, so a layout that is wide for its height -- which this one is, at the edges -- is
--- cropped left and right by a distance solved from height alone. The half-depth is added on so the
--- hero egg, which sits 3.4 studs nearer the lens than the ring, is not pushed through the near plane.
-local function frameCluster(model, cam)
-	local cf, size = model:GetBoundingBox()
+-- `GetBoundingBox` is a Model method and a BasePart does not have one; a loose part in the cluster
+-- carries its own box already.
+local function boxOf(inst)
+	if inst:IsA("Model") then return inst:GetBoundingBox() end
+	if inst:IsA("BasePart") then return inst.CFrame, inst.Size end
+	return nil
+end
+
+-- SOLVED AGAINST THE ROCKED EXTREMES, not the rest pose -- which is the whole bug this replaces.
+-- The camera does not sit still: it yaws +-BULK_SWAY about the focus, and a yaw does two things to
+-- a ring 15.2 studs wide and 8.3 deep at once. It WIDENS the silhouette (16.8 studs at 15 degrees),
+-- and it swings the near side of that silhouette toward the lens, so the outermost eggs are both
+-- bigger on screen and closer to it than they are at rest. Fitting the bounding box at rest and
+-- adding half the depth -- what this did -- fits a pose the camera is in twice per cycle, and the
+-- ring swings out of the frame it was fitted to for the rest of it.
+--
+-- It is a PROJECTION, not a formula. Every corner of every figure, at nine yaw samples across the
+-- sway, answers "how far back must the camera be for ME to land inside BULK_FILL of the half
+-- frame", and the distance is the largest of those answers. Nothing has to be re-derived when the
+-- ellipse, the sway, the egg size or the slot count moves -- which a closed form does, silently.
+-- Per FIGURE rather than per cluster, because the corners of the cluster's box are empty air (the
+-- layout is an ellipse) and fitting them costs 9% of the size of every egg for nothing.
+--
+-- FieldOfView is the VERTICAL angle, so the horizontal half-angle is scaled by the viewport's own
+-- width/height -- read off `AbsoluteSize`, not off VP_ASPECT, so the frame the eggs are fitted to
+-- cannot drift from the frame they are drawn in. AbsoluteSize is 0 until layout has run, which is
+-- what the fallback and the one re-solve below it are for.
+local function frameCluster(model, cam, vp)
+	local cf, csize0 = model:GetBoundingBox()
+	local focus = cf.Position
+	local aspect = VP_ASPECT
+	if vp then
+		local abs = vp.AbsoluteSize
+		if abs.X > 0 and abs.Y > 0 then aspect = abs.X / abs.Y end
+	end
 	local halfTan = math.tan(math.rad(cam.FieldOfView / 2))
-	local dist = math.max((size.Y / 2) / halfTan, (size.X / 2) / (halfTan * VP_ASPECT)) * 1.12
-	return cf.Position, dist + size.Z / 2
+	local limitX = halfTan * aspect * BULK_FILL
+	local limitY = halfTan * BULK_FILL
+
+	local corners = {}
+	for _, child in ipairs(model:GetChildren()) do
+		local ccf, csize = boxOf(child)
+		if ccf then
+			for _, sx in ipairs({ -0.5, 0.5 }) do
+				for _, sy in ipairs({ -0.5, 0.5 }) do
+					for _, sz in ipairs({ -0.5, 0.5 }) do
+						local p = ccf * Vector3.new(csize.X * sx, csize.Y * sy, csize.Z * sz)
+						table.insert(corners, p - focus)
+					end
+				end
+			end
+		end
+	end
+	-- nothing enumerable in there: fall back to the cluster's own box, which is the looser fit this
+	-- replaced rather than an invented number
+	if #corners == 0 then
+		for _, sx in ipairs({ -0.5, 0.5 }) do
+			for _, sy in ipairs({ -0.5, 0.5 }) do
+				for _, sz in ipairs({ -0.5, 0.5 }) do
+					table.insert(corners,
+						Vector3.new(csize0.X * sx, csize0.Y * sy, csize0.Z * sz))
+				end
+			end
+		end
+	end
+
+	local dist = 0
+	for step = 0, 8 do
+		local yaw = -BULK_SWAY + (BULK_SWAY * 2) * (step / 8)
+		local s, c = math.sin(yaw), math.cos(yaw)
+		for _, v in ipairs(corners) do
+			-- the corner in the camera's own axes at this yaw. `depth` is how much NEARER the lens
+			-- than the focus it sits, so it is added to the distance the corner's spread demands.
+			local across = v.X * c - v.Z * s
+			local depth = v.X * s + v.Z * c
+			local need = math.max(math.abs(across) / limitX, math.abs(v.Y) / limitY) + depth
+			if need > dist then dist = need end
+		end
+	end
+	-- a zero distance would put the camera on its own focus point and hand CFrame.lookAt two
+	-- identical vectors, which is a NaN CFrame and a blank stage
+	return focus, math.max(dist, 1)
 end
 
 local function screenRevealBulk(payload)
@@ -1059,7 +1139,12 @@ local function screenRevealBulk(payload)
 	end
 	cluster.Parent = vp
 
-	local focus, dist = frameCluster(cluster, cam)
+	-- Solved twice, and only twice: once now off the fallback aspect, and once on the first frame
+	-- the ViewportFrame has an AbsoluteSize to report. It is NOT re-solved after that -- the eggs
+	-- are destroyed one at a time during the ripple, so a later solve would reframe on whatever is
+	-- left standing and walk the camera in as the ring empties.
+	local focus, dist = frameCluster(cluster, cam, vp)
+	local measured = vp.AbsoluteSize.Y > 0
 
 	shell.caption.Text = ("Tap to open all %d!"):format(#order)
 
@@ -1072,8 +1157,12 @@ local function screenRevealBulk(payload)
 			return
 		end
 		local t = os.clock() - t0
+		if not measured and vp.AbsoluteSize.Y > 0 then
+			measured = true
+			focus, dist = frameCluster(cluster, cam, vp)
+		end
 		cam.CFrame = CFrame.lookAt(
-			(CFrame.new(focus) * CFrame.Angles(0, math.sin(t * 0.55) * math.rad(15), 0)
+			(CFrame.new(focus) * CFrame.Angles(0, math.sin(t * 0.55) * BULK_SWAY, 0)
 				* CFrame.new(0, 0, dist)).Position,
 			focus)
 		if shell.burstFrame.Visible then
