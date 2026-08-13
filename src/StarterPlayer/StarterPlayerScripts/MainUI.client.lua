@@ -506,12 +506,17 @@ shopFrame.Name = "ShopFrame"
 -- HEIGHT: the header band is 68 tall where the bare title label was 42, and the two upgrade rows
 -- keep every pixel they had rather than being squeezed to pay for it.
 --
--- WIDTH: 900 was never a measurement of anything. Both rows are three tiles centred by a
--- UIListLayout, so the content is 3 x 200 + 2 x 12 = 624 wide and the panel carried ~130 px of dead
--- shell on each side of it -- which is what "even margins" actually looks like when it is wrong:
--- not a crooked edge, but a board with nothing on a third of it. 624 + 16 a side = 656, so the two
--- rows now touch the same margins as the header above them and each other.
-shopFrame.Size = UDim2.new(0, 656, 0, 392)
+-- WIDTH: 900 was never a measurement of anything. Both rows are tiles centred by a UIListLayout,
+-- so the content was 3 x 200 + 2 x 12 = 624 wide and the panel carried ~130 px of dead shell on
+-- each side of it -- which is what "even margins" actually looks like when it is wrong: not a
+-- crooked edge, but a board with nothing on a third of it. 624 + 16 a side = 656.
+--
+-- 656 -> 868 (Phase 12), because the DNA row is FOUR tiles now that Auto Collect is back on it:
+-- 4 x 200 + 3 x 12 = 836, + 16 a side = 868. The tile width stays 200 on both rows, which is the
+-- thing 11.13 actually bought -- one tile size the eye can learn, so three centred beneath four
+-- still reads as a grid. Both rows are `1, -32` children with centred layouts, so this one number
+-- moves them together and neither needed touching.
+shopFrame.Size = UDim2.new(0, 868, 0, 392)
 shopFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 shopFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 shopFrame.ZIndex = 20
@@ -555,17 +560,21 @@ shopLayout.Padding = UDim.new(0, 12)
 shopLayout.SortOrder = Enum.SortOrder.LayoutOrder
 shopLayout.Parent = upgradeRow
 
--- Mutation Chance came off the shop row. Only this list changed: `GameConfig.Upgrades.Mutation`
--- and `DNAService.GetMutationChancePerRoll` are both left alone on purpose. Anyone who already
--- bought levels keeps them, and the base rate does not depend on the upgrade -- the formula is
--- `clamp(2 + level * 1.5, 0, 60)` percent on a roll every ten seconds, so mutations carry on at 2%
--- with nothing bought. Deleting the config entry instead would have zeroed a stat that is still
--- read on the server and silently changed the income of every existing save.
--- Auto Collect came off too, and for the reason the owner gave: there is nothing on the ground to
--- collect, so the tile was selling a mechanic the game does not have. Same treatment as Mutation --
--- only this list changed. `DNAService.GetAutoCollectAmount` returns 0 at level 0, so a save that
--- never bought it is unaffected, and one that did keeps its passive income.
-local upgradeOrder = { "Speed", "Income", "Luck" }
+-- BOTH DELISTED UPGRADES ARE RESOLVED (Phase 12), in opposite directions.
+--
+-- Mutation Chance is GONE from `GameConfig.Upgrades` outright, not merely off this list. It was
+-- left in place before because the server still read it -- deleting it would have silently
+-- changed the income of every save that had bought levels. That reasoning expired when the
+-- ambient ten-second mutation roll it fed was deleted: an upgrade that speeds up nothing is
+-- worse than an absent one. Levels already bought are refunded at their exact geometric sum by
+-- the load migration in PlayerDataService.
+--
+-- Auto Collect comes BACK, because the reason it was pulled was a wrong card rather than a
+-- missing mechanic. The owner's objection was "there is nothing on the ground to collect" --
+-- true, and the tile said so ("Passively collects DNA every second" reads as picking things up).
+-- `DNAService.GetAutoCollectAmount` has always paid a real per-second share of a click, so the
+-- description was rewritten to describe that instead and the tile is honest now.
+local upgradeOrder = { "Speed", "Income", "Luck", "AutoCollect" }
 local upgradeButtons = {}
 
 for i, key in ipairs(upgradeOrder) do

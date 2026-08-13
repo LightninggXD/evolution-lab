@@ -14,6 +14,13 @@ PlayerDataService.Cache = {} -- [userId] = dataTable
 -- GameConfig.GetOfflineSeconds. IN MEMORY, NEVER IN THE SAVE -- see the note where it is written.
 PlayerDataService.OfflineSeconds = {}
 
+-- [userId] = DNA refunded to this player this session by the Phase 12 Mutation Chance conversion,
+-- for SplicerService to tell them about once. IN MEMORY FOR THE SAME REASON OfflineSeconds is:
+-- written onto `data` it would be persisted by the next autosave and re-announced on every join
+-- for the rest of that save's life. (Measured, not predicted -- the first version of the migration
+-- did put it on `data`, and the second load of the probe save read the field straight back.)
+PlayerDataService.SplicerRefunds = {}
+
 -- ===== THE TWO WAYS A SAVE GETS DESTROYED, AND WHAT STOPS THEM =====
 --
 -- 1. A FAILED READ THAT LOOKS LIKE A NEW PLAYER. `GetAsync` was pcall'd, the failure only warned,
@@ -54,10 +61,16 @@ local function defaultData()
 			Speed = 0,
 			Income = 0,
 			Luck = 0,
-			Mutation = 0,
 			AutoCollect = 0,
 		},
-		Mutations = {}, -- list of mutation names owned
+		-- THE DNA SPLICER (Phase 12). `SplicerMutation` is the ONE mutation being worn (absent
+		-- until the first roll -- DataStore drops an explicit nil anyway, so every reader
+		-- nil-guards); `SplicerRolls` is the lifetime roll count that both prices the next roll
+		-- and drives the pity counter, and it is deliberately NOT on the rebirth reset list --
+		-- resetting it would make a rebirth a way to buy cheap rolls again. `SplicerFound` is
+		-- the collection log, name -> how many of that mutation have been rolled.
+		SplicerRolls = 0,
+		SplicerFound = {},
 		Pets = {}, -- list of { id, key, tier } owned pet instances
 		EquippedPetIds = {}, -- list of pet ids currently equipped (max GameConfig.MaxEquippedPets)
 		Rebirths = 0,
@@ -265,6 +278,51 @@ function PlayerDataService.Load(player)
 		if not data.TutorialDone and ((data.StageIndex or 1) > 1 or (data.Rebirths or 0) > 0) then
 			data.TutorialDone = true
 		end
+		-- ===== THE SPLICER TAKES THE MUTATIONS OVER (Phase 12) =====
+		--
+		-- Mutations used to roll themselves every ten seconds and pile up in a list; they are
+		-- bought at the DNA Splicer now and exactly one is worn. Two one-way conversions, and
+		-- both are written so that running them twice changes nothing -- an autosave can land
+		-- between a load and the next read, and a refund paid twice is free DNA forever.
+		if type(data.SplicerFound) ~= "table" then data.SplicerFound = {} end
+		data.SplicerRolls = tonumber(data.SplicerRolls) or 0
+		-- (a) The "Mutation Chance" upgrade no longer exists -- there is no ambient roll left for
+		-- it to speed up -- so every level ever bought is refunded at the exact geometric sum
+		-- that was paid for it. 60 and 1.35 were that upgrade's own baseCost/costMult and are
+		-- literals here because GameConfig.Upgrades.Mutation is gone. The credit and the zeroing
+		-- are the SAME write, which is what makes a second pass a no-op.
+		local mutationLevel = tonumber(data.Upgrades and data.Upgrades.Mutation) or 0
+		if mutationLevel > 0 then
+			local refund = math.floor(60 * ((1.35 ^ mutationLevel) - 1) / 0.35)
+			data.DNA = (data.DNA or 0) + refund
+			data.Upgrades.Mutation = nil
+			-- NOT on `data` -- see SplicerRefunds at the top of this file. SplicerService reads it
+			-- to tell the player once, because a silent refund reads as a save that lost an upgrade.
+			PlayerDataService.SplicerRefunds[player.UserId] = refund
+			warn(("[PlayerDataService] %d (%s): Mutation Chance L%d refunded %d DNA")
+				:format(player.UserId, player.Name, mutationLevel, refund))
+		end
+		-- (b) The old rolled list becomes the collection log plus the one worn mutation -- the
+		-- BEST one, so nobody's income falls further than the capped tail this replaces. Guarded
+		-- on SplicerMutation being unset, or a second pass would count every name again.
+		if data.SplicerMutation == nil and type(data.Mutations) == "table" and #data.Mutations > 0 then
+			local bestIdx = 0
+			for _, owned in ipairs(data.Mutations) do
+				for i, m in ipairs(GameConfig.Mutations) do
+					if m.name == owned then
+						data.SplicerFound[owned] = (data.SplicerFound[owned] or 0) + 1
+						if i > bestIdx then bestIdx = i end
+						break
+					end
+				end
+			end
+			if bestIdx > 0 then data.SplicerMutation = GameConfig.Mutations[bestIdx].name end
+		end
+		-- Cleared rather than kept: the conversion above is complete and the list form can never
+		-- come back, the same reasoning the Potions counter migration is written on. The legacy
+		-- branch in GetMutationIncomeMult covers only the window where a save is already in a
+		-- running server's memory when this code arrives.
+		data.Mutations = nil
 	-- ===== TRIMMING A COLLECTION TO THE NEW 30-PET CEILING =====
 	--
 	-- The cap was 600 and a live save reached 207. The owner's decision (2026-08-10) is to keep the

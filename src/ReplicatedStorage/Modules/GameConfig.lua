@@ -258,41 +258,51 @@ function GameConfig.GetZoneReferenceDamage(zoneIndex)
 	return GameConfig.GetRankDamage((i - 1) * 5 + 1)
 end
 
--- Mutations used to multiply together, and the list only ever grows -- one roll every 10s,
--- forever, with nothing ever removed. A player who had been testing for a while accumulated
--- enough that income was multiplied by ~5,000,000, and a single Forest creature paid 66.66M DNA
--- at stage 4. Now only the BEST mutation applies in full; every other one contributes a small
--- additive share, so a large collection is still worth having but can never compound.
-GameConfig.MutationStackBonus = 0.05
-
--- ...AND THE TAIL IS CAPPED, WHICH IS THE OTHER HALF OF "EVERY CREATURE PAYS MORE THAN THE LAST".
+-- ===== MUTATIONS ARE ROLLED AT THE DNA SPLICER (Phase 12) =====
+-- They used to roll THEMSELVES: a server loop fired every ~10 seconds for as long as a player
+-- was online, nothing was ever removed, and the ladder topped at x30 income -- a hidden faucet
+-- the player never pulled. Two patches in a row (best-one-applies, then a capped additive
+-- tail) stopped it compounding, but the shape stayed wrong: income moved while the player did
+-- nothing, and the whole system was invisible -- no UI named it, no action triggered it.
 --
--- Making the stack additive stopped it compounding, but it did not stop it GROWING: the roll fires
--- every 10 seconds for as long as a player is online, nothing is ever removed, and each entry adds
--- its own share of `MutationStackBonus` forever. An hour of play is ~360 rolls; at the Mutation
--- upgrade's mid levels that is dozens of entries, and the tail alone was worth another +100% income
--- with nothing the player did to earn it. It is not per-kill scaling -- there is no kill counter
--- anywhere in the reward path -- but while you are playing it is indistinguishable from it, which
--- is exactly how it was reported.
---
--- Capped at +1.0, i.e. the whole collection behind the best mutation can double the best one and
--- never more. A big collection is still worth having, it reaches its ceiling in an evening, and
--- after that a player's income moves only when the player does something.
-GameConfig.MutationStackCap = 1.0
+-- Now a mutation exists only because the player PAID for a roll at the Splicer machine
+-- (GameConfig.Splicer, below RollMutation), and exactly ONE is active at a time
+-- (`data.SplicerMutation`). One active mutation deletes the stacking questions outright, so
+-- MutationStackBonus / MutationStackCap died with the ambient loop.
 
-function GameConfig.GetMutationIncomeMult(mutationNames)
-	local best, rest = 1, 0
-	for _, name in ipairs(mutationNames or {}) do
-		for _, m in ipairs(GameConfig.Mutations) do
-			if m.name == name then
-				rest = rest + (m.incomeMult - 1)
-				if m.incomeMult > best then best = m.incomeMult end
-				break
+function GameConfig.GetMutationByName(name)
+	for _, m in ipairs(GameConfig.Mutations) do
+		if m.name == name then return m end
+	end
+	return nil
+end
+
+-- Takes the SAVE, not a list of names -- the caller has it in hand and the active mutation is
+-- a field of it. The legacy branch covers a save still in a live server's memory when this
+-- code arrives: the best of the old rolled list counts until PlayerDataService converts it to
+-- `SplicerMutation` on that save's next load. (Index order IS rarity order in `Mutations`.)
+function GameConfig.GetMutationIncomeMult(data)
+	local name = data and data.SplicerMutation
+	if not name and data and data.Mutations then
+		local bestIdx = 0
+		for _, owned in ipairs(data.Mutations) do
+			for i, m in ipairs(GameConfig.Mutations) do
+				if m.name == owned and i > bestIdx then bestIdx = i end
 			end
 		end
+		if bestIdx > 0 then name = GameConfig.Mutations[bestIdx].name end
 	end
-	rest = rest - (best - 1) -- the best one is counted in full below, not twice
-	return best + math.min(rest * GameConfig.MutationStackBonus, GameConfig.MutationStackCap)
+	local m = name and GameConfig.GetMutationByName(name)
+	return m and m.incomeMult or 1
+end
+
+-- Flat studs, the same shape as GetSpeedUpgradeBonus and applied beside it: it lands BEFORE
+-- the body-size multiplier, so a bonus rolled at Cell is worth proportionally more later. The
+-- column used to be a `speedMult` that NOTHING read -- this is the first time the mutation's
+-- second stat is true.
+function GameConfig.GetMutationSpeedBonus(data)
+	local m = data and data.SplicerMutation and GameConfig.GetMutationByName(data.SplicerMutation)
+	return (m and m.speedBonus) or 0
 end
 
 -- ===== INCOME CURVE =====
@@ -332,10 +342,15 @@ end
 --   Speed         216            42.7K             4.7T
 --   Income        175            40.0K             7.9T
 --   Luck          373           129.1K           142.7T
---   Mutation      596           310.6K             1.9Qa
 --   AutoCollect   1.1K          826.1K            25.6Qa
 -- Cheap enough that a new player can buy the five they are allowed, and a genuine sink at the top
 -- against an endgame DNA balance of roughly 1e18.
+--
+-- `Mutation` ("Mutation Chance") is GONE, not merely delisted (Phase 12): the ambient roll it
+-- fed no longer exists -- mutations are bought at the DNA Splicer -- so the upgrade had nothing
+-- left to speed up. Paid levels are refunded at their exact geometric sum by the load
+-- migration in PlayerDataService, which carries the base 60 / mult 1.35 as literals because
+-- this table no longer does.
 GameConfig.Upgrades = {
 	Speed = {
 		displayName = "Speed",
@@ -362,31 +377,29 @@ GameConfig.Upgrades = {
 		costMult = 1.32,
 		description = "+5% egg luck a level - rarer pets from every hatch",
 	},
-	Mutation = {
-		displayName = "Mutation Chance",
-		emoji = "🧬",
-		baseCost = 60,
-		costMult = 1.35,
-		description = "More frequent mutation rolls",
-	},
 	AutoCollect = {
 		displayName = "Auto Collect",
 		emoji = "⚙️",
 		baseCost = 100,
 		costMult = 1.38,
-		description = "Passively collects DNA every second",
+		description = "Earns DNA every second, even while you idle",
 	},
 }
 
 -- ===== MUTATIONS =====
+-- Rolled ONLY at the DNA Splicer now. Index order is rarity order -- the pity guarantee, the
+-- announce threshold and "which of two is better" all compare indices, so a new entry goes in
+-- rank position, never appended out of order. Repriced with the Splicer (was 1.3 .. 30): these
+-- are BOUGHT now, and a x30 top end would let one lucky roll outweigh the entire Income
+-- upgrade ladder. `speedBonus` is flat studs of walk speed (see GetMutationSpeedBonus).
 GameConfig.Mutations = {
-	{ name = "Common",    weight = 500, incomeMult = 1.3,  speedMult = 1.1,  color = Color3.fromRGB(200,200,200) },
-	{ name = "Rare",      weight = 200, incomeMult = 1.8,  speedMult = 1.25, color = Color3.fromRGB(90,160,255) },
-	{ name = "Epic",      weight = 80,  incomeMult = 3.0,  speedMult = 1.5,  color = Color3.fromRGB(170,90,255) },
-	{ name = "Legendary", weight = 25,  incomeMult = 5.0,  speedMult = 2.0,  color = Color3.fromRGB(255,180,50) },
-	{ name = "Mythic",    weight = 8,   incomeMult = 8.0,  speedMult = 2.75, color = Color3.fromRGB(255,80,80) },
-	{ name = "Secret",    weight = 2,   incomeMult = 15.0, speedMult = 3.5,  color = Color3.fromRGB(20,20,20) },
-	{ name = "Godly",     weight = 1,   incomeMult = 30.0, speedMult = 5.0,  color = Color3.fromRGB(255,240,150) },
+	{ name = "Common",    weight = 500, incomeMult = 1.05, speedBonus = 1, color = Color3.fromRGB(200,200,200) },
+	{ name = "Rare",      weight = 200, incomeMult = 1.10, speedBonus = 2, color = Color3.fromRGB(90,160,255) },
+	{ name = "Epic",      weight = 80,  incomeMult = 1.18, speedBonus = 3, color = Color3.fromRGB(170,90,255) },
+	{ name = "Legendary", weight = 25,  incomeMult = 1.30, speedBonus = 4, color = Color3.fromRGB(255,180,50) },
+	{ name = "Mythic",    weight = 8,   incomeMult = 1.50, speedBonus = 5, color = Color3.fromRGB(255,80,80) },
+	{ name = "Secret",    weight = 2,   incomeMult = 1.80, speedBonus = 6, color = Color3.fromRGB(20,20,20) },
+	{ name = "Godly",     weight = 1,   incomeMult = 2.25, speedBonus = 8, color = Color3.fromRGB(255,240,150) },
 }
 
 -- ===== ZONES =====
@@ -3289,6 +3302,66 @@ function GameConfig.RollMutation(luckPercent)
 		end
 	end
 	return GameConfig.Mutations[1]
+end
+
+-- ===== THE DNA SPLICER (Phase 12) =====
+-- The machine on the Forest plaza that mutations are rolled at, and DNA's late-game sink.
+--
+-- PRICED IN KILLS, NOT THROUGH ScaleReward. ScaleReward grows 2.85x a stage while real
+-- per-kill income grows ~5x (the click base times the zone income bonus times mobDnaMult --
+-- the same product the income-curve comment above GetClickBase says to verify against), so a
+-- ScaleReward-priced roll would get ~44% cheaper IN KILLS every stage and be free by stage 20.
+-- Costing the roll as a multiple of the player's own per-kill income keeps it the same number
+-- of kills at every stage, which is the property a sink has to have.
+--
+-- The ramp is per LIFETIME roll (`data.SplicerRolls`) and is deliberately NOT reset by a
+-- rebirth -- a reset would turn rebirth into a cost-reset coupon: roll 1 is ~5 kills at any
+-- stage, roll 25 is ~49, and from roll ~56 the cap holds every further roll at a flat 1,000
+-- kills -- 45-90 minutes of active play per roll, forever. At stage 20 that is ~1.1e17 DNA a
+-- roll, 12x the most expensive egg, against an endgame balance of roughly 1e18.
+GameConfig.Splicer = {
+	baseKills = 5,        -- roll 1, in kills of the player's newest zone
+	ramp = 1.10,          -- per lifetime roll
+	rampCap = 200,        -- ramp^n stops here: baseKills * 200 = 1,000 kills a roll
+	pityEvery = 10,       -- every Nth lifetime roll is "charged"...
+	pityMinIndex = 2,     -- ...guaranteed at least Mutations[2] (Rare)...
+	pityLuckAdd = 150,    -- ...and rolled with this much extra luck
+	luckScale = 0.25,     -- fraction of GetLuckPercent that reaches RollMutation
+	luckCap = 400,        -- luck points considered before scaling
+	announceMinIndex = 5, -- Mutations[5]+ (Mythic, Secret, Godly) go server-wide
+}
+
+-- Pure over `data` for the same reason GetPetLuckPercent is: the client panel must quote the
+-- price the server will charge, and two implementations would drift. `4.5` is the same tier
+-- constant the income-curve comment uses -- an average kill against the Forest-baseline mix.
+-- The newest unlocked zone is found by index, not by #UnlockedZones, so a save whose list is
+-- ever out of order still prices against the furthest zone it has actually opened.
+function GameConfig.GetSplicerRollCost(data)
+	local stageIndex = (data and data.StageIndex) or 1
+	local zoneKeys = (data and data.UnlockedZones) or { "Forest" }
+	local zi = 1
+	for _, k in ipairs(zoneKeys) do
+		local i = GameConfig.GetZoneIndex(k)
+		if i > zi then zi = i end
+	end
+	local zone = GameConfig.Zones[zi] or GameConfig.Zones[1]
+	local perKill = GameConfig.GetClickBase(stageIndex)
+		* (1 + GameConfig.GetTotalZoneBonusPct(zoneKeys) / 100)
+		* 4.5 * (zone.mobDnaMult or 1)
+	local S = GameConfig.Splicer
+	local ramp = math.min(S.ramp ^ ((data and data.SplicerRolls) or 0), S.rampCap)
+	return math.max(math.ceil(perKill * S.baseKills * ramp), 1)
+end
+
+-- The luck a Splicer roll is made with -- shared by the server handler and the client's odds
+-- table, again so the promise and the roll cannot drift. `charged` is "this is the pity roll";
+-- the caller decides that from `SplicerRolls`, because the SERVER increments the counter and
+-- the client only predicts it.
+function GameConfig.GetSplicerLuck(data, charged)
+	local S = GameConfig.Splicer
+	local luck = math.min(GameConfig.GetLuckPercent(data), S.luckCap) * S.luckScale
+	if charged then luck += S.pityLuckAdd end
+	return luck
 end
 
 -- ===== STAGE CHARACTERS =======================================================

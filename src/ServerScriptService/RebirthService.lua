@@ -85,7 +85,10 @@ function RebirthService.HandleRebirth(player, tier)
 	for key in pairs(data.Upgrades) do
 		data.Upgrades[key] = 0
 	end
-	data.Mutations = {}
+	-- THE SPLICER MUTATION SURVIVES A REBIRTH, and so does `SplicerRolls` (Phase 12). They are
+	-- one decision, not two: the roll ramp is priced off the lifetime counter, so wiping the
+	-- mutation while keeping the counter would take away something the player paid DNA for and
+	-- price its replacement at the cap. The upgrades reset above is where a run's power goes.
 	data.UnlockedZones = { "Forest" }
 	data.CurrentZone = "Forest"
 	data.DefeatedBosses = {}

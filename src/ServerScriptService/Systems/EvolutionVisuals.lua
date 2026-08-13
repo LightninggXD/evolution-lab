@@ -160,8 +160,12 @@ local function applyMastery(character, data)
 	-- 20. MaxWalkSpeed is not a balance number -- it is the speed past which a player outruns
 	-- StreamingEnabled -- so the raised ceiling is a measured decision (260 covers the doubled top
 	-- stage at 254.5 with a little headroom), not a default. Nobody without the pass moves any faster.
+	-- The worn Splicer mutation's flat stud bonus rides in beside the Speed upgrade (Phase 12),
+	-- inside the size multiplier for the same reason that one is: it is worth proportionally
+	-- more on a bigger body, which is what every early bonus in this game does.
 	humanoid.WalkSpeed = math.min(
-		(GameConfig.BaseWalkSpeed + bonus.walkSpeed + GameConfig.GetSpeedUpgradeBonus(data))
+		(GameConfig.BaseWalkSpeed + bonus.walkSpeed + GameConfig.GetSpeedUpgradeBonus(data)
+			+ GameConfig.GetMutationSpeedBonus(data))
 			* sizeMult * GameConfig.GetPassMult(data, "walkMult"),
 		GameConfig.GetPassMax(data, "walkCap", GameConfig.MaxWalkSpeed or 120)
 	)

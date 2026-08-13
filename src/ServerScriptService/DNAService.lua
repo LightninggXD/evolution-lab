@@ -12,9 +12,10 @@ DNAService.OnEvolve = nil -- optional callback(player, data) set by ServerMain t
 function DNAService.GetIncomeMult(data, excludeEvents)
 	local incomeLevel = data.Upgrades.Income
 	local mult = 1 + incomeLevel * 0.12
-	-- mutation bonus: best-one-applies, NOT the product of every mutation ever rolled -- see
-	-- GetMutationIncomeMult in GameConfig for why the old product reached ~5,000,000x
-	mult = mult * GameConfig.GetMutationIncomeMult(data.Mutations)
+	-- The one mutation the player is wearing, rolled at the DNA Splicer (Phase 12). Takes the
+	-- SAVE now, not a list: mutations are no longer accumulated, so there is nothing to stack --
+	-- see GetMutationIncomeMult in GameConfig for the faucet this replaced.
+	mult = mult * GameConfig.GetMutationIncomeMult(data)
 	-- zone bonuses (permanent % boost per unlocked zone)
 	local zoneBonusPct = GameConfig.GetTotalZoneBonusPct(data.UnlockedZones)
 	mult = mult * (1 + zoneBonusPct / 100)
@@ -150,11 +151,6 @@ function DNAService.GetAutoCollectAmount(data, excludeEvents)
 	local rate = math.min(level * 0.04, 1.2)
 	local base = rate * GameConfig.GetClickBase(data.StageIndex)
 	return base * DNAService.GetIncomeMult(data, excludeEvents)
-end
-
-function DNAService.GetMutationChancePerRoll(data)
-	local level = data.Upgrades.Mutation
-	return math.clamp(2 + level * 1.5, 0, 60) -- % chance every roll interval
 end
 
 -- ===== ACTIONS =====
@@ -488,20 +484,9 @@ function DNAService.AutoEvolveIfReady(player)
 	return steps
 end
 
-function DNAService.RollMutationForPlayer(player)
-	local data = PlayerDataService.Get(player)
-	if not data then return end
-	local chance = DNAService.GetMutationChancePerRoll(data)
-	if math.random(1, 1000) <= chance * 10 then
-		local luck = DNAService.GetLuckPercent(data)
-		local mutation = GameConfig.RollMutation(luck)
-		table.insert(data.Mutations, mutation.name)
-		PlayerDataService.PushToClient(player)
-		-- No toast. Mutations roll every ten seconds on their own and the banner fired over and
-		-- over during ordinary play; the multiplier they feed is already visible on the DNA
-		-- readout, which is the place it actually matters.
-	end
-end
+-- `RollMutationForPlayer` and its ten-second loop are GONE (Phase 12). A mutation is bought at
+-- the DNA Splicer now -- see SplicerService -- so the one thing in this file that raised a
+-- player's income while they did nothing at all is no longer here to find.
 
 function DNAService.HandleBuyDiamondUpgrade(player, upgradeKey)
 	local data = PlayerDataService.Get(player)
@@ -630,16 +615,6 @@ function DNAService.Init()
 						PlayerDataService.UpdateLeaderstats(player)
 					end
 				end
-			end
-		end
-	end)
-
-	-- Mutation roll loop (every ~10 seconds, decoupled from UI push spam)
-	task.spawn(function()
-		while true do
-			task.wait(10)
-			for _, player in ipairs(game.Players:GetPlayers()) do
-				DNAService.RollMutationForPlayer(player)
 			end
 		end
 	end)

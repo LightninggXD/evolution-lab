@@ -434,6 +434,46 @@ and tile in the game at once.
 
 ---
 
+## Phase 12 — Premium pass · *market patterns in, DNA finally has somewhere to go*
+
+Planned 2026-08-14 from fresh market research (Sol's RNG roll spectacle, BGS Infinity secret
+tiers, PS99 index/enchants, GaG/SaB weekend FOMO) plus a full inventory of src/. Owner
+decisions taken during planning, final: **the Splicer now, enchant slots later; the hub is the
+Forest spawn, not a new zone; secrets + weekend cadence + kill-feed in, offline incubator
+out.** Full design detail in `.claude/plans/pregledaj-sve-pronadji-prostor-woolly-pinwheel.md`.
+
+**The finding under the whole phase:** the mutation system is not dormant — `DNAService`
+rolls one every ~10 s (`:637-644`) into `data.Mutations` and `GetIncomeMult` multiplies by
+the ladder (tops at Godly **×30 income**), while `speedMult` on the same table is read by
+nothing. The Splicer *takes ownership of a live, mispriced income faucet*; the ambient loop
+dies in the same commit or two systems mint the same currency. And `ScaleReward` alone cannot
+price the machine — it grows 2.85×/stage against per-kill income's ~5×/stage — so the roll is
+priced **in kills** via the full per-kill formula.
+
+**Rule carried through every row: copy the pattern, never the asset** — no meme IP, no
+ripped models or names; the procedural rig + skinMarks pipeline generates original
+equivalents.
+
+| ID | | Task | Verified how |
+|---|---|---|---|
+| 12.1 | `[x]` | <!-- coded + pushed + verified live 2026-08-14 --> **DNA Splicer economy in `GameConfig`; the ambient mutation faucet dies.** New `GameConfig.Splicer` (`baseKills=5, ramp=1.10, rampCap=200, pityEvery=10, pityLuckAdd=150, luckScale=0.25`, announce tiers Mythic+) and pure `GetSplicerRollCost(data)` priced in per-kill income (`GetClickBase × zone bonus × 4.5 × mobDnaMult`): ~5 kills for roll 1 at any stage, flat **1,000 kills/roll at the ramp cap** (~1.1e17 DNA at stage 20 ≈ 12× the top egg). Reuse `RollMutation` unchanged (Godly 1-in-816; pity roll ≥ Rare). Rebalance `incomeMult` 1.3…30 → **1.05…2.25**; dead `speedMult` becomes flat walk-speed via `GetMutationSpeedBonus`. Single active mutation (`data.SplicerMutation`) replaces the stacking list; delete the 10 s loop, `RollMutationForPlayer`, `GetMutationChancePerRoll`. Traps: veteran income nerf must keep the best owned mutation active (≤2× drop, migration in 12.4); `SplicerRolls` must NOT join the rebirth reset list (cost-reset exploit) | **VERIFIED LIVE 2026-08-14 on the cloud place.** The cost curve is **flat in kills at every stage**, which is the whole claim: roll 1 costs **5.1 / 5.0 / 5.0 / 5.0 kills** at stages 1 / 3 / 10 / 20, roll 25 costs **49.4 / 49.2 / 49.2 / 49.2**, and past the ramp cap every roll is **1000.2 / 1000.0 / 1000.0 / 1000.0 kills** — 30 DNA at stage 1 and **1.226e17** at stage 20, i.e. 13.6x the most expensive egg (9e15) against a ~1e18 endgame balance. The faucet is gone by structure, not by inspection: `RollMutationForPlayer` and `GetMutationChancePerRoll` both return **nil** on a fresh require of the shipped source, the ten-second loop is deleted, and the server boots clean (`Server systems initialized.`, no error from the changed `GetIncomeMult` signature) with the real save loading through it — leaderstats populated (DNA 4.18e9, Stage Cyborg), character spawned, WalkSpeed 243.9 written by the same line that now adds the mutation's studs. **The reprice is a REAL NERF and it was measured against the actual old code rather than estimated** — the pre-change `GameConfig` was pulled out of git and run side by side: a veteran carrying the 30-mutation list an hour of the old loop produced had a mutation term of **30.93** and now has **2.25**, a **13.75x** fall; the per-rung ladder falls 1.2x (Common) to 13.3x (Godly); a player holding one Common falls **1.24x**; a player with none is **unchanged at 1.00**. That is the point of the row — the term was an unearned multiplier nobody pulled a lever for — but it is the one change here a long-standing player will feel, and it is recorded rather than buried. `SplicerRolls` confirmed absent from the rebirth reset list, and the worn mutation is deliberately kept across a rebirth for the same reason (the ramp is lifetime, so wiping the mutation would price its replacement at the cap) |
+| 12.2 | `[ ]` | **SplicerService** (new): machine model via the generated-mesh pipeline at the plaza centerpiece, position searched with EventService's separating-axis method, `ModelStreamingMode.Persistent`, versioned rebuild-by-replacement. Prompt carries `ShopPanel="splicer"`. New remote `SpliceRoll`: rate-limit (PetService `EGG_INTERVAL` pattern), server-side price check, pity branch, roll, log to string-keyed `SplicerFound`, auto-equip if better, reply via `Remotes.Notify {kind="splice"}`. Announce Mythic+ via new `AnnounceService.MutationRolled`. Stamp `player:SetAttribute("Mutation", name)` as the one replication channel | live roll drains the exact quoted DNA; `SplicerRolls` increments; 10th roll never Common; machine survives restart without duplicating |
+| 12.3 | `[ ]` | **SplicerUI client** (new LocalScript — NOT MainUI, the 200-local cap): panel with current mutation, cost quoted from the same pure function off the DataUpdate cache, odds table at current luck, pity meter; slot-machine roll reveal borrowing HatchReveal's choreography, tier-scaled (card → ray fan + stinger → full-screen flash + `VFXLibrary.BurstAt`); machine rotor on ONE gated Heartbeat. All styling through UITheme. Trap: never leave blur on a stuck reply | roll end-to-end on every tier via luck override; panel quote == server charge; blur always removed |
+| 12.4 | `[~]` | <!-- coded + pushed + verified live 2026-08-14; the refund NOTICE is owed and belongs to 12.2 --> **Upgrade-shop reconciliation + migration** (`PlayerDataService.Load`, one-way, idempotent): refund `Upgrades.Mutation` at its exact geometric sum, old `data.Mutations` list → best becomes `SplicerMutation`, names seed `SplicerFound`. New save fields `SplicerRolls / SplicerMutation / SplicerFound`, none rebirth-reset. Re-list **AutoCollect** in `upgradeOrder` (edit of an existing initializer — zero new top-level locals) with an honest description; delete `Upgrades.Mutation` last, after every reader is gone | **VERIFIED LIVE 2026-08-14, on a probe save rather than anyone's real one** — `Load` only ever touches `player.UserId / .Name / .Parent`, so it runs against a mock player on a **negative** UserId (`-424242`, which cannot collide with a real account) and the key is removed afterwards. A doctored pre-Phase-12 veteran (`Upgrades.Mutation = 12`, a 30-name rolled list) migrated **once**: DNA 1000 → **7110**, i.e. a refund of **6110** against `60*(1.35^12-1)/0.35` = **6110 exactly**; `Upgrades.Mutation` nil; the worn mutation became **Godly**, the best one held; `SplicerFound` = Common 24 / Rare 3 / Epic 1 / Mythic 1 / Godly 1, the whole list converted to a collection log. Then **saved and re-loaded, which is the idempotence that matters**: DNA stayed **7110**, no second refund, counts did not double, and the row that actually landed in the DataStore carries `SplicerRefund = nil`, `Mutations = nil`, `Upgrades.Mutation = nil`. **The re-load is what caught a real defect rather than confirming a guess:** the refund notice was first written onto `data`, so the autosave persisted it and every future join would have re-announced the same refund forever. It moved to `PlayerDataService.SplicerRefunds`, in memory, beside `OfflineSeconds` — which carries the identical warning in a comment written long before this row. Shop panel measured on the shipped client: **868 x 392**, upgrade row **4 tiles spanning 836** (4x200 + 3x12) and the diamond row 3 spanning 624, **both centred on 773 — the panel's own centre**, so three under four still reads as a grid, and **0 clipped labels** on the panel. MainUI `loadstring`s clean and `luanames` is unchanged at the documented baseline of 13 across 10 files. **Owed: the one-time refund notice itself** — `SplicerRefunds` is written and nothing reads it yet; SplicerService (12.2) is its reader and closes this row |
+| 12.5 | `[ ]` | **Mutation aura on the body and equipped pets**: server-side `VFXLibrary.Attach` driven off the `Mutation` attribute in `EvolutionVisuals` (ApplyStage tail) + `PetFollowService` rig build; speed bonus applied beside the existing speed-upgrade site. Trap: attach to `HumanoidRootPart`, never a costume shell (re-dress destroys shells) | aura appears without respawn, survives an evolve re-dress, follows equip/unequip, visible to a second client |
+| 12.6 | `[ ]` | **Journal surfacing** (inside existing Journal blocks, zero new top-level locals): rarity corner pip per disc + rarity line in the detail card; "+N% Max Health" quoted from `GetCharacterHealthBonus` (the applied function, never re-derived); per-stage counts on row headers ("3/5"); "Next unlock" callout via `GetCollectionStage`/`NextCharacterForStage`. Contract: refresh writes-only-never-creates | counts sum to the header total; health line matches the live MaxHealth delta on equip; callout names the first dim disc; `TextFits` sweep clean |
+| 12.7 | `[ ]` | **Journal event-skins section + rare-first sort** (nice-to-have): 22nd section for `GameConfig.EventCharacters` (owned vs silhouette + how-to-get); optional rare-first toggle via `LayoutOrder` only. Trap: event skins must NOT enter the "Discovered N/100" count | grant `event_prism` via `EventService.SetClock` → owned cell; rebirth keeps it; header count still /100 |
+| 12.8 | `[ ]` | **Shop entry points**: `RIGHT_COUNT` 8→9, one "🛒 Shops" tile in its own IIFE with a two-button flyout → `showEggPanel` / `showFusionPanel` (both self-gate); mystery kiosks get a SurfaceGui odds board (egg-stall precedent), purchase stays on the server-validated prompt. Update the deliberate "no fusion HUD button" comment so a future session doesn't revert this | both panels reachable in ≤2 clicks from anywhere; odds board sums to 100 at luck 0; layout pass clean on a short viewport |
+| 12.9 | `[ ]` | **ZoneShops 8 → 14**: Mystery +13,17; Fusion +14,18; Emporium +12,16,20 (keeps the Mastery panel's only entry reachable late-game). **Bump ZoneBuilder `BUILD_VERSION`** or the rebuild is a silent no-op; push over the HTTP bridge. Confirm PotionService discovers prompts by scan, not a hardcoded list | rebuilt world: walk zones 12–20 counting counters; no zone gap > 2 without a shop |
+| 12.10 | `[ ]` | **Forest hub plaza** (new `HubPlaza.lua`, own `PLAZA_VERSION`, built OUTSIDE ZoneBuilder per the LeaderboardService precedent): paved deck (x −180..180, z 90..420) unifying the three leaderboards + event board + Splicer centerpiece + lamp/banner dressing toward the Colosseum gate + photo spot. Every part position searched against the live world; nothing in the 30-stud street corridor; billboards anchored | screenshot sweep of the spawn walk-down; no corridor intrusion; spawn lands on pavement; deck persists through streaming |
+| 12.11 | `[ ]` | **Top-3 player statues**: generalize `LeaderboardService.buildStatue/refreshStatue` to three plinths (gold/silver/bronze) refreshed on the same board pass. Traps: anchor-last ordering (the underground-statue bug is documented in-file); `HumanoidDescription` fetch yields — `task.spawn` off the board pass | three statues match the board top-3; a rank change swaps only the changed statue |
+| 12.12 | `[ ]` | **Secret-tier pets**: `GameConfig.SecretPetsByZone` (20 authored species, `secret=true`), flattened into `Pets` but **excluded from `EggablePets`** (filter gains `not def.secret` in the same commit); append `{name="Secret", weight=0, bonusMult=12}` to `PetRarities` **without touching `PetRarityOrder`** (zone lists are positional, five long). Pre-roll in `rollAndInsert` iff Premium egg: `1/50,000 × (1 + min(petLuck,400)/1000)`. Announce via `BeaconRarities.Secret = true` + own beam colour; "?????" row on Premium odds boards; Secret badge in the pets index | forced `chance=1` hatches through single/x10/auto; forced 0 over 10k rolls produces none; `EggablePets` == 100 exactly; the 11.6 Apex-exclusivity probe re-run green |
+| 12.13 | `[ ]` | **Weekend Colosseum event** (content through EventService): recurring Sat 48 h window, ×2 event-boss DNA/diamonds via existing `GetEventMult`, and a **4-skin rotation** — `rotation[1 + floor(window.startTs/604800) % 4]`, index off `startTs` not `now`; author 4 event skins off the `event_prism` template. Decide up front how the board headlines when it overlaps Weekend Rush (`active[1]` draws today) | `SetClock` into a Saturday → board flips, giant pays double, skin granted once; +1 week → next skin; re-enter week 1 → no duplicate |
+| 12.14 | `[ ]` | **Kill-feed publishers** (policy in AnnounceService, rendering free via the positionless toast path): `ApexKilled` (at the drop-roll site), `BossKilled` (only `firstTime` and zones ≥ 15, flag from `markDefeated`'s before-state), `Rebirthed`, and the Colosseum giant's local announce routed through `Broadcast`. Generalize the per-player cooldown to per-(player, kind) | each publisher fired live; 6 s spam test → one toast per kind; the client `MAX_ACTIVE` cap holds under a burst |
+| 12.15 | `[ ]` | **Pet enchant slots** (approved, LOW priority — design only this phase): `enchant` field enters the pet shape in `insertPet` (the ONE creation point) + one multiplier line in `GetPetBonus`. Nothing in 12.2 blocks it | design note recorded here; no code owed this phase |
+
+---
+
 ## 👤 Owner action checklist
 
 Collect these once; each one blocks agents until it exists.
@@ -475,6 +515,53 @@ Gathered 2026-08-07/08 while writing this plan.
 ---
 
 ## Changelog
+
+- **2026-08-14 (ninth session)** — **Phase 12 planned from market research, and its economic core
+  landed: 12.1 closed, 12.4 all but its toast.** The phase was written from a fresh sweep of what
+  the 2026 top games actually do (Sol's RNG's paid roll + server announce + pity, BGS Infinity's
+  secret tier and index, PS99's enchant slots, Grow a Garden / Steal a Brainrot's weekend FOMO,
+  hub plazas with leaderboard statues) crossed against an inventory of `src/`. Kristina took four
+  decisions during planning: the **DNA Splicer** now with pet enchant slots later, the hub is the
+  **Forest spawn** rather than a new zone, and **secret pets + a weekend cadence + a wider
+  kill-feed** are in while the offline incubator is out.
+  **The premise of the whole phase turned out to be wrong in the game's favour, and finding that
+  is what made the row worth doing.** The plan called the mutation system dormant. It was not: a
+  loop in `DNAService` rolled one every ten seconds for as long as a player was online, appended
+  it to a list nothing ever pruned, and multiplied income by a ladder topping at **x30** — a
+  faucet no player ever pulled a lever for, with no UI naming it anywhere in the game. So the
+  Splicer is not a new system bolted beside an old one; it is that faucet given a price, a
+  machine and a name, and the ambient loop died in the same commit for the obvious reason that
+  two systems minting the same currency is how the 11.x income bugs happened in the first place.
+  **The second correction was arithmetic.** The plan said to price the roll with `ScaleReward`.
+  That function grows 2.85x a stage while real per-kill income grows ~5x, so a roll priced through
+  it gets ~44% cheaper *in kills* every stage and is free by stage 20 — the exact defect
+  `ScaleReward` exists to prevent, reintroduced one level up. The roll is priced in **kills**
+  instead, off the full per-kill product, and it measures flat: **5.0 kills at stages 1, 3, 10 and
+  20 alike**, 49 at roll 25, and a flat **1,000 kills a roll** past the ramp cap — 1.226e17 DNA at
+  stage 20, 13.6x the priciest egg.
+  **What a long-standing player will feel, stated plainly rather than buried:** the mutation
+  income term falls **13.75x** for someone carrying the list an hour of the old loop produced
+  (30.93 → 2.25), 1.24x for someone holding a single Common, and not at all for a new player. That
+  is measured against the real pre-change `GameConfig` pulled out of git and run side by side, not
+  estimated. It is the intended correction — DNA overproduction past mid-game is the reason this
+  phase exists — but it is the one change here that takes something away, and Kristina should
+  know before it reaches players rather than after.
+  **The migration is exact, and re-loading it is what found the bug.** A doctored veteran save
+  refunds `60*(1.35^12-1)/0.35` = **6110 DNA to the DNA**, keeps its best mutation (Godly) as the
+  worn one, converts the list into a collection log, and does all of it **once** — saved and
+  re-loaded, nothing doubles. It was run against a mock player on a negative UserId, so no real
+  save was touched. The first version wrote the refund notice onto `data`; the autosave persisted
+  it and the re-load read it straight back, which would have re-announced the same refund on every
+  join for the life of that save. It now sits in memory beside `OfflineSeconds`, which carries a
+  comment warning of precisely that, written long before this row needed it.
+  **Auto Collect came back and Mutation Chance is gone**, which is the same judgement twice: the
+  delisted upgrade whose mechanic was real (`GetAutoCollectAmount` always paid) got an honest card
+  and its tile back; the one whose mechanic no longer exists was deleted outright and refunded.
+  The shop panel widened 656 → **868** to seat the fourth tile — 4x200 + 3x12 = 836 — with both
+  rows still centred on the panel's own axis at 773 and **0 clipped labels**. `luanames` unchanged
+  at the documented 13 across 10 files; MainUI `loadstring`s clean; all seven touched files pushed
+  and verified byte-identical, on a tree that swept **47/47 scripts identical** before any work
+  started.
 
 - **2026-08-13 (eighth session)** — **11.33 opened and closed: the TIME WALKER clock turns, and
   measuring it found a defect neither reading of the code would have.** Kristina's open question from
