@@ -286,19 +286,73 @@ local function poseSettled(character)
 	return true
 end
 
+-- THE INPUT STOPS INSTANTLY AND THE LIMBS DO NOT, AND THE CHECK ABOVE ONLY WATCHES THE INPUT.
+--
+-- Measured on the running game (2026-08-13, stage 13, walking then stopping): the arms are
+-- **59.7 degrees** from their resting pose two hundredths of a second after `MoveDirection` reaches
+-- zero, 33.0 at 0.15 s, 10.3 at 0.22 s, and only at **~0.28 s** do they reach the 2.7 degrees that is
+-- the idle animation's own sway. `poseSettled` alone releases the dress two frames after the input
+-- stops -- i.e. at the top of that curve -- so the weld set built there was measured **45.6 degrees**
+-- off the standing baseline, against 44.5 for dressing mid-stride with no wait at all. The gate was
+-- firing exactly as designed and buying almost nothing, because it was gating on the wrong signal.
+--
+-- So the wait watches the limbs themselves. The separation is not a judgement call, it is measured:
+-- per-frame limb movement is at most **0.125 deg standing** (breathing, and it never stops, which is
+-- why this cannot be an equality test like the size probe above), averages **1.12 deg walking**, and
+-- runs above **4 deg** through the blend-out. POSE_EPS at 0.5 sits four times over the idle ceiling
+-- and eight times under the motion it has to catch.
+--
+-- The four limbs are read RELATIVE TO THE ROOT, so walking in a straight line and turning on the spot
+-- both cancel out -- what is left is only the limb's pose on the body, which is exactly what a weld
+-- freezes. R6 has none of these parts: the table comes back empty, the delta is 0, and such a body
+-- falls through to the input check exactly as it did before.
+local POSE_LIMBS = { "LeftUpperArm", "RightUpperArm", "LeftUpperLeg", "RightUpperLeg" }
+local POSE_EPS = 0.5
+
+local function limbPose(character)
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if not root then return nil end
+	local inv = root.CFrame:Inverse()
+	local pose = {}
+	for _, name in ipairs(POSE_LIMBS) do
+		local part = character:FindFirstChild(name)
+		if part then pose[name] = inv * part.CFrame end
+	end
+	return pose
+end
+
+-- worst per-limb angular movement between two samples, in degrees
+local function poseDelta(a, b)
+	if not (a and b) then return math.huge end
+	local worst = 0
+	for name, cfA in pairs(a) do
+		local cfB = b[name]
+		if cfB then
+			local _, ang = (cfA:Inverse() * cfB):ToAxisAngle()
+			ang = math.abs(math.deg(ang))
+			if ang > worst then worst = ang end
+		end
+	end
+	return worst
+end
+
 local function waitForBodySettled(character, timeout)
-	local waited, stable, last = 0, 0, nil
+	local waited, stable, last, lastPose = 0, 0, nil, nil
 	timeout = timeout or 2
 	while waited < timeout do
 		local probe = bodyProbe(character)
 		if not probe then return end
-		if last and math.abs(probe - last) < 1e-4 and poseSettled(character) then
+		local pose = limbPose(character)
+		if last and math.abs(probe - last) < 1e-4
+			and poseSettled(character)
+			and poseDelta(lastPose, pose) < POSE_EPS then
 			stable += 1
 			if stable >= 2 then return end
 		else
 			stable = 0
 		end
 		last = probe
+		lastPose = pose
 		waited += RunService.Heartbeat:Wait()
 	end
 end
