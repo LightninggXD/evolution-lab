@@ -1,0 +1,211 @@
+# Evolution Lab — agent instructions
+
+Read this file completely before your first action. Then read `ROADMAP.md`.
+
+You are doing implementation work on a Roblox game that is three weeks from launch
+(4–7 September 2026). Another agent (Claude) designed this project, wrote every rule below, and
+**will review everything you do**. Your job is to move rows forward and leave a clean, auditable
+trail — not to redesign anything.
+
+---
+
+## 0. THE SEVEN HARD PROHIBITIONS
+
+Breaking any of these causes damage that is expensive or impossible to undo.
+
+1. **NEVER mark a roadmap row `[x]`.** Only the reviewing agent does that. Use `[~]`.
+   See §4.
+2. **NEVER invent a Roblox product id, game pass id, or asset id.** If a task needs one that does
+   not exist, stop and write it in `HANDOFF-LOG.md`. A wrong id charges real money to real players.
+3. **NEVER run `git add -A` or `git add .`** if any background/parallel task is running — it
+   commits their half-finished files. Add named paths only.
+4. **NEVER rewrite history in `ROADMAP.md`'s Changelog.** Append only.
+5. **NEVER edit `src/ServerScriptService/ZoneBuilder.lua` without reading §7 first.** It is 573 KB
+   and a careless edit regenerates or deletes the entire world.
+6. **NEVER add a top-level `local` to `src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua`.**
+   It sits at Luau's 200-register cap. One more deletes the entire HUD. Wrap new code in
+   `;(function() ... end)()`.
+7. **NEVER leave Roblox Studio in Play mode when you are not actively measuring something.**
+   Studio grants every game pass, so VIP's Auto Hatch runs continuously and spends the owner's real
+   save. One session cost her 50 Diamonds and filled her pet bag to its 100 cap. Stop Play the
+   moment a measurement finishes.
+
+---
+
+## 1. What this project is
+
+- A Roblox "brainrot/simulator" game: kill creatures → earn DNA → evolve through 100 skins across
+  20 zones → rebirth → pets, eggs, bosses, a shop, game passes.
+- **`ROADMAP.md` at the repo root is the source of truth for what is done.** 14 phases. Read it
+  before touching anything. Do not re-derive its analysis; it exists so you do not have to.
+- **`src/` is a full mirror of the live Studio place** and is the thing you edit. Read code off
+  disk, not out of Studio.
+- Language: write **all** code, comments, commit messages and roadmap text in **English**. The
+  owner (Kristina) writes in Bosnian/Croatian and wants spoken replies in **Serbian**.
+
+## 2. The session protocol
+
+The owner opens a session by typing one word: **`Nastavi`** ("continue"). That is not a greeting,
+it is an instruction. It means, in order:
+
+1. Read `ROADMAP.md`.
+2. Hash-sweep `src/` against Studio (§5). Studio has silently lost whole rows of work before.
+3. Take the next open row **in the current phase, in order**, and work it.
+4. Append to the Changelog.
+
+Do not open with a plan for approval or ask which row to take. Do stop for anything marked
+**👤 OWNER** — those need her on the Roblox dashboard and you cannot do them.
+
+She will interrupt mid-row with something else. That is expected. Do the interrupt, then return to
+the open row. **If the interrupt is a bug she hit, write it into the current phase's table as a new
+row before fixing it**, so the next session still knows it happened.
+
+## 3. Reading and writing code — the Studio bridge
+
+You edit files in `src/`, then push them into Studio over local HTTP. Do not paste edits through
+the MCP edit tools; it wastes enormous context on big files.
+
+**Start the bridge once per session** (from the repo root):
+
+```bash
+C:/Python313/python.exe -m http.server 8731 --bind 127.0.0.1
+```
+
+**Then push, in the `Edit` datamodel** (Studio must NOT be in Play):
+
+```lua
+local src = game:GetService("HttpService")
+    :GetAsync("http://127.0.0.1:8731/src/ServerScriptService/BossService.lua")
+game:GetService("ScriptEditorService"):UpdateSourceAsync(inst, function() return src end)
+```
+
+`UpdateSourceAsync` is the only method that gets past Roblox's 200 KB write limit. Do not fall back
+to assigning `.Source` directly.
+
+**Always verify byte-identity after a push** — never trust the write:
+
+```lua
+local h = 0 for i = 1, #s do h = (h * 31 + s:byte(i)) % 2147483647 end
+```
+
+A 120-second MCP timeout does **not** mean the write failed. Verify; do not retry.
+
+## 4. What "done" means — and why you may not decide it
+
+A roadmap row closes only on **live verification in Roblox Studio**. Reading the code is not
+verification. Compiling is not verification. Every row carries its own check in its right-hand cell.
+
+**Your ceiling is `[~]`.** When you finish a row:
+
+1. Set it to `[~]`.
+2. Write the evidence into the row's right-hand cell — the actual numbers you measured, not "works".
+3. Add an entry to `HANDOFF-LOG.md` (§9).
+
+The reviewing agent verifies and flips it to `[x]`. This is not a trust exercise: the project has
+repeatedly found that the defect is in the half a probe could not see. One example from the last
+session — a boss fight that a code reading called correct, and a real fight revealed that the cap
+protecting the player had never been armed in the entire history of the file.
+
+## 5. Session start checklist
+
+```
+1. Read ROADMAP.md (at minimum: the current phase, and the Owner checklist).
+2. Start the HTTP bridge (§3).
+3. Confirm Studio is running and in EDIT mode.
+4. Hash-sweep: hash every LuaSourceContainer in Studio and every .lua in src/,
+   compare. They must be identical before you change anything.
+   - 59 files are mirrored. Studio also holds 2 extras
+     (ServerStorage._PushBackup.*, ServerStorage._RewardFresh) that have no
+     mirror and are expected.
+5. Only then start work.
+```
+
+If the sweep is dirty, **prove which side is ahead before pushing.** A hash mismatch says
+"different", not "which". Pushing the wrong direction destroys work.
+
+## 6. The traps that cost real time (all measured, all real)
+
+**Studio / MCP**
+- `require()` from `execute_luau` returns a **fresh module with empty state** — a service's `Cache`
+  will be empty and any fixture you write there is invisible to the live game. To test real
+  behaviour, drive the game **from outside**: fire the real remotes from the **Client** datamodel
+  and read the real replies. Never reimplement a function in your probe; a second copy can agree
+  with itself while the real one is wrong.
+- `loadstring` works in the **Edit** datamodel only.
+- Never `RunService.RenderStepped:Wait()` in a loop — it silently wedges the Play client.
+- A screen capture stops Play.
+
+**Roblox engine**
+- StreamingEnabled is on. A raw `HumanoidRootPart.CFrame = ...` is **silently undone**, even after
+  `RequestStreamAroundAsync` succeeds. Walk with `Humanoid:MoveTo` instead.
+- A `Part` with `Shape = Ball` and non-uniform size renders as a sphere of its **smallest** axis.
+  Use a Block plus a `SpecialMesh`.
+- A new `Camera` renders its first frame at `(0, 20, 20)` regardless of what your `RenderStepped`
+  loop does. Pose it once before the loop.
+- A skybox feeds ambient light, and that ambient settles **after** parenting — the first capture
+  shows the old lighting.
+- Creature health is a model **attribute** (`model:GetAttribute("Health")`), not a `Humanoid`. A
+  probe asking for `Humanoid.Health` reports 0 living creatures in a world holding 1,400.
+- `workspace.Creatures` holds loose `Part`s as well as rigs — filter `IsA("Model")` or
+  `.PrimaryPart` errors.
+- A killed boss leaves the **client** holding an orphaned reference whose `Health` attribute is
+  frozen at its last value. A probe watching that attribute reports **zero damage on a fight it
+  won**. Re-fetch from `workspace.Bosses` each swing and compare identity.
+
+**UI**
+- Take the screenshot. `.Text`, `.TextColor3` and a text-fits check all read correct on faults that
+  are obvious in a photograph — dark ink drawn inside a dark stroke has now shipped three times.
+- A stroke draws *outside* a frame, so an authored gap of N reads as N−15.
+- `AbsolutePosition` is reported below the topbar; a Position offset in a ScreenGui with
+  `IgnoreGuiInset = true` is measured from the top of the screen. Mixing them is a 58 px error.
+
+**General**
+- **An optional argument that no call site passes is a feature that does not exist.** Grep the call
+  sites and count arguments before believing a guard works.
+- Before adding a sink for a currency, check whether that currency is also a stat.
+- Check a roadmap row's premise against the code before building what it asks for. Four rows so far
+  have asked for something already true, already impossible, or actively harmful.
+
+## 7. Files that need care
+
+| File | Size | Why |
+|---|---|---|
+| `src/ServerScriptService/ZoneBuilder.lua` | 573 KB | Builds all 20 zones. Its `BUILD_VERSION` guard regenerates the entire world when it moves, and it must **beat** the world's stored stamp or the rebuild is a silent no-op. New scenery should build itself behind its own version stamp instead (see `RebirthShrine`, `LeaderboardService`). |
+| `src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua` | 415 KB | At the 200-local cap. See prohibition 6. |
+| `src/ReplicatedStorage/Modules/GameConfig.lua` | 300 KB | Every balance number and every pure stat function. Required on the **server** too, so anything that creates an Instance needs a `RunService:IsClient()` guard. |
+| `src/ServerScriptService/CreatureService.lua` | 205 KB | |
+| `src/ServerScriptService/BossService.lua` | 164 KB | |
+
+## 8. Git
+
+Committing and pushing are yours — do them as part of closing a row, without asking. Rules:
+
+- Add **named paths**, never `-A` (prohibition 3).
+- Commit message: a title line saying what changed and why it mattered, then the reasoning.
+- End every commit message with:
+  `Co-Authored-By: Gemini <noreply@google.com>`
+  so the review can tell your commits from Claude's at a glance.
+- Push to `origin main`.
+
+## 9. `HANDOFF-LOG.md` — this is how the review works
+
+Append one entry per row you touch. The reviewing agent reads **only this file plus your diffs**,
+so anything not written here is invisible.
+
+Be honest in it. A row you could not verify, a measurement that came out wrong, a rule above you
+had to break — write it down. An accurate "I could not test this" is worth far more than a
+confident "done", because the second one costs the reviewer a full re-verification of everything
+else you claimed.
+
+## 10. When to stop and ask
+
+Stop and write to `HANDOFF-LOG.md`, then ask the owner, when:
+
+- A row needs a real Robux id, a group id, an uploaded image, or a real purchase (**👤 OWNER**).
+- A row's premise contradicts what the code actually does.
+- Studio is wedged, disconnected, or refuses Edit mode.
+- A fix would require a design decision — changing a price, an odds table, a progression curve, or
+  what a mechanic *means*. Implement what is specified; do not redesign.
+- You would need to write to the owner's DataStore save.
+
+Do not guess on any of these. Guessing on the first one costs real money.

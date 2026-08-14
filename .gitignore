@@ -12,3 +12,10 @@ __pycache__/
 
 # Studio session lock, present only while the place is open
 *.rbxl.lock
+
+# API keys and local agent auth. `.gemini/settings.json` IS committed -- it carries the MCP wiring
+# and no secret -- but a key must never join it. Put keys in .env or in the user-level ~/.gemini/.
+.env
+.env.*
+.gemini/.credentials*
+.gemini/oauth*
