@@ -14,6 +14,9 @@ local SeasonPassService = require(script.Parent.SeasonPassService)
 local UITheme = require(RS.Modules.UITheme)
 local VFXLibrary = require(RS.Modules.VFXLibrary)
 local VFXService = require(script.Parent.Systems.VFXService)
+-- 12.14's kill feed. Safe at module scope: AnnounceService requires GameConfig and UITheme and
+-- nothing else, so there is no cycle back into this file.
+local AnnounceService = require(script.Parent.AnnounceService)
 
 local BossService = {}
 
@@ -2401,8 +2404,14 @@ local function spawnBoss(zone)
 			-- likeliest single event to fill the bar -- and it is the one a player is most obviously
 			-- watching. Before markDefeated, which pushes, so the payload already carries the new rung.
 			DNAService.AutoEvolveIfReady(player)
+			-- READ BEFORE markDefeated, which is the only moment it is knowable (12.14). That
+			-- function inserts the zone key and is idempotent per zone, so one line later a first
+			-- clear and a thousandth are the same save. AnnounceService owns what to do with it --
+			-- including the zone floor, which it derives for itself.
+			local firstClear = not hasDefeated(data, zone.key)
 			markDefeated(player, data, zone.key)
 			Remotes.Notify:FireClient(player, { kind = "bossDefeated", name = boss.name, amount = boss.dnaReward, diamonds = gems })
+			AnnounceService.BossKilled(player, boss, zone.key, firstClear)
 
 			burstOnDeath(bossesFolder, zone, boss, body.Position)
 			hitHandlers[model] = nil
@@ -2465,10 +2474,32 @@ local function eventZone()
 	}
 end
 
-local function announce(message, color)
-	for _, plr in ipairs(Players:GetPlayers()) do
-		Remotes.Notify:FireClient(plr, { kind = "reward", message = message, color = color })
-	end
+-- THROUGH AnnounceService NOW (12.14), not through a loop over Players firing Notify.
+--
+-- The old version was a hand-rolled FireAllClients wearing a Notify card, which meant the Colosseum
+-- -- the one thing in this game a whole server does together -- was the only server-wide
+-- announcement that did not go through the module that exists to make those. Two things follow from
+-- the move: 5.4 will carry it between servers for free, because `Broadcast` is the single send; and
+-- it draws as the same top-of-screen toast an event opening and a cross-server hatch do, so the
+-- three server-wide messages a player can see all look like each other instead of like three
+-- features. `kind = "reward"` also gave it a cash register on arrival, which was never right for a
+-- giant walking into an arena.
+--
+-- The headline/subline split is the toast's own shape. `sound` is optional and only the arrival
+-- names one -- see the note at each call.
+-- THE ARENA IS RED, and that was decided by looking at the feed rather than at the palette. The
+-- first cut painted the arrival gold, which is also the rebirth's colour -- and the two cards sit in
+-- the same 3-high stack, so a rebirth during a Colosseum window drew two identical gold blocks that
+-- read as one repeated message. Every kind in the feed now owns a hue nobody else uses: Apex purple,
+-- boss-first orange, rebirth gold, the arena red, and the withdrawal the muted grey below.
+local function announce(headline, subline, color, sound)
+	AnnounceService.Broadcast({
+		kind = "colosseum",
+		color = color or UITheme.Color.Red,
+		headline = headline,
+		subline = subline or "",
+		sound = sound,
+	})
 end
 
 local function despawnEventBoss()
@@ -2690,7 +2721,14 @@ local function spawnEventBoss()
 					end
 				end
 			end
-			announce(("%s %s has fallen! %d challenger%s paid."):format(boss.emoji, boss.name, paid, paid == 1 and "" or "s"))
+			-- No sound named: everyone who was in the fight already gets `bossDeath` off their own
+			-- `bossDefeated` card a few lines up, and a second sting on top of it is one boss dying
+			-- twice.
+			-- the lighter end of the arena's own red: the same event, resolved
+			announce(
+				("%s %s HAS FALLEN!"):format(boss.emoji, boss.name:upper()),
+				("%d challenger%s paid"):format(paid, paid == 1 and "" or "s"),
+				UITheme.Color.Coral)
 
 			burstOnDeath(bossesFolder, zone, boss, body.Position)
 			hitHandlers[model] = nil
@@ -2701,14 +2739,26 @@ local function spawnEventBoss()
 	clickDetector.MouseClick:Connect(onHit)
 	hitHandlers[model] = { fn = onHit, body = body, reach = strikeReach }
 
-	announce(("%s %s has entered the Colosseum!"):format(boss.emoji, boss.name))
+	-- The one announcement in the game that is a CALL TO ACTION rather than a report: the giant is
+	-- standing on the dais for a bounded number of seconds and a player reading their inventory has
+	-- to look up. That is what earns it a sound where the other two get none.
+	announce(
+		("%s %s HAS ENTERED THE COLOSSEUM!"):format(boss.emoji, boss.name:upper()),
+		"Get to the arena -- it will not wait",
+		UITheme.Color.Red, "levelUp")
 
 	-- it leaves on its own if nobody finishes it, so a dead server never leaves a corpse standing
 	-- on the dais until the next spawn
 	task.delay(boss.despawnSeconds, function()
 		if eventState.model == model and not dead then
 			despawnEventBoss()
-			announce(("%s %s has withdrawn."):format(boss.emoji, boss.name))
+			-- Muted deliberately, and in the Locked grey rather than the gold: nothing happened. It is
+			-- said at all only so a player who saw the arrival is not left wondering whether the
+			-- fight is still on somewhere.
+			announce(
+				("%s %s HAS WITHDRAWN"):format(boss.emoji, boss.name:upper()),
+				"Nobody finished it -- the next one is on the board",
+				UITheme.Color.Locked)
 		end
 	end)
 

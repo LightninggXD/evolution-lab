@@ -422,6 +422,17 @@ beam.OnClientEvent:Connect(function(payload)
 			color = payload.rarity and GameConfig.GetRarity(payload.rarity).color or UITheme.Color.Lavender
 		end
 		toast(color, payload.headline, payload.subline or "")
+		-- OPT IN, NEVER BY DEFAULT (12.14). A positional beam always has `beacon` under it, because a
+		-- pillar you have to be looking at to notice is half a feature. A toast is different: the
+		-- kill feed is ambient information, and giving every line a chime would make a busy server
+		-- pay a sound per Apex per boss per rebirth. So the publisher names one when the message is
+		-- something you have to act on, and stays silent otherwise -- today that is exactly one
+		-- message, the Colosseum giant arriving. An unknown name is swallowed rather than thrown:
+		-- SoundLibrary.Get errors on a name it does not hold, and a mistyped sound must not cost the
+		-- announcement it was decoration on.
+		if type(payload.sound) == "string" then
+			pcall(SoundLibrary.PlayLocal, payload.sound)
+		end
 		return
 	end
 

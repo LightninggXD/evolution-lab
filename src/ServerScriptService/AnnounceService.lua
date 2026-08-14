@@ -33,12 +33,30 @@
 	same second is exactly the moment worth showing, while the same person doing it twice in four
 	seconds is the Auto Hatch loop. The client has its own `MAX_ACTIVE` cap on top; neither is
 	sufficient alone.
+
+	=========================================================================================
+	THE KILL FEED (Phase 12.14) IS WORDS, NOT COLUMNS
+	=========================================================================================
+	The publishers below the pet/mutation pair -- an Apex going down, a zone boss falling for the
+	first time, a rebirth, the Colosseum giant -- all send a payload with NO `position`, which
+	`RarityBeam.client` renders as a HUD toast and nothing else. That is a decision, not a shortcut.
+
+	A 420-stud pillar is the game's way of saying "a 1-in-50,000 just happened over there". These
+	four are frequent by comparison: an Apex respawns every 120 s and there are four per zone, every
+	player clears twenty bosses, the Colosseum runs every 30 minutes. Beaming them would turn the
+	beam into scenery, which is the exact failure the rate limit above exists to prevent -- and it
+	would do it by making the beam MEAN less rather than by drawing too many of them.
+
+	The second reason is that a kill feed has to work for events with no place in this server at all.
+	5.4's cross-server message has no position by construction, and everything below is already in
+	the shape that arrives in.
 --]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local UITheme = require(ReplicatedStorage.Modules.UITheme)
 
 local AnnounceService = {}
 
@@ -46,6 +64,15 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 -- seconds between two beams from the same player, see the header
 local PLAYER_COOLDOWN = 6
+
+-- ...and the kinds that want a different one. A hatch or a splice is a moment; an Apex kill is a
+-- FARM -- four per zone on a 120 s respawn, so one player working a terrace produces one every
+-- 30 seconds forever. Six seconds would let that single player hold the feed. Boss firsts and
+-- rebirths are naturally rare (twenty and four per run) and keep the default: their cooldown is
+-- there to catch a double-fire, not a loop.
+local KIND_COOLDOWN = {
+	apex = 45,
+}
 
 -- PER PLAYER **AND PER KIND**, not per player alone. With one publisher the distinction did not
 -- exist; with two it decides whether a Godly mutation can eat the Legendary hatch that happened
@@ -58,7 +85,7 @@ local function onCooldown(player, kind)
 	local key = player.UserId .. "|" .. kind
 	local now = os.clock()
 	local last = lastBeam[key]
-	if last and now - last < PLAYER_COOLDOWN then return true end
+	if last and now - last < (KIND_COOLDOWN[kind] or PLAYER_COOLDOWN) then return true end
 	lastBeam[key] = now
 	return false
 end
@@ -145,6 +172,84 @@ function AnnounceService.MutationRolled(player, mutation)
 		color = mutation.color,
 		headline = ("%s MUTATION!"):format(mutation.name:upper()),
 		subline = ("%s spliced %s at the DNA Splicer"):format(player.DisplayName, mutation.name),
+	})
+end
+
+-- ============================================================================
+-- THE KILL FEED (Phase 12.14)
+-- ============================================================================
+-- Three publishers that are not about an item at all, and the first ones with no position -- see
+-- the header block for why that is the design rather than a limitation. Everything they have in
+-- common lives here: no character is required (a rebirth rebuilds the body, and a payload that had
+-- to wait for it would arrive after the reset it is announcing), the cooldown is the shared one,
+-- and the wording is composed server-side so 5.4 needs no second phrasing path.
+
+-- Trailing zeros off a multiplier: "x3.5" and "x4", never "x3.50" or "x4.00". A rebirth's reward is
+-- the one number the card exists to show, and a player reads a tidy one as a rounder promise.
+local function fmtMult(n)
+	if type(n) ~= "number" or n ~= n then return "1" end
+	local s = ("%.2f"):format(n)
+	s = s:gsub("0+$", ""):gsub("%.$", "")
+	return s
+end
+
+-- THE APEX. Called at the drop-roll site rather than at the death, because that is the one place
+-- that already knows the tier, the zone and the label -- and because the pet drop announced beside
+-- it (PetObtained, above) is the other half of the same moment.
+function AnnounceService.ApexKilled(player, label, zone)
+	if not player or type(label) ~= "string" then return end
+	if onCooldown(player, "apex") then return end
+
+	AnnounceService.Broadcast({
+		kind = "apex",
+		-- the Apex plate's own colour (CreatureService's TIERS.Apex.plateColor), so the feed line and
+		-- the crown over the creature's head are recognisably the same thing
+		color = UITheme.Color.Purple,
+		headline = "\u{1F451} APEX SLAIN!",
+		subline = ("%s brought down %s in %s"):format(
+			player.DisplayName, label, zone and zone.name or "the wild"),
+	})
+end
+
+-- THE BOSS, AND ONLY SOMETIMES. Two gates, both here rather than at the call site:
+--
+-- `firstTime` cannot be derived here -- only the caller holds the before-state of `markDefeated`,
+-- which is idempotent per zone and so has forgotten by the time it returns. It is passed in.
+--
+-- The zone floor CAN be derived and therefore is. Every player kills all twenty bosses, so an
+-- unfiltered feed would be a wall of Forest clears from whoever joined a minute ago; the last six
+-- zones are where a first clear is genuinely worth a room's attention. `GetZoneIndex` returns 1 for
+-- a key it does not know, which fails CLOSED here -- an unrecognised zone announces nothing.
+local BOSS_MIN_ZONE = 15
+
+function AnnounceService.BossKilled(player, boss, zoneKey, firstTime)
+	if not player or not boss or not firstTime then return end
+	if GameConfig.GetZoneIndex(zoneKey) < BOSS_MIN_ZONE then return end
+	if onCooldown(player, "boss") then return end
+
+	local zone = GameConfig.GetZoneByKey(zoneKey)
+	AnnounceService.Broadcast({
+		kind = "boss",
+		color = UITheme.Color.Orange,
+		headline = ("%s %s DEFEATED!"):format(boss.emoji or "\u{1F480}", (boss.name or "The boss"):upper()),
+		subline = ("%s cleared %s for the first time"):format(
+			player.DisplayName, zone and zone.name or "a late zone"),
+	})
+end
+
+-- THE REBIRTH. The hardest voluntary thing in the game and, until now, the quietest: it wiped a
+-- climb, a zone list and a whole skin collection and nobody but the player ever knew. No zone gate
+-- and no rarity gate -- there are only four of these per account, ever.
+function AnnounceService.Rebirthed(player, rebirths, damageMult)
+	if not player then return end
+	if onCooldown(player, "rebirth") then return end
+
+	AnnounceService.Broadcast({
+		kind = "rebirth",
+		color = UITheme.Color.Gold,   -- the shrine's own gold
+		headline = ("\u{2728} REBIRTH %d!"):format(rebirths or 1),
+		subline = ("%s started over -- x%s damage forever"):format(
+			player.DisplayName, fmtMult(damageMult)),
 	})
 end
 

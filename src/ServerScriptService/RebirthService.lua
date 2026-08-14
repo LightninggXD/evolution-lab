@@ -3,6 +3,9 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+-- 12.14's kill feed. Module scope is safe: AnnounceService requires GameConfig and UITheme and
+-- nothing else, so it cannot come back around into this file.
+local AnnounceService = require(script.Parent.AnnounceService)
 
 local RebirthService = {}
 RebirthService.OnRebirth = nil -- optional callback(player, data) set by ServerMain to avoid circular requires
@@ -142,6 +145,16 @@ function RebirthService.HandleRebirth(player, tier)
 		nextTier = GameConfig.GetNextRebirthTier(data),
 		nextStageIndex = GameConfig.GetNextRebirthStage(data),
 	})
+
+	-- AND THE ROOM IS TOLD (12.14). A rebirth wipes a climb, a zone list and a whole skin
+	-- collection, and until now it was the quietest thing in the game: the only person who ever knew
+	-- was the one who paid for it. There are four of these per account ever, so there is no rate to
+	-- limit -- the cooldown inside AnnounceService is catching a double-fire, not a loop.
+	--
+	-- Fired here rather than after OnReturnHome on purpose: the toast has no position, so it does
+	-- not care where the body ends up, and putting it last would mean a failure in the rebuild
+	-- swallowed the announcement of a reset that has already happened and cannot be undone.
+	AnnounceService.Rebirthed(player, data.Rebirths, GameConfig.GetRebirthDamageMult(data))
 
 	if RebirthService.OnRebirth then
 		RebirthService.OnRebirth(player, data)

@@ -3503,6 +3503,19 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 				data.EvolutionShards = (data.EvolutionShards or 0) + shards
 			end
 
+			-- ===== AND THE ROOM IS TOLD, IF THIS WAS AN APEX (12.14) =====
+			--
+			-- Here rather than at the death a few lines up, because this is the site that already
+			-- holds everything the line needs -- the tier, the zone and the label -- and because the
+			-- pet the next block may hand over is the other half of the same moment.
+			--
+			-- Nothing is decided here on purpose: whether an Apex is worth announcing, how often one
+			-- player may do it, and what the words are all live in AnnounceService, which is the
+			-- whole reason that module exists. This call site only knows that an Apex died.
+			if tierName == "Apex" then
+				AnnounceService.ApexKilled(player, creatureLabel(tierName, zone), zone)
+			end
+
 			-- ===== AND A PET, WHICH ONLY THE SHELVES DROP (11.6) =====
 			--
 			-- The second thing the terraces mint that nothing else does. Layer 1 pays one of the
