@@ -122,6 +122,16 @@ end
 -- Steps out from `PREFERRED` along a widening ring and takes the first spot whose footprint is
 -- empty of anything solid. Returns the preferred spot if every candidate is occupied, because a
 -- machine in the wrong place is recoverable and no machine at all is not.
+--
+-- EMPTY IS NOT THE SAME AS AVAILABLE (found 12.10, on a rebuilt world). Forest's props are placed
+-- with math.random, so a rebuild moves them and this search answers differently each time -- and on
+-- one of those worlds every candidate inside four rings was occupied and the machine walked 104
+-- studs to x = 16, i.e. into the middle of the street. It was a legal answer: the path slabs are
+-- 0.16 high and the fence run has gaps, so that footprint really was clear of anything solid. The
+-- street is not clear GROUND, it is the line every player walks, so it is ruled out by name rather
+-- than left to the occupancy test. Same constant and same reasoning as HubPlaza's CORRIDOR_HALF.
+local STREET_HALF = 30
+
 local function findClearSpot()
 	local candidates = { Vector3.new(0, 0, 0) }
 	for ring = 1, 6 do
@@ -140,14 +150,16 @@ local function findClearSpot()
 
 	for _, offset in ipairs(candidates) do
 		local centre = PREFERRED + offset
-		local box = CFrame.new(centre + Vector3.new(0, FOOTPRINT.Y / 2, 0))
-		local hits = workspace:GetPartBoundsInBox(box, FOOTPRINT, params)
-		local blocked = false
-		for _, part in ipairs(hits) do
-			-- The floor is not an obstruction; everything standing ON it is.
-			if part.CanCollide and part.Position.Y > 0.5 then
-				blocked = true
-				break
+		local blocked = math.abs(centre.X) - FOOTPRINT.X * 0.5 < STREET_HALF
+		if not blocked then
+			local box = CFrame.new(centre + Vector3.new(0, FOOTPRINT.Y / 2, 0))
+			local hits = workspace:GetPartBoundsInBox(box, FOOTPRINT, params)
+			for _, part in ipairs(hits) do
+				-- The floor is not an obstruction; everything standing ON it is.
+				if part.CanCollide and part.Position.Y > 0.5 then
+					blocked = true
+					break
+				end
 			end
 		end
 		if not blocked then

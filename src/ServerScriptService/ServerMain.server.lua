@@ -29,6 +29,7 @@ local OfflineService = require(ServerScriptService.OfflineService)
 local LeaderboardService = require(ServerScriptService.LeaderboardService)
 local StatsService = require(ServerScriptService.StatsService)
 local EventService = require(ServerScriptService.EventService)
+local HubPlaza = require(ServerScriptService.HubPlaza)
 
 -- ===== STREAMING =====
 -- The two radii that decide how much world a client is holding. Roblox's defaults (min 64,
@@ -114,6 +115,11 @@ StatsService.Init()
 -- the Forest ground -- and after AnnounceService, which is what it announces an opening window
 -- through. It reads no other service's state: whether an event is live is arithmetic on the clock.
 EventService.Init()
+-- LAST of the Forest furniture, and that ordering is the whole design: the plaza is a floor laid
+-- UNDER four things built by four other services, and every upright piece of it searches the live
+-- ground for a spot nothing is standing on. Run it before the leaderboards, the event sign or the
+-- Splicer exist and it would happily stand a lamp post exactly where one of them is about to go.
+HubPlaza.Init()
 -- LAST, and after DNAService in particular: the offline payout is DNAService.GetAutoCollectAmount
 -- multiplied by a bounded number of seconds, so it has to run once the income stack it reads is
 -- fully wired. It hooks PlayerAdded itself rather than being called from the block below, because
