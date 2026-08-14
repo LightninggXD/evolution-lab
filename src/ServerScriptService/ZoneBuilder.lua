@@ -8662,6 +8662,60 @@ local WORLD_OUTDOOR_AMBIENT = Color3.fromRGB(112, 122, 144)
 local WORLD_CLOCK = 15.8
 local WORLD_HAZE = 0.55
 
+-- ===== THE SKY, WHICH DID NOT EXIST =====
+--
+-- `Lighting` had no `Sky` child at all (checked 2026-08-14), so the world was rendering against
+-- Roblox's built-in default. That default is not bad -- it is a soft blue with wispy cloud -- which
+-- is exactly why nobody noticed. It is just not OURS: it is the sky every unfinished place ships
+-- with, and it is the one part of the frame a player sees behind every zone.
+--
+-- THE TRAP THAT DECIDED THIS: A SKYBOX IS A LIGHT SOURCE, NOT A BACKDROP.
+-- Under ShadowMap/Future the skybox feeds ambient. A texture with big white cloud masses in it
+-- therefore floods the scene with fill light and undoes the entire contrast pass above -- with
+-- `Ambient`, `OutdoorAmbient` and `ToonPunch` all left untouched and still reading their intended
+-- values. Measured on the Forest arrival frame, the Guardian Titan 1240 studs out went from a
+-- brown silhouette to a pale smear. Both cloud-painted candidates did this:
+--
+--   * "clouds skybox" (3146864089) ..... washed out, rejected
+--   * "Cartoon SkyBox" (15387348852) ... washed out, rejected -- and this one nearly shipped,
+--       because the FIRST capture after applying it still looked crisp. Skybox-derived ambient
+--       settles a beat after the Sky is parented, so a capture taken immediately shows the OLD
+--       lighting under the NEW sky. It read as the clear winner for exactly that reason.
+--       >>> ALWAYS task.wait(~3) BETWEEN PARENTING A SKY AND CAPTURING IT. <<<
+--   * "Clear Blue Sky" (18586545848) ... keeps the world crisp                        <- picked
+--
+-- Which leaves the obvious objection: a cloudless sky is a flat gradient with nothing in it. The
+-- answer is that in 2026 clouds are not a skybox texture at all -- they are `Terrain.Clouds`,
+-- which is real drifting volumetric geometry and, being geometry, contributes NOTHING to ambient.
+-- See WORLD_CLOUDS below. That is the combination that gets both: cloud cover overhead and a
+-- Titan that is still brown.
+--
+-- CelestialBodiesShown stays false -- the texture paints its own sun, and the engine's sun would
+-- be a second, brighter one somewhere else in the sky.
+--
+-- The six ids are READ OFF the inserted asset, never transcribed from a store page. They are not
+-- sequential (Up is ...94073, Dn is ...94459) and four of the six faces share one id, which is the
+-- asset's own doing -- Lf/Rt/Ft/Bk are genuinely the same horizon image repeated.
+local WORLD_SKY = {
+	SkyboxUp = "rbxassetid://18586494073",
+	SkyboxDn = "rbxassetid://18586494459",
+	SkyboxLf = "rbxassetid://18586524369",
+	SkyboxRt = "rbxassetid://18586524369",
+	SkyboxFt = "rbxassetid://18586524369",
+	SkyboxBk = "rbxassetid://18586524369",
+	CelestialBodiesShown = false,
+	StarCount = 0,
+}
+
+-- Cover 0.62 is scattered cloud rather than overcast: enough to break up the gradient from every
+-- camera angle on the strip, not so much that the zone sits in permanent shade.
+local WORLD_CLOUDS = {
+	Cover = 0.62,
+	Density = 0.55,
+	Color = Color3.fromRGB(255, 255, 255),
+	Enabled = true,
+}
+
 local function applyDistanceFog()
 	local Lighting = game:GetService("Lighting")
 	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
@@ -8688,6 +8742,34 @@ local function applyDistanceFog()
 	grade.Saturation = 0.38
 	grade.Brightness = 0
 	grade.Enabled = true
+
+	-- Same create-if-missing shape as the grade. Any OTHER Sky is cleared first: a stray one left
+	-- behind by hand in Studio would otherwise sit next to this one, and which of two Sky objects
+	-- Lighting actually renders is not defined -- so the look would depend on child order.
+	local sky = Lighting:FindFirstChild("WorldSky")
+	for _, other in ipairs(Lighting:GetChildren()) do
+		if other:IsA("Sky") and other ~= sky then
+			other:Destroy()
+		end
+	end
+	if not sky then
+		sky = Instance.new("Sky")
+		sky.Name = "WorldSky"
+		sky.Parent = Lighting
+	end
+	for prop, value in pairs(WORLD_SKY) do
+		sky[prop] = value
+	end
+
+	-- Clouds live on Terrain, not in Lighting, and there can only ever be one.
+	local clouds = workspace.Terrain:FindFirstChildOfClass("Clouds")
+	if not clouds then
+		clouds = Instance.new("Clouds")
+		clouds.Parent = workspace.Terrain
+	end
+	for prop, value in pairs(WORLD_CLOUDS) do
+		clouds[prop] = value
+	end
 end
 
 function ZoneBuilder.Build()
