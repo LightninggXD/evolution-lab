@@ -2643,11 +2643,23 @@ local function spawnEventBoss()
 			if auraConnection then auraConnection:Disconnect() end
 
 			local paid = 0
+			-- ===== THE WEEKEND COLOSSEUM'S DOUBLE (12.13) =====
+			--
+			-- Read ONCE, outside the loop, and that is not micro-optimisation: it is the same
+			-- multiplier for everybody who was in this fight, by definition -- GetEventMult takes no
+			-- `data`, which is the whole difference between an event and a pass. Reading it per player
+			-- would also let a window that shut mid-loop pay the first contributor double and the last
+			-- one single, for the same kill.
+			--
+			-- It multiplies the giant's own payout and nothing else. Weekend Rush's incomeMult never
+			-- reached here (this is a flat reward, not click income), so the two do not compound into
+			-- a 4x weekend.
+			local eventBossMult = GameConfig.GetEventMult("bossMult")
 			for _, plr in ipairs(Players:GetPlayers()) do
 				if contributors[plr.UserId] then
 					local d = PlayerDataService.Get(plr)
 					if d then
-						d.DNA += boss.dnaReward
+						d.DNA += boss.dnaReward * eventBossMult
 						-- CLAMPED TO TWO OF THE RECEIVER'S OWN LEVELS. The event boss pays a flat 20,000 so
 						-- that it is worth turning up to at any stage, but the XP curve spans four orders of
 						-- magnitude -- unclamped, a stage-2 player who lands a single hit banks enough to
@@ -2658,13 +2670,22 @@ local function spawnEventBoss()
 						-- the Colosseum giant counts for the same quest as a zone boss
 						-- the giant's own diamond band, several times a zone boss's: it is on a 30-minute
 						-- timer and turning up for it is the point. Credited before the push below.
-						local gems = GameConfig.RollBossDiamonds(true)
+						-- Diamonds are an integer currency everywhere else in this file, so the doubled
+						-- roll is floored rather than left as a float -- a fractional gem would reach
+						-- the HUD, the save and eventually the OrderedDataStore, which refuses floats
+						-- silently. `math.floor` and not `math.round`: the mult is 1 or 2 today, and
+						-- rounding a whole number is a no-op either way, but flooring cannot invent a
+						-- gem out of a future 1.5.
+						local gems = math.floor(GameConfig.RollBossDiamonds(true) * eventBossMult)
 						d.Diamonds = (d.Diamonds or 0) + gems
 						SeasonPassService.Track(plr, "bosses", 1)
 						d.Kills = (d.Kills or 0) + 1
 						PlayerDataService.UpdateLeaderstats(plr)
 						PlayerDataService.PushToClient(plr)
-						Remotes.Notify:FireClient(plr, { kind = "bossDefeated", name = boss.name, amount = boss.dnaReward, diamonds = gems })
+						-- the card quotes what was actually paid, doubled included, rather than the
+						-- authored figure -- a "you got 20,000" toast beside a 40,000 balance jump is
+						-- the event failing to be visible at the one moment it is happening
+						Remotes.Notify:FireClient(plr, { kind = "bossDefeated", name = boss.name, amount = boss.dnaReward * eventBossMult, diamonds = gems })
 						paid += 1
 					end
 				end

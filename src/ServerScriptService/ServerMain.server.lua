@@ -92,11 +92,6 @@ RebirthService.Init()
 -- after RebirthService (it wires each statue's prompt straight into HandleRebirth) and after
 -- ZoneBuilder.Build() above, which is what puts the Forest decor the plaza has to clear back
 RebirthShrine.Init()
--- after RebirthShrine and after ZoneBuilder.Build(): the Splicer searches the LIVE Forest ground
--- for a spot nothing is standing on, so everything that stands on that ground has to be there
--- first or the search passes over ground that is about to be built on. After AnnounceService too,
--- which is how a Mythic-or-better roll reaches the room.
-SplicerService.Init()
 RewardService.Init()
 PotionService.Init()
 -- before RobuxShopService: both take a Robux purchase path, and PassService owns the one that has
@@ -115,6 +110,19 @@ StatsService.Init()
 -- the Forest ground -- and after AnnounceService, which is what it announces an opening window
 -- through. It reads no other service's state: whether an event is live is arithmetic on the clock.
 EventService.Init()
+-- MOVED HERE FROM ABOVE RewardService (12.13), and the bug it caused is the argument for the whole
+-- ordering block. The Splicer searches the LIVE Forest ground for a spot nothing is standing on, so
+-- everything that stands on that ground has to be there FIRST -- and it used to run before both the
+-- leaderboards and the event sign, i.e. before two of the four things standing on exactly that
+-- ground. Photographed on the live world: the preferred spot (120, 215) was rejected for a single
+-- 1.8-stud GlintPost, the search stepped one ring east to (146, 215), and the machine's 27-stud box
+-- closed over the event sign's panel at x 148.5..151.5. Nothing reported it -- both structures
+-- built successfully, and each is idempotent about its own parts and blind to the other's.
+--
+-- Its own earlier constraints are all still met here: after ZoneBuilder.Build() and RebirthShrine
+-- (the ground and the plaza it has to clear) and after AnnounceService, which is how a Mythic-or-
+-- better roll reaches the room.
+SplicerService.Init()
 -- LAST of the Forest furniture, and that ordering is the whole design: the plaza is a floor laid
 -- UNDER four things built by four other services, and every upright piece of it searches the live
 -- ground for a spot nothing is standing on. Run it before the leaderboards, the event sign or the

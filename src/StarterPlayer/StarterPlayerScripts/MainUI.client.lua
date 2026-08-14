@@ -1777,9 +1777,15 @@ local hudRefs = {}
 	corner(eventBadge, UDim.new(0.5, 0))
 	themeLabel(eventBadge, 20)
 
+	-- 128 PIXELS, NOT 112, AND THE 16 CAME OUT OF THE CLOCK BESIDE IT (12.13). The longest name in
+	-- the table used to be "Prism Festival" (85 px at the 14 px floor of this label's size
+	-- constraint); "Colosseum Clash" is 100, and with the "+1" that says a second event is running
+	-- alongside it, 118 -- which overflowed the old box and reported TextFits = false, measured on
+	-- the shipped card. The clock never needed 76: its longest possible string is "48m 09s" at
+	-- 59 px, so it keeps 60 and the name takes the slack. The two are still flush.
 	local eventName = Instance.new("TextLabel")
 	eventName.Name = "EventName"
-	eventName.Size = UDim2.new(1, -132, 0, 20)
+	eventName.Size = UDim2.new(1, -116, 0, 20)
 	eventName.Position = UDim2.new(0, 50, 0, 4)
 	eventName.BackgroundTransparency = 1
 	eventName.TextXAlignment = Enum.TextXAlignment.Left
@@ -1789,8 +1795,8 @@ local hudRefs = {}
 
 	local eventClock = Instance.new("TextLabel")
 	eventClock.Name = "Clock"
-	eventClock.Size = UDim2.new(0, 76, 0, 20)
-	eventClock.Position = UDim2.new(1, -82, 0, 4)
+	eventClock.Size = UDim2.new(0, 60, 0, 20)
+	eventClock.Position = UDim2.new(1, -66, 0, 4)
 	eventClock.BackgroundTransparency = 1
 	eventClock.TextXAlignment = Enum.TextXAlignment.Right
 	eventClock.ZIndex = eventCard.ZIndex + 1
@@ -1872,21 +1878,41 @@ local hudRefs = {}
 			-- overlap a weekend) and a second card would push the strip up over the potion rows for
 			-- the one player in a hundred who sees it. The clock is the reason to look; the effects
 			-- line says what it is worth.
-			local live = GameConfig.GetActiveEvents()[1]
+			--
+			-- THE EFFECTS LINE SUMS EVERY LIVE EVENT, THE HEADER NAMES ONE (12.13). Overlap stopped
+			-- being the rare case the paragraph above describes the moment the Colosseum took the same
+			-- Saturday window as the weekend -- both are on every weekend now. The card still cannot
+			-- become two cards for the reason given above, but drawing only the headliner's effects
+			-- would tell a player their DNA is not doubled while it is, which is worse than a name
+			-- that omits a co-runner. So: one card, the headliner's name, colour and clock (the sort
+			-- in GetActiveEvents decides which that is), and the combined effects of everything
+			-- running -- multiplied for mults and added for luck, exactly as GetEventMult and
+			-- GetEventAdd do it on the server, so the line cannot disagree with the payout.
+			local activeNow = GameConfig.GetActiveEvents()
+			local live = activeNow[1]
 			if live then
 				local left = live.window.endTs - GameConfig.EventNow()
 				eventCard.Visible = true
 				eventBadge.Text = live.event.emoji
 				eventBadge.BackgroundColor3 = live.event.color
-				eventName.Text = live.event.name
+				eventName.Text = (#activeNow > 1)
+					and ("%s  +%d"):format(live.event.name, #activeNow - 1)
+					or live.event.name
 				eventClock.Text = GameConfig.FormatDuration(left)
-				local bits = {}
-				for field, label in pairs({ incomeMult = "DNA", xpMult = "XP", damageMult = "Damage" }) do
-					local v = live.event.effects and live.event.effects[field]
-					if v then table.insert(bits, ("x%s %s"):format(formatMult(v), label)) end
+				local mults, luck = {}, 0
+				for _, entry in ipairs(activeNow) do
+					local effects = entry.event.effects or {}
+					for field in pairs(GameConfig.EventEffectLabels) do
+						local v = effects[field]
+						if type(v) == "number" then mults[field] = (mults[field] or 1) * v end
+					end
+					if type(effects.luckAdd) == "number" then luck += effects.luckAdd end
 				end
-				local luck = live.event.effects and live.event.effects.luckAdd
-				if luck then table.insert(bits, ("+%d%% Luck"):format(math.floor(luck))) end
+				local bits = {}
+				for field, value in pairs(mults) do
+					table.insert(bits, ("x%s %s"):format(formatMult(value), GameConfig.EventEffectLabels[field]))
+				end
+				if luck > 0 then table.insert(bits, ("+%d%% Luck"):format(math.floor(luck))) end
 				table.sort(bits)
 				eventEffects.Text = table.concat(bits, "   ")
 			else
@@ -5857,6 +5883,13 @@ local CHAR_LINE_H = 132
 		-- body and print what wearing it would cost, because damage came from the costume. It comes
 		-- from the best rung OWNED now, so picking an old skin changes nothing but the mirror --
 		-- and the useful fact is instead what the player is hitting for right now.
+		-- THE COLOUR IS RESET BEFORE THE CHAIN, not only inside the branches that change it. Three of
+		-- the branches below paint this label green and none of the others painted it back, so the
+		-- colour was whatever the LAST card looked at had said -- an unowned skin's "evolve to this
+		-- stage" line inherited the green of a previously-inspected owned one and read as good news.
+		-- Harmless-looking until 12.13 added a fourth green branch; a default set once, here, cannot
+		-- go stale however many branches are added later.
+		dHint.TextColor3 = Color3.fromRGB(146, 154, 174)
 		if not owned then
 			-- HOW TO GET IT, and for an off-ladder skin that is not "evolve" (12.7). Every unowned
 			-- entry used to be told to evolve into its stage, and an off-ladder skin has no stage --
@@ -5866,8 +5899,27 @@ local CHAR_LINE_H = 132
 				dHint.Text = "Comes with the VIP pass \u{2014} and goes away again if the pass does."
 			elseif entry.event then
 				local eventDef = GameConfig.GetEvent(entry.event)
-				dHint.Text = ("Handed out during %s%s. Turn up while it is running and it is yours for good.")
-					:format(eventDef and (eventDef.emoji .. " ") or "", eventDef and eventDef.name or "the event")
+				local label = ("%s%s"):format(eventDef and (eventDef.emoji .. " ") or "",
+					eventDef and eventDef.name or "the event")
+				-- A ROTATION SKIN IS NOT AVAILABLE WHENEVER ITS EVENT IS (12.13). The generic line
+				-- below is true of the festival, which hands out its one skin for the whole window --
+				-- and false of a champion, which is one of four and is handed out on one weekend in
+				-- four. Telling a collector to "turn up while it is running" on a weekend that is
+				-- running somebody else's skin is the panel lying about the only thing this card
+				-- exists to answer.
+				local rot = GameConfig.GetRotationInfo(entry.key)
+				if rot and rot.live then
+					dHint.Text = ("Week %d of %d \u{2014} being handed out in %s RIGHT NOW. Turn up and it is yours for good.")
+						:format(rot.slot, rot.count, label)
+					dHint.TextColor3 = Color3.fromRGB(72, 168, 96)
+				elseif rot and rot.nextStart then
+					dHint.Text = ("Week %d of %d in the %s rotation \u{2014} its turn comes round in %s.")
+						:format(rot.slot, rot.count, label,
+							GameConfig.FormatDuration(rot.nextStart - GameConfig.EventNow()))
+				else
+					dHint.Text = ("Handed out during %s. Turn up while it is running and it is yours for good.")
+						:format(label)
+				end
 			else
 				dHint.Text = "Evolve to " .. (stage and stage.name or "this stage") .. " to discover it."
 			end

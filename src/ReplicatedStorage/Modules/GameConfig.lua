@@ -3067,6 +3067,52 @@ GameConfig.Events = {
 		color = Color3.fromRGB(255, 138, 76),
 		recurring = { wday = GameConfig.Weekday.Sat, hour = 0, hours = 48 },
 		effects = { incomeMult = 2, xpMult = 2 },
+		-- Priority 0 (the default) on purpose, and it is the LOWER of the two weekend events -- see
+		-- the note over ColosseumClash for why the one that changes every week is the one that
+		-- headlines the board.
+	},
+	-- ===== THE WEEKEND COLOSSEUM (12.13) =====
+	--
+	-- The same window as Weekend Rush, deliberately: the two are one weekend, not two occasions, and
+	-- a player who logs in on Saturday should find everything on at once rather than learn a
+	-- schedule. What it adds is the half the game had no event for -- the Colosseum giant, which is
+	-- already the only thing on a timer and the only thing a whole server does together.
+	--
+	-- WHY IT IS NOT ANOTHER incomeMult. Weekend Rush already doubles what an hour of ordinary play
+	-- pays. Stacking a second income multiplier on top of it makes the weekend worth 4x and the week
+	-- worth nothing, which is how a two-day window stops being a bonus and becomes the only time
+	-- worth playing. `bossMult` touches ONE payout -- the giant's DNA and diamonds -- so the reason
+	-- to turn up is a specific fight rather than a blanket rate.
+	--
+	-- THE SKIN ROTATES, AND THAT IS THE ENTIRE RETENTION ARGUMENT. A permanent weekend hands out one
+	-- skin forever, so the second weekend has nothing in it for anyone who came to the first. Four
+	-- champions on a four-week cycle mean a returning player is looking at something they cannot
+	-- have yet, and a collector has a reason to be here on a particular weekend rather than some
+	-- weekend. See GameConfig.GetEventRewardKey for how the week is chosen.
+	{
+		key = "ColosseumClash",
+		name = "Colosseum Clash",
+		emoji = "\u{2694}\u{FE0F}",
+		blurb = "Double giant loot, and this week's champion skin for everyone who shows up",
+		color = Color3.fromRGB(226, 84, 76),
+		recurring = { wday = GameConfig.Weekday.Sat, hour = 0, hours = 48 },
+		effects = { bossMult = 2 },
+		-- WHICH ONE HEADLINES WHEN BOTH ARE LIVE, decided here rather than left to table order.
+		-- Every consumer of GetActiveEvents draws `active[1]` and only `active[1]` -- the sign, the
+		-- HUD card and GetEventHeadline all do -- so without this the answer would be "whichever was
+		-- authored first", which is not a decision anybody made. Weekend Rush is the same every
+		-- weekend and every returning player already knows it; the Colosseum's champion is different
+		-- this week and is the only thing on the board worth reading twice. The rate boost is not
+		-- lost: the HUD card sums the effects of EVERY live event onto one line, and the sign names
+		-- the co-runners under the blurb.
+		priority = 10,
+		-- One rotation entry per week, resolved from the WINDOW's start -- see GetEventRewardKey.
+		rotation = {
+			"event_clash_ember",
+			"event_clash_frost",
+			"event_clash_verdant",
+			"event_clash_onyx",
+		},
 	},
 	-- The launch festival, and the one event carrying an exclusive skin.
 	--
@@ -3086,6 +3132,18 @@ GameConfig.Events = {
 		-- Granted while the window is open and NEVER taken back -- see GameConfig.EventCharacters.
 		reward = { characterKey = "event_prism" },
 	},
+}
+
+-- What the HUD chip calls each multiplicative effect field. It lives here rather than in MainUI for
+-- two reasons: MainUI is at Luau's 200-local ceiling and a new top-level table there costs the
+-- whole HUD, and a new effect field is authored three lines up in GameConfig.Events -- so the
+-- reader that would otherwise silently omit it is the one that should be edited in the same file.
+-- `luckAdd` is deliberately absent: it is additive and is formatted as a percentage, not an "x".
+GameConfig.EventEffectLabels = {
+	incomeMult = "DNA",
+	xpMult = "XP",
+	damageMult = "Damage",
+	bossMult = "Giant Loot",
 }
 
 function GameConfig.GetEvent(key)
@@ -3139,29 +3197,139 @@ end
 
 -- Every event live at `now`, each paired with its own window so a caller that also wants the
 -- countdown does not compute it a second time.
+--
+-- SORTED BY `priority`, HIGHEST FIRST, AND THAT IS A REAL DECISION RATHER THAN TIDINESS (12.13).
+-- Three separate places draw `active[1]` and nothing else -- the sign in Forest, the HUD boost card
+-- and GetEventHeadline -- so as soon as two windows can overlap, "which event IS the weekend" is
+-- being answered by the order somebody happened to type the table in. It is answered here instead,
+-- once, for all three.
+--
+-- The tie-break is the authored index, not the sort's own idea of equal elements: `table.sort` is
+-- NOT stable in Lua, so two events at the same priority would otherwise swap places between calls
+-- and the board would flip name every second. Ordinals make equal priorities keep table order.
 function GameConfig.GetActiveEvents(now)
 	now = now or GameConfig.EventNow()
 	local out = {}
-	for _, event in ipairs(GameConfig.Events) do
+	for index, event in ipairs(GameConfig.Events) do
 		local window = GameConfig.GetEventWindow(event, now)
 		if window and window.active then
-			table.insert(out, { event = event, window = window })
+			table.insert(out, { event = event, window = window, order = index })
 		end
 	end
+	table.sort(out, function(a, b)
+		local pa, pb = a.event.priority or 0, b.event.priority or 0
+		if pa ~= pb then return pa > pb end
+		return a.order < b.order
+	end)
 	return out
 end
 
--- The soonest thing that has not started yet, for the board to count down to when nothing is on.
-function GameConfig.GetNextEvent(now)
+-- ===== WHICH SKIN THIS OCCURRENCE HANDS OVER =====
+--
+-- THE ONE PLACE THAT ANSWERS IT, for both shapes an event reward can take: a fixed `reward` (the
+-- launch festival, which happens once and so has nothing to rotate) and a `rotation` list, which
+-- picks one entry per week.
+--
+-- THE INDEX COMES OFF `window.startTs`, NEVER OFF `now`, and that is the whole correctness of it.
+-- The Unix week boundary is a Thursday (the epoch was one), so a Saturday-to-Monday window does not
+-- cross one today -- but nothing in this file guarantees the window stays where it is authored, and
+-- an index taken from `now` silently changes the answer for a window that ever does cross a
+-- boundary. A player online at that instant would watch the reward swap under them and be handed
+-- two skins for one weekend; anyone who joined ten minutes later would get a different one from the
+-- player standing beside them. Off `startTs` the whole occurrence agrees with itself by
+-- construction, and the same window always resolves to the same skin however late it is asked.
+function GameConfig.GetEventRewardKey(event, window)
+	if not event then return nil end
+	if event.reward and event.reward.characterKey then
+		return event.reward.characterKey, nil
+	end
+	local rotation = event.rotation
+	if not (rotation and #rotation > 0 and window and window.startTs) then return nil end
+	local index = 1 + math.floor(window.startTs / EVENT_WEEK) % #rotation
+	return rotation[index], index
+end
+
+-- Where a rotation skin sits relative to right now: which slot it is, whether it is the one
+-- currently being handed out, and when its own turn next comes round. For the Journal, so an
+-- unowned champion can say "three weeks away" instead of the generic "turn up while it is running",
+-- which for a rotation is true of only one of the four at a time.
+function GameConfig.GetRotationInfo(characterKey, now)
+	if not characterKey then return nil end
 	now = now or GameConfig.EventNow()
-	local best
 	for _, event in ipairs(GameConfig.Events) do
-		local window = GameConfig.GetEventWindow(event, now)
-		if window and window.nextStart and (not best or window.nextStart < best.window.nextStart) then
-			best = { event = event, window = window }
+		local rotation = event.rotation
+		if rotation then
+			local slot
+			for i, key in ipairs(rotation) do
+				if key == characterKey then slot = i break end
+			end
+			if slot then
+				local window = GameConfig.GetEventWindow(event, now)
+				local currentKey = window and GameConfig.GetEventRewardKey(event, window) or nil
+				-- Walk forward one occurrence at a time rather than solving for the week: the window
+				-- arithmetic already knows where occurrences fall, and #rotation steps is at most four.
+				local nextStart
+				if currentKey ~= characterKey or not (window and window.active) then
+					local probeStart = window and (window.active and window.startTs or window.nextStart)
+					for _ = 1, #rotation + 1 do
+						if not probeStart then break end
+						if probeStart > now and GameConfig.GetEventRewardKey(event, { startTs = probeStart }) == characterKey then
+							nextStart = probeStart
+							break
+						end
+						probeStart += EVENT_WEEK
+					end
+				end
+				return {
+					event = event,
+					slot = slot,
+					count = #rotation,
+					live = (window and window.active and currentKey == characterKey) or false,
+					nextStart = nextStart,
+				}
+			end
 		end
 	end
-	return best
+	return nil
+end
+
+-- Everything that starts at the SOONEST moment anything starts, for the board to count down to when
+-- nothing is on. Usually one event; two whenever two windows share an opening instant, which since
+-- 12.13 is every week -- the Colosseum and the weekend both open at 00:00 Saturday.
+--
+-- SORTED BY PRIORITY LIKE GetActiveEvents, AND THAT IS A BUG FIX, NOT SYMMETRY FOR ITS OWN SAKE.
+-- The old form kept the first event it found at the soonest start, i.e. authored order -- so on the
+-- five days a week nothing is running, the sign counted down to "🔥 Weekend Rush" while the sign on
+-- the weekend itself headlined "⚔️ Colosseum Clash". Same instant, same duration, two different
+-- names, and the one a player reads while deciding whether to come back is the off-weekend one.
+-- Measured on the live board before this was fixed.
+function GameConfig.GetUpcomingEvents(now)
+	now = now or GameConfig.EventNow()
+	local soonest
+	local out = {}
+	for index, event in ipairs(GameConfig.Events) do
+		local window = GameConfig.GetEventWindow(event, now)
+		if window and window.nextStart then
+			if not soonest or window.nextStart < soonest then
+				soonest = window.nextStart
+				out = {}
+			end
+			if window.nextStart == soonest then
+				table.insert(out, { event = event, window = window, order = index })
+			end
+		end
+	end
+	table.sort(out, function(a, b)
+		local pa, pb = a.event.priority or 0, b.event.priority or 0
+		if pa ~= pb then return pa > pb end
+		return a.order < b.order
+	end)
+	return out
+end
+
+-- The one that headlines. Kept as its own function because every existing caller wants exactly this.
+function GameConfig.GetNextEvent(now)
+	return GameConfig.GetUpcomingEvents(now)[1]
 end
 
 -- The product of `field` across every live event, or 1 so a caller can multiply unconditionally.
@@ -3998,6 +4166,55 @@ GameConfig.EventCharacters = {
 		rarity = "Legendary",
 		color = Color3.fromRGB(158, 120, 255),
 		event = "PrismFest",
+		offLadder = true,
+	},
+	-- ===== THE FOUR COLOSSEUM CHAMPIONS (12.13) =====
+	--
+	-- One per week of ColosseumClash's rotation, and the ORDER OF THIS LIST IS NOT WHAT PICKS THEM:
+	-- the rotation is the list on the event itself, and this table is only the registry that makes
+	-- each key resolve to a name and a colour. They are two lists on purpose -- a skin can be
+	-- retired from the rotation without deleting the entry that a save which already owns it needs
+	-- (see SyncEventCharacters, which drops keys nothing resolves).
+	--
+	-- FOUR DISTINCT HUES, chosen against each other and against the two skins already outside the
+	-- ladder. Prism Herald is violet and the VIP skin is gold, so the champions take orange, ice
+	-- blue, green and slate -- there is no mesh for any of them, so the whole of a champion IS its
+	-- colour on the player's own stage costume, and two that read the same from across the plaza are
+	-- two weekends that felt like one.
+	{
+		key = "event_clash_ember",
+		name = "Ember Gladiator",
+		emoji = "\u{1F525}",
+		rarity = "Legendary",
+		color = Color3.fromRGB(238, 96, 54),
+		event = "ColosseumClash",
+		offLadder = true,
+	},
+	{
+		key = "event_clash_frost",
+		name = "Frost Sentinel",
+		emoji = "\u{2744}\u{FE0F}",
+		rarity = "Legendary",
+		color = Color3.fromRGB(118, 208, 255),
+		event = "ColosseumClash",
+		offLadder = true,
+	},
+	{
+		key = "event_clash_verdant",
+		name = "Verdant Colossus",
+		emoji = "\u{1F33F}",
+		rarity = "Legendary",
+		color = Color3.fromRGB(96, 200, 118),
+		event = "ColosseumClash",
+		offLadder = true,
+	},
+	{
+		key = "event_clash_onyx",
+		name = "Onyx Praetor",
+		emoji = "\u{1F311}",
+		rarity = "Legendary",
+		color = Color3.fromRGB(96, 90, 124),
+		event = "ColosseumClash",
 		offLadder = true,
 	},
 }

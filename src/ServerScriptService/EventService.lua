@@ -211,7 +211,11 @@ function EventService.GrantRewards(player, now)
 	local granted = {}
 
 	for _, live in ipairs(GameConfig.GetActiveEvents(now)) do
-		local key = live.event.reward and live.event.reward.characterKey
+		-- ONE RESOLVER FOR BOTH SHAPES (12.13). This used to read `event.reward.characterKey`
+		-- directly, which cannot express a rotation -- and a rotation resolved at the call site would
+		-- have been a second implementation of "which week is it" living next to the grant, i.e. the
+		-- one place where being a week out hands somebody the wrong skin permanently.
+		local key = GameConfig.GetEventRewardKey(live.event, live.window)
 		local entry = key and GameConfig.GetCharacter(key)
 		-- an unknown key is a config mistake, not a runtime one: it is skipped rather than written,
 		-- because a save holding a key nothing resolves is a body the costume code cannot paint
@@ -402,22 +406,53 @@ function EventService.DrawBoard()
 	local active = GameConfig.GetActiveEvents(now)
 
 	if #active > 0 then
+		-- `active[1]` is the HEADLINER, and since 12.13 that is a decided fact rather than table
+		-- order -- GetActiveEvents sorts by priority. See the note over ColosseumClash.
 		local live = active[1]
 		board.title.Text = "\u{1F389}  LIVE NOW"
 		board.header.BackgroundColor3 = live.event.color
 		board.name.Text = ("%s %s"):format(live.event.emoji, live.event.name)
 		board.clock.Text = GameConfig.FormatDuration(live.window.endTs - now)
-		board.blurb.Text = live.event.blurb
+
+		-- THE CO-RUNNERS ARE NAMED, because the sign is the one surface with room to name them.
+		-- Two windows overlapping is the normal weekend now, not the one-in-a-hundred case a
+		-- festival landing on a weekend used to be, and a board that headlines one of them and says
+		-- nothing about the other is a board telling a player their DNA is NOT doubled. The HUD chip
+		-- solves the same problem the other way, by summing every live effect onto one line -- it has
+		-- 244 pixels and cannot spell out a name.
+		local also = {}
+		for i = 2, #active do
+			table.insert(also, ("%s %s"):format(active[i].event.emoji, active[i].event.name))
+		end
+		if #also > 0 then
+			board.blurb.Text = ("%s\n\u{2795} also live: %s"):format(live.event.blurb, table.concat(also, ", "))
+		else
+			board.blurb.Text = live.event.blurb
+		end
 		return "live:" .. live.event.key
 	end
 
-	local upcoming = GameConfig.GetNextEvent(now)
+	-- The same two-part answer as above, for the five days a week nothing is on: the headliner names
+	-- itself and anything opening in the same instant is named under it. Both halves of the weekend
+	-- start at 00:00 Saturday, so this branch is where a player standing here on a Wednesday decides
+	-- whether Saturday is worth coming back for -- and it was the branch that used to name the wrong
+	-- one of the two.
+	local upcomingAll = GameConfig.GetUpcomingEvents(now)
+	local upcoming = upcomingAll[1]
 	if upcoming then
 		board.title.Text = "\u{23F3}  NEXT EVENT"
 		board.header.BackgroundColor3 = UITheme.Color.Lavender
 		board.name.Text = ("%s %s"):format(upcoming.event.emoji, upcoming.event.name)
 		board.clock.Text = GameConfig.FormatDuration(upcoming.window.nextStart - now)
-		board.blurb.Text = upcoming.event.blurb
+		local with = {}
+		for i = 2, #upcomingAll do
+			table.insert(with, ("%s %s"):format(upcomingAll[i].event.emoji, upcomingAll[i].event.name))
+		end
+		if #with > 0 then
+			board.blurb.Text = ("%s\n\u{2795} starting with it: %s"):format(upcoming.event.blurb, table.concat(with, ", "))
+		else
+			board.blurb.Text = upcoming.event.blurb
+		end
 		return "next:" .. upcoming.event.key
 	end
 

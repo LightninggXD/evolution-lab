@@ -51,7 +51,14 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 -- 1 -> 2: the look pass (dark outline geometry, indigo body, two-hue helix). A version that does
 -- not move means the machine already standing in a played world is never replaced, so the change
 -- is invisible -- the same silent no-op ZoneBuilder's BUILD_VERSION exists to prevent.
-local MACHINE_VERSION = 4
+-- 4 -> 5 (12.13): NOT a geometry change. The machine was standing INSIDE the event board -- its
+-- bounding box spanned x 132..160 against a sign panel at x 148.5..151.5 on the same z -- because
+-- SplicerService.Init ran BEFORE EventService.Init, so `findClearSpot` searched a Forest that did
+-- not have the sign in it yet. The ordering is fixed in ServerMain; this bump is what makes an
+-- already-built world re-run the search instead of keeping the machine where it is. A placement
+-- search only ever answers about the world that exists at the moment it runs, so moving the call
+-- and moving the version are ONE change -- either alone does nothing.
+local MACHINE_VERSION = 5
 
 -- Seconds between two rolls from one player. The client's own reveal runs ~2.4 s.
 local ROLL_INTERVAL = 1.2
@@ -65,7 +72,13 @@ local ROLL_INTERVAL = 1.2
 -- The exact spot is SEARCHED rather than asserted (see `findClearSpot`): Forest's scatter props
 -- are placed by a builder that does not know this file exists, and a machine standing inside a
 -- conifer is the kind of thing that only ever gets noticed in a screenshot.
-local PREFERRED = Vector3.new(120, 0, 215)
+-- z MOVED 215 -> 290 (12.13). 215 is the event sign's own z, so the preferred spot was on the one
+-- line the sign is read along -- see SIGN_CLEAR below, which now rejects it outright. Left at 215
+-- the search would still find somewhere legal, but every legal answer inside two rings is either
+-- behind the sign or 52 studs out, and neither is a spot anybody chose. 290 is the same east verge,
+-- 75 studs nearer the spawn at (0, 1, 366): more of the walk-down, not less, which is the reason
+-- this machine is on this side of the street in the first place.
+local PREFERRED = Vector3.new(120, 0, 290)
 local FOOTPRINT = Vector3.new(30, 26, 30)
 
 -- How close a player has to be for the helix to turn. Squared, because this is compared in a
@@ -132,6 +145,20 @@ end
 -- than left to the occupancy test. Same constant and same reasoning as HubPlaza's CORRIDOR_HALF.
 local STREET_HALF = 30
 
+-- A SIGN IS NOT ITS PANEL, IT IS ITS PANEL PLUS THE LINE YOU READ IT ALONG (12.13). Fixing the
+-- init order stopped the machine from being built INSIDE the event board, and the very next build
+-- put it 30 studs west of the board instead -- on the board's own -X reading face, between the sign
+-- and the street it was sited to be read from. The occupancy test cannot object: standing in front
+-- of something is not touching it, and every part of both structures is exactly where it was asked
+-- to go.
+--
+-- So the sightline is reserved BY NAME, the same way the street is above and for the same reason:
+-- some space is unavailable for a reason no geometric test can discover. x stops at the panel
+-- because behind the sign is not in front of it, and the z band is the panel's own 34-stud width
+-- pulled in two studs at each end -- clipping the far corner of a sign you are reading head-on
+-- costs nothing, and a rule that rejects that too pushes the machine 52 studs for no gain.
+local SIGN_CLEAR = { xMin = 40, xMax = 150, zMin = 200, zMax = 230 }
+
 local function findClearSpot()
 	local candidates = { Vector3.new(0, 0, 0) }
 	for ring = 1, 6 do
@@ -151,6 +178,14 @@ local function findClearSpot()
 	for _, offset in ipairs(candidates) do
 		local centre = PREFERRED + offset
 		local blocked = math.abs(centre.X) - FOOTPRINT.X * 0.5 < STREET_HALF
+		-- the event sign's sightline, rejected before the occupancy test because no occupancy test
+		-- can see it -- see SIGN_CLEAR
+		if not blocked then
+			local x0, x1 = centre.X - FOOTPRINT.X * 0.5, centre.X + FOOTPRINT.X * 0.5
+			local z0, z1 = centre.Z - FOOTPRINT.Z * 0.5, centre.Z + FOOTPRINT.Z * 0.5
+			blocked = x0 < SIGN_CLEAR.xMax and x1 > SIGN_CLEAR.xMin
+				and z0 < SIGN_CLEAR.zMax and z1 > SIGN_CLEAR.zMin
+		end
 		if not blocked then
 			local box = CFrame.new(centre + Vector3.new(0, FOOTPRINT.Y / 2, 0))
 			local hits = workspace:GetPartBoundsInBox(box, FOOTPRINT, params)
