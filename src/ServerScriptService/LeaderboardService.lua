@@ -51,7 +51,7 @@ local LeaderboardService = {}
 
 -- Bumping this rebuilds the signs on the next server start, the same shape as RebirthShrine's
 -- SHRINE_VERSION and ZoneBuilder's BUILD_VERSION.
-local BOARD_VERSION = 2
+local BOARD_VERSION = 3
 
 -- 2^53. Above it a double stops being able to represent consecutive integers, so two players
 -- 1 DNA apart would compare equal and the ordering would be noise.
@@ -364,34 +364,89 @@ local function buildSigns()
 end
 
 -- ============================================================================
--- THE #1 STATUE (10.19)
+-- THE PODIUM: #1, #2 AND #3 (10.19, generalised in 12.11)
 -- ============================================================================
--- The boards say who is winning; the statue is what makes it feel like winning. It is cast from the
--- REAL avatar of whoever is first, via `Players:CreateHumanoidModelFromUserId` -- measured at 0.75 s
--- for a 17-part R15 rig, so it is a yield and lives on its own task, never on the refresh loop.
+-- The boards say who is winning; the statues are what make it feel like winning. Each is cast from
+-- the REAL avatar of whoever holds that rank, via `Players:CreateHumanoidModelFromUserId` --
+-- measured at 0.75 s for a 17-part R15 rig, so it is a yield and lives on its own task, never on
+-- the refresh loop.
 --
--- IT FOLLOWS ONE BOARD, AND THAT BOARD IS DNA. Three statues would be three-quarters of a wall of
--- statues nobody reads; one is a landmark. DNA is the headline number -- it is what the topbar shows
--- and what every other system pays out in -- so it is the one worth carving.
+-- IT FOLLOWS ONE BOARD, AND THAT BOARD IS DNA. DNA is the headline number -- it is what the topbar
+-- shows and what every other system pays out in -- so it is the one worth carving.
 --
--- z = 95, at the end of the row of boards (they run 280 -> 140), on the same x = -130 strip. Probed
--- before choosing: the only things in a 30x48x30 box there are `Floor` and a ground decal, which is
--- exactly what a plinth wants to stand on.
+-- WHY THREE NOW, WHEN 10.19 DELIBERATELY BUILT ONE. Its reason was that "three statues would be
+-- three-quarters of a wall of statues nobody reads", and that is true of three statues spaced out
+-- along a row of signs, which is what the row of signs already is. A PODIUM is a different object:
+-- one composition read at a glance, where second and third exist to say how far ahead first is, and
+-- where the empty plinth beside the leader is the thing that makes a player want to be on it. So
+-- the three stand together, gold in the middle on the tallest plinth, and the group reads as one
+-- monument rather than as three landmarks.
+--
+-- THEY FACE +Z, AND THAT IS A FIX RATHER THAN A CHOICE. 10.19 yawed the figure by `math.pi * 0.5`
+-- with a comment saying it faces +X, the street the boards read toward. It does not: a model's
+-- facing is its pivot's LookVector, which is -Z at identity, and a yaw of t sends it to
+-- (-sin t, 0, -cos t) -- so a quarter turn points it at **-X**, i.e. away from the street and away
+-- from its own nameplate. Measured on the live statue before this row touched it: pivot LookVector
+-- (-1, 0, 0), right hand at z = 90 against a centre of 95, which is where a figure's right hand
+-- goes when it is facing -X. A half turn (t = pi) is the one that gives +Z.
+-- +Z is also what the composition wants now: a player walks DOWN the boulevard from the spawn at
+-- z = 366, so a row spread along x meets them face-on, where a row facing +X would queue the three
+-- of them up one behind another and the nearest would hide the other two.
+--
+-- WHERE THEY STAND, measured against the live world rather than chosen. All three sit at z = 95 on
+-- the plaza deck (x -172..172, z 80..416), gold keeping 10.19's proven spot at x = -130. The only
+-- standing thing anywhere near is HubPlaza's lamp at (-84, 112) with a 10x26x10 footprint, so the
+-- silver plinth stops at x = -92 and the bronze at x = -168, leaving 3 studs to the lamp and 4 to
+-- the deck's west edge. HubPlaza's `standAt` pads nothing, so those gaps are the whole margin --
+-- and `LeaderboardService.Init` runs BEFORE `HubPlaza.Init`, which means these plinths are in the
+-- world when the lamp search runs and a plinth that grew would silently push the lamp instead.
 local STATUE_BOARD = "DNA"
-local STATUE_X, STATUE_Z = -130, 95
-local STATUE_HEIGHT = 22          -- the avatar itself, plinth excluded
-local PLINTH_H = 9
--- BRONZE ON A CREAM PLINTH. The zone statues are pale stone on purpose -- a statue tinted to its
--- biome is a green lump on green grass -- but this one stands on its own pale plinth, so pale-on-
--- pale is the same mistake in miniature: the first build put a cream figure on a cream base and it
--- read as a smudge. The figure contrasts with the thing it stands on, not with the field it is in,
--- and bronze says "trophy" for free.
-local STATUE_TONE = Color3.fromRGB(196, 138, 74)
+local PODIUM_Z = 95
 
--- What is standing there now, so a refresh that does not change the leader does no work at all --
--- rebuilding the same avatar every minute would be a web call and a model swap for nothing, and the
--- flicker would be visible to anyone standing in front of it.
-local statueUserId = nil
+-- EACH PLINTH IS edged/capped, THE VOCABULARY THE SPLICER MACHINE PAID FOR. A bright mass with a
+-- dark lip under it and a dark cap over it: the cap is what the figure stands on, so a bright metal
+-- figure has a near-black plane under it and the "contrast with what you stand on" rule is
+-- satisfied by construction -- which is the rule 10.19 discovered when a cream figure on a cream
+-- base read as a smudge. `metal` is always brighter than `stone` so the figure, not the plinth, is
+-- the brightest thing in the composition.
+--
+-- THE TONES WERE PHOTOGRAPHED, NOT PICKED, AND THE FIRST SET FAILED. 10.19's bronze (196, 138, 74)
+-- was a good #1 tone when there was only one statue; put it beside gold under Forest's very bright
+-- key light and BOTH clip to the same lemon yellow -- gold and bronze differed by 1.2x in red and
+-- 1.4x in green, which survives a colour picker and does not survive the light. Photographed from
+-- eye height at 30 studs, the two were indistinguishable. Bronze is now genuinely copper
+-- (170, 92, 44), i.e. pulled 26 points down and hard toward red, and it separates. Same lesson as
+-- the plaza's stone ramp: the light decides, not the paint -- do not "correct" these back toward
+-- what reads as bronze in a picker.
+local OUTLINE_TONE = Color3.fromRGB(26, 22, 42)
+
+local STATUE_SLOTS = {
+	{   -- gold
+		x = -130, figureH = 22, plinthTop = 9.0, base = 26, body = 22, cap = 24,
+		metal = Color3.fromRGB(245, 205, 105),
+		stone = Color3.fromRGB(150, 112, 44),
+	},
+	{   -- silver, on the viewer's right as they come down the boulevard
+		x = -102, figureH = 19, plinthTop = 7.5, base = 20, body = 16, cap = 18,
+		metal = Color3.fromRGB(214, 219, 232),
+		stone = Color3.fromRGB(112, 118, 138),
+	},
+	{   -- bronze -- see the note above: this is NOT 10.19's #1 tone, and it cannot be
+		x = -158, figureH = 17, plinthTop = 6.0, base = 20, body = 16, cap = 18,
+		metal = Color3.fromRGB(170, 92, 44),
+		stone = Color3.fromRGB(140, 84, 42),
+	},
+}
+
+-- Who is standing on each plinth now, so a refresh that does not change a rank does no work at all
+-- -- rebuilding the same avatar every minute would be a web call and a model swap for nothing, and
+-- the flicker would be visible to anyone standing in front of it.
+local statueUserIds = {}   -- [slot] = userId
+local statueValues = {}    -- [slot] = the DNA figure its plate is quoting
+local plateLabels = {}     -- [slot] = TextLabel
+-- One worker for the whole podium, never one per slot: a rank shuffle can dirty all three at once
+-- and three simultaneous avatar fetches is three web calls in one frame for a piece of scenery.
+local statueWorking = false
 
 local function stoneify(model, tone)
 	for _, d in ipairs(model:GetDescendants()) do
@@ -419,9 +474,38 @@ local function stoneify(model, tone)
 	end
 end
 
-local function buildStatue(userId, name, value)
+-- The plate is repainted on its own, without touching the figure, because the common case by far is
+-- "the same player, a bigger number" -- an avatar fetch for that would be a web call to redraw text.
+local function drawPlate(slotIndex, name, value)
+	local label = plateLabels[slotIndex]
+	if not label then return end
+	local medal = MEDAL[slotIndex] or ("#" .. slotIndex)
+	if not name then
+		label.Text = ("%s  #%d\nunclaimed"):format(medal, slotIndex)
+	else
+		label.Text = ("%s  %s\n%s DNA"):format(medal, name, shorten(value or 0))
+	end
+end
+
+local function statueName(slotIndex)
+	return "TopStatue" .. slotIndex
+end
+
+-- A rank that empties out -- three players on the board yesterday, two today -- has to take its
+-- figure down, or the plinth keeps a player who is no longer on it.
+local function clearStatue(slotIndex)
 	local folder = workspace:FindFirstChild("Leaderboards")
-	if not folder then return false end
+	local old = folder and folder:FindFirstChild(statueName(slotIndex))
+	if old then old:Destroy() end
+	statueUserIds[slotIndex] = nil
+	statueValues[slotIndex] = nil
+	drawPlate(slotIndex, nil)
+end
+
+local function buildStatue(slotIndex, userId, name, value)
+	local folder = workspace:FindFirstChild("Leaderboards")
+	local slot = STATUE_SLOTS[slotIndex]
+	if not folder or not slot then return false end
 
 	local ok, model = pcall(function()
 		return Players:CreateHumanoidModelFromUserId(userId)
@@ -439,12 +523,12 @@ local function buildStatue(userId, name, value)
 	-- have not resolved yet -- anchoring each part first freezes every limb wherever it happened to
 	-- be authored, and no later `PivotTo` can gather them, because anchored parts do not follow a
 	-- joint. Parent it, let the joints settle, THEN freeze it.
-	-- Captured BEFORE the new one is parented. Both are called "TopStatue" for the moment they
+	-- Captured BEFORE the new one is parented. Both carry this slot's name for the moment they
 	-- coexist, and `FindFirstChild` returns whichever it reaches first -- ask afterwards and you can
 	-- be handed the new model and leave the old one standing inside it forever.
-	local old = folder:FindFirstChild("TopStatue")
+	local old = folder:FindFirstChild(statueName(slotIndex))
 
-	model.Name = "TopStatue"
+	model.Name = statueName(slotIndex)
 	model.Parent = folder
 	task.wait()
 
@@ -462,85 +546,161 @@ local function buildStatue(userId, name, value)
 	-- Scale to a fixed height rather than trusting the rig. Avatar scaling is a player setting, so
 	-- two winners can differ by a third of their height, and a landmark that changes size when the
 	-- leaderboard changes reads as a bug.
-	local _, size = model:GetBoundingBox()
-	if size.Y > 0.1 then
-		model:ScaleTo(STATUE_HEIGHT / size.Y)
+	-- ...and the three heights are a ladder, not a constant: 22 / 19 / 17 studs on plinths of
+	-- 9.0 / 7.5 / 6.0, so the podium reads as a ranking from any distance at which the plates are
+	-- already too small to read. Which means the height has to be RIGHT, and one pass does not get
+	-- it right.
+	--
+	-- MEASURE, SCALE, MEASURE AGAIN. A rig's ACCESSORIES are welded a frame or two after the model
+	-- is parented, and until they are, the bounding box is taller than the figure that settles out
+	-- of it -- so a single `ScaleTo` scales against a height that is about to shrink. Measured on
+	-- the live board: the #1 avatar carries no accessories and came out at 22.000 studs exactly,
+	-- while the #2 avatar carries three and came out at **17.14 against an asked-for 19**, a tenth
+	-- short, which is enough to put second and third the wrong way round in the silhouette. The
+	-- second pass costs one frame and a multiply, and is a no-op on a rig that was already settled.
+	-- The `task.wait` is safe here in a way it is not fifteen lines above: everything is already
+	-- anchored, so nothing can fall during it.
+	for _ = 1, 2 do
+		local _, size = model:GetBoundingBox()
+		if size.Y > 0.1 then
+			model:ScaleTo(model:GetScale() * (slot.figureH / size.Y))
+		end
+		task.wait()
 	end
 
 	-- SEAT IT BY ITS OWN BOUNDING BOX, in two steps, exactly the way ZoneBuilder seats a model whose
 	-- pivot it does not control: put it down first, read where the bottom actually landed, then lift
 	-- by that much. Guessing the drop from the pivot is what once left the Forest trees hovering.
-	-- Yawed a quarter turn so the figure faces +X, the street the boards read toward.
-	model:PivotTo(CFrame.new(STATUE_X, 0, STATUE_Z) * CFrame.Angles(0, math.pi * 0.5, 0))
+	-- Yawed a HALF turn so the figure faces +Z, up the boulevard the player walks down. See the
+	-- section header: a quarter turn is what 10.19 wrote and it points the figure at -X.
+	model:PivotTo(CFrame.new(slot.x, 0, PODIUM_Z) * CFrame.Angles(0, math.pi, 0))
 	local cf, s2 = model:GetBoundingBox()
-	model:PivotTo(model:GetPivot() + Vector3.new(0, PLINTH_H - (cf.Position.Y - s2.Y * 0.5), 0))
+	model:PivotTo(model:GetPivot() + Vector3.new(0, slot.plinthTop - (cf.Position.Y - s2.Y * 0.5), 0))
 
 	-- ...and only now is it furniture.
-	stoneify(model, STATUE_TONE)
+	stoneify(model, slot.metal)
 	if old then old:Destroy() end
 
-	local plate = folder:FindFirstChild("StatuePlate")
-	if plate then
-		local label = plate:FindFirstChildWhichIsA("TextLabel", true)
-		if label then
-			label.Text = ("#1  %s\n%s DNA"):format(name or "?", shorten(value or 0))
-		end
-	end
-	statueUserId = userId
+	drawPlate(slotIndex, name, value)
+	statueUserIds[slotIndex] = userId
+	statueValues[slotIndex] = value
 	return true
 end
 
--- The plinth is built once with the signs; only the figure on top is ever replaced.
-local function buildPlinth(folder)
-	local model = Instance.new("Model")
-	model.Name = "StatuePlinth"
-
-	for _, spec in ipairs({
-		{ Vector3.new(26, 3, 26), PLINTH_H - 7.5, UITheme.Color.Outline },
-		{ Vector3.new(22, 6, 22), PLINTH_H - 3, UITheme.Color.Cream },
-	}) do
-		local p = Instance.new("Part")
-		p.Name = "PlinthTier"
-		p.Size = spec[1]
-		p.CFrame = CFrame.new(STATUE_X, spec[2], STATUE_Z)
-		paint(p, spec[3])
-		p.CastShadow = true
-		p.Parent = model
-	end
-	model.Parent = folder
-
-	-- the nameplate, on its own part so replacing the figure never touches it
-	local plate = Instance.new("Part")
-	plate.Name = "StatuePlate"
-	plate.Size = Vector3.new(1, 5, 20)
-	plate.CFrame = CFrame.new(STATUE_X + 11.4, PLINTH_H - 3, STATUE_Z)
-	paint(plate, UITheme.Color.Outline)
-	plate.Parent = folder
-
-	local gui = Instance.new("SurfaceGui")
-	gui.Face = Enum.NormalId.Right          -- at the street, exactly as the boards do
-	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	gui.PixelsPerStud = 24
-	gui.Parent = plate
-
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.new(1, 0, 1, 0)
-	label.BackgroundTransparency = 1
-	label.Text = "#1"
-	label.TextScaled = true
-	label.TextColor3 = Color3.fromRGB(255, 255, 255)
-	label.Font = UITheme.Font.Display
-	label.Parent = gui
-	UITheme.OutlineText(label)
+-- A square slab stated by the plane its TOP sits on, exactly as HubPlaza states its paving. Every
+-- tier is grown down INTO the one below it by 0.3, so no two of them ever share a horizontal plane
+-- -- the terrace-shimmer trap, which is a real hazard here because the tiers are concentric.
+local function tier(parent, name, cx, cz, w, bottom, top, colour)
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Size = Vector3.new(w, top - bottom, w)
+	p.CFrame = CFrame.new(cx, (top + bottom) * 0.5, cz)
+	paint(p, colour)
+	p.CastShadow = true
+	p.Parent = parent
+	return p
 end
 
--- Called after every DNA refresh. Cheap and silent when the leader has not changed.
-local function refreshStatue()
+-- The plinths are built once with the signs; only the figures on top are ever replaced.
+local function buildPlinths(folder)
+	for i, slot in ipairs(STATUE_SLOTS) do
+		local model = Instance.new("Model")
+		model.Name = "Plinth" .. i
+
+		-- Above the deck (top 1.04) but never below 2.0, so the bronze plinth's lip is still a lip
+		-- and not a line scratched on the pavement.
+		local baseTop = math.max(2.0, slot.plinthTop * 0.3)
+		local capBottom = slot.plinthTop - 1.0
+
+		tier(model, "PlinthBase", slot.x, PODIUM_Z, slot.base, -1.0, baseTop, OUTLINE_TONE)
+		tier(model, "PlinthBody", slot.x, PODIUM_Z, slot.body, baseTop - 0.3, capBottom, slot.stone)
+		tier(model, "PlinthCap", slot.x, PODIUM_Z, slot.cap, capBottom - 0.3, slot.plinthTop, OUTLINE_TONE)
+
+		-- The nameplate hangs on the plinth's +Z face, the one the figure is looking over, and is its
+		-- own part so replacing the figure never touches it. 0.55 proud of the body so it reads as a
+		-- plaque bolted on rather than as paint.
+		--
+		-- IT IS DELIBERATELY SMALL, AND THE FIRST CUT WAS NOT. At 0.84 of the body's width and 0.86
+		-- of its height the plaque covered essentially the whole front face, so from the one angle
+		-- the podium is meant to be read from -- head on -- each plinth was a dark base, a dark
+		-- plaque and a dark cap, with the bright stone visible only from the sides. Photographed,
+		-- all three read as black blocks. That is the outline-first rule inverted: the mass has to
+		-- be the bright thing. At 0.62 x 0.52 the stone frames the plaque on all four sides and the
+		-- plinths read gold / silver / copper from across the plaza.
+		local plateH = (capBottom - baseTop) * 0.52
+		local plate = Instance.new("Part")
+		plate.Name = "Plate"
+		plate.Size = Vector3.new(slot.body * 0.62, plateH, 1)
+		plate.CFrame = CFrame.new(slot.x, baseTop + (capBottom - baseTop) * 0.46, PODIUM_Z + slot.body * 0.5 + 0.55)
+		paint(plate, OUTLINE_TONE)
+		plate.Parent = model
+
+		local gui = Instance.new("SurfaceGui")
+		-- +Z IS `Back`, NOT `Front`. NormalId.Front is the -Z face, because a part's LookVector is
+		-- its -Z axis -- the same off-by-a-face that cost 12.8 three blocked camera solves.
+		gui.Face = Enum.NormalId.Back
+		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		gui.PixelsPerStud = 24
+		gui.Parent = plate
+
+		local label = Instance.new("TextLabel")
+		label.Name = "PlateLabel"
+		label.Size = UDim2.new(1, -8, 1, -6)
+		label.Position = UDim2.new(0.5, 0, 0.5, 0)
+		label.AnchorPoint = Vector2.new(0.5, 0.5)
+		label.BackgroundTransparency = 1
+		label.TextScaled = true
+		label.TextColor3 = Color3.fromRGB(255, 255, 255)
+		label.Font = UITheme.Font.Display
+		label.Parent = gui
+		UITheme.OutlineText(label)
+		plateLabels[i] = label
+		drawPlate(i, nil)
+
+		model.Parent = folder
+	end
+end
+
+-- Called after every DNA refresh. Cheap and silent when nothing has changed rank, and it does the
+-- least work each slot needs: nothing at all when the same player holds the same figure, a plate
+-- repaint when only the number moved, and an avatar fetch only when the PERSON changed. That is
+-- what makes "a rank change swaps only the changed statue" true by construction.
+--
+-- A player who slides from #1 to #2 is fetched a second time rather than having their model moved
+-- across. Reusing it would mean re-scaling and re-seating a stoneified rig for one saved web call
+-- on the rarest event this system has, and the swap is already invisible behind one task.
+local function refreshStatues()
 	local rows = LeaderboardService.Top[STATUE_BOARD]
-	local first = rows and rows[1]
-	if not first or not first.userId then return end
-	if first.userId == statueUserId then return end
-	task.spawn(buildStatue, first.userId, first.name, first.value)
+	if not rows then return end
+
+	local jobs = {}
+	for i in ipairs(STATUE_SLOTS) do
+		local row = rows[i]
+		if not row or not row.userId then
+			if statueUserIds[i] then clearStatue(i) end
+		elseif row.userId ~= statueUserIds[i] then
+			table.insert(jobs, { i, row.userId, row.name, row.value })
+		elseif row.value ~= statueValues[i] then
+			statueValues[i] = row.value
+			drawPlate(i, row.name, row.value)
+		end
+	end
+
+	if #jobs == 0 or statueWorking then return end
+	statueWorking = true
+	task.spawn(function()
+		-- ONE EXIT PATH. The flag is cleared before anything else can throw, or a single failed
+		-- fetch would leave the podium frozen for the life of the server with nothing reporting it.
+		local ok, err = pcall(function()
+			for _, job in ipairs(jobs) do
+				buildStatue(job[1], job[2], job[3], job[4])
+			end
+		end)
+		statueWorking = false
+		if not ok then
+			warn("[LeaderboardService] statue pass failed: " .. tostring(err))
+		end
+	end)
 end
 
 -- ============================================================================
@@ -548,8 +708,18 @@ end
 -- ============================================================================
 function LeaderboardService.Init()
 	local folder = buildSigns()
-	if folder and not folder:FindFirstChild("StatuePlinth") then
-		buildPlinth(folder)
+	if folder then
+		if not folder:FindFirstChild("Plinth1") then
+			buildPlinths(folder)
+		elseif not plateLabels[1] then
+			-- The folder outlived this module's state -- `buildSigns` returns an existing folder of
+			-- the right version untouched, so a second Init would leave every plate handle nil and
+			-- `drawPlate` would no-op forever with nothing reporting it. Re-bind rather than rebuild.
+			for i = 1, #STATUE_SLOTS do
+				local p = folder:FindFirstChild("Plinth" .. i)
+				plateLabels[i] = p and p:FindFirstChild("PlateLabel", true) or nil
+			end
+		end
 	end
 
 	-- a final figure on the way out, so a player who logs off after a big session is on the board
@@ -567,7 +737,7 @@ function LeaderboardService.Init()
 				-- pass, which is what makes "the board and the statue agree" true by construction
 				-- rather than by two schedules happening to line up.
 				if board.key == STATUE_BOARD then
-					refreshStatue()
+					refreshStatues()
 				end
 				-- spread across the interval rather than three web calls in one frame
 				task.wait(REFRESH_INTERVAL / #BOARDS)
@@ -593,15 +763,26 @@ function LeaderboardService.RefreshNow()
 		drawBoard(board)
 		report[board.key] = ok and #(LeaderboardService.Top[board.key] or {}) or false
 	end
-	-- SYNCHRONOUS here, unlike the loop's fire-and-forget: a test that returns before the avatar has
-	-- been fetched cannot check what it just asked for. This is the only caller that waits.
-	local rows = LeaderboardService.Top[STATUE_BOARD]
-	local first = rows and rows[1]
-	if first and first.userId and first.userId ~= statueUserId then
-		report.statue = buildStatue(first.userId, first.name, first.value)
-	else
-		report.statue = "unchanged"
+	-- SYNCHRONOUS here, unlike the loop's fire-and-forget: a test that returns before the avatars
+	-- have been fetched cannot check what it just asked for. This is the only caller that waits.
+	local rows = LeaderboardService.Top[STATUE_BOARD] or {}
+	local statues = {}
+	for i in ipairs(STATUE_SLOTS) do
+		local row = rows[i]
+		if not row or not row.userId then
+			clearStatue(i)
+			statues[i] = "empty"
+		elseif row.userId ~= statueUserIds[i] then
+			statues[i] = buildStatue(i, row.userId, row.name, row.value)
+		else
+			if row.value ~= statueValues[i] then
+				statueValues[i] = row.value
+				drawPlate(i, row.name, row.value)
+			end
+			statues[i] = "unchanged"
+		end
 	end
+	report.statues = statues
 	return report
 end
 
