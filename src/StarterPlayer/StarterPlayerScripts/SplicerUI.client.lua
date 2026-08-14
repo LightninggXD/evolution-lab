@@ -32,6 +32,11 @@
 	`finishReveal` is called from one place and runs whether the sequence completed or threw, for
 	the reason HatchReveal's own timeout exists: a blur left on screen by a failed reveal is a
 	player who has to rejoin to see their own game again.
+
+	That only works if everything it must clean is REACHABLE from it. The card and the ray fan are
+	upvalues rather than locals of the sequence for exactly that reason -- see the note beside them --
+	and because they are shared, a reveal may only tear down the screen while it still owns it
+	(`revealToken`).
 --]]
 
 local Players = game:GetService("Players")
@@ -62,6 +67,31 @@ local pityLabel = nil
 local pityBar = nil
 local oddsRows = nil
 local rollButton = nil
+
+-- UITheme outlines every label in `Color.Outline` (a near-black) at 4px, which is right for the
+-- white-on-colour text the HUD is made of and WRONG for dark text on this panel's white card: the
+-- glyph and its own outline are then the same colour and the label renders as a solid blob. No
+-- property probe can see that -- `.Text`, `.TextFits` and `.TextColor3` all read correct -- so it
+-- survived until the panel was looked at. Dark text on white needs NO outline (the white already
+-- separates it); a near-black swatch that must stay near-black (Secret) keeps its outline and turns
+-- it light instead.
+local function inkOnWhite(label)
+	local s = label:FindFirstChildOfClass("UIStroke")
+	if s then s.Thickness = 0 end
+	return label
+end
+
+local function lightOutline(label)
+	local s = label:FindFirstChildOfClass("UIStroke")
+	if s then s.Color = UITheme.Color.PanelWhite end
+	return label
+end
+
+-- Luminance of the authored colour, so the rule is "is this dark?" rather than a list of names --
+-- a mutation added to the ladder later is handled without touching this file.
+local function isDark(c)
+	return (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) < 0.25
+end
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "SplicerUI"
@@ -184,6 +214,11 @@ local function build()
 			color = m.color,
 			zIndex = 24,
 		})
+		-- Secret is authored near-black on purpose. On the odds card it would vanish into its own
+		-- outline, so that one row gets a light outline and reads as black-with-a-halo instead.
+		if isDark(m.color) then
+			lightOutline(row)
+		end
 		local pct = UITheme.Label(oddsCard, {
 			name = "Pct" .. m.name,
 			text = "--",
@@ -211,6 +246,7 @@ local function build()
 		color = UITheme.Color.Outline,
 		zIndex = 22,
 	})
+	inkOnWhite(pityLabel)
 	pityBar = UITheme.ProgressBar(panel, {
 		name = "PityBar",
 		size = UDim2.new(1, -32, 0, 16),
@@ -242,6 +278,8 @@ local function build()
 		color = UITheme.Color.Outline,
 		zIndex = 22,
 	})
+
+	inkOnWhite(costLabel)
 
 	rollButton.MouseButton1Click:Connect(function()
 		if rolling then return end
@@ -312,21 +350,56 @@ end
 -- THE REVEAL
 -- ============================================================================
 local blur = nil
+-- The card and the ray fan are UPVALUES, not locals inside the sequence, and that is the whole
+-- point. They used to be declared inside the pcall and passed out on the success path only, so a
+-- throw halfway through called `finishReveal(nil, nil)`: the blur came off (it was already an
+-- upvalue) and the card and rays stayed parented to the ScreenGui FOREVER. Measured, not reasoned
+-- about -- a forced failure left an empty 380x210 white card and its rays on screen for the rest of
+-- the session, and the next roll simply built a second one on top. One cleanup path only works if
+-- everything it must clean is reachable from it.
+local revealCard = nil
+local revealRays = nil
+-- Which reveal owns the screen. Making the card an upvalue fixes the leak but creates a second
+-- hazard in its place: a reveal runs about 4 s and the server's rate limit is far shorter than
+-- that, so two results CAN overlap -- and then the first sequence's `finishReveal`, arriving late,
+-- would destroy the second one's card and leave the player staring at a blurred world with nothing
+-- on it. A tear-down is only allowed from the reveal that is still the current one.
+local revealToken = 0
 
-local function finishReveal(card, rays)
-	-- ONE cleanup path, taken whether the sequence finished or threw. See the header.
+local function teardown(immediate)
 	if blur then
-		TweenService:Create(blur, TweenInfo.new(0.35), { Size = 0 }):Play()
 		local dying = blur
 		blur = nil
-		task.delay(0.4, function() dying:Destroy() end)
+		if immediate then
+			dying:Destroy()
+		else
+			TweenService:Create(dying, TweenInfo.new(0.35), { Size = 0 }):Play()
+			task.delay(0.4, function() dying:Destroy() end)
+		end
 	end
-	if rays then rays:Destroy() end
-	if card then card:Destroy() end
+	if revealRays then
+		revealRays:Destroy()
+		revealRays = nil
+	end
+	if revealCard then
+		revealCard:Destroy()
+		revealCard = nil
+	end
+end
+
+local function finishReveal(token)
+	-- ONE cleanup path, taken whether the sequence finished or threw. See the header.
+	if token ~= revealToken then return end
+	teardown(false)
 	rolling = false
 end
 
 local function reveal(payload)
+	-- A newer roll replaces whatever is on screen rather than stacking on top of it. Done before
+	-- anything is built, and with the blur destroyed outright, so two BlurEffects never overlap.
+	revealToken += 1
+	local myToken = revealToken
+	teardown(true)
 	rolling = true
 	local m = GameConfig.GetMutationByName(payload.name)
 	local color = payload.color or (m and m.color) or UITheme.Color.Lavender
@@ -336,11 +409,16 @@ local function reveal(payload)
 
 	local ok, err = pcall(function()
 		blur = Instance.new("BlurEffect")
+		-- Named, because Lighting already holds EvolveReveal's own BlurEffect parked at Size 0 and
+		-- a `FindFirstChildOfClass("BlurEffect")` finds that one first -- which reads as "the blur
+		-- never rose" when it is only the wrong object being measured.
+		blur.Name = "SpliceRevealBlur"
 		blur.Size = 0
 		blur.Parent = Lighting
 		TweenService:Create(blur, TweenInfo.new(0.3), { Size = big and 24 or 14 }):Play()
 
 		local card = Instance.new("Frame")
+		revealCard = card
 		card.Name = "SpliceReveal"
 		card.Size = UDim2.new(0, 380, 0, 210)
 		card.Position = UDim2.new(0.5, 0, 0.5, 0)
@@ -367,15 +445,24 @@ local function reveal(payload)
 			rays.BackgroundTransparency = 1
 			rays.ZIndex = 58
 			rays.Parent = gui
-			for i = 1, 12 do
+			revealRays = rays
+			-- SIX bars of 600, each centred on the hub, NOT twelve spokes of 300 anchored at their
+			-- top edge. `GuiObject.Rotation` turns an element about its own CENTRE and ignores
+			-- AnchorPoint entirely, so the old form rotated each spoke about a point 150px below the
+			-- card and the "starburst" came out as a fan hanging under it -- clearly visible in a
+			-- screenshot and completely invisible to a probe, because AbsolutePosition is reported
+			-- PRE-rotation (all twelve measured as the same rectangle pointing straight down).
+			-- A bar centred on the hub is symmetric under rotation, so 6 of them at 30 degrees make
+			-- the same 12 spokes with the hub where the card is.
+			for i = 1, 6 do
 				local ray = Instance.new("Frame")
-				ray.Size = UDim2.new(0, 12, 0, 300)
+				ray.Size = UDim2.new(0, 12, 0, 600)
 				ray.Position = UDim2.new(0.5, 0, 0.5, 0)
-				ray.AnchorPoint = Vector2.new(0.5, 0)
+				ray.AnchorPoint = Vector2.new(0.5, 0.5)
 				ray.BackgroundColor3 = color
 				ray.BackgroundTransparency = 0.55
 				ray.BorderSizePixel = 0
-				ray.Rotation = (i / 12) * 360
+				ray.Rotation = (i / 6) * 180
 				ray.ZIndex = 58
 				ray.Parent = rays
 			end
@@ -388,7 +475,7 @@ local function reveal(payload)
 			end)
 		end
 
-		UITheme.Label(card, {
+		inkOnWhite(UITheme.Label(card, {
 			name = "Kicker",
 			text = payload.charged and "⚡ CHARGED SPLICE" or "SPLICE COMPLETE",
 			size = UDim2.new(1, -24, 0, 24),
@@ -396,7 +483,7 @@ local function reveal(payload)
 			maxTextSize = 18,
 			color = UITheme.Color.Outline,
 			zIndex = 62,
-		})
+		}))
 
 		-- the name, cycling through the ladder before it lands: the slot-machine beat that makes a
 		-- roll feel rolled rather than announced
@@ -409,7 +496,19 @@ local function reveal(payload)
 			color = color,
 			zIndex = 62,
 		})
-		local statLabel = UITheme.Label(card, {
+		-- The name is the ONE label on this card that keeps its dark outline, because it is drawn in
+		-- the mutation's own colour and every rung of the ladder is light -- except Secret, which is
+		-- authored near-black and would disappear into the outline it shares. The spin cycles through
+		-- the whole ladder, so the choice has to travel with each pick, not be made once here.
+		local function paintName(c)
+			nameLabel.TextColor3 = c
+			local s = nameLabel:FindFirstChildOfClass("UIStroke")
+			if s then
+				s.Color = isDark(c) and UITheme.Color.PanelWhite or UITheme.Color.Outline
+			end
+		end
+		paintName(color)
+		local statLabel = inkOnWhite(UITheme.Label(card, {
 			name = "Stat",
 			text = "",
 			size = UDim2.new(1, -24, 0, 26),
@@ -418,8 +517,8 @@ local function reveal(payload)
 			minTextSize = 13,
 			color = UITheme.Color.Outline,
 			zIndex = 62,
-		})
-		local footLabel = UITheme.Label(card, {
+		}))
+		local footLabel = inkOnWhite(UITheme.Label(card, {
 			name = "Foot",
 			text = "",
 			size = UDim2.new(1, -24, 0, 24),
@@ -429,7 +528,7 @@ local function reveal(payload)
 			wrapped = true,
 			color = UITheme.Color.Outline,
 			zIndex = 62,
-		})
+		}))
 
 		card.Size = UDim2.new(0, 40, 0, 210)
 		TweenService:Create(card, TweenInfo.new(0.34, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
@@ -441,12 +540,12 @@ local function reveal(payload)
 		for i = 1, spins do
 			local pick = GameConfig.Mutations[math.random(1, #GameConfig.Mutations)]
 			nameLabel.Text = pick.name
-			nameLabel.TextColor3 = pick.color
+			paintName(pick.color)
 			task.wait(wait)
 			wait *= 1.16
 		end
 		nameLabel.Text = payload.name
-		nameLabel.TextColor3 = color
+		paintName(color)
 
 		statLabel.Text = ("x%.2f income  ·  +%d speed"):format(payload.incomeMult or 1, payload.speedBonus or 0)
 		footLabel.Text = payload.equipped and "✅ Now worn" or "Kept -- your current mutation is stronger"
@@ -471,11 +570,11 @@ local function reveal(payload)
 		task.wait(big and 2.2 or 1.5)
 		TweenService:Create(card, TweenInfo.new(0.25), { Size = UDim2.new(0, 40, 0, 210) }):Play()
 		task.wait(0.26)
-		finishReveal(card, rays)
+		finishReveal(myToken)
 	end)
 
 	if not ok then
-		finishReveal(nil, nil)
+		finishReveal(myToken)
 		warn("[SplicerUI] reveal failed: " .. tostring(err))
 	end
 end
