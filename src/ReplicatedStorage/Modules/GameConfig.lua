@@ -1170,6 +1170,115 @@ GameConfig.PetRarityShareScale = 0.1
 -- of that pet's share) without the top of the ladder swallowing the game.
 GameConfig.PetTierShare = { Normal = 1, Golden = 1.6, Rainbow = 2.6, Celestial = 4.2 }
 
+-- ===== ENCHANTS: THE FOURTH FACTOR ON THE SHARE, AND THE FIRST REPEATABLE DIAMOND SINK (13.1) =====
+--
+-- Share per pet is PetRarityShare x PetTierShare x zone factor x ENCHANT, and this is the only one
+-- of the four a player can buy repeatedly. It exists because the Diamond economy has no terminal
+-- sink: DiamondUpgrades is three tiles (one capped at level 3) and StageMastery is twenty one-shot
+-- purchases totalling ~700 diamonds, so a player who has bought both has nothing left to want while
+-- every kill keeps paying. An enchant is permanent, per-pet and repeatable, which is the shape a
+-- sink has to have to absorb an income that never stops.
+--
+-- ===== SIZED AGAINST A NINE-SLOT TEAM, NOT AGAINST ONE PET =====
+--
+-- The shares SUM (see GetEquippedBonus), so a multiplier here is felt nine times over at the top of
+-- the game. A maxed endgame team of nine Celestial Legendaries sits at 9 x 0.8 x 4.2 = 30.2 shares,
+-- i.e. x31.2 the player's own damage; putting the top rung on all nine takes that to x50.9. That is
+-- the ceiling this ladder is chosen against, and it is why the top rung is x1.65 rather than the
+-- x3 the name "Eternal" invites. The same arithmetic is what killed the old mutation ladder in 12.1
+-- -- a multiplier that stacks with nothing to stop it is not a reward, it is an inflation faucet.
+--
+-- ===== WEIGHTS SUM TO 100 ON PURPOSE =====
+--
+-- The panel prints them as percentages and the roll walks them as weights, so the two can never
+-- disagree about what the game is actually doing. A future rung is a row here plus nothing else --
+-- as long as the column still sums to 100, which GameConfig.AssertEnchantWeights checks at load.
+--
+-- ===== LUCK DOES NOT ENTER THIS ROLL, AND THAT IS A DESIGN DECISION =====
+--
+-- Every other roll in this game is loot and every one of them reads luck. This one is a permanent
+-- stat multiplier bought with a currency no pass produces, so paying luck into it would let a
+-- 249 R$ purchase buy a permanent team multiplier more cheaply than a player who farmed for it --
+-- the pay-to-win line the pass table has stayed behind since Phase 2. The lever on this ladder is
+-- the PRICE, which is the same lever the Splicer uses and the one a player can see.
+GameConfig.Enchants = {
+	{ key = "keen",      name = "Keen",      mult = 1.06, weight = 44,  color = Color3.fromRGB(150, 200, 240) },
+	{ key = "fierce",    name = "Fierce",    mult = 1.14, weight = 26,  color = Color3.fromRGB(120, 210, 140) },
+	{ key = "savage",    name = "Savage",    mult = 1.24, weight = 15,  color = Color3.fromRGB(240, 176, 84)  },
+	{ key = "radiant",   name = "Radiant",   mult = 1.36, weight = 9,   color = Color3.fromRGB(246, 122, 96)  },
+	{ key = "prismatic", name = "Prismatic", mult = 1.48, weight = 4.5, color = Color3.fromRGB(196, 118, 246) },
+	-- `announce` is this ladder's `IsBeaconRarity`: the table that knows which rung is rare is the
+	-- table AnnounceService asks, so a new top rung is a row here and no edit there.
+	{ key = "eternal",   name = "Eternal",   mult = 1.65, weight = 1.5, color = Color3.fromRGB(255, 214, 92), announce = true },
+}
+
+-- Keyed view, built once. Every reader goes through GetEnchantDef so a bad key from a save or from
+-- a client message resolves to nil rather than to an error.
+local ENCHANT_BY_KEY = {}
+for i, e in ipairs(GameConfig.Enchants) do
+	e.rank = i
+	ENCHANT_BY_KEY[e.key] = e
+end
+
+function GameConfig.GetEnchantDef(key)
+	return key and ENCHANT_BY_KEY[key] or nil
+end
+
+-- The one number the damage chain reads. Takes the KEY (not the def) and answers 1 for nil, for an
+-- unknown key and for a pet minted before enchants existed -- which is every pet in every save on
+-- the day this ships, and is the whole reason no Load repair is needed (the 6.3 rule).
+function GameConfig.GetEnchantMult(key)
+	local def = GameConfig.GetEnchantDef(key)
+	return def and def.mult or 1
+end
+
+-- Strictly better, never "at least as good": the caller keeps what it has on a tie, so a re-roll
+-- that lands on the same rung cannot churn the save or claim an upgrade that is not one.
+function GameConfig.IsEnchantBetter(candidate, current)
+	return GameConfig.GetEnchantMult(candidate) > GameConfig.GetEnchantMult(current)
+end
+
+function GameConfig.RollEnchant()
+	local total = 0
+	for _, e in ipairs(GameConfig.Enchants) do total += e.weight end
+	local roll = math.random() * total
+	for _, e in ipairs(GameConfig.Enchants) do
+		roll -= e.weight
+		if roll <= 0 then return e.key end
+	end
+	-- float dust only; the loop above consumes the whole range
+	return GameConfig.Enchants[#GameConfig.Enchants].key
+end
+
+-- ===== THE PRICE, AND WHY IT IS FLAT IN DIAMONDS =====
+--
+-- Priced by TIER and by nothing else. Tier is exactly what makes an enchant worth more -- the share
+-- is a product, so the same rung on a Celestial is worth 4.2x what it is worth on a Normal -- and a
+-- price that tracked the player's stage instead would make the sink cheapest for the players who
+-- have the most diamonds. Diamonds are deliberately raw (see the note over the Diamond products):
+-- "45 Diamonds" is true at every stage of the game, which is what lets the button quote a number a
+-- player can plan against.
+--
+-- Reaching the top rung on one Celestial costs roughly 46 rolls at 50/50 odds, i.e. ~3,200 diamonds
+-- against ~700 for the entire Stage Mastery set. That is deliberate: this is the sink that is meant
+-- to still be there after everything else is bought.
+GameConfig.EnchantCost = { Normal = 20, Golden = 30, Rainbow = 45, Celestial = 70 }
+
+function GameConfig.GetEnchantCost(pet)
+	return GameConfig.EnchantCost[pet and pet.tier or "Normal"] or GameConfig.EnchantCost.Normal
+end
+
+-- Same defence as AssertTierCoverage: a weights column that quietly stops summing to 100 turns
+-- every printed percentage into a lie, and nothing else in the game would notice.
+function GameConfig.AssertEnchantWeights()
+	local total = 0
+	for _, e in ipairs(GameConfig.Enchants) do total += e.weight end
+	if math.abs(total - 100) > 1e-6 then
+		warn(("[GameConfig] Enchant weights sum to %.4f, not 100 -- the odds table is now a lie"):format(total))
+	end
+	return total
+end
+
 -- THE PROGRESSION AXIS, and the reason an early Legendary is no longer a late Legendary.
 --
 -- GetPetBonus used to take only (tier, rarity), so a Forest Basic-egg Legendary and an Absolute
@@ -1350,11 +1459,14 @@ end
 -- `rarity` is optional so old call sites keep working; omitted means Common. `petKey` and `data`
 -- are both optional and are the progression axis -- pass them and the answer is what this pet is
 -- worth to THIS player right now; omit them and it is what the species is worth at its own zone.
-function GameConfig.GetPetBonus(tier, rarity, petKey, data)
+-- `enchant` is the fifth and last axis and it is a KEY, not a def -- every call site already holds
+-- the pet entry, so passing `pet.enchant` is a one-token change and no caller has to learn what an
+-- enchant is. Omitted, nil, or a key this build does not know all resolve to x1.
+function GameConfig.GetPetBonus(tier, rarity, petKey, data, enchant)
 	local rarityShare = GameConfig.GetRarity(rarity).bonusMult * GameConfig.PetRarityShareScale
 	local tierShare = GameConfig.PetTierShare[tier] or 1
 	local zoneFactor = petKey and GameConfig.GetPetZoneFactor(petKey, data) or 1
-	local share = rarityShare * tierShare * zoneFactor
+	local share = rarityShare * tierShare * zoneFactor * GameConfig.GetEnchantMult(enchant)
 	local base = GameConfig.PetBaseBonus
 	return {
 		-- Both hard 1. Kept as fields rather than deleted so every existing call site keeps
@@ -1399,7 +1511,7 @@ function GameConfig.GetEquippedBonus(data)
 			local def = GameConfig.GetPetDef(pet.key)
 			-- `pet.key` and `data` are the progression axis: what this pet is worth to THIS player
 			-- at the rung they are standing on, not what its species is worth in the abstract.
-			local bonus = GameConfig.GetPetBonus(pet.tier, def and def.rarity, pet.key, data)
+			local bonus = GameConfig.GetPetBonus(pet.tier, def and def.rarity, pet.key, data, pet.enchant)
 			-- Both of these are hard 1 now (see PetBaseBonus) so these two lines are no-ops, and
 			-- they are kept as lines rather than deleted because the shape of this loop is the thing
 			-- that was wrong: `*=` over a growing collection is the bug, and leaving the operators
@@ -1503,7 +1615,7 @@ end
 function GameConfig.GetPetPower(pet, data)
 	if not pet then return 0 end
 	local def = GameConfig.GetPetDef(pet.key)
-	return GameConfig.GetPetBonus(pet.tier, def and def.rarity, pet.key, data).share
+	return GameConfig.GetPetBonus(pet.tier, def and def.rarity, pet.key, data, pet.enchant).share
 end
 
 -- Strongest first. Ties are broken by key, then tier, then id -- not left to table.sort -- so a

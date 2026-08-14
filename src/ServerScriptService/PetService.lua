@@ -566,9 +566,30 @@ function PetService.HandleFuse(player, petKey, tier)
 		return
 	end
 
+	-- ===== WHICH COPIES GO IN, AND WHAT COMES OUT WEARING (13.2) =====
+	--
+	-- The `FuseRequirement` copies with the STRONGEST enchants, and the result wears the best of
+	-- them. Two reasons, and the first is the one the design turns on: an enchant is bought with
+	-- Diamonds, so enchanted pets are purchases, and a fuse that silently voided them would be an
+	-- upgrade button that destroys value with no warning and no error -- the worst shape a button
+	-- can have. The second is that `share` is a product, so the best enchant is worth MORE on the
+	-- higher tier it is about to be carried onto; taking the weakest instead would strand it on the
+	-- tier below.
+	--
+	-- Sorting before the slice is also what lets the client quote this row honestly: the best in the
+	-- group is by construction the best of the copies consumed, so MainUI's fusion preview and this
+	-- function agree without either of them holding a copy of the other's rule.
+	table.sort(matches, function(a, b)
+		return GameConfig.GetEnchantMult(a.enchant) > GameConfig.GetEnchantMult(b.enchant)
+	end)
+
 	local toRemove = {}
+	local bestEnchant = nil
 	for i = 1, GameConfig.FuseRequirement do
 		toRemove[matches[i].id] = true
+		if GameConfig.IsEnchantBetter(matches[i].enchant, bestEnchant) then
+			bestEnchant = matches[i].enchant
+		end
 	end
 
 	local keptPets = {}
@@ -589,7 +610,11 @@ function PetService.HandleFuse(player, petKey, tier)
 	end
 	data.EquippedPetIds = keptEquipped
 
-	local fused = { id = HttpService:GenerateGUID(false), key = petKey, tier = nextTier }
+	-- THE SECOND PLACE A PET IS CREATED, and the comment over `insertPet` used to claim there was
+	-- only one (12.15 found it). Any field the pet shape gains has to be written HERE too, and the
+	-- enchant is the first one where the answer is a design decision rather than a copy: see the
+	-- sort above.
+	local fused = { id = HttpService:GenerateGUID(false), key = petKey, tier = nextTier, enchant = bestEnchant }
 	table.insert(data.Pets, fused)
 
 	-- THE RESULT GOES ON IF THE FUSE JUST EMPTIED A SLOT.
@@ -619,7 +644,90 @@ function PetService.HandleFuse(player, petKey, tier)
 		emoji = petDef and petDef.emoji or "",
 		tier = nextTier,
 		rarity = petDef and petDef.rarity,
+		-- named in the card so the fuse SAYS what it did with them: the enchants went in and one
+		-- came out, which is a promise the player would otherwise have to verify by hand
+		enchant = bestEnchant,
+		enchantName = bestEnchant and GameConfig.GetEnchantDef(bestEnchant)
+			and GameConfig.GetEnchantDef(bestEnchant).name or nil,
 	})
+end
+
+-- ===== ENCHANTING A PET (13.2) =====
+--
+-- The first repeatable Diamond sink in the game -- see the note over `GameConfig.Enchants` for why
+-- one had to exist at all. What matters here is the shape of the transaction, and it is the same
+-- shape the Splicer's roll has:
+--
+--   * The CLIENT PICKS THE PET AND NOTHING ELSE. The price, the odds, the roll and whether the
+--     result is kept are all decided on this side; a petId naming a pet the player does not own
+--     falls through with no reply, exactly as HandleTierUp does.
+--   * THE CHARGE AND THE ROLL ARE ONE NON-YIELDING BLOCK. There is no wait between deducting the
+--     diamonds and writing the result, so there is no window in which a second remote could spend
+--     the same balance -- the rule 5.x paid for with the double-redeem exploit.
+--   * BEST-KEPT-WINS. A roll that could lower a pet's stat needs a confirmation dialog, and a
+--     confirmation on a gambling button is a click nobody reads. The new enchant is worn only if it
+--     beats the one already there, so the button is always safe to press and the panel never has to
+--     ask a question. The player still pays for the roll -- that is the sink.
+--
+-- The reply distinguishes an upgrade from a kept roll, because those are different moments and a
+-- panel that drew them the same way would read as "nothing happened" half the time.
+local ENCHANT_INTERVAL = 0.35   -- the EGG_INTERVAL pattern: far slower than a loop, faster than a click
+local lastEnchant = {}          -- [userId] = os.clock()
+
+function PetService.HandleEnchant(player, petId)
+	local data = PlayerDataService.Get(player)
+	if not data then return end
+
+	local now = os.clock()
+	if lastEnchant[player.UserId] and now - lastEnchant[player.UserId] < ENCHANT_INTERVAL then return end
+
+	local pet = nil
+	for _, p in ipairs(data.Pets) do
+		if p.id == petId then pet = p break end
+	end
+	if not pet then return end
+
+	local cost = GameConfig.GetEnchantCost(pet)
+	if (data.Diamonds or 0) < cost then
+		Remotes.Notify:FireClient(player, { kind = "error",
+			message = ("Enchanting costs %d Diamonds!"):format(cost) })
+		return
+	end
+
+	lastEnchant[player.UserId] = now
+
+	-- one block, no yield: charge, roll, decide, write
+	data.Diamonds -= cost
+	local rolled = GameConfig.RollEnchant()
+	local upgraded = GameConfig.IsEnchantBetter(rolled, pet.enchant)
+	if upgraded then
+		pet.enchant = rolled
+	end
+
+	local rolledDef = GameConfig.GetEnchantDef(rolled)
+	local wornDef = GameConfig.GetEnchantDef(pet.enchant)
+	local petDef = GameConfig.GetPetDef(pet.key)
+
+	PlayerDataService.PushToClient(player)
+	Remotes.Notify:FireClient(player, {
+		kind = "enchant",
+		petId = pet.id,
+		name = petDef and petDef.name or pet.key,
+		emoji = petDef and petDef.emoji or "",
+		rolled = rolled,
+		rolledName = rolledDef and rolledDef.name or rolled,
+		worn = pet.enchant,
+		wornName = wornDef and wornDef.name or nil,
+		upgraded = upgraded,
+		cost = cost,
+	})
+
+	-- Only an upgrade is worth a room's attention: a re-roll that landed on Eternal and was thrown
+	-- away because the pet already wears one is not news, and announcing it would let a player at
+	-- the top of the ladder hold the feed with rolls that change nothing.
+	if upgraded then
+		AnnounceService.EnchantRolled(player, petDef, rolledDef)
+	end
 end
 
 -- ===== SPENDING A RAINBOW CATALYST =====
@@ -915,6 +1023,11 @@ end
 function PetService.Init()
 	PetService.WireKiosks()
 
+	-- The same defence CreatureService runs over the tier table: an odds column that quietly stops
+	-- summing to 100 turns every percentage the enchant panel prints into a lie, and nothing else in
+	-- the game would notice. Warns, never throws -- a mis-summed ladder still rolls correctly.
+	GameConfig.AssertEnchantWeights()
+
 	task.spawn(function()
 		while true do
 			task.wait(AUTO_HATCH_TICK)
@@ -929,6 +1042,7 @@ function PetService.Init()
 		-- keyed by UserId like lastEgg, and would otherwise hold a row for every player who has ever
 		-- been on this server
 		autoStop[player.UserId] = nil
+		lastEnchant[player.UserId] = nil
 	end)
 
 	Remotes.BuyEgg.OnServerEvent:Connect(function(player, eggKey)
@@ -971,6 +1085,12 @@ function PetService.Init()
 	Remotes.FusePet.OnServerEvent:Connect(function(player, petKey, tier)
 		if typeof(petKey) == "string" and typeof(tier) == "string" then
 			PetService.HandleFuse(player, petKey, tier)
+		end
+	end)
+
+	ensureRemote("EnchantPet").OnServerEvent:Connect(function(player, petId)
+		if typeof(petId) == "string" then
+			PetService.HandleEnchant(player, petId)
 		end
 	end)
 

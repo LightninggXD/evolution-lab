@@ -2245,8 +2245,10 @@ end
 local petsScroll = Instance.new("ScrollingFrame")
 petsScroll.Name = "PetsScroll"
 -- clear of the title above and the action bar sitting on the bottom edge
-petsScroll.Size = UDim2.new(1, -44, 1, -128)
-petsScroll.Position = UDim2.new(0, 22, 0, 54)
+-- 26 px lower than it was, and 26 shorter: 13.4's odds strip sits in the gap. The action bar on the
+-- bottom edge is unmoved, so only the top of the scroll changed.
+petsScroll.Size = UDim2.new(1, -44, 1, -154)
+petsScroll.Position = UDim2.new(0, 22, 0, 80)
 petsScroll.BackgroundTransparency = 1
 petsScroll.BorderSizePixel = 0
 petsScroll.ScrollBarThickness = 6
@@ -2260,7 +2262,10 @@ petsScroll.Parent = petsPanel
 -- 3 columns: 3 * 232 + 2 * 10 = 716, inside the 728 the scroll has.
 do
 	local grid = Instance.new("UIGridLayout")
-	grid.CellSize = UDim2.new(0, 232, 0, 126)
+	-- 156 tall since 13.3 (was 126). THREE numbers move together for one decision: this, the
+	-- `cell.Size` in refreshPetsPanel, and the row height in the CanvasSize line at the end of it.
+	-- A grid cell shorter than the frame inside it silently overlaps the row below.
+	grid.CellSize = UDim2.new(0, 232, 0, 156)
 	grid.CellPadding = UDim2.new(0, 10, 0, 12)
 	grid.SortOrder = Enum.SortOrder.LayoutOrder
 	grid.Parent = petsScroll
@@ -2296,6 +2301,35 @@ end
 local function colorTag(text, c)
 	return string.format('<font color="#%02X%02X%02X">%s</font>',
 		math.round(c.R * 255), math.round(c.G * 255), math.round(c.B * 255), text)
+end
+
+-- ===== THE ODDS, WHERE THE MONEY IS SPENT (13.4) =====
+--
+-- Built from `GameConfig.Enchants` itself, never typed out: the weights sum to 100 by contract
+-- (`AssertEnchantWeights` warns if they stop), so a weight IS a percentage and this line cannot
+-- drift from what `RollEnchant` actually does. Every rung is printed in its own colour, the same
+-- colour its chip wears on the card, so the strip doubles as the legend for the grid under it.
+--
+-- ONE STRIP FOR THE WHOLE PANEL rather than a line per card: the odds are a property of the ladder,
+-- not of the pet, and thirty copies of the same sentence is how a grid becomes unreadable.
+do
+	local odds = Instance.new("TextLabel")
+	odds.Name = "EnchantOdds"
+	odds.Size = UDim2.new(1, -44, 0, 22)
+	odds.Position = UDim2.new(0, 22, 0, 54)
+	odds.BackgroundTransparency = 1
+	odds.RichText = true
+	odds.TextXAlignment = Enum.TextXAlignment.Left
+	odds.ZIndex = petsPanel.ZIndex + UITheme.Z.Content
+	local parts = {}
+	for _, e in ipairs(GameConfig.Enchants) do
+		-- shade(-0.35) for the same reason the rarity word on each card takes it: these sit on a
+		-- white sheet, and the chip colours are chosen to be readable as FILLS, not as ink
+		table.insert(parts, colorTag(("%s %g%%"):format(e.name, e.weight), shade(e.color, -0.35)))
+	end
+	odds.Text = "\u{2728} Enchant odds:  " .. table.concat(parts, "  \u{00B7}  ")
+	odds.Parent = petsPanel
+	flatText(themeLabel(odds, 16, Color3.fromRGB(150, 154, 168)))
 end
 
 -- Live rigs shown in the pet rows. A row shows the actual creature in a ViewportFrame rather
@@ -2404,7 +2438,9 @@ local function refreshPetsPanel()
 		-- reads +80% while its own zone is current and +20% once the player has climbed well past it,
 		-- which is the whole point of the progression rebalance. Quoting it without them would print
 		-- a number the damage chain does not use.
-		local bonus = GameConfig.GetPetBonus(pet.tier, info.rarity, pet.key, data)
+		-- `pet.enchant` is the fifth axis (13.1). It is passed here and nowhere reimplemented: the
+		-- card quotes exactly the share the damage chain sums, enchant included.
+		local bonus = GameConfig.GetPetBonus(pet.tier, info.rarity, pet.key, data, pet.enchant)
 		-- The reference prints a flat "+75". A pet's contribution is a share of the player's own
 		-- damage, summed across the equipped slots, so the percentage it adds IS the number -- and
 		-- unlike the old multiplicative reading it is now literally true: three pets at +80% each
@@ -2421,7 +2457,7 @@ local function refreshPetsPanel()
 		cell.Text = ""
 		cell.AutoButtonColor = false
 		cell.BackgroundTransparency = 1
-		cell.Size = UDim2.new(0, 232, 0, 126)
+		cell.Size = UDim2.new(0, 232, 0, 156)
 		cell.ZIndex = petsScroll.ZIndex + UITheme.Z.Content
 		cell.Parent = petsScroll
 		-- assigned further down, once the card exists to hang it on; the handler below closes over
@@ -2461,7 +2497,10 @@ local function refreshPetsPanel()
 		-- the grey card, offset right and down to leave the art its corner
 		local card = Instance.new("Frame")
 		card.Name = "Card"
-		card.Size = UDim2.new(0, 180, 0, 92)
+		-- 122, not 92, since 13.3: the enchant row sits at y=89 and needs 28 of height plus a 5px
+		-- foot. The CELL grew with it -- see the grid's CellSize and the CanvasSize arithmetic at the
+		-- bottom of this function, which are two numbers expressing one decision.
+		card.Size = UDim2.new(0, 180, 0, 122)
 		card.Position = UDim2.new(0, 52, 0, 32)
 		card.ZIndex = cell.ZIndex
 		card.Parent = cell
@@ -2512,6 +2551,81 @@ local function refreshPetsPanel()
 		statLabel.Text = ("\u{1F5E1}\u{FE0F} Damage: %s"):format(damageText)
 		statLabel.Parent = statBar
 		flatText(themeLabel(statLabel, 18, Color3.fromRGB(88, 92, 104)))
+
+		-- ===== THE ENCHANT ROW (13.3) =====
+		--
+		-- One row, and it says a different thing depending on whether this pet has ever been
+		-- enchanted. Unenchanted, the whole width is the offer -- an action nobody has taken yet has
+		-- to be the loud thing on the card. Once it wears one, the enchant's NAME takes the left of
+		-- the row in its own colour and the roll shrinks to a price button on the right: the state
+		-- is what the player wants to read at a glance across a grid of thirty pets, and the re-roll
+		-- is a thing they go looking for.
+		--
+		-- The price comes from `GetEnchantCost`, the same pure function the server charges with, so
+		-- the card cannot quote a number the transaction disagrees with -- the rule 12.3's cost
+		-- label follows for the Splicer.
+		do
+			local enchantDef = GameConfig.GetEnchantDef(pet.enchant)
+			local cost = GameConfig.GetEnchantCost(pet)
+			local canAfford = (data.Diamonds or 0) >= cost
+
+			local rollBtn = Instance.new("TextButton")
+			rollBtn.Name = "EnchantButton"
+			rollBtn.Size = UDim2.new(0, enchantDef and 68 or 160, 0, 28)
+			rollBtn.Position = UDim2.new(0, enchantDef and 102 or 10, 0, 89)
+			rollBtn.Text = enchantDef and ("%d \u{1F48E}"):format(cost)
+				or ("\u{2728} ENCHANT  %d \u{1F48E}"):format(cost)
+			rollBtn.ZIndex = card.ZIndex + UITheme.Z.Content
+			rollBtn.Parent = card
+			-- grey when it cannot be paid for, rather than hidden or silently refused: the price is
+			-- the information, and a player two diamonds short should be able to see that
+			styleButton(rollBtn, canAfford and UITheme.Color.Purple or Color3.fromRGB(176, 180, 192),
+				UDim.new(0, 9), 2)
+			themeLabel(rollBtn, enchantDef and 16 or 17)
+			rollBtn.MouseButton1Click:Connect(function()
+				-- resolved at CLICK time: this remote is created by PetService.Init through
+				-- `ensureRemote`, so a client that built its HUD first would have captured a nil
+				local r = Remotes:FindFirstChild("EnchantPet")
+				if r then
+					r:FireServer(pet.id)
+				else
+					warn("[MainUI] Remotes.EnchantPet never appeared -- enchanting is disabled")
+				end
+			end)
+
+			if enchantDef then
+				local worn = Instance.new("TextLabel")
+				worn.Name = "EnchantChip"
+				worn.Size = UDim2.new(0, 84, 0, 28)
+				worn.Position = UDim2.new(0, 10, 0, 89)
+				worn.Text = ("\u{2728} %s"):format(enchantDef.name)
+				worn.ZIndex = card.ZIndex + UITheme.Z.Content
+				worn.Parent = card
+				styleCard(worn, enchantDef.color, UDim.new(0, 9), 2)
+				-- INK CHOSEN BY LUMINANCE, NOT BY RUNG -- the same test 12.3 and 12.6 both had to
+				-- reach for, so a future rung is handled for free.
+				--
+				-- THE THRESHOLD IS 0.40, AND THE FIRST CUT'S 0.62 WAS WRONG FOR THIS PALETTE. Every
+				-- rung on this ladder is a SATURATED, LIGHT fill by design (they have to read as
+				-- chips on a white card), so the two mid rungs landed at 0.611 and 0.612 and took
+				-- white ink on a fill bright enough to swallow it -- about 2.8:1, under any
+				-- readability floor, while dark ink on the same fill is 4.5:1. At 0.40 all six take
+				-- dark ink today and the white branch is kept for the dark rung a later phase adds.
+				local c = enchantDef.color
+				local lum = 0.299 * c.R + 0.587 * c.G + 0.114 * c.B
+				local dark = lum > 0.40
+				themeLabel(worn, 15, dark and Color3.fromRGB(58, 46, 24) or Color3.fromRGB(255, 255, 255))
+				-- ...AND THE STROKE HAS TO GO WITH THE INK, which the first cut got wrong and the
+				-- screenshot caught: themeLabel outlines every label in near-black at 3 px, so the
+				-- dark half of this branch was drawing (58,46,24) glyphs inside a (26,18,36) outline
+				-- -- the same colour, i.e. a fat dark blob with a slightly lighter core. The white
+				-- half NEEDS that outline (white on a mid violet is thin without it) and the dark
+				-- half does not: a light fill already separates dark ink. Third time this exact
+				-- fault has been found by looking rather than by probing (12.3, 12.6, here), and
+				-- `TextFits`, `.Text` and `.TextColor3` all read correct in every one of them.
+				if dark then flatText(worn) end
+			end
+		end
 
 		-- ===== RELEASE =====
 		--
@@ -2654,8 +2768,8 @@ local function refreshPetsPanel()
 		-- lives in the Fusion panel now, which shows what goes in and what comes out.
 	end
 
-	-- three to a row, cell 126 tall on 12 of padding
-	petsScroll.CanvasSize = UDim2.new(0, 0, 0, math.ceil(#data.Pets / 3) * 138 + 12)
+	-- three to a row, cell 156 tall on 12 of padding (13.3 grew the cell for the enchant row)
+	petsScroll.CanvasSize = UDim2.new(0, 0, 0, math.ceil(#data.Pets / 3) * 168 + 12)
 end
 
 -- Handed over so the select-mode block above -- which is built ~200 lines earlier and cannot name a
@@ -3014,11 +3128,21 @@ end)()
 			if not g then
 				-- firstId is what a Catalyst is spent on: a catalyst raises ONE pet, so the row needs a
 				-- specific id, where a fuse only needs the species and tier
-				g = { key = pet.key, tier = pet.tier, count = 0, firstId = pet.id }
+				g = { key = pet.key, tier = pet.tier, count = 0, firstId = pet.id, firstEnchant = pet.enchant }
 				groups[groupKey] = g
 				table.insert(order, g)
 			end
 			g.count += 1
+			-- ===== THE GROUP'S BEST ENCHANT, AND WHY IT IS THE HONEST ONE TO QUOTE (13.1) =====
+			--
+			-- A group is many pets and they can carry different enchants, so there is no single
+			-- "the" enchant for a fuse row -- but there is one the player can count on: HandleFuse
+			-- consumes the STRONGEST-enchanted copies and carries the best of them onto the
+			-- result, so the best in the group is exactly what comes out the other side. Client and
+			-- server therefore agree by construction rather than by keeping two rules in step.
+			if GameConfig.IsEnchantBetter(pet.enchant, g.bestEnchant) then
+				g.bestEnchant = pet.enchant
+			end
 		end
 
 		-- Groups that CANNOT fuse are dropped, not greyed out. A maxed-tier pet or a lone copy is
@@ -3030,8 +3154,10 @@ end)()
 				-- `data` carries the zone axis into the ranking, so the fusion list is ordered by what
 				-- these pets are worth to this player now rather than by what they were worth in the
 				-- zone they hatched in
-				g.power = GameConfig.GetPetPower({ key = g.key, tier = g.tier }, data)
-				g.nextPower = GameConfig.GetPetPower({ key = g.key, tier = g.nextTier }, data)
+				-- the enchant rides BOTH sides, so the ratio the row prints is untouched by it and the
+				-- two absolute figures are the ones the surviving pet actually carries
+				g.power = GameConfig.GetPetPower({ key = g.key, tier = g.tier, enchant = g.bestEnchant }, data)
+				g.nextPower = GameConfig.GetPetPower({ key = g.key, tier = g.nextTier, enchant = g.bestEnchant }, data)
 				table.insert(ready, g)
 			end
 		end
@@ -3059,8 +3185,10 @@ end)()
 			end
 		end
 		table.sort(catalysts, function(a, b)
-			local pa = GameConfig.GetPetPower({ key = a.key, tier = a.catalystTier }, data)
-			local pb = GameConfig.GetPetPower({ key = b.key, tier = b.catalystTier }, data)
+			-- `firstEnchant`, not `bestEnchant`: a catalyst is spent on `firstId`, one specific pet,
+			-- and it mutates that pet's tier in place -- so the enchant that survives is that pet's
+			local pa = GameConfig.GetPetPower({ key = a.key, tier = a.catalystTier, enchant = a.firstEnchant }, data)
+			local pb = GameConfig.GetPetPower({ key = b.key, tier = b.catalystTier, enchant = b.firstEnchant }, data)
 			if pa ~= pb then return pa > pb end
 			return a.key < b.key
 		end)
@@ -3099,8 +3227,8 @@ end)()
 			-- ladder divides out to a constant ratio, but what the player actually gains is the
 			-- share ON TOP of 1, so only the bonus itself can quote the real step. Both calls pass
 			-- `pet key` and `data`, so the quote is what this player gets at their current rung.
-			local fromBonus = GameConfig.GetPetBonus(g.tier, info.rarity, g.key, data).damageMult
-			local toBonus = GameConfig.GetPetBonus(g.catalystTier, info.rarity, g.key, data).damageMult
+			local fromBonus = GameConfig.GetPetBonus(g.tier, info.rarity, g.key, data, g.firstEnchant).damageMult
+			local toBonus = GameConfig.GetPetBonus(g.catalystTier, info.rarity, g.key, data, g.firstEnchant).damageMult
 			local gainLabel = Instance.new("TextLabel")
 			gainLabel.Size = UDim2.new(0, 290, 0, 24)
 			gainLabel.Position = UDim2.new(0, 16, 1, -32)
@@ -7815,7 +7943,25 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 			payload.exclusive and "APEX DROP \u{2014} EGGS CANNOT HATCH THIS" or "DROPPED", rarity.color)
 	elseif payload.kind == "fuse" then
 		local rarity = GameConfig.GetRarity(payload.rarity)
-		worldPopup(payload.emoji .. " " .. payload.name, "FUSED → " .. payload.tier, rarity.color)
+		-- The enchant is named when one survived the fuse (13.2). A carried-forward enchant is a
+		-- thing the player PAID for, so the one moment it could look like it was destroyed is the
+		-- moment it has to be said out loud.
+		worldPopup(payload.emoji .. " " .. payload.name,
+			"FUSED → " .. payload.tier .. (payload.enchantName and ("  \u{2728} " .. payload.enchantName) or ""),
+			rarity.color)
+	elseif payload.kind == "enchant" then
+		-- Drawn on the player like a fuse, and in the enchant's OWN colour -- the same rule the pet
+		-- card follows, so the flash in the world and the label on the card are recognisably one
+		-- thing. An upgrade and a kept roll say different words on purpose: "nothing changed" is a
+		-- real outcome of this button and hiding it would make the panel read as broken.
+		local def = GameConfig.GetEnchantDef(payload.rolled)
+		if payload.upgraded then
+			worldPopup(payload.emoji .. " " .. payload.name,
+				"ENCHANTED → " .. (payload.rolledName or ""), def and def.color or UITheme.Color.White)
+		else
+			worldPopup((payload.rolledName or "?") .. " rolled",
+				"KEPT " .. (payload.wornName or "NONE"), def and def.color or UITheme.Color.White)
+		end
 	elseif payload.kind == "creature" then
 		-- Deliberately silent. A kill ALREADY writes its DNA in the world, floating up off the
 		-- creature that died (CombatClient's popNumber) -- which is where a player fighting it is

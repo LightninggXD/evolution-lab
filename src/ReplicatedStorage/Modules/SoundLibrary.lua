@@ -440,7 +440,10 @@ local NOTIFY_SOUND = {
 	character = "levelUp",       questComplete = "levelUp",   zone = "levelUp",
 	-- `machine` went with the DNA Machine (10.19). This table is keyed by notify `kind`, and nothing
 	-- sends that kind any more.
-	fuse = "fusion",             rebirth = "evolve",
+	-- an enchant is the same moment as a fuse -- a pet getting permanently stronger at a cost -- and
+	-- it deliberately plays on a kept roll too: the click has to sound like it did something, or a
+	-- silent no-upgrade reads as a button that failed
+	fuse = "fusion",             rebirth = "evolve",          enchant = "fusion",
 	dailyReward = "purchase",    stageMastery = "levelUp",    diamondUpgrade = "purchase",
 	potion = "collect",          playtimeGift = "purchase",   bossRevive = "purchase",
 	spin = "purchase",           robuxPurchase = "purchase",  reward = "purchase",

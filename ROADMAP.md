@@ -476,6 +476,52 @@ equivalents.
 
 ---
 
+## Phase 13 — Pet enchants · *the first repeatable Diamond sink*
+
+**PHASE 13 IS CLOSED (2026-08-14, eighteenth session): 13.1–13.4 are all `[x]`.** There is no
+code-only work left anywhere in the roadmap again — every open row is an owner action.
+
+Opened 2026-08-14 (eighteenth session) on the one approved design left unbuilt: 12.15 recorded the
+enchant design, checked both of its premises against the code, and deliberately wrote no code. This
+phase builds it. Everything 12.15 found still stands and is the starting point, not a thing to
+re-derive — read that row before this one.
+
+**Why a Diamond sink is the point of the phase, not a detail of it.** The game has exactly two
+Diamond sinks and both are finite: `DiamondUpgrades` (three tiles, one of them capped at level 3)
+and `StageMastery` (twenty one-shot purchases, ~700 diamonds for the whole set). A player who has
+bought the set has nothing left to want, while every kill keeps paying — so the currency inflates at
+the exact point in the game where the player has the most time to farm it. An enchant is permanent,
+per-pet, and repeatable, which is the shape a terminal sink has to have.
+
+**Four decisions taken up front, so the rows below are implementation and not design.**
+
+1. **Best-kept-wins, exactly as the Splicer's mutation.** A roll that can lower a pet's stat needs a
+   confirm dialog, and a confirm dialog on a gambling button is a click nobody reads. The proven
+   pattern is one call: the new enchant is worn only if it beats the one on the pet, and the panel
+   never has to ask a question.
+2. **Priced in Diamonds and scaled by tier, never by stage.** The 12.15 constraint is DNA-or-not;
+   the choice between Diamonds and Shards is that shards already have their sink (the wheel) and
+   diamonds are the currency every permanent upgrade is priced in. Tier scales the cost because tier
+   is exactly what makes the enchant worth more — `share` is multiplicative, so enchanting a
+   Celestial is worth 4.2× enchanting a Normal.
+3. **Fixed odds. Luck does NOT enter this roll.** Every other roll in the game is loot; this one is
+   a permanent stat multiplier bought with a currency the Lucky pass does not produce, and letting a
+   249 R$ pass buy a permanent team multiplier cheaper is the pay-to-win line the pass table has
+   stayed behind since Phase 2. The lever here is the price.
+4. **A fuse carries the BEST enchant of its four forward.** This is the question 12.15 says the row
+   actually turns on. Burning them is defensible for a free currency and indefensible for a paid
+   one: enchanted pets are purchases (`FuseRequirement` of them, three today), and a fuse that
+   silently voided them would be the worst kind of trap — an upgrade button that destroys value with no warning and no error.
+
+| ID | | Task | Verified how |
+|---|---|---|---|
+| 13.1 | `[x]` | <!-- coded + pushed + verified live 2026-08-14 (eighteenth session), two screenshots --> **`GameConfig` enchant ladder + the fifth argument.** New `GameConfig.Enchants` (ordered ladder, `mult` on the pet's `share`, weights summing to 100 so the panel can print them as percentages), `GetEnchantDef(key)`, `RollEnchant()`, `GetEnchantCost(pet)`, `IsEnchantBetter(a, b)`. `GetPetBonus` gains an optional fifth `enchant` argument, threaded through the **five** call sites 12.15 named (`GameConfig` equipped loop + `GetPetPower`, `MainUI` ×3). Trap: the top rung multiplies a sum, so the ladder must be sized against a nine-slot endgame team, not against one pet |**VERIFIED LIVE 2026-08-14 (eighteenth session) on the cloud place.** The odds are the authored table, measured on the shipped source rather than on a copy: **200,000 rolls** gave Keen 43.875% / Fierce 26.004% / Savage 15.097% / Radiant 8.911% / Prismatic 4.598% / **Eternal 1.516%** against 44 / 26 / 15 / 9 / 4.5 / **1.5** authored, and `AssertEnchantWeights` returns **100** exactly (it warns otherwise, and the live boot log is clean). Cost ladder Normal 20 / Golden 30 / Rainbow 45 / Celestial 70, read off the same pure function the server charges with. The fifth argument is exact and fails safe: the same Golden Legendary scores share **1.280000** bare and **2.112000** with Eternal, i.e. **x1.650000** to six places, an unknown key scores **1.280000** (x1, so every pet minted before this build is unaffected and no `Load` repair is owed), and `luckAdd` rides the same share (15.36 to 25.34) because it is derived from it — one number still moves a pet's whole contribution. `IsEnchantBetter` is strict: better(keen, nil) true, better(keen, eternal) false, **better(keen, keen) false**, which is what stops a re-roll churning the save on a tie. `GetPetPower` reads the entry's own `enchant` (0.160000 to 0.264000), so the index sort, `SortedPetsByPower` and Equip Best all rank an enchanted pet correctly with no call-site edit. **Sized against the team, not the pet**: nine Celestial Legendaries are 30.2 shares (x31.2) bare and x50.9 with the top rung on all nine — the ceiling the 1.65 was chosen against, which is 12.1's lesson one system over |
+| 13.2 | `[x]` | <!-- coded + pushed + verified live 2026-08-14 (eighteenth session), two screenshots --> **`PetService.HandleEnchant` + the fuse decision made explicit.** New `EnchantPet` remote via `ensureRemote`, rate-limited on the `EGG_INTERVAL` pattern, server-side ownership + Diamond check with the charge and the roll in one non-yielding block, best-kept-wins, reply through `Remotes.Notify`. `HandleFuse` carries the best enchant of the consumed pets onto the fused result, and says so in the fuse notification. Trap: `insertPet` is *not* the only creation point (12.15) — the inline shape in `HandleFuse` is the second one |**VERIFIED LIVE 2026-08-14, driving the real handler and then the real remote.** **The charge is exact and the ladder never falls**: 20 consecutive rolls on a live pet charged **20/20 at exactly 20 diamonds** with **0 downgrades**, the worn rung climbing keen to fierce to radiant to prismatic to **eternal** and never once going back. **The refusal is exact**: one diamond short of the price left the balance *and* the worn enchant untouched, and exactly the price succeeded and left **0**. **The rate limit blocks**: three calls with no wait spent **20**, i.e. one roll. **An unowned petId spends nothing** (0 diamonds, no reply). **The fuse carries the best enchant forward, and the sort is what makes the client honest**: five copies carrying [nil, keen, eternal, fierce, savage] fused to **Golden/eternal** leaving **Normal/nil and Normal/keen** behind — the three strongest went in (`FuseRequirement` is **3** today, not the four an earlier draft of this row assumed) and the best came out. Then the same thing through the shipped client and the real `FusePet` remote: three Golden copies staged keen/eternal/fierce produced **Rainbow wearing Eternal**, with the notification carrying `enchant=eternal enchantName=Eternal` and the world popup reading **"FUSED to Rainbow ✨ Eternal"**. **The client leg of the enchant is real too**: `EnchantPet:FireServer` from the shipped MainUI returned `kind=enchant rolled=radiant upgraded=true cost=20`, and both outcomes draw in the world where they happened — **"ENCHANTED → Savage"** on an upgrade and **"Fierce rolled / KEPT Savage"** on a roll that lost. **The owner's save was snapshotted and put back**, and the honest version of that: two probe fuses fell outside their restore window, so the collection was rebuilt by composition afterwards (+3 Protostar Normal, +2 Protostar Golden, −1 Protostar Rainbow) and re-measured back at **30 pets, Normal 18 / Golden 11 / Rainbow 1, 0 enchants, 62 diamonds, 8 equipped** — the baseline it started at — then saved |
+| 13.3 | `[x]` | <!-- coded + pushed + verified live 2026-08-14 (eighteenth session), two screenshots --> **The pet card and the Enchant button.** Pet cell grows to fit one action row: the enchant's name in its own colour on the card, the ✨ button quoting the live Diamond price, and the roll's result drawn where it happened (an upgrade and a "kept your Radiant" read differently). Zero new MainUI top-level locals — the button lives inside the existing `refreshPetsPanel` cell build. Traps: `UIGridLayout.CellSize` and the `CanvasSize` arithmetic are two separate numbers for one decision; dark ink on a light card needs the luminance test, not a stroke |**VERIFIED LIVE 2026-08-14 on the shipped client, and the screenshot found the defect the probe could not.** The grid draws **30 cells, 30 enchant buttons**, and the button is the whole row (`✨ ENCHANT 20 💎`, 160x28) until the pet wears something, at which point it shrinks to a **68x28 price button** beside an **84x28 chip** naming the rung. Geometry measured rather than eyeballed: **0 children hanging past a cell's bottom edge, 0 overlapping cell pairs**, cell 232x156 against a card 180x122, canvas **1692 = ceil(30/3) x 168 + 12**, and the odds strip at y 130..152 clear of a scroll starting at 156. `TextFits` **0 failures** over the whole open panel, and again over the fusion panel. The price is quoted from `GetEnchantCost`, the function the server charges with, so the card and the transaction cannot disagree — and the button greys to (176,180,192) when the balance cannot pay it, rather than being hidden or drawn-then-refused. The fusion preview reads the group's best enchant: an 8-copy Protostar group staged with an Eternal quotes **"Normal +15% → Golden +24% (+60%)"** against `GetPetPower` of **0.151773 / 0.242837** with the enchant and 0.091984 without — the ratio is untouched because the enchant rides both sides. **The defect: dark ink inside a near-black stroke, for the third time in three phases (12.3, 12.6, here).** The first cut used a 0.62 luminance threshold, so Keen (0.744) and Eternal (0.833) took dark (58,46,24) glyphs while `themeLabel` was still outlining them in (26,18,36) at 3 px — a fat dark blob with a lighter core, photographed and unmistakable, with `.Text`, `.TextColor3` and `TextFits` all reading correct throughout. It also exposed that the threshold itself was wrong for this palette: every rung is a saturated LIGHT fill by design, so the two mid rungs sat at 0.611 and 0.612 and took **white** ink at about 2.8:1 against 4.5:1 for dark. Fixed as one change: threshold 0.62 to **0.40**, and the stroke is dropped whenever the ink is dark. Re-measured on all six rungs — ink (58,46,24), stroke transparency **1**, `TextFits` true — and re-photographed |
+| 13.4 | `[x]` | <!-- coded + pushed + verified live 2026-08-14 (eighteenth session), two screenshots --> **Surfacing**: the odds table where the player spends (so the price and the chances are in the same place), and the top rung announced through `AnnounceService` on the positionless path — a kill-feed line, not a beam, by 12.14's rule |**VERIFIED LIVE 2026-08-14.** The odds strip is built from `GameConfig.Enchants` itself, so it cannot drift from `RollEnchant`: it renders **✨ Enchant odds: Keen 44% · Fierce 26% · Savage 15% · Radiant 9% · Prismatic 4.5% · Eternal 1.5%**, each rung in its own colour shaded −0.35 for a white sheet, `TextFits` true at 728x22 — one strip for the panel rather than a line per card, because the odds are a property of the ladder and thirty copies of one sentence is how a grid becomes unreadable. **The announce gate holds in both directions and its cooldown eats the repeat**: `EnchantRolled` fired with Radiant (no `announce` flag) drew **nothing**, fired with Eternal drew exactly one positionless payload — `[enchant] color=(255,214,92) pos=nil | ✨ ETERNAL ENCHANT! | ...enchanted Pillarion -- x1.65 damage share` — and fired again immediately drew nothing. Positionless by 12.14's rule: an enchant is bought at a button in a panel, so there is no place in the world for a column to stand. The gate is the ladder's own `announce` field rather than a rung name spelled out in AnnounceService — the `IsBeaconRarity` pattern — so a future top rung is a row in GameConfig and no edit there. Only an **upgrade** announces: a re-roll that lands on Eternal and is thrown away because the pet already wears one is not news, and would let a maxed player hold the feed with rolls that change nothing |
+
+---
+
 ## 👤 Owner action checklist
 
 Collect these once; each one blocks agents until it exists.
@@ -517,6 +563,35 @@ Gathered 2026-08-07/08 while writing this plan.
 ---
 
 ## Changelog
+
+- **2026-08-14 (eighteenth session)** — **PHASE 13 OPENED AND CLOSED: pets can be enchanted, and the
+  Diamond has somewhere to go that never runs out.** Opened on a fully clean sweep — all **61** live
+  scripts byte-identical to `src/` — on the one approved design left unbuilt, 12.15's enchant note,
+  whose two findings were the starting point and both held. A six-rung ladder in
+  `GameConfig.Enchants` (Keen x1.06 … **Eternal x1.65**, weights summing to 100 so a weight *is* a
+  percentage) multiplies the pet's `share` as a fifth axis beside rarity, tier and zone; the roll is
+  a per-pet button in the Pets panel priced in **Diamonds by tier** (20/30/45/70) with
+  **best-kept-wins**, which is why it needs no confirm dialog. **The phase exists because the Diamond
+  had no terminal sink**: `DiamondUpgrades` is three tiles and `StageMastery` is twenty one-shot
+  buys (~700 diamonds for the set), so a player who had bought both kept earning a currency with
+  nothing to want. **Four decisions were taken up front and are recorded above the rows** — the
+  best-kept roll, the price in Diamonds, **fixed odds with luck deliberately kept out** (this is a
+  permanent stat multiplier bought with a currency no pass produces, so paying luck into it would
+  let a 249 R$ pass buy team damage more cheaply than a farmer), and **a fuse carries the best
+  enchant of the copies it consumes forward** — the question 12.15 said the row actually turns on.
+  The fuse sorts its matches by enchant before slicing, which is also what lets the client's fusion
+  preview quote the group's best without holding a copy of the server's rule. Everything was
+  measured against the real thing: 200,000 rolls against the authored table, 20 real charges with
+  0 downgrades, a one-diamond-short refusal that moved nothing, a rate limit that turned three calls
+  into one roll, and a real `FusePet` through the shipped client producing **Rainbow wearing
+  Eternal**. **The screenshot found the defect again, for the sixth session running**: the enchant
+  chips were drawing dark ink inside `themeLabel`'s near-black stroke — the identical fault as 12.3
+  and 12.6, invisible to `.Text` / `.TextColor3` / `TextFits`, all of which read correct — and fixing
+  it exposed that the 0.62 luminance threshold copied from those rows is wrong for a palette of
+  saturated light fills (two rungs sat at 0.611 and took white ink at ~2.8:1). Threshold 0.40, and
+  the stroke goes wherever the ink is dark. **The owner's save was snapshotted and restored**; two
+  probe fuses fell outside their restore window, so the collection was rebuilt by composition and
+  re-measured back to its baseline (30 pets, 18/11/1 by tier, 0 enchants, 62 diamonds) and saved.
 
 - **2026-08-14 (seventeenth session)** — **12.14 and 12.15 closed, which closes PHASE 12 entirely.**
   Opened on a fully clean sweep — all **60** live scripts byte-identical to `src/`. The game has a

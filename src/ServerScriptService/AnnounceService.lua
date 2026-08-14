@@ -253,6 +253,27 @@ function AnnounceService.Rebirthed(player, rebirths, damageMult)
 	})
 end
 
+-- THE TOP ENCHANT (13.4). Positionless by the same rule as the four above: an enchant is bought at
+-- a button in a panel, so there is no place in the world for a column to stand -- and unlike a
+-- hatch, the thing that happened is a number on a pet nobody else can see. Words are the whole of
+-- what is shareable about it.
+--
+-- GATED ON THE LADDER'S OWN `announce` FLAG, not on a rung name spelled out here. That is the
+-- `IsBeaconRarity` pattern: the table that knows which rungs are rare is the table that decides,
+-- so a future rung is a row in GameConfig and nothing in this file.
+function AnnounceService.EnchantRolled(player, petDef, enchant)
+	if not player or not enchant or not enchant.announce then return end
+	if onCooldown(player, "enchant") then return end
+
+	AnnounceService.Broadcast({
+		kind = "enchant",
+		color = enchant.color,
+		headline = ("\u{2728} %s ENCHANT!"):format(enchant.name:upper()),
+		subline = ("%s enchanted %s -- x%.2f damage share"):format(
+			player.DisplayName, petDef and petDef.name or "a pet", enchant.mult),
+	})
+end
+
 function AnnounceService.Init()
 	remote()
 	Players.PlayerRemoving:Connect(function(player)
