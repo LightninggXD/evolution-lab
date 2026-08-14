@@ -48,7 +48,10 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 -- Bump to force the machine to be rebuilt on the next server start. Stamped on the model, the
 -- same trick RebirthShrine and ZoneBuilder use -- without it no change to the geometry below
 -- would ever appear on a place that has already been played.
-local MACHINE_VERSION = 1
+-- 1 -> 2: the look pass (dark outline geometry, indigo body, two-hue helix). A version that does
+-- not move means the machine already standing in a played world is never replaced, so the change
+-- is invisible -- the same silent no-op ZoneBuilder's BUILD_VERSION exists to prevent.
+local MACHINE_VERSION = 4
 
 -- Seconds between two rolls from one player. The client's own reveal runs ~2.4 s.
 local ROLL_INTERVAL = 1.2
@@ -69,11 +72,30 @@ local FOOTPRINT = Vector3.new(30, 26, 30)
 -- loop and a square root per player per tick buys nothing.
 local ANIMATE_RANGE_SQ = 90 * 90
 
-local STEEL      = Color3.fromRGB(126, 132, 148)
-local STEEL_DARK = Color3.fromRGB(70, 74, 88)
-local STEEL_LITE = Color3.fromRGB(178, 184, 200)
+-- ===== PALETTE =====
+-- The first build of this machine was pale steel and light blue, and against Forest's bright green
+-- lawn it read as a flat pastel box -- the exact failure the world look pass was run to fix. Two
+-- things were wrong and they are the project's own rules: the body had no dark value anywhere in
+-- it, and nothing carried an outline.
+--
+-- Scenery CANNOT use a Highlight for that outline. Roblox draws about 31 at once and the running
+-- game already spends them on the player's own pets and characters, so a machine that took one
+-- would silently steal it from the one place it matters (the note over `buildEggPlaza` in
+-- ZoneBuilder says exactly this). Scenery outlines are built from GEOMETRY -- see `edged` in
+-- buildMachine for the shape that actually works, and for the two that did not.
+--
+-- AND THE OUTLINE ONLY WORKS IF THE BODY IS BRIGHT. The dark build got this backwards: a deep
+-- indigo body (56, 52, 104) against a near-black edge are the same VALUE, so the two merged and
+-- the machine read as one black blob -- worse than the pale version it replaced. An outline is a
+-- boundary between two values; it needs something light on the other side of it. The body is a
+-- vivid violet from the same candy family the HUD tiles use.
+local OUTLINE    = Color3.fromRGB(18, 16, 34)    -- near-black, never pure black
+local BODY       = Color3.fromRGB(146, 116, 240) -- vivid violet: the mass the outline draws around
+local BODY_LITE  = Color3.fromRGB(186, 160, 250)
+local STEEL_LITE = Color3.fromRGB(198, 202, 224)
 local GLASS_TINT = Color3.fromRGB(150, 225, 255)
-local ACCENT     = Color3.fromRGB(120, 210, 255)
+local ACCENT     = Color3.fromRGB(90, 240, 255)  -- cyan strand + trim
+local ACCENT2    = Color3.fromRGB(255, 96, 205)  -- magenta strand, the other half of the helix
 
 local lastRoll = {}
 -- every part of the helix, with the offset it sits at when the machine is unturned
@@ -140,42 +162,85 @@ local function buildMachine(centre)
 	local model = Instance.new("Model")
 	model.Name = "DNASplicer"
 
-	-- ---- plinth. Two slabs so the machine has an edge you can see you are standing at.
-	local rim = newPart({ Name = "PlinthRim", Size = Vector3.new(26, 1.4, 26),
-		Position = centre + Vector3.new(0, 0.7, 0), Color = STEEL_DARK,
-		Material = Enum.Material.DiamondPlate, Parent = model })
-	local deck = newPart({ Name = "Plinth", Size = Vector3.new(22, 1.6, 22),
-		Position = centre + Vector3.new(0, 1.9, 0), Color = STEEL,
-		Material = Enum.Material.DiamondPlate, Parent = model })
+	-- The outline helper: a near-black slab `grow` studs bigger on the two axes that face the
+	-- camera, sitting exactly where the mass does. One call per mass, so nothing can be added
+	-- later without one and quietly read as flat.
+	-- ===== HOW A DARK EDGE IS ACTUALLY DRAWN ON A ROBLOX PART =====
+	-- NOT by wrapping the mass in a bigger dark shell. That was the second attempt and it is
+	-- geometrically hopeless: a part 0.4 studs bigger on all three axes ENCLOSES the one it is
+	-- meant to outline, so every face you can see belongs to the shell and the body colour is
+	-- never drawn at all. Both dark builds of this machine were that mistake -- the palette was
+	-- fine and invisible.
+	--
+	-- The village crates and lamps do it the way that works: a bright mass with dark TRIM at its
+	-- extremities -- a lip wider than the body under it, a cap over it. The dark reads as an edge
+	-- because it is at the boundary, and the body keeps every face in between.
+	local function edged(props, lip)
+		local body = newPart(props)
+		local g = lip or 0.9
+		-- the lip: wider in X and Z, thin in Y, sunk just under the mass so it peeks out as a rim
+		newPart({
+			Name = (props.Name or "Part") .. "Lip",
+			Size = Vector3.new(props.Size.X + g, 0.7, props.Size.Z + g),
+			Position = props.Position - Vector3.new(0, props.Size.Y / 2, 0),
+			Color = OUTLINE, Material = Enum.Material.SmoothPlastic,
+			CanCollide = false, CastShadow = false, Parent = props.Parent,
+		})
+		return body
+	end
+	-- a matching cap, for masses that want an edge on top as well as underneath
+	local function capped(props, lip)
+		local body = edged(props, lip)
+		local g = lip or 0.9
+		newPart({
+			Name = (props.Name or "Part") .. "Cap",
+			Size = Vector3.new(props.Size.X + g, 0.7, props.Size.Z + g),
+			Position = props.Position + Vector3.new(0, props.Size.Y / 2, 0),
+			Color = OUTLINE, Material = Enum.Material.SmoothPlastic,
+			CanCollide = false, CastShadow = false, Parent = props.Parent,
+		})
+		return body
+	end
+
+	-- ---- plinth: a wide violet base with a dark rim under it, then the lit deck stepped in on top
+	edged({ Name = "PlinthRim", Size = Vector3.new(26, 1.4, 26),
+		Position = centre + Vector3.new(0, 0.7, 0), Color = BODY,
+		Material = Enum.Material.Metal, Parent = model }, 1.4)
+	local deck = edged({ Name = "Plinth", Size = Vector3.new(22, 1.6, 22),
+		Position = centre + Vector3.new(0, 1.9, 0), Color = BODY_LITE,
+		Material = Enum.Material.Metal, Parent = model }, 1.0)
 	model.PrimaryPart = deck
 
 	-- a ring of lit floor tiles, so the machine has a footprint at night
 	for i = 0, 7 do
 		local a = (i / 8) * math.pi * 2
-		newPart({ Name = "DeckLamp", Size = Vector3.new(2.4, 0.4, 2.4),
-			Position = centre + Vector3.new(math.cos(a) * 8.6, 2.8, math.sin(a) * 8.6),
+		newPart({ Name = "DeckLamp", Size = Vector3.new(2.6, 0.5, 2.6),
+			Position = centre + Vector3.new(math.cos(a) * 8.6, 2.9, math.sin(a) * 8.6),
 			Color = ACCENT, Material = Enum.Material.Neon, CanCollide = false, Parent = model })
 	end
 
 	-- ---- the two pillars the tube stands between
 	for _, sx in ipairs({ -7.5, 7.5 }) do
-		newPart({ Name = "Pillar", Size = Vector3.new(5, 19, 7),
-			Position = centre + Vector3.new(sx, 12.2, 0), Color = STEEL,
-			Material = Enum.Material.Metal, Parent = model })
-		newPart({ Name = "PillarTrim", Size = Vector3.new(5.6, 1.6, 7.6),
+		capped({ Name = "Pillar", Size = Vector3.new(5, 19, 7),
+			Position = centre + Vector3.new(sx, 12.2, 0), Color = BODY,
+			Material = Enum.Material.Metal, Parent = model }, 1.0)
+		newPart({ Name = "PillarTrim", Size = Vector3.new(5.4, 1.8, 7.4),
 			Position = centre + Vector3.new(sx, 21.6, 0), Color = ACCENT,
 			Material = Enum.Material.Neon, CanCollide = false, Parent = model })
-		newPart({ Name = "PillarFoot", Size = Vector3.new(6.4, 1.8, 8.4),
-			Position = centre + Vector3.new(sx, 3.6, 0), Color = STEEL_DARK,
-			Material = Enum.Material.Metal, Parent = model })
+		newPart({ Name = "PillarBand", Size = Vector3.new(5.4, 1.2, 7.4),
+			Position = centre + Vector3.new(sx, 14.0, 0), Color = ACCENT2,
+			Material = Enum.Material.Neon, CanCollide = false, Parent = model })
+		edged({ Name = "PillarFoot", Size = Vector3.new(6.4, 1.8, 8.4),
+			Position = centre + Vector3.new(sx, 3.6, 0), Color = BODY_LITE,
+			Material = Enum.Material.Metal, Parent = model }, 1.0)
 	end
 
 	-- ---- canopy
-	newPart({ Name = "Canopy", Size = Vector3.new(23, 2, 10),
-		Position = centre + Vector3.new(0, 23.4, 0), Color = STEEL_DARK,
-		Material = Enum.Material.Metal, Parent = model })
-	newPart({ Name = "CanopyLip", Size = Vector3.new(24.4, 0.9, 11.4),
-		Position = centre + Vector3.new(0, 22.3, 0), Color = ACCENT,
+	capped({ Name = "Canopy", Size = Vector3.new(23, 2, 10),
+		Position = centre + Vector3.new(0, 23.4, 0), Color = BODY,
+		Material = Enum.Material.Metal, Parent = model }, 1.2)
+	newPart({ Name = "CanopyLip", Size = Vector3.new(24.4, 1.1, 11.4),
+		Position = centre + Vector3.new(0, 22.2, 0), Color = ACCENT,
 		Material = Enum.Material.Neon, CanCollide = false, Parent = model })
 
 	-- ---- the glass tube. Shape = Cylinder is drawn along its X axis, so it is turned upright
@@ -197,7 +262,9 @@ local function buildMachine(centre)
 
 	-- ---- the helix. Two strands and the rungs between them, which is the thing that makes the
 	-- machine legible as a DNA splicer from across the plaza rather than as a lamp.
-	local BEADS, TURNS, RADIUS, SPAN = 13, 2.1, 2.9, 14.4
+	-- Beads at 2.4 rather than 1.7: at the smaller size they vanished inside the tinted glass from
+	-- more than a few studs away, which took the one shape that says "DNA" out of the silhouette.
+	local BEADS, TURNS, RADIUS, SPAN = 13, 2.1, 3.0, 14.4
 	helix = {}
 	helixPivot = CFrame.new(centre + Vector3.new(0, 12.6, 0))
 	for i = 0, BEADS - 1 do
@@ -207,8 +274,10 @@ local function buildMachine(centre)
 		for strand = 0, 1 do
 			local ang = a + strand * math.pi
 			local bead = newPart({ Name = "HelixBead", Shape = Enum.PartType.Ball,
-				Size = Vector3.new(1.7, 1.7, 1.7),
-				Color = strand == 0 and ACCENT or Color3.fromRGB(255, 150, 220),
+				Size = Vector3.new(2.4, 2.4, 2.4),
+				-- two strongly separated hues, so the double helix reads as two strands rather
+				-- than as a column of beads
+				Color = strand == 0 and ACCENT or ACCENT2,
 				Material = Enum.Material.Neon, CanCollide = false, CastShadow = false,
 				Parent = model })
 			-- Stored as an OFFSET from the pivot, not as a world CFrame: the driver below rebuilds
@@ -230,13 +299,15 @@ local function buildMachine(centre)
 	end
 
 	-- ---- the console you actually walk up to
-	local console = newPart({ Name = "Console", Size = Vector3.new(11, 4.6, 5),
-		Position = centre + Vector3.new(0, 5.2, 8.6), Color = STEEL,
-		Material = Enum.Material.Metal, Parent = model })
-	newPart({ Name = "ConsoleLip", Size = Vector3.new(11.8, 0.8, 5.8),
+	local console = edged({ Name = "Console", Size = Vector3.new(11, 4.6, 5),
+		Position = centre + Vector3.new(0, 5.2, 8.6), Color = BODY,
+		Material = Enum.Material.Metal, Parent = model }, 1.0)
+	newPart({ Name = "ConsoleLip", Size = Vector3.new(11.6, 1.0, 5.6),
 		Position = centre + Vector3.new(0, 7.6, 8.6), Color = ACCENT,
 		Material = Enum.Material.Neon, CanCollide = false, Parent = model })
 
+	-- The screen takes NO lip: it is already near-black, so it is its own dark edge against the
+	-- violet console it is mounted on, and anything laid in front of its face hides the SurfaceGui.
 	local screen = newPart({ Name = "Screen", Size = Vector3.new(9.4, 3.2, 0.4),
 		Position = centre + Vector3.new(0, 5.6, 11.2), Color = Color3.fromRGB(16, 20, 30),
 		Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
