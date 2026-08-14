@@ -5465,6 +5465,50 @@ local CHAR_LINE_H = 132
 			corner(check, UDim.new(0.5, 0))
 			themeLabel(check, 22)
 
+			-- ===== THE RARITY PIP (12.6) =====
+			--
+			-- The disc's own colour is the CHARACTER (see the note over `tint`), and that was the
+			-- right call -- but it cost the panel the one thing the old rarity fill did say, which
+			-- the locked-disc comment below still describes and no longer delivers: "there is a
+			-- Legendary here you have not found". Rarity is still authored on every entry and it
+			-- is still what StageCostume's skinMarks reads to decide how much flourish a character
+			-- wears, so it is a real property of the thing -- it just has no longer any business
+			-- owning ninety-six pixels.
+			--
+			-- A pip owns twenty-six of them, in the corner, and the two facts stop competing: the
+			-- ring says WHICH character, the pip says HOW ORNATE. Mirrors the worn tick on the
+			-- opposite corner so the disc reads as one object with two badges rather than as a
+			-- badge stuck on an afterthought.
+			--
+			-- SHOWN ON LOCKED DISCS TOO, deliberately, and it is the only thing on a locked cell
+			-- besides the "?" -- the damage figure is hidden there because a number under
+			-- something you have never seen is noise, while the SHAPE of what is left to find is
+			-- exactly what a collection panel is for.
+			local pipRarity = GameConfig.GetRarity(entry.rarity)
+			local pip = Instance.new("TextLabel")
+			pip.Name = "Pip"
+			pip.Size = UDim2.new(0, 26, 0, 26)
+			pip.Position = UDim2.new(0, -2, 0, -2)
+			pip.BackgroundColor3 = pipRarity.color
+			pip.Text = (entry.rarity or "Common"):sub(1, 1)
+			-- above the lock (Badge+1) and the tick (Badge+2): a locked disc must still show it
+			pip.ZIndex = cell.ZIndex + UITheme.Z.Badge + 3
+			pip.Parent = cell
+			corner(pip, UDim.new(0.5, 0))
+			-- The stroke is authored BEFORE themeLabel, which only adds its own 4px one when the
+			-- label has none. Four pixels of near-black around a 26px disc closes over the glyph
+			-- inside it -- the pip would read as a dark dot with a smudge in the middle.
+			do
+				local pipStroke = Instance.new("UIStroke")
+				pipStroke.Thickness = UITheme.SnapStroke(2)
+				pipStroke.Color = OUTLINE_COLOR
+				pipStroke.Transparency = 0
+				pipStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+				pipStroke.LineJoinMode = Enum.LineJoinMode.Round
+				pipStroke.Parent = pip
+			end
+			themeLabel(pip, 17, UITheme.Color.White)
+
 			-- A CLICK SELECTS, IT NO LONGER EQUIPS. It used to put the character straight on the body,
 			-- which meant the only way to find out what one looked like was to wear it, and the only
 			-- way to compare two was to wear both. The detail card on the right is where a character
@@ -5501,9 +5545,15 @@ local CHAR_LINE_H = 132
 
 	-- A WELL FOR THE FIGURE TO STAND IN. On the panel's own white sheet a pale character had no
 	-- edge at all -- the same problem the loading screen's tip card was made to solve.
+	--
+	-- 244 -> 212 (12.6). The card gained a second stat row and every element under the well had to
+	-- move up by the difference; the height came out of the well rather than out of the panel
+	-- because the panel is the widest in the game and registerPanel fits it to a phone viewport by
+	-- SCALE -- thirty-two more pixels of card is thirty-two fewer everywhere else on a small screen.
+	-- The figure is still drawn 298 x 212, which is three times the size of a disc.
 	local stageBox = Instance.new("Frame")
 	stageBox.Name = "StageBox"
-	stageBox.Size = UDim2.new(1, -24, 0, 244)
+	stageBox.Size = UDim2.new(1, -24, 0, 212)
 	stageBox.Position = UDim2.new(0, 12, 0, 12)
 	stageBox.ZIndex = detail.ZIndex + 1
 	stageBox.Parent = detail
@@ -5528,10 +5578,28 @@ local CHAR_LINE_H = 132
 	bigMark.Parent = stageBox
 	themeLabel(bigMark, 96, Color3.fromRGB(186, 194, 214))
 
+	-- ===== THE RARITY, IN WORDS (12.6) =====
+	--
+	-- The pip on the disc says how ornate an entry is with one letter and a colour; this is the same
+	-- fact spelled out for the one entry being looked at, and it rides in the corner of the well
+	-- rather than on a line of its own because the card has no line to spare and a ribbon on the
+	-- picture is where a collection game puts this.
+	--
+	-- Written by paintDetail, never created by it -- the whole panel's contract. It carries text and
+	-- a colour that change per selection, which is exactly why it exists up here.
+	local dRarity = Instance.new("TextLabel")
+	dRarity.Name = "DetailRarity"
+	dRarity.Size = UDim2.new(0, 118, 0, 26)
+	dRarity.Position = UDim2.new(0, 9, 0, 9)
+	dRarity.ZIndex = stageBox.ZIndex + 3 -- over the viewport (+1) and the "?" (+2)
+	dRarity.Parent = stageBox
+	styleCard(dRarity, UITheme.Color.Locked, UDim.new(0, 9), 2)
+	themeLabel(dRarity, 16, UITheme.Color.White)
+
 	local dName = Instance.new("TextLabel")
 	dName.Name = "DetailName"
 	dName.Size = UDim2.new(1, -24, 0, 36)
-	dName.Position = UDim2.new(0, 12, 0, 264)
+	dName.Position = UDim2.new(0, 12, 0, 232)
 	dName.BackgroundTransparency = 1
 	dName.ZIndex = detail.ZIndex + 1
 	dName.Parent = detail
@@ -5540,29 +5608,48 @@ local CHAR_LINE_H = 132
 	local dSub = Instance.new("TextLabel")
 	dSub.Name = "DetailSub"
 	dSub.Size = UDim2.new(1, -24, 0, 24)
-	dSub.Position = UDim2.new(0, 12, 0, 300)
+	dSub.Position = UDim2.new(0, 12, 0, 268)
 	dSub.BackgroundTransparency = 1
 	dSub.ZIndex = detail.ZIndex + 1
 	dSub.Parent = detail
 	themeLabel(dSub, 20, Color3.fromRGB(126, 134, 156))
 
-	-- the one number that matters, in the shape every other stat in this game is drawn in
+	-- WHAT THE RUNG IS WORTH, in the shape every other stat in this game is drawn in.
+	--
+	-- Two lines since 12.6, and the second one is not decoration: a skin has paid health as well as
+	-- damage since GameConfig.CharacterHealthPerRank went in, and this panel -- the only screen in
+	-- the game that says anything at all about what a character is worth -- was still quoting only
+	-- half of it. 40 -> 62 to carry the pair; see the well above for where the pixels came from.
 	local dStat = Instance.new("Frame")
 	dStat.Name = "DetailStat"
-	dStat.Size = UDim2.new(1, -24, 0, 40)
-	dStat.Position = UDim2.new(0, 12, 0, 332)
+	dStat.Size = UDim2.new(1, -24, 0, 62)
+	dStat.Position = UDim2.new(0, 12, 0, 294)
 	dStat.ZIndex = detail.ZIndex + 1
 	dStat.Parent = detail
 	styleCard(dStat, Color3.fromRGB(230, 235, 246), UDim.new(0, 12), 3)
 
 	local dStatLabel = Instance.new("TextLabel")
-	dStatLabel.Size = UDim2.new(1, -16, 1, -6)
-	dStatLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
-	dStatLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+	dStatLabel.Size = UDim2.new(1, -16, 0, 26)
+	dStatLabel.Position = UDim2.new(0.5, 0, 0, 5)
+	dStatLabel.AnchorPoint = Vector2.new(0.5, 0)
 	dStatLabel.BackgroundTransparency = 1
 	dStatLabel.ZIndex = dStat.ZIndex + 1
 	dStatLabel.Parent = dStat
 	themeLabel(dStatLabel, 21, Color3.fromRGB(70, 78, 98))
+
+	-- The health half. Quoted from GameConfig.GetCharacterHealthPct -- the function the applied
+	-- multiplier is built out of -- and never re-derived here: a second copy of "1% a rung" in the
+	-- UI is a promise that goes stale the day the rate changes, which is exactly the class of bug
+	-- the damage figure was rescued from (see the note over the disc's own label).
+	local dStatHp = Instance.new("TextLabel")
+	dStatHp.Name = "DetailHealth"
+	dStatHp.Size = UDim2.new(1, -16, 0, 26)
+	dStatHp.Position = UDim2.new(0.5, 0, 0, 31)
+	dStatHp.AnchorPoint = Vector2.new(0.5, 0)
+	dStatHp.BackgroundTransparency = 1
+	dStatHp.ZIndex = dStat.ZIndex + 1
+	dStatHp.Parent = dStat
+	themeLabel(dStatHp, 21, Color3.fromRGB(70, 78, 98))
 
 	local dHint = Instance.new("TextLabel")
 	dHint.Name = "DetailHint"
@@ -5592,6 +5679,28 @@ local CHAR_LINE_H = 132
 	local selectedKey = nil
 	local bigRig, bigPivot = nil, nil
 
+	-- ===== DARK INK ON A PALE CARD DOES NOT WANT AN OUTLINE (12.6) =====
+	--
+	-- Every label in this kit is white with a 4px near-black stroke, and that stroke is what carries
+	-- white text over a bright cartoon world. The detail card is the other case entirely: it is a
+	-- pale sheet (240,243,250) and its labels are DARK -- so glyph and outline are the same ink, and
+	-- twenty-one pixels of it inside four more render as a fat dark blob with a slightly lighter
+	-- core. Every property reads correct while it happens: TextFits true, .Text right,
+	-- .TextColor3 right. It is only visible in a screenshot, which is how it was found -- the same
+	-- defect 12.3 found on the Splicer's white reveal card, one panel over.
+	--
+	-- Fixed the same way, and deliberately by a LUMINANCE TEST rather than a list of label names:
+	-- dName wears the CHARACTER'S own colour and a good half of the roster is pale gold or cream,
+	-- which needs the dark outline exactly as much as the dark ones need it gone. 0.62 is the line
+	-- between the two on this sheet -- the locked grey (150,158,178) sits a hair above it and keeps
+	-- its stroke, the mid-grey subtitle sits below and loses it.
+	local function inkOnLight(label)
+		local st = label:FindFirstChildOfClass("UIStroke")
+		if not st then return end
+		local c = label.TextColor3
+		st.Transparency = (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) < 0.62 and 1 or 0
+	end
+
 	-- TEXT AND BUTTON ONLY. Called from refreshCharacterPanel, which runs on every DataUpdate --
 	-- which is to say on every creature anyone kills -- so it must never rebuild the figure.
 	local function paintDetail()
@@ -5599,12 +5708,19 @@ local CHAR_LINE_H = 132
 		local entry = refs and refs.entry
 		if not entry then
 			dName.Text = "Nothing picked"
+			dName.TextColor3 = Color3.fromRGB(46, 54, 74)
 			dSub.Text = "Choose one from the list"
 			dStatLabel.Text = ""
+			dStatHp.Text = ""
+			dRarity.Visible = false
 			dHint.Text = ""
 			bigMark.Visible = true
 			bigMark.Text = "\u{1F4D2}"
 			equipButton.Visible = false
+			-- the empty card is a real state of this panel (it is what it opens as before anything is
+			-- picked), so it gets the same ink treatment as the filled one
+			inkOnLight(dName)
+			inkOnLight(dSub)
 			return
 		end
 
@@ -5619,10 +5735,44 @@ local CHAR_LINE_H = 132
 
 		dName.Text = owned and entry.name or "???"
 		dName.TextColor3 = owned and (entry.color or Color3.fromRGB(46, 54, 74)) or Color3.fromRGB(150, 158, 178)
-		dSub.Text = ("%s %s  \u{2022}  #%d of %d%s"):format(stage and stage.emoji or "", stage and stage.name or "",
-			GameConfig.GetCharacterIndex(entry), #GameConfig.GetCharactersForStage(entry.stage), rarityLine)
+		-- AN OFF-LADDER SKIN BELONGS TO NO STAGE, and this line used to say so by printing
+		-- "  \u{2022}  #1 of 0" beside the VIP one: `entry.stage` is nil for it, so
+		-- GetCharactersForStage hands back an empty list and GetCharacterIndex falls through to its
+		-- 1. Nothing was broken underneath -- the ladder deliberately does not contain these -- it
+		-- was the panel reporting a position in a list the entry is not in.
+		if entry.offLadder then
+			dSub.Text = ("%s  \u{2022}  outside the collection%s")
+				:format(entry.vip and "\u{1F451} VIP Exclusive" or "\u{1F386} Event skin", rarityLine)
+		else
+			dSub.Text = ("%s %s  \u{2022}  #%d of %d%s"):format(stage and stage.emoji or "", stage and stage.name or "",
+				GameConfig.GetCharacterIndex(entry), #GameConfig.GetCharactersForStage(entry.stage), rarityLine)
+		end
+
+		-- ===== THE TWO NUMBERS A RUNG IS WORTH (12.6) =====
+		--
+		-- Both read off GetEffectiveRank, which is the only honest rung for an off-ladder skin: the
+		-- VIP one scores as the best thing the save has earned, so a fixed figure would be a lie in
+		-- one direction or the other depending on how far the collection has got. The disc's own
+		-- label already says "= best" for exactly this reason; the card used to quote
+		-- GetCharacterRank straight and therefore printed the WEAKEST rung in the game beside the
+		-- strongest skin in it (GetRankDamage clamps a 0 up to rank 1).
+		local shownRank = GameConfig.GetEffectiveRank(currentData, entry)
 		dStatLabel.Text = ("\u{2694}\u{FE0F}  %s Damage"):format(
-			formatNumber(math.floor(GameConfig.GetRankDamage(GameConfig.GetCharacterRank(entry)))))
+			formatNumber(math.floor(GameConfig.GetRankDamage(shownRank))))
+		dStatHp.Text = ("\u{2764}\u{FE0F}  +%d%% Max Health"):format(
+			math.floor(GameConfig.GetCharacterHealthPct(entry, currentData)))
+
+		-- The rarity ribbon on the well. Shown for a locked entry too -- what is still out there is
+		-- the whole point of a collection screen -- and inked by LUMINANCE rather than by a list of
+		-- rarity names, so a rarity added later is handled without touching this line. Gold and grey
+		-- both come back bright and take the dark ink; blue and violet take white.
+		local rarityDef = GameConfig.GetRarity(entry.rarity)
+		dRarity.Visible = true
+		dRarity.Text = (entry.rarity or "Common"):upper()
+		setButtonColor(dRarity, rarityDef.color)
+		local rc = rarityDef.color
+		dRarity.TextColor3 = (0.299 * rc.R + 0.587 * rc.G + 0.114 * rc.B) > 0.55
+			and Color3.fromRGB(46, 40, 30) or UITheme.Color.White
 
 		equipButton.Visible = owned
 		if equipped then
@@ -5660,6 +5810,15 @@ local CHAR_LINE_H = 132
 				dHint.TextColor3 = Color3.fromRGB(146, 154, 174)
 			end
 		end
+
+		-- LAST, because every branch above can still be writing a colour and the test is on the
+		-- colour. dRarity is deliberately not in the list: its UIStroke is styleCard's BORDER, i.e.
+		-- the chip's own rim, not an outline around the glyphs.
+		inkOnLight(dName)
+		inkOnLight(dSub)
+		inkOnLight(dStatLabel)
+		inkOnLight(dStatHp)
+		inkOnLight(dHint)
 	end
 
 	-- REBUILDS THE FIGURE. Only from a click, never from a data push.
@@ -5793,7 +5952,36 @@ local function refreshCharacterPanel()
 	local have, total = GameConfig.CountCharacters(owned)
 	-- The header's subtitle since 11.14. It says the RULE as well as the count, because the count on
 	-- its own reads as a lottery scorecard -- and the discs are not a lottery, they are a queue.
-	characterCount.Text = ("Discovered %d / %d  --  they unlock in order, so the next one is always the cheapest"):format(have, total)
+	--
+	-- ===== ...AND SINCE 12.6 IT NAMES THE FRONT OF THE QUEUE (12.6) =====
+	--
+	-- "They unlock in order, so the next one is always the cheapest" states the rule and then leaves
+	-- the player to go and find the first dim disc themselves, in a list twenty rows deep that opens
+	-- three and a bit rows from the top. The rule is worth saying once, in a comment and in the
+	-- design; the ANSWER is worth saying every time the panel is open.
+	--
+	-- Both functions are the server's own: GetCollectionStage returns the lowest stage still missing
+	-- an entry (capped at the stage reached) and NextCharacterForStage returns that stage's first
+	-- unowned one -- the same pair DNAService hands a character over with. So this callout cannot
+	-- drift from what an evolve will actually give, which a second "first dim disc" scan written
+	-- here certainly would.
+	--
+	-- The nil case is NOT "collection complete": the cap means a player who has finished every stage
+	-- they have reached also gets nil, with ninety discs still dark above them. That is the common
+	-- case, not the edge one, and it is the one moment the panel can say plainly what the next
+	-- evolve is for.
+	local nextStage = GameConfig.GetCollectionStage(owned, currentData.StageIndex or 1)
+	local nextEntry = GameConfig.NextCharacterForStage(owned, nextStage)
+	local nextLine
+	if nextEntry then
+		local nextStageDef = GameConfig.Stages[nextStage]
+		nextLine = ("  \u{2022}  Next up: %s %s"):format(nextStageDef and nextStageDef.emoji or "", nextEntry.name)
+	elseif have < total then
+		nextLine = "  \u{2022}  Evolve to open the next stage"
+	else
+		nextLine = "  \u{2022}  every one of them found"
+	end
+	characterCount.Text = ("Discovered %d / %d%s"):format(have, total, nextLine)
 	-- and the same fraction as a bar in the band below it (11.16)
 	characterFill.Size = UDim2.new(have / math.max(1, total), 0, 1, 0)
 

@@ -3951,9 +3951,17 @@ end
 -- It stacks MULTIPLICATIVELY with Stage Mastery's healthMult, exactly as the damage side stacks.
 GameConfig.CharacterHealthPerRank = 1
 
-function GameConfig.GetCharacterHealthPct(entry)
+-- WHAT ONE RUNG IS WORTH IN HEALTH, and the Journal's second stat line quotes it rather than
+-- re-deriving "1% a rung" in the UI -- a second copy of the rate is a promise that goes stale the
+-- day the rate moves, which is the exact bug the damage figure on the same card was rescued from.
+--
+-- `data` is optional and only matters for an OFF-LADDER skin. The VIP and event skins have no rung
+-- of their own -- GetCharacterRank returns 0 for them on purpose -- and score as the best one the
+-- save has earned, which is what GetEffectiveRank exists for. Without the second argument this
+-- printed "+0% Max Health" beside a skin that in fact carries the wearer's whole collection.
+function GameConfig.GetCharacterHealthPct(entry, data)
 	if not entry then return 0 end
-	return GameConfig.GetCharacterRank(entry) * GameConfig.CharacterHealthPerRank
+	return GameConfig.GetEffectiveRank(data, entry) * GameConfig.CharacterHealthPerRank
 end
 
 -- Health follows damage onto the PROGRESS rung for the same reason (see GetProgressRank): the two
