@@ -707,8 +707,26 @@ GameConfig.PetRarities = {
 	-- These weights feed exactly one function -- `poolWeights`, which serves the egg roll and the
 	-- odds board that advertises it -- so this changes what eggs produce and nothing else.
 	{ name = "Legendary", weight = 4,    bonusMult = 8.0, color = Color3.fromRGB(255, 190, 60) },
+
+	-- ===== SECRET (12.12), AND WHY ITS WEIGHT IS ZERO =====
+	--
+	-- A Secret is not drawn from the weighted pool at all -- it is a separate 1-in-50,000 pre-roll in
+	-- `rollAndInsert`, and only on a Premium egg. The zero here is the SECOND lock on that, behind
+	-- `EggablePets` excluding them and `PetsByZone` never holding one: if a future pool ever did
+	-- contain a Secret by accident, `poolWeights` would give it weight `0 * boost` = 0 and the roll
+	-- could still never land on it. A rarity that must not be rollable is worth defending twice.
+	--
+	-- `bonusMult = 12` sits above Legendary's 8 by half again, not by an order of magnitude. The
+	-- thing being sold here is that you have one, and a species 10x the game's best pet would make
+	-- the 49,999 hatches that did not produce it feel like a punishment rather than a lottery.
+	{ name = "Secret",    weight = 0,    bonusMult = 12,  color = Color3.fromRGB(255, 64, 160) },
 }
 
+-- FIVE LONG, DELIBERATELY, and Secret is not in it. This table is POSITIONAL -- entry i of a zone's
+-- species list is `PetRarityOrder[i]` -- so appending to it would silently ask every zone for a
+-- sixth species and shift nothing else. It indexes the egg pools; `PetRarities` describes what a
+-- rarity is worth. The two stopped being the same list the moment a rarity existed that no egg pool
+-- can contain.
 GameConfig.PetRarityOrder = { "Common", "Uncommon", "Rare", "Epic", "Legendary" }
 
 -- Which rarities are worth a 420-stud pillar of light and everybody's attention (Phase 6.2's beam,
@@ -718,8 +736,11 @@ GameConfig.PetRarityOrder = { "Common", "Uncommon", "Rare", "Epic", "Legendary" 
 --
 -- ONE ROW IS DELIBERATE. Epic is a 42/1600 roll, i.e. one hatch in 38 before luck; adding it here
 -- would mean a beam every few seconds in a busy server, and a beam that common announces nothing.
+-- Secret joined it in 12.12 and needs no cooldown thought at all: at 1 in 50,000 Premium hatches it
+-- is roughly four orders of magnitude rarer than the roll this table's cooldown was written for.
 GameConfig.BeaconRarities = {
 	Legendary = true,
+	Secret = true,
 }
 
 function GameConfig.IsBeaconRarity(name)
@@ -966,6 +987,97 @@ for _, zone in ipairs(GameConfig.Zones) do
 	end
 end
 
+-- ===== THE SPECIES ALMOST NOBODY WILL EVER SEE (12.12) =====
+--
+-- One per zone, and the ONLY way to get one is a Premium egg landing a 1-in-50,000 pre-roll that
+-- happens before the ordinary weighted roll is even reached. They are not in `PetsByZone`, so no
+-- pool contains them; they are not in `EggablePets`, so no fallback reaches them; and their rarity
+-- carries `weight = 0`, so a pool that somehow did contain one still could not roll it. Three
+-- independent locks, because the whole product here is scarcity and a leak is unrecoverable -- a
+-- Secret handed out by accident cannot be taken back without touching saves.
+--
+-- WHY THEY ARE STILL IN `GameConfig.Pets`: that is what `GetPetDef` scans, and a save holding one
+-- has to resolve everywhere else in the game -- the follower rig, fusion, the damage arithmetic,
+-- trading, the inventory card. A species the code cannot name is a species that breaks the panel
+-- it appears in.
+--
+-- Colours are the zone's palette pushed to its most saturated reading, and every key is unique
+-- against the 100 in ZONE_PETS and the 20 in EXCLUSIVE_PETS -- `GetPetDef` is a linear scan over
+-- one flat list, so a duplicate key would resolve to whichever was inserted first and the loser
+-- would silently become invisible. Rigs cost nothing: `PetModel.Build` hashes the key to one of
+-- five archetypes and paints it with `color`, so twenty new species are twenty rows, not assets.
+local SECRET_PETS = {
+	Forest          = { key = "Thornheart", name = "Thorn Heart", emoji = "\u{1F340}",         color = Color3.fromRGB(128, 255, 170) },
+	Desert          = { key = "Mirageon",   name = "Mirageon",    emoji = "\u{1F3DC}\u{FE0F}", color = Color3.fromRGB(255, 222, 150) },
+	Ocean           = { key = "Tidewraith", name = "Tide Wraith", emoji = "\u{1F30A}",         color = Color3.fromRGB(110, 255, 238) },
+	Volcano         = { key = "Ashenmaw",   name = "Ashen Maw",   emoji = "\u{1F525}",         color = Color3.fromRGB(255, 150, 60) },
+	Moon            = { key = "Eclipsyl",   name = "Eclipsyl",    emoji = "\u{1F311}",         color = Color3.fromRGB(200, 215, 255) },
+	Mars            = { key = "Rustwake",   name = "Rust Wake",   emoji = "\u{1F6F0}\u{FE0F}", color = Color3.fromRGB(255, 130, 96) },
+	Galaxy          = { key = "Starweaver", name = "Star Weaver", emoji = "\u{2728}",          color = Color3.fromRGB(210, 170, 255) },
+	BlackHole       = { key = "Umbrion",    name = "Umbrion",     emoji = "\u{26AB}",          color = Color3.fromRGB(190, 110, 255) },
+	Multiverse      = { key = "Paradoxa",   name = "Paradoxa",    emoji = "\u{1F3AD}",         color = Color3.fromRGB(255, 140, 240) },
+	Nebula          = { key = "Auroran",    name = "Auroran",     emoji = "\u{1F386}",         color = Color3.fromRGB(255, 160, 255) },
+	Wormhole        = { key = "Loopwalker", name = "Loop Walker", emoji = "\u{1F517}",         color = Color3.fromRGB(200, 150, 255) },
+	QuantumRealm    = { key = "Superposit", name = "Superposit",  emoji = "\u{269B}\u{FE0F}",  color = Color3.fromRGB(120, 255, 246) },
+	TimeRift        = { key = "Chronaught", name = "Chronaught",  emoji = "\u{231B}",          color = Color3.fromRGB(255, 230, 130) },
+	AntimatterZone  = { key = "Antiphase",  name = "Antiphase",   emoji = "\u{2622}\u{FE0F}",  color = Color3.fromRGB(255, 190, 80) },
+	DreamDimension  = { key = "Somnivore",  name = "Somnivore",   emoji = "\u{1F4AD}",         color = Color3.fromRGB(232, 170, 255) },
+	MirrorUniverse  = { key = "Inversal",   name = "Inversal",    emoji = "\u{1FA9E}",         color = Color3.fromRGB(245, 252, 255) },
+	VoidExpanse     = { key = "Voidsong",   name = "Void Song",   emoji = "\u{1F5A4}",         color = Color3.fromRGB(206, 120, 255) },
+	CelestialThrone = { key = "Divinark",   name = "Divinark",    emoji = "\u{1F531}",         color = Color3.fromRGB(255, 240, 180) },
+	Singularity     = { key = "Kernel",     name = "Kernel",      emoji = "\u{2B55}",          color = Color3.fromRGB(230, 240, 255) },
+	AbsolutePlane   = { key = "Genesis",    name = "Genesis",     emoji = "\u{1F31F}",         color = Color3.fromRGB(255, 252, 220) },
+}
+
+GameConfig.SecretPetsByZone = {}
+for _, zone in ipairs(GameConfig.Zones) do
+	local p = SECRET_PETS[zone.key]
+	if p then
+		local def = {
+			key = p.key,
+			name = p.name,
+			emoji = p.emoji,
+			color = p.color,
+			zone = zone.key,
+			rarity = "Secret",
+			secret = true,
+		}
+		table.insert(GameConfig.Pets, def)
+		GameConfig.SecretPetsByZone[zone.key] = def
+	end
+end
+
+-- ===== THE PRE-ROLL =====
+--
+-- Priced as one number rather than as a weight, because it is not competing with the other species
+-- for share -- it happens first, and the ordinary roll runs only when it does not. That is also why
+-- luck is capped here: the shared luck total reaches ~400 in the worst honest case (2.12's
+-- measurement), and an uncapped `1 + luck/1000` on a future luck ceiling would quietly turn a
+-- 1-in-50,000 into a 1-in-a-few-thousand. At the cap this is 1 in 35,714 -- luck is worth having and
+-- is not the feature.
+GameConfig.Secret = {
+	chance = 1 / 50000,
+	luckCap = 400,
+	luckDiv = 1000,
+}
+
+function GameConfig.GetSecretChance(luckPercent)
+	local s = GameConfig.Secret
+	return s.chance * (1 + math.min(luckPercent or 0, s.luckCap) / s.luckDiv)
+end
+
+-- PREMIUM ONLY. The tier is what the whole thing hangs off -- the expensive egg has to be worth its
+-- 9x over the Basic one for a reason the player can name, and "it is the only egg that can do this"
+-- is a better reason than a third of a percent of Legendary. One predicate, read by the roll and by
+-- both odds boards, so the advertisement and the behaviour cannot drift.
+function GameConfig.CanEggHatchSecret(egg)
+	return egg ~= nil and egg.tierSuffix == "Premium" and GameConfig.SecretPetsByZone[egg.zone] ~= nil
+end
+
+function GameConfig.GetSecretPetForEgg(egg)
+	return egg and GameConfig.SecretPetsByZone[egg.zone] or nil
+end
+
 -- ===== AND THE FALLBACK POOL HAD TO STOP BEING `GameConfig.Pets` =====
 --
 -- `RollFromPool` and `GetEggPool` both fall back to the flat list when they are handed a malformed
@@ -974,9 +1086,13 @@ end
 -- not exclusive, built once. The hole is closed at the bottom of the funnel rather than at each of
 -- the three call sites above it, which is the only version of this that a future egg type cannot
 -- reopen by accident.
+--
+-- `not def.secret` joined it in 12.12 for exactly the same reason and in the same commit as the
+-- species themselves: a Secret reachable through the malformed-egg fallback would be a Secret with
+-- a 1-in-120 chance instead of a 1-in-50,000 one, which is the failure this list exists to prevent.
 GameConfig.EggablePets = {}
 for _, def in ipairs(GameConfig.Pets) do
-	if not def.exclusive then
+	if not def.exclusive and not def.secret then
 		table.insert(GameConfig.EggablePets, def)
 	end
 end
@@ -1476,7 +1592,28 @@ function GameConfig.RollPetForEgg(egg, luckPercent)
 	return GameConfig.RollFromPool(GameConfig.GetEggPool(egg), luckPercent, egg and egg.rarityBias)
 end
 
+-- Thousands separators, for the one figure in the game that is quoted as "1 in N" rather than as a
+-- percentage. Local because that is its only caller; MainUI's own `formatNumber` abbreviates
+-- (50K), which is the wrong read for odds -- the digits ARE the boast.
+local function withCommas(n)
+	local s = tostring(math.floor(n))
+	local out = s:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+	return (out:gsub("^,", ""))
+end
+
 -- Odds a given egg actually presents, as percentages -- what the podium board shows.
+--
+-- THE SECRET ROW IS APPENDED HERE RATHER THAN AT EACH BOARD (12.12). There are two boards -- the
+-- billboard over the podium and the egg panel in the HUD -- and a rule written twice is a rule that
+-- will be right in one place. It rides on the same function the roll shares, so the "?????" line
+-- appears on precisely the eggs that can actually produce one and moves with luck exactly as the
+-- roll does.
+--
+-- It carries `text` because neither board's number formatter can print this honestly: both fall
+-- back to two decimals under 1%, and 0.002% renders as "0.00%" -- the same "advertising something
+-- that cannot be won" bug the two-decimal rule was written to fix, one order of magnitude further
+-- down. "1 in 50,000" is the only form of this figure a player can read. `chance` is still the real
+-- percentage, so anything that sums or sorts these keeps working.
 function GameConfig.GetEggOdds(egg, luckPercent)
 	local pool = GameConfig.GetEggPool(egg)
 	local weights, total = poolWeights(pool, luckPercent, egg and egg.rarityBias)
@@ -1484,6 +1621,26 @@ function GameConfig.GetEggOdds(egg, luckPercent)
 	for i, p in ipairs(pool) do
 		out[i] = { def = p, chance = weights[i] / total * 100 }
 	end
+
+	if GameConfig.CanEggHatchSecret(egg) then
+		local chance = GameConfig.GetSecretChance(luckPercent)
+		table.insert(out, {
+			-- A DEF-SHAPED STAND-IN, not the real species. Both boards read `def.name`, `def.emoji`
+			-- and `def.rarity` straight out of this entry, and naming the pet on the shop sign is
+			-- the one thing a secret must not do -- what is advertised is that the Premium egg can
+			-- do something the others cannot.
+			def = { key = "Secret", name = "?????", emoji = "\u{2753}", rarity = "Secret" },
+			chance = chance * 100,
+			-- TWO STRINGS, because the two boards are two different sizes and neither can render the
+			-- other's. The HUD row is 96 px of a scrolling panel and gets the digits in full; the
+			-- billboard cell is a 3.7-stud square of TextScaled label sitting beside "12.5%", and
+			-- eleven characters in it are a grey smear at any range you would read it from.
+			text = ("1 in %s"):format(withCommas(math.floor(1 / chance + 0.5))),
+			textShort = ("1/%dK"):format(math.max(1, math.floor(1 / chance / 1000 + 0.5))),
+			secret = true,
+		})
+	end
+
 	return out
 end
 

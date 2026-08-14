@@ -263,8 +263,13 @@ local function play(payload)
 		end
 
 		-- 3. RARITY FLASH, in the colour of what was actually rolled -- a Legendary must not slide
-		-- past looking like every other hatch
-		burst(top, rarity.color, rarity.name == "Legendary" and 90 or 45)
+		-- past looking like every other hatch.
+		--
+		-- `IsBeaconRarity`, NOT `== "Legendary"` (12.12). The bulk path 250 lines below already asks
+		-- the question that way, and the two disagreeing meant the Secret added this phase would have
+		-- raised a 420-stud pillar of light and then flashed at the same 45 particles as a Common.
+		-- One rule, one table: what is worth announcing to the server is worth a bigger burst here.
+		burst(top, rarity.color, GameConfig.IsBeaconRarity(rarity.name) and 90 or 45)
 		SoundLibrary.PlayHatch(payload.rarity)
 
 		-- 4. THE PET RISES. Built from the key the server sent, at the tier it sent, so what comes
@@ -512,7 +517,7 @@ local function playBulk(payload)
 		if shell and shellColor then shell.Color = shellColor end
 
 		-- the burst takes the colour of the BEST pull, so the batch announces its own headline
-		burst(top, bestRarity.color, bestRarity.name == "Legendary" and 110 or 60)
+		burst(top, bestRarity.color, GameConfig.IsBeaconRarity(bestRarity.name) and 110 or 60)
 		bulkCards(top + Vector3.new(0, 4.2, 0), pets, best)
 	end)
 

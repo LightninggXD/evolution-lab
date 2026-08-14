@@ -142,6 +142,28 @@ local function rollAndInsert(data, eggDef)
 	-- `GetPetLuckPercent`, not `GetLuckPercent`: 11.5 took the shop's Luck upgrade out of the shared
 	-- total and gave it to eggs alone at +5 a level. This and the egg panel are its only two readers.
 	local luckPercent = GameConfig.GetPetLuckPercent(data) + (eggDef.luckBonus or 0)
+
+	-- ===== THE SECRET PRE-ROLL (12.12) =====
+	--
+	-- BEFORE the pool roll, and it returns instead of it rather than competing inside it. A Secret is
+	-- not one of the egg's species -- it is not in `PetsByZone`, so `GetEggPool` cannot produce it,
+	-- and its rarity carries `weight = 0`, so a pool that somehow held one still could not roll it.
+	-- The only door is this one, and `CanEggHatchSecret` is the only lock on it: Premium tier, and a
+	-- zone that actually has a secret authored.
+	--
+	-- It sits in `rollAndInsert` rather than in the two callers on purpose. That is the whole reason
+	-- this function was extracted -- x10 must not become a second definition of what an egg is worth
+	-- -- so the bulk path gets the pre-roll per egg, ten independent chances for ten eggs, with no
+	-- second implementation to keep in step. Both paths already read the def they get back for the
+	-- notification and both already call `AnnounceService`, which the new `BeaconRarities.Secret`
+	-- row turns into a beam without either of them learning what a Secret is.
+	if GameConfig.CanEggHatchSecret(eggDef) and math.random() < GameConfig.GetSecretChance(luckPercent) then
+		local secretDef = GameConfig.GetSecretPetForEgg(eggDef)
+		if secretDef then
+			return insertPet(data, secretDef)
+		end
+	end
+
 	-- rolls only within this egg's own pool -- its zone's species, sliced by the egg tier's
 	-- rarity window -- and the tier's bias shifts the odds inside that slice on top of luck
 	local petDef = GameConfig.RollPetForEgg(eggDef, luckPercent)

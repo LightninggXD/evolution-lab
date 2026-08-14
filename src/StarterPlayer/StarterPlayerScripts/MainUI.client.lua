@@ -2597,6 +2597,31 @@ local function refreshPetsPanel()
 		valueLabel.Parent = cell
 		themeLabel(valueLabel, 26, Color3.fromRGB(62, 196, 86))
 
+		-- ===== THE SECRET BADGE (12.12) =====
+		--
+		-- The rarity is already on the card twice -- the rim colour and the word in the sub-line --
+		-- and for the other five that is exactly right. A Secret is a 1-in-50,000 hatch, and the
+		-- first thing a player does with one is show it to somebody; a word in 16px grey text three
+		-- lines down is not a thing you can point at. So it gets the one loud element in this panel.
+		--
+		-- ON THE CELL, IN THE ART'S TOP-LEFT CORNER, which is the only free corner: the card's
+		-- top-right is the release x (or the select checkbox), the equipped tick sits at (26,22) on
+		-- the rig itself, and the damage figure owns the bottom-left at y=72. Nothing else can be
+		-- drawn here, so nothing else has to move.
+		if info.secret then
+			local badge = Instance.new("TextLabel")
+			badge.Name = "SecretBadge"
+			badge.Size = UDim2.new(0, 60, 0, 20)
+			badge.Position = UDim2.new(0, 0, 0, 0)
+			-- above the ViewportFrame, which is itself lifted to Badge -- the rig would otherwise
+			-- render over a label parented to the same cell
+			badge.ZIndex = preview.ZIndex + 3
+			badge.Text = "SECRET"
+			badge.Parent = cell
+			styleCard(badge, rarity.color, UDim.new(0, 7), 2)
+			themeLabel(badge, 14, Color3.fromRGB(255, 255, 255))
+		end
+
 		-- No per-row Fuse button any more. Fusing is a decision about a GROUP of four identical
 		-- pets, not about the one row under the cursor, and a button that silently consumed three
 		-- other pets from elsewhere in the list was the least readable thing in this panel. It
@@ -8350,10 +8375,14 @@ local shopPanels = {
 			local row = rows[i]
 			local pct = row and row:FindFirstChild("Chance")
 			if pct then
-				-- two decimals under 1%, because "0%" on a Legendary is a lie the player can disprove
-				pct.Text = entry.chance < 1
+				-- `entry.text` when the entry brought its own (the 12.12 Secret row, quoted as
+				-- "1 in 50,000"): two decimals cannot express a 0.002% chance and would print
+				-- "0.00%", which is the same lie one order of magnitude further down.
+				-- Otherwise two decimals under 1%, because "0%" on a Legendary is a lie the player
+				-- can disprove.
+				pct.Text = entry.text or (entry.chance < 1
 					and ("%.2f%%"):format(entry.chance)
-					or ("%.1f%%"):format(entry.chance)
+					or ("%.1f%%"):format(entry.chance))
 			end
 		end
 

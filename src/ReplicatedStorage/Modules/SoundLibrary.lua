@@ -403,7 +403,13 @@ end
 -- an orchestra uses for the same reason, and the reason it works here is that the player never
 -- hears two rarities back to back, so what registers is "that one sounded heavier".
 local HATCH_SPEED = {
+	-- An ABSENT key falls back to 1.0, which is Rare's pitch -- so a rarity added to GameConfig and
+	-- not added here does not go silent, it goes UNREMARKABLE, and the rarest hatch in the game
+	-- sounds like the third-commonest. That is why `Secret` (12.12) is a row rather than an
+	-- oversight waiting to be noticed: it is the deepest pitch on the ladder because it is the
+	-- rarest thing the ladder has.
 	Common = 1.30, Uncommon = 1.15, Rare = 1.00, Epic = 0.88, Legendary = 0.76, Mythic = 0.68,
+	Secret = 0.62,
 }
 
 function SoundLibrary.PlayHatch(rarityKey, target)

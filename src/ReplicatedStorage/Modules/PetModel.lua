@@ -175,7 +175,11 @@ function PetModel.Build(def, tier, opts)
 	ring.Parent = model
 	addPiece(ring, CFrame.new(Vector3.new(0, -1.5, 0) * scale) * CFrame.Angles(0, 0, math.rad(90)))
 
-	if rarity.name == "Epic" or rarity.name == "Legendary" then
+	-- WHICH RARITIES GLOW. Epic by name, and everything the announce table considers worth a beam --
+	-- which is Legendary and, since 12.12, Secret. Written as `IsBeaconRarity` rather than as a
+	-- second list of names so a rarity added above Legendary cannot end up rarer than an Epic and
+	-- duller than one, which is exactly what a Secret was for the length of this edit.
+	if rarity.name == "Epic" or GameConfig.IsBeaconRarity(rarity.name) then
 		local light = Instance.new("PointLight")
 		light.Color = rarity.color
 		light.Range = 13
@@ -192,7 +196,9 @@ function PetModel.Build(def, tier, opts)
 				NumberSequenceKeypoint.new(1, 1),
 			})
 			sparkle.Lifetime = NumberRange.new(0.7, 1.2)
-			sparkle.Rate = rarity.name == "Legendary" and 9 or 5
+			sparkle.Rate = (rarity.name == "Secret" and 16)
+				or (rarity.name == "Legendary" and 9)
+				or 5
 			sparkle.Speed = NumberRange.new(0.6, 1.4)
 			sparkle.SpreadAngle = Vector2.new(180, 180)
 			sparkle.Parent = body

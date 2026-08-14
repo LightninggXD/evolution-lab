@@ -53,7 +53,12 @@ local ZoneBuilder = {}
 -- medium bottle's number was rendering as pale grey between two saturated neighbours.
 -- 131 (12.9): GameConfig.ZoneShops goes 8 entries -> 15, so seven zones that had no counter now
 -- build one. A shop is geometry, so none of them appears without this bump.
-local BUILD_VERSION = 131
+-- 132 (12.12): every Premium egg's odds board gains a fifth cell -- the "?????" Secret row that
+-- `GameConfig.GetEggOdds` now appends. The billboard is baked at build time, so without this bump
+-- the twenty Premium podiums keep advertising four species and the rarest thing in the game is
+-- sold nowhere. Premium goes 4 cells -> 5, which is the width the Better board already had, so no
+-- stall gets wider than it was.
+local BUILD_VERSION = 132
 
 -- The Colosseum carries its own stamp. Bumping BUILD_VERSION drops all 21 zones and rebuilds
 -- ~60,000 parts, which takes long enough that Studio regularly loses the connection partway (see
@@ -5913,9 +5918,10 @@ local function buildEggOddsBoard(shop, egg, ex, y)
 		chance.TextStrokeColor3 = Color3.fromRGB(255, 255, 255)
 		chance.TextStrokeTransparency = 0
 		-- Below 1% the integer form rounds a real 0.5 chance to "0%", which advertises something
-		-- that cannot be won. Two decimals only where it takes two.
-		chance.Text = entry.chance < 1 and string.format("%.1f%%", entry.chance)
-			or string.format(entry.chance < 10 and "%.1f%%" or "%.0f%%", entry.chance)
+		-- that cannot be won. Two decimals only where it takes two. `textShort` overrides both for
+		-- the 12.12 Secret cell, whose real figure (0.002%) no percentage form can print here.
+		chance.Text = entry.textShort or (entry.chance < 1 and string.format("%.1f%%", entry.chance)
+			or string.format(entry.chance < 10 and "%.1f%%" or "%.0f%%", entry.chance))
 		chance.Parent = cell
 	end
 
