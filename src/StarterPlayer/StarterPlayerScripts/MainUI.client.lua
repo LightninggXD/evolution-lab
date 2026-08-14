@@ -5280,13 +5280,27 @@ local CHAR_LINE_H = 132
 	-- line was also Cream on PanelWhite -- the exact white-on-white trap this file warns about
 	-- twenty lines above.
 
-	-- The twenty stage rows, PLUS ONE MORE at the end for the VIP skin.
+	-- The twenty stage rows, PLUS TWO MORE at the end: the VIP skin and the event skins.
 	--
-	-- It is built by exactly the same code as every other disc, which is the point: it locks,
-	-- unlocks, previews, selects and wears with no special case anywhere, and a later change to how
-	-- a cell looks reaches it for free. What it is NOT is part of a stage -- it never enters
+	-- Both are built by exactly the same code as every other disc, which is the point: they lock,
+	-- unlock, preview, select and wear with no special case anywhere, and a later change to how
+	-- a cell looks reaches them for free. What they are NOT is part of a stage -- neither enters
 	-- CHARACTERS_BY_STAGE, so the collection count, the evolve chain and the rank ladder cannot see
-	-- it. See GameConfig.VipCharacter for why that separation is load-bearing.
+	-- them. See GameConfig.VipCharacter for why that separation is load-bearing.
+	--
+	-- ===== THE EVENT ROW (12.7) =====
+	--
+	-- It is the last row rather than the first, and it is DELIBERATELY not sorted by rarity. The
+	-- optional "rare first" toggle this row carried does not survive contact with the panel: a
+	-- stage's five entries are already in rarity order (Common, Uncommon, Rare, Epic, Legendary --
+	-- that IS the authored list), and that order is simultaneously the UNLOCK QUEUE, which is what
+	-- the header subtitle, the "next up" callout and the whole left-to-right reading of a row are
+	-- built on. Reversing it would put the disc you are actually working towards at the far right of
+	-- its row. There is also nothing for a LayoutOrder to sort: the cells are positioned by index
+	-- inside their row, not laid out, so only the twenty ROWS have a LayoutOrder at all.
+	--
+	-- Guarded on the table being non-empty so removing the last event skin removes the row rather
+	-- than leaving an empty header on the end of the list.
 	local sections = {}
 	for stageIndex, stage in ipairs(GameConfig.Stages) do
 		table.insert(sections, {
@@ -5300,6 +5314,13 @@ local CHAR_LINE_H = 132
 		stage = { emoji = GameConfig.VipCharacter.emoji, name = "VIP Exclusive" },
 		entries = { GameConfig.VipCharacter },
 	})
+	if #GameConfig.EventCharacters > 0 then
+		table.insert(sections, {
+			index = #GameConfig.Stages + 2,
+			stage = { emoji = "\u{1F386}", name = "Event Exclusive" },
+			entries = GameConfig.EventCharacters,
+		})
+	end
 
 	for _, section in ipairs(sections) do
 		local stageIndex, stage, entries = section.index, section.stage, section.entries
@@ -5414,11 +5435,15 @@ local CHAR_LINE_H = 132
 			damageLabel.Size = UDim2.new(1, 24, 0, 24)
 			damageLabel.Position = UDim2.new(0, -12, 1, -6)
 			damageLabel.BackgroundTransparency = 1
-			-- The VIP skin has NO rung on the ladder -- it scores as whatever the wearer's best earned
-			-- skin scores (GameConfig.GetEffectiveRank), so any fixed percentage printed here would be
+			-- An OFF-LADDER skin has no rung -- it scores as whatever the wearer's best earned skin
+			-- scores (GameConfig.GetEffectiveRank), so any fixed percentage printed here would be
 			-- a lie in one direction or the other depending on how far the collection has got. It says
 			-- what it actually is instead.
-			damageLabel.Text = entry.vip and "\u{2694}\u{FE0F} = best"
+			--
+			-- `offLadder`, not `vip` (12.7): the event skins are the second kind of skin that is not
+			-- on the ladder, and they score by the identical rule. Testing `vip` printed the ladder
+			-- figure for a rank of 0 under the Prism Herald, i.e. the weakest number in the game.
+			damageLabel.Text = entry.offLadder and "\u{2694}\u{FE0F} = best"
 				or ("\u{2694}\u{FE0F} %s"):format(formatNumber(damagePct))
 			damageLabel.ZIndex = cell.ZIndex + UITheme.Z.Badge
 			damageLabel.Parent = cell
@@ -5742,7 +5767,7 @@ local CHAR_LINE_H = 132
 		-- was the panel reporting a position in a list the entry is not in.
 		if entry.offLadder then
 			dSub.Text = ("%s  \u{2022}  outside the collection%s")
-				:format(entry.vip and "\u{1F451} VIP Exclusive" or "\u{1F386} Event skin", rarityLine)
+				:format(entry.vip and "\u{1F451} VIP Exclusive" or "\u{1F386} Event Exclusive", rarityLine)
 		else
 			dSub.Text = ("%s %s  \u{2022}  #%d of %d%s"):format(stage and stage.emoji or "", stage and stage.name or "",
 				GameConfig.GetCharacterIndex(entry), #GameConfig.GetCharactersForStage(entry.stage), rarityLine)
@@ -5794,7 +5819,19 @@ local CHAR_LINE_H = 132
 		-- from the best rung OWNED now, so picking an old skin changes nothing but the mirror --
 		-- and the useful fact is instead what the player is hitting for right now.
 		if not owned then
-			dHint.Text = "Evolve to " .. (stage and stage.name or "this stage") .. " to discover it."
+			-- HOW TO GET IT, and for an off-ladder skin that is not "evolve" (12.7). Every unowned
+			-- entry used to be told to evolve into its stage, and an off-ladder skin has no stage --
+			-- so the Prism Herald's own card read "Evolve to this stage to discover it", which is
+			-- both untrue and unactionable. Each kind now names its actual route.
+			if entry.vip then
+				dHint.Text = "Comes with the VIP pass \u{2014} and goes away again if the pass does."
+			elseif entry.event then
+				local eventDef = GameConfig.GetEvent(entry.event)
+				dHint.Text = ("Handed out during %s%s. Turn up while it is running and it is yours for good.")
+					:format(eventDef and (eventDef.emoji .. " ") or "", eventDef and eventDef.name or "the event")
+			else
+				dHint.Text = "Evolve to " .. (stage and stage.name or "this stage") .. " to discover it."
+			end
 		elseif equipped then
 			dHint.Text = ("This is what you look like right now.  You hit for %s."):format(formatNumber(progressDamage))
 		else
@@ -5835,10 +5872,15 @@ local CHAR_LINE_H = 132
 		if owned then
 			-- no part cap here: this is the one place a player is actually looking at the build, so
 			-- it gets every rivet the body in the world has
-			-- The VIP skin belongs to no stage: it is a gold version of whatever the player currently
-			-- IS, so it previews at their stage rather than at a fixed one. (Build returns nil for a
-			-- nil stage rather than erroring, so this is a correctness fix, not a crash fix.)
-			local previewStage = (entry.vip and currentData and currentData.StageIndex) or entry.stage
+			-- An off-ladder skin belongs to no stage: it is a recoloured version of whatever the
+			-- player currently IS, so it previews at their stage rather than at a fixed one. (Build
+			-- returns nil for a nil stage rather than erroring, so this is a correctness fix, not a
+			-- crash fix.)
+			--
+			-- `offLadder` since 12.7, for the same reason as the damage label above: an event skin
+			-- has `stage = nil` too, so testing `vip` left the detail well EMPTY for an owned event
+			-- skin -- the one entry in the panel a player would most want to look at.
+			local previewStage = (entry.offLadder and currentData and currentData.StageIndex) or entry.stage
 			bigRig = CharacterPreview.Build(bigArt, previewStage, entry)
 			if bigRig then
 				CharacterPreview.Frame(bigArt, bigRig, { zoom = 1.06, pitch = 0.12 })
@@ -5886,8 +5928,8 @@ local CHAR_LINE_H = 132
 			if owned[key] and inView then
 				if not refs.rig and budget > 0 then
 					budget -= 1
-					-- same rule as the detail card: the VIP skin previews at the player's own stage
-					local previewStage = (refs.entry.vip and currentData.StageIndex) or refs.entry.stage
+					-- same rule as the detail card: an off-ladder skin previews at the player's own stage
+					local previewStage = (refs.entry.offLadder and currentData.StageIndex) or refs.entry.stage
 					refs.rig = CharacterPreview.Build(refs.art, previewStage, refs.entry, { maxParts = 26 })
 					if refs.rig then
 						CharacterPreview.Frame(refs.art, refs.rig, { zoom = 1.16 })
