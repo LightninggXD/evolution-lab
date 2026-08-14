@@ -22,6 +22,7 @@ local RS = game:GetService("ReplicatedStorage")
 
 local GameConfig = require(RS.Modules.GameConfig)
 local PetModel = require(RS.Modules.PetModel)
+local EvolutionVisuals = require(script.Parent.Systems.EvolutionVisuals)
 local PlayerDataService = require(script.Parent.PlayerDataService)
 
 local PetFollowService = {}
@@ -85,7 +86,12 @@ local function signatureOf(player, data)
 			end
 		end
 	end
-	return table.concat(parts, "|") .. ("@%.1f"):format(ownerScaleOf(player))
+	-- The worn mutation is in the signature because the rigs carry its aura (12.5) and the rebuild
+	-- is the only thing that puts one on. Without it a splice auras the owner's body and leaves the
+	-- pets bare until the next unrelated equip.
+	return table.concat(parts, "|")
+		.. ("@%.1f"):format(ownerScaleOf(player))
+		.. "#" .. tostring(EvolutionVisuals.WornMutation(player))
 end
 
 local function rebuild(player, data)
@@ -109,6 +115,7 @@ local function rebuild(player, data)
 	local hrp = character and character:FindFirstChild("HumanoidRootPart")
 	local ownerScale = ownerScaleOf(player)
 	local petScale = petScaleFor(ownerScale)
+	local mutation = EvolutionVisuals.WornMutation(player)
 
 	for slot, saved in ipairs(equipped) do
 		local def = GameConfig.GetPetDef(saved.key)
@@ -126,6 +133,10 @@ local function rebuild(player, data)
 			if hrp then
 				root.CFrame = hrp.CFrame * CFrame.new((slot - (#equipped + 1) / 2) * 5 * petScale, 0, 5 * ownerScale)
 			end
+			-- The owner's mutation, on the pets that follow them. Sized off the RIG's scale, not the
+			-- owner's -- a pet is a fraction of its owner and an aura built for the body would bury
+			-- the whole row of them.
+			EvolutionVisuals.AttachMutationAura(root, mutation, petScale)
 			model.Parent = folder
 		end
 	end

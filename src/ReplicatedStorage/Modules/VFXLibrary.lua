@@ -64,6 +64,40 @@ local function rateFactor(template, opts, accept)
 	return opts.rate or 1
 end
 
+-- ===== footprint =============================================================
+-- The same argument as `targetRate`, one axis over. The pack's effects are authored at wildly
+-- different SIZES too -- Fire-Aura-01's particles are 1.1 studs and Big/Tornado-01's are 19.6 --
+-- so a shared `scale` makes one effect a speck and the next one a wall. `targetSize` asks for how
+-- many studs the biggest particle should be and derives the multiplier from the source, so "as big
+-- as a player aura should be" is one number across the whole pack.
+--
+-- Measured against the thing it has to be seen past: a mutation aura hung on a HumanoidRootPart at
+-- the pack's authored size is a 10-stud sprite at the centre of a 16-stud-wide body, i.e. entirely
+-- INSIDE an opaque torso. It rendered perfectly and was invisible.
+
+local function maxSizeOf(template, accept)
+	local m = 0
+	for _, d in ipairs(template:GetDescendants()) do
+		if d:IsA("ParticleEmitter") and (not accept or accept(d)) then
+			for _, kp in ipairs(d.Size.Keypoints) do
+				if kp.Value > m then m = kp.Value end
+			end
+		end
+	end
+	return m
+end
+
+-- targetSize wins over scale, the same way targetRate wins over rate.
+local function scaleFactor(template, opts, accept)
+	if opts.targetSize then
+		local m = maxSizeOf(template, accept)
+		if m > 0 then
+			return opts.targetSize / m
+		end
+	end
+	return opts.scale or 1
+end
+
 -- ===== lookup ================================================================
 
 -- "Anime/Fire-01" -> the template Part. Errors loudly on a typo: a silent nil here would
@@ -98,6 +132,9 @@ end
 --   offset  Vector3   local position on the target part (default centre)
 --   scale   number    multiplies particle Size and Speed -- bosses are 10-32 studs, the pack
 --                     is authored for a 5-stud R6 dummy, so this is usually well above 1
+--   targetSize number  studs the LARGEST particle should measure; preferred over `scale` when the
+--                      effect has to be sized against a body rather than against itself. Attach
+--                      only -- `Place` keeps its own carrier and has never needed it.
 --   targetRate number  combined particles/second for the whole effect; preferred over `rate`
 --   rate    number    raw multiplier on Rate, for when the source density is already right
 --   color   Color3    flat tint, see tintOf
@@ -128,7 +165,7 @@ function VFXLibrary.Attach(target, path, opts)
 		return not (only and not only[e.Name]) and not (skip and skip[e.Name])
 	end
 
-	local scale = opts.scale or 1
+	local scale = scaleFactor(template, opts, accept)
 	local rate = rateFactor(template, opts, accept)
 	local count = 0
 

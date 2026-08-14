@@ -3,6 +3,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local GameConfig = require(RS.Modules.GameConfig)
 local StageCostume = require(RS.Modules.StageCostume)
+local VFXLibrary = require(RS.Modules.VFXLibrary)
 local PlayerDataService = require(script.Parent.Parent.PlayerDataService)
 
 local EvolutionVisuals = {}
@@ -55,6 +56,116 @@ local function setupAura(character, stage, stageIndex)
 	particle.Enabled = true
 
 	return attachment, particle
+end
+
+-- ===== THE MUTATION AURA (12.5) =============================================
+--
+-- What the Splicer bought has to be visible on the body, or a x2.25 income multiplier is a line of
+-- text in a panel nobody has open. One rung, one effect, escalating -- the pack ships an `Auras`
+-- category authored for exactly this and the three RNG auras are the middle of the ladder.
+--
+-- COLOUR TRACKS THE LADDER SWATCH, WITH ONE DELIBERATE EXCEPTION. `Secret` is authored
+-- rgb(20,20,20) because it reads as "black" on a UI card; tinting a particle system with it makes
+-- an aura you cannot see against a dark world, on the second-rarest rung in the game. It gets the
+-- violet its portal effect already implies instead. Same reasoning as the Secret odds row in
+-- SplicerUI, arrived at twice independently: a swatch chosen for a white panel is not a colour.
+--
+-- `span` is how many studs the biggest particle should measure ON A 1x BODY, resolved through
+-- VFXLibrary's `targetSize` -- NOT a multiplier on the pack's own size. The pack's authored sizes
+-- run from 1.1 studs to 19.6, so a shared multiplier sizes each effect against itself instead of
+-- against the player, and the first cut of this table did exactly that: a 10-stud sprite at the
+-- centre of a 16-stud-wide body, rendering perfectly, entirely inside an opaque torso. The body is
+-- about 5.9 studs wide per unit of BodyScale, so a span of 7-11 puts the aura outside the
+-- silhouette at every stage without swallowing the player.
+--
+-- Two effects the pack ships as "auras" are deliberately NOT here: `Fire-Aura-01` and
+-- `Water-Aura-01` are six emitters of 1.1-stud particles whose shape comes entirely from where
+-- those emitters sit on the source part -- and `Attach` lifts them all onto ONE attachment, which
+-- is exactly the information it throws away. They collapse to a dot. Prefer an effect whose
+-- emitters are already at the origin (`maxEmitterOffset` 0) or the lift changes what you chose.
+local MUTATION_VFX = {
+	Common    = { path = "Anime/Smoke-01",    rate = 6,  span =  7.0, color = Color3.fromRGB(200, 200, 200) },
+	Rare      = { path = "Anime/Stars-01",    rate = 10, span =  7.6, color = Color3.fromRGB( 90, 160, 255) },
+	Epic      = { path = "Auras/RNG-Aura-01", rate = 15, span =  8.2, color = Color3.fromRGB(170,  90, 255) },
+	Legendary = { path = "Auras/RNG-Aura-02", rate = 21, span =  8.8, color = Color3.fromRGB(255, 180,  50) },
+	Mythic    = { path = "Auras/RNG-Aura-03", rate = 27, span =  9.4, color = Color3.fromRGB(255,  80,  80) },
+	Secret    = { path = "Anime/Portal-01",   rate = 32, span = 10.2, color = Color3.fromRGB(120,  60, 200) },
+	Godly     = { path = "Big/Tornado-01",    rate = 38, span = 11.0, color = Color3.fromRGB(255, 240, 150) },
+}
+
+local MUTATION_AURA_NAME = "MutationAura"
+
+-- Hangs (or removes) the worn mutation's aura on a root part.
+--
+-- THE ROOT PART, NEVER A COSTUME SHELL. Every limb a player appears to have is a welded shell that
+-- `StageCostume.Apply` DESTROYS and rebuilds on every evolve and every skin change -- an aura
+-- parented to one of those is gone the first time the wearer changes anything, which is the moment
+-- they are most likely to be looking. The HumanoidRootPart survives a re-dress; it only dies with
+-- the character, and a fresh character comes back through ApplyStage.
+--
+-- Idempotent by destroy-then-build rather than by patching in place: the attachment carries a
+-- variable number of emitters copied out of the pack, so "same aura, different rung" has no safe
+-- in-place edit and the whole unit is cheap to replace.
+--
+-- Takes the PART rather than the character, because the equipped pet rigs need exactly the same
+-- thing hung on their own roots and a second copy of this table is how the two drift apart.
+function EvolutionVisuals.AttachMutationAura(root, mutationName, scale)
+	if not (root and root:IsA("BasePart")) then return nil end
+
+	-- THE SCALE IS PART OF THE IDENTITY, not just the name. An evolve keeps the mutation and triples
+	-- the body, so a name-only check would leave a Cell-sized aura on a Gorilla forever; it also makes
+	-- the call order-independent, which matters because the attribute hook can reach a character
+	-- before ApplyStage has stamped `BodyScale`.
+	local wanted = ("%s@%.2f"):format(tostring(mutationName), scale or 1)
+	local existing = root:FindFirstChild(MUTATION_AURA_NAME)
+	if existing and existing:GetAttribute("AuraKey") == wanted then
+		return existing -- already wearing exactly this, at this size; leave the running emitters alone
+	end
+	if existing then existing:Destroy() end
+
+	local spec = mutationName and MUTATION_VFX[mutationName]
+	if not spec or not VFXLibrary.Exists(spec.path) then return nil end
+
+	local att = VFXLibrary.Attach(root, spec.path, {
+		name = MUTATION_AURA_NAME,
+		-- Normalised, not multiplied: this table spans Smoke-01 at 5 particles/second to
+		-- Fire-Aura-01 at 120, so a raw multiplier would make the low rungs bare and the top ones a
+		-- wall. Well under the boss aura's 55 -- a boss is one thing you walk up to, a player aura is
+		-- on every player on the server at once.
+		targetRate = spec.rate,
+		-- sized against the BODY, not against the pack -- see the note on `span`
+		targetSize = spec.span * (scale or 1),
+		color = spec.color,
+	})
+	if att then
+		att:SetAttribute("AuraKey", wanted)
+		att:SetAttribute("Mutation", mutationName)
+	end
+	return att
+end
+
+-- The worn mutation's name, from the attribute SplicerService stamps -- with the save as a fallback
+-- for the join path, where a character can be ready before the stamp lands. Public because
+-- PetFollowService needs the same answer for the rigs.
+function EvolutionVisuals.WornMutation(player)
+	local name = player:GetAttribute("Mutation")
+	if name == nil then
+		local data = PlayerDataService.Get(player)
+		name = data and data.SplicerMutation
+	end
+	return name
+end
+
+function EvolutionVisuals.ApplyMutationAura(player)
+	local character = player.Character
+	if not character then return end
+	-- `BodyScale` is the stage's TARGET scale, stamped by ApplyStage -- deliberately not the
+	-- Humanoid's live BodyHeightScale, which is mid-tween for 0.6s after an evolve and would size
+	-- the aura to a body the player is only passing through. See [[evolution-lab-body-settles-late]].
+	return EvolutionVisuals.AttachMutationAura(
+		character:FindFirstChild("HumanoidRootPart"),
+		EvolutionVisuals.WornMutation(player),
+		character:GetAttribute("BodyScale") or 1)
 end
 
 -- One-shot burst of particles + light flash played at the moment of evolving.
@@ -471,6 +582,10 @@ function EvolutionVisuals.ApplyStage(player, stageIndex, opts)
 		task.spawn(dress)
 	end
 
+	-- After the scale, so the aura is sized to the stage the player is arriving at. It sits on the
+	-- HumanoidRootPart and so survives `dress` destroying every costume shell below.
+	EvolutionVisuals.ApplyMutationAura(player)
+
 	if opts.burst then
 		playEvolveBurst(character, stage, stageIndex)
 	end
@@ -502,6 +617,14 @@ function EvolutionVisuals.Init()
 				end
 			until data or waited > 5 or not player.Parent or character.Parent == nil
 			if data and character.Parent then
+				-- Stamp the worn mutation on the JOIN path too. SplicerService only sets it at the
+				-- moment of a roll, so without this a returning player's attribute is nil all session
+				-- and anything reading the channel rather than the save sees no mutation at all.
+				-- Before ApplyStage, so the attribute hook and ApplyStage cannot disagree about which
+				-- of them built the aura -- they are idempotent against the same key either way.
+				if data.SplicerMutation and player:GetAttribute("Mutation") ~= data.SplicerMutation then
+					player:SetAttribute("Mutation", data.SplicerMutation)
+				end
 				EvolutionVisuals.ApplyStage(player, data.StageIndex, { animate = false, burst = false })
 			end
 		end)
@@ -525,6 +648,12 @@ function EvolutionVisuals.Init()
 	local function hook(player)
 		player.CharacterAdded:Connect(function(character)
 			onCharacterAdded(player, character)
+		end)
+		-- A splice must show up WITHOUT a respawn -- the whole sequence is a card, a flash and then
+		-- your own body changing. `Mutation` is the attribute SplicerService stamps, so this is the
+		-- only hook needed and it costs nothing when nobody splices.
+		player:GetAttributeChangedSignal("Mutation"):Connect(function()
+			EvolutionVisuals.ApplyMutationAura(player)
 		end)
 		if player.Character then
 			onCharacterAdded(player, player.Character)
