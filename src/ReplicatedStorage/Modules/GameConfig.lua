@@ -1954,8 +1954,54 @@ function GameConfig.GetMysteryCost(zoneKey)
 	return math.max(GameConfig.MysteryShop.minCost, math.floor(base * GameConfig.MysteryShop.costMult))
 end
 
+-- ===== WHAT THE KIOSK'S ODDS BOARD IS BUILT FROM (12.8) =====
+--
+-- The same shape `GetEggOdds` returns, for the same reason: the board on the counter is drawn from
+-- the table `RollMysteryPotion` reads, so it can never advertise a chance the roll does not honour.
+-- Luck is deliberately not a parameter -- this is the shop's BASELINE, printed on a board that is
+-- built once at world-build time and read by every player who walks past it, and a player's own
+-- luck only ever moves the big bottle up from what is written.
+--
+-- The percentages sum to 100 by construction (they are shares of the weight total), which is what
+-- the row's check measures.
+function GameConfig.GetMysterySizeOdds()
+	local rolls = GameConfig.MysteryShop.sizeRolls
+	local total = 0
+	for _, r in ipairs(rolls) do total += r.weight end
+	local out = {}
+	for i, r in ipairs(rolls) do
+		local size
+		for _, s in ipairs(GameConfig.PotionSizes) do if s.key == r.size then size = s end end
+		out[i] = {
+			key = r.size,
+			size = size,
+			name = (size and size.name) or r.size,
+			emoji = (size and size.emoji) or "\u{1F9EA}",
+			minutes = size and size.minutes or 0,
+			chance = total > 0 and (r.weight / total * 100) or 0,
+		}
+	end
+	return out
+end
+
+-- Every kind is equally likely -- the roll picks one with `math.random(1, #kinds)` -- so the board's
+-- kind line is a list of every kind that EXISTS plus one share. Written out by hand it was wrong:
+-- it named three kinds beside a "%d%% each" computed over four (11.8 added Health), i.e. a board
+-- advertising 75% of its own product. Built from the table it cannot drift again.
+function GameConfig.GetMysteryKindsText()
+	local kinds = GameConfig.PotionKinds
+	local parts = {}
+	for _, k in ipairs(kinds) do
+		table.insert(parts, ("%s %s"):format(k.emoji, k.name))
+	end
+	return ("%s  \u{2022}  %d%% each"):format(table.concat(parts, "   "),
+		math.floor(100 / math.max(#kinds, 1) + 0.5))
+end
+
 -- "7% chance of the twenty-minute one" is the part of a gamble a player actually wants to see, so
 -- the shop's board is built from the same table the roll reads.
+-- KEPT, and still the one-line form: the kiosk draws the graphical board above instead (12.8), but
+-- this is what any future text sign should print rather than a second hand-written copy.
 function GameConfig.GetMysteryOddsText()
 	local rolls = GameConfig.MysteryShop.sizeRolls
 	local total = 0

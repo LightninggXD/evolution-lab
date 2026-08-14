@@ -942,10 +942,21 @@ local TILE_START_Y = 100 -- clears the topbar inset and the stage card above it
 -- beside the lone order 7 that this comment used to describe. `rows` is ceil(COUNT / COLS), which is
 -- 4 either way, so nothing that was already on screen moved by a pixel.
 -- ...and back to EIGHT (11.18). The ninth was Eggs, and it is gone: the egg panel is opened by the
--- prompt on the podium now, which is the only place that knows WHICH egg you are looking at. `rows`
--- is ceil(COUNT / COLS) = 4 at both 8 and 9, so the column's shape is unchanged -- what disappears
--- is the lone ninth tile that was sitting on a row of its own.
-local RIGHT_COUNT = 8
+-- prompt on the podium now, which is the only place that knows WHICH egg you are looking at.
+-- (That note used to claim `rows` is 4 at both 8 and 9. It is not -- ceil(9 / 2) is 5 -- which is
+-- exactly why the lone ninth tile had a row of its own to sit on.)
+--
+-- NINE AGAIN (12.8), and the ninth is not the old Eggs tile coming back. It is one MARKET tile that
+-- opens a two-button flyout, and the two buttons are the two panels that had no HUD door at all:
+-- Eggs and Fusion. The reason the doors were removed still holds -- a stall you walked to should be
+-- what sells you the thing -- and it cost more than it bought: fusion was reported missing outright
+-- ("am I missing pet fusion, I am already on stage 4") and the egg screen is where the odds live, so
+-- a player who wanted to COMPARE two eggs had to walk back to one. Both panels self-gate: the egg
+-- panel already prices and prints odds from anywhere and locks only the BUY behind standing at the
+-- podium, and fusion is validated on the server. So the flyout buys the browsing and gives away
+-- none of the walking. `rows` is 5 now; the responsive pass at the bottom of the file works that out
+-- from the tiles it finds, so nothing here has to be told about it.
+local RIGHT_COUNT = 9
 local RIGHT_COLS = 2
 local RIGHT_BOTTOM_Y = 46
 local PANEL_ANCHOR = UDim2.new(0.5, 0, 0.5, 0)
@@ -1416,8 +1427,11 @@ UITheme.IconifyLabel(petsPanelTitle)
 -- Bulk actions. A collection this size is not managed one row at a time: by the time a player is
 -- three zones in they own dozens of pets, and "which three are my best" is a question the game
 -- should answer, not something to solve by scrolling and comparing numbers by eye.
--- Fusion is NOT one of them: it has exactly one door, the Pet Fusion Lab counter in the world (see
--- the ShopPanel handler at the bottom of this script). A shortcut here made the lab pointless.
+-- Fusion is NOT one of them, and that is still true after 12.8: the button that opens it lives in
+-- the Market flyout in the tile cluster, not on this panel. Two doors, both deliberate -- the Pet
+-- Fusion Lab counter in the world (see the ShopPanel handler at the bottom of this script) and the
+-- flyout. What is NOT wanted is a third one buried inside the pets screen, where it reads as a bulk
+-- action on the collection rather than as a machine you visit.
 --
 -- WHY THIS BLOCK IS WRAPPED IN `do ... end`, AND WHY WHAT ESCAPES IT GOES IN ONE TABLE:
 -- this file's top level is a single Luau function, and Luau gives a function 200 registers. It
@@ -8057,7 +8071,15 @@ local shopPanels = {
 -- because this file is at Luau's 200-local ceiling. A `do ... end` is NOT enough -- see the note
 -- over the Season Pass panel for the two times that mistake deleted the entire HUD.
 ;(function()
-	-- ===== NO HUD TILE ANY MORE (11.18) =====
+	-- ===== NO HUD TILE OF ITS OWN (11.18), BUT A DOOR AGAIN (12.8) =====
+	--
+	-- 12.8 did not put the ninth tile back. `hudRefs.showEggPanel` is reachable from the Market
+	-- flyout now (one tile, two buttons, built near the layout pass at the bottom of this file), and
+	-- it is called with NO egg key from there -- so the panel opens on Basic in the player's own
+	-- zone, prices and odds live, and the hatch buttons stay locked until they are standing at a
+	-- podium. The paragraph below is why the dedicated tile is not coming back, and it still holds:
+	-- a HUD button that cannot say which egg you are looking at should not be the one people use.
+	--
 	--
 	-- "The egg screen belongs on the egg." This panel used to be reachable only from a tile in the
 	-- corner of the screen -- the ninth in the right column -- while the podium the player had
@@ -8454,6 +8476,111 @@ local shopPanels = {
 	hudRefs.refreshEggPanel = refresh
 end)()
 
+-- ================= MARKET: ONE TILE, TWO DOORS (12.8) =================
+--
+-- The two panels a player could not open from anywhere -- Eggs and Fusion -- get one shared entry
+-- point, and it is a flyout rather than two more tiles: two doors added to a nine-tile cluster is a
+-- wall of buttons, and these two belong together anyway (both are "the stalls", both are things you
+-- normally walk to). Two clicks from anywhere, which is the row's own bar.
+--
+-- WHAT THIS DOES NOT DO: it does not sell anything. The egg panel prices and prints odds from
+-- anywhere and locks the hatch buttons until you are standing at the podium (`nearestEggZone`), and
+-- fusing goes through Remotes.FusePet, which the server validates. So the walk to the stall still
+-- buys the thing; the flyout only buys the LOOKING, which is what was actually missing.
+--
+-- The whole block is an immediately-called function with nothing escaping to the top level, because
+-- this file is at Luau's 200-local ceiling. A `do ... end` is NOT enough -- see the note over the
+-- Season Pass panel for the two times that mistake deleted the entire HUD.
+;(function()
+	local marketButton = columnTile("R", 9, "\u{1F3EA}", "Market", UITheme.Color.Coral)
+
+	-- ===== THE FLYOUT IS A CHILD OF THE TILE, and that is the whole trick =====
+	--
+	-- The responsive pass at the bottom of this file rewrites every tile's Size and Position at
+	-- startup and on every ViewportSize change. A flyout placed from the tile's AbsolutePosition
+	-- would have to be re-measured on each of those -- and would have to get the topbar inset right
+	-- while doing it, since this ScreenGui has IgnoreGuiInset = true and an offset Position is
+	-- therefore measured from a different origin than an AbsolutePosition (58px apart, measured).
+	-- Anchored to the tile's own bottom-left corner it rides the layout for free and there is no
+	-- arithmetic to get wrong.
+	--
+	-- It opens LEFTWARD because the cluster is pinned to the right edge of the screen: opening it
+	-- outward would put it off the display on every viewport.
+	local fly = Instance.new("Frame")
+	fly.Name = "MarketFlyout"
+	fly.AnchorPoint = Vector2.new(1, 1)
+	fly.Position = UDim2.new(0, -14, 1, 0)
+	fly.Size = UDim2.new(0, 216, 0, 104)
+	fly.BackgroundTransparency = 1
+	fly.Visible = false
+	fly.ZIndex = 2
+	fly.Parent = marketButton
+
+	-- 64 apart for two 46-tall buttons, which UITheme.Button renders at 44/40 -- the pair is 24px of
+	-- nominal gap, and a stacked pair loses 10 to the two 5px border strokes, so what is actually
+	-- visible between them is 14. See the HUD layout note: a gap is never the gap you asked for.
+	local eggsBtn = UITheme.Button(fly, {
+		name = "MarketEggs", text = "\u{1F95A} Eggs", color = UITheme.Color.Sunny,
+		size = UDim2.new(1, 0, 0, 46), position = UDim2.new(0, 0, 0, 0),
+		radius = 14, zIndex = 4, maxTextSize = 22,
+	})
+	local fusionBtn = UITheme.Button(fly, {
+		name = "MarketFusion", text = "\u{1F9EC} Fusion", color = UITheme.Color.Bubblegum,
+		size = UDim2.new(1, 0, 0, 46), position = UDim2.new(0, 0, 0, 64),
+		radius = 14, zIndex = 4, maxTextSize = 22,
+	})
+
+	-- ===== CLICKING ANYWHERE ELSE SHUTS IT =====
+	--
+	-- A transparent TextButton, parented to the tile and twenty screens wide, so it needs no mouse
+	-- coordinates and no inset correction either -- the same reason the flyout itself hangs off the
+	-- tile. It exists only while the flyout is open, and it sits UNDER the flyout by ZIndex so the
+	-- two buttons still get their own clicks. One click is swallowed by it, which is what a menu
+	-- dismiss is supposed to cost.
+	local scrim = Instance.new("TextButton")
+	scrim.Name = "MarketScrim"
+	scrim.Text = ""
+	scrim.AutoButtonColor = false
+	scrim.BackgroundTransparency = 1
+	scrim.AnchorPoint = Vector2.new(0.5, 0.5)
+	scrim.Position = UDim2.new(0.5, 0, 0.5, 0)
+	scrim.Size = UDim2.new(20, 0, 20, 0)
+	scrim.Visible = false
+	scrim.ZIndex = 1
+	scrim.Parent = marketButton
+
+	local function setOpen(open)
+		fly.Visible = open
+		scrim.Visible = open
+	end
+
+	marketButton.MouseButton1Click:Connect(function()
+		if fly.Visible then
+			setOpen(false)
+		else
+			-- a flyout in the corner would otherwise open BEHIND an open panel (panels are ZIndex 20,
+			-- the tile cluster is not), which reads as the button doing nothing
+			closeAllPanels()
+			setOpen(true)
+		end
+	end)
+	scrim.MouseButton1Click:Connect(function()
+		setOpen(false)
+	end)
+
+	-- No egg key: the panel falls back to Basic and to the zone the save says the player is in, which
+	-- is exactly what it does for any caller with nothing to say. Standing at a podium is still what
+	-- unlocks the buy, and walking up to one while the panel is open unlocks it without reopening.
+	eggsBtn.MouseButton1Click:Connect(function()
+		setOpen(false)
+		if hudRefs.showEggPanel then hudRefs.showEggPanel(nil) end
+	end)
+	fusionBtn.MouseButton1Click:Connect(function()
+		setOpen(false)
+		if hudRefs.showFusionPanel then hudRefs.showFusionPanel() end
+	end)
+end)()
+
 -- ===== The two tile columns, fitted to the screen =====
 -- Both columns are laid out in raw pixels: the left runs DOWN from y=100, the right runs UP from
 -- the bottom, five tiles at a 96 pitch. That needs 596px of height, and a Roblox phone viewport is
@@ -8563,15 +8690,19 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt, playerWhoTrigger
 	if not which then return end
 	-- Fusion is handled by name rather than through the table above: its panel is built inside a
 	-- block and only escapes as a function on hudRefs, which already does the toggle and the refresh.
-	-- This is the ONLY way into fusing -- there is deliberately no HUD button for it any more.
+	-- ONE OF TWO WAYS IN SINCE 12.8, and the comment that used to say "the ONLY way, there is
+	-- deliberately no HUD button" is the thing that row changed on purpose -- the Market flyout in
+	-- the tile cluster calls this same `hudRefs.showFusionPanel`. Do not delete that tile to restore
+	-- the old rule: fusion was being reported as a missing feature by players who had not yet walked
+	-- into Volcano, which is the whole reason the lab was moved from zone 5 to zone 4 as well.
 	if which == "fusion" then
 		if hudRefs.showFusionPanel then hudRefs.showFusionPanel() end
 		return
 	end
 	-- Same shape as fusion, and same reason: the egg panel is built inside a block and only escapes
 	-- as functions on hudRefs. It is handed the prompt's `EggKey` so it opens on the egg that was
-	-- pressed rather than on Basic (11.18) -- and since 11.18 this is the ONLY way in, the HUD tile
-	-- having gone with it.
+	-- pressed rather than on Basic (11.18) -- which is the one thing the Market flyout added in 12.8
+	-- cannot do, and why this path is still the one that matters.
 	if which == "eggs" then
 		if hudRefs.showEggPanel then hudRefs.showEggPanel(prompt:GetAttribute("EggKey")) end
 		return

@@ -45,7 +45,13 @@ local ZoneBuilder = {}
 -- buttresses are scenery rather than collision, the waterfalls reserve their corridor before any
 -- prop is placed, the pool's kerb has its own ground, and 37 renamed litter/mound props are solid
 -- again. All of it is geometry, so none of it appears without this bump.
-local BUILD_VERSION = 128
+-- 129 (12.8): the five Mystery Potion kiosks trade their three-line odds paragraph for the egg
+-- stall's graphical odds board. A board is baked at build time exactly as a sign is, so without
+-- this bump every existing world keeps the paragraph -- including the stale kind line it fixes.
+-- 130 (12.8, after looking at 129 through a screen capture): the board's three percentages are
+-- inked off a HUE ramp instead of an RGB lerp -- the middle of that lerp is the grey axis, so the
+-- medium bottle's number was rendering as pale grey between two saturated neighbours.
+local BUILD_VERSION = 130
 
 -- The Colosseum carries its own stamp. Bumping BUILD_VERSION drops all 21 zones and rebuilds
 -- ~60,000 parts, which takes long enough that Studio regularly loses the connection partway (see
@@ -2264,6 +2270,199 @@ local function addWell(model, base, zone)
 	newPart({ Name = "WellBucket", Size = Vector3.new(4.2, 4.2, 4.2), CFrame = base * CFrame.new(0, 10.5, 0), Color = VILLAGE_WOOD, Material = Enum.Material.Wood, CanCollide = false, Parent = model })
 end
 
+-- ===== THE MYSTERY KIOSK'S ODDS BOARD (12.8) =====
+--
+-- Same job and same shape as `buildEggOddsBoard` over the egg podiums, and deliberately the same
+-- object: a wide white pill with one cell per outcome, hung on the shop it belongs to and sized in
+-- STUDS so it stays over its own counter instead of growing into the street from a distance.
+--
+-- What it replaces is a three-line text sign. That sign was the right IDEA -- a gamble has to print
+-- its odds where the money is spent -- and the wrong object twice over: the odds were a run of
+-- "Small 66%   Medium 27%   Large 7%" in one paragraph with the product above it, which is a menu
+-- rather than a board, and its kind line was hand-written and had gone stale (three kinds named
+-- beside a share computed over four). Both halves now come out of GameConfig -- `GetMysteryKindsText`
+-- and `GetMysterySizeOdds` -- which are read off the tables `RollMysteryPotion` itself rolls against.
+--
+-- Colour: each size's percentage is inked in that bottle's own tint, taken through HSV rather than
+-- by blending toward black. "Blend toward the ink colour, then darken" cancels on the pale mint end
+-- of the ramp and gives two sizes the same grey -- take hue and saturation from the tint and SET the
+-- value, which is the rule the world look pass paid for.
+local function buildMysteryOddsBoard(model, base, S, color)
+	local odds = GameConfig.GetMysterySizeOdds()
+	if #odds == 0 then return nil end
+
+	local anchor = newPart({
+		Name = "MysteryOddsAnchor",
+		Size = Vector3.new(1, 1, 1),
+		-- where the old odds sign hung: clear of the counter's bottles below and of the canopy
+		-- fascia above, on the street side of the stall so it is read from the forecourt
+		CFrame = base * CFrame.new(0, 18.4 * S, 15 * S),
+		Transparency = 1,
+		CanCollide = false,
+		Parent = model,
+	})
+
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "MysteryOdds"
+	gui.Size = UDim2.new(21 * S, 0, 8.6 * S, 0)
+	gui.AlwaysOnTop = false
+	gui.LightInfluence = 0
+	-- Wide enough to matter from the forecourt and the pads, and short of the distance the shop's
+	-- own title board is drawn from (640) -- the title is what makes you walk over, this is what you
+	-- read once you are there.
+	gui.MaxDistance = 260
+	gui.Parent = anchor
+
+	local pill = Instance.new("Frame")
+	pill.Name = "Pill"
+	pill.Size = UDim2.new(1, 0, 1, 0)
+	pill.BackgroundColor3 = Color3.fromRGB(250, 252, 255)
+	pill.BorderSizePixel = 0
+	pill.Parent = gui
+	local pillCorner = Instance.new("UICorner")
+	pillCorner.CornerRadius = UDim.new(0.16, 0)
+	pillCorner.Parent = pill
+	local pillStroke = Instance.new("UIStroke")
+	pillStroke.Thickness = 4
+	pillStroke.Color = Color3.fromRGB(28, 38, 58)
+	pillStroke.Parent = pill
+
+	-- the shop's own colour along the top edge, so the board belongs to the kiosk it hangs on
+	local cap = Instance.new("Frame")
+	cap.Name = "Cap"
+	cap.Size = UDim2.new(1, 0, 0.20, 0)
+	cap.BackgroundColor3 = color
+	cap.BorderSizePixel = 0
+	cap.Parent = pill
+	local capCorner = Instance.new("UICorner")
+	capCorner.CornerRadius = UDim.new(0.5, 0)
+	capCorner.Parent = cap
+
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.Size = UDim2.new(1, -16, 1, -4)
+	title.Position = UDim2.new(0.5, 0, 0.5, 0)
+	title.AnchorPoint = Vector2.new(0.5, 0.5)
+	title.BackgroundTransparency = 1
+	title.Font = Enum.Font.FredokaOne
+	title.TextScaled = true
+	title.Text = "ONE SEALED BOTTLE"
+	title.TextColor3 = Color3.fromRGB(255, 255, 255)
+	title.TextStrokeColor3 = Color3.fromRGB(28, 38, 58)
+	title.TextStrokeTransparency = 0
+	title.Parent = cap
+
+	-- WHICH EFFECT, and it is a flat share across every kind that exists
+	local kinds = Instance.new("TextLabel")
+	kinds.Name = "Kinds"
+	kinds.Size = UDim2.new(1, -20, 0.19, 0)
+	kinds.Position = UDim2.new(0.5, 0, 0.21, 0)
+	kinds.AnchorPoint = Vector2.new(0.5, 0)
+	kinds.BackgroundTransparency = 1
+	kinds.Font = Enum.Font.FredokaOne
+	kinds.TextScaled = true
+	kinds.Text = GameConfig.GetMysteryKindsText()
+	kinds.TextColor3 = Color3.fromRGB(52, 60, 82)
+	-- no stroke: this sits on a white pill, and dark ink in a dark outline renders as a blob (12.3)
+	kinds.TextStrokeTransparency = 1
+	kinds.Parent = pill
+
+	-- ...and HOW BIG, which is the part the roll actually gambles on
+	local strip = Instance.new("Frame")
+	strip.Name = "Sizes"
+	strip.Size = UDim2.new(1, -12, 0.55, 0)
+	strip.Position = UDim2.new(0.5, 0, 0.42, 0)
+	strip.AnchorPoint = Vector2.new(0.5, 0)
+	strip.BackgroundTransparency = 1
+	strip.Parent = pill
+
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.VerticalAlignment = Enum.VerticalAlignment.Center
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = strip
+
+	for i, entry in ipairs(odds) do
+		-- ===== A HUE RAMP, NOT AN RGB LERP, AND A SCREENSHOT IS WHY =====
+		--
+		-- The first cut took the counter bottles' own ramp -- mint lerped toward pink in RGB -- and
+		-- set the value through HSV, which is the world look pass's rule and was still the wrong
+		-- instrument here. The MIDDLE of an RGB lerp between two hues sits on the grey axis: the
+		-- medium bottle came out at saturation 0.07, so its "27%" rendered as pale grey on a white
+		-- pill between a saturated green 66% and a saturated magenta 7%. Every property read correct.
+		--
+		-- Walking the HUE instead keeps every rung fully coloured however many sizes there are, and
+		-- the middle becomes a violet rather than a smudge. Ink and tile take the same hue at two
+		-- different saturations, so a cell reads as one object.
+		local t = (i - 1) / math.max(#odds - 1, 1)
+		local hue = 0.42 + t * (0.94 - 0.42)
+		local ink = Color3.fromHSV(hue, 0.85, 0.62)
+		local tint = Color3.fromHSV(hue, 0.42, 0.97)
+
+		local cell = Instance.new("Frame")
+		cell.Size = UDim2.new(1 / #odds, 0, 1, 0)
+		cell.BackgroundTransparency = 1
+		cell.LayoutOrder = i
+		cell.Parent = strip
+
+		local tile = Instance.new("Frame")
+		tile.Name = "Tile"
+		tile.Size = UDim2.new(0.34, 0, 0.62, 0)
+		tile.Position = UDim2.new(0.04, 0, 0, 0)
+		tile.BackgroundColor3 = tint
+		tile.BorderSizePixel = 0
+		tile.Parent = cell
+		local tileCorner = Instance.new("UICorner")
+		tileCorner.CornerRadius = UDim.new(0.28, 0)
+		tileCorner.Parent = tile
+		local tileStroke = Instance.new("UIStroke")
+		tileStroke.Thickness = 2
+		tileStroke.Color = Color3.fromRGB(28, 38, 58)
+		tileStroke.Parent = tile
+
+		local icon = Instance.new("TextLabel")
+		icon.Size = UDim2.new(0.84, 0, 0.84, 0)
+		icon.Position = UDim2.new(0.08, 0, 0.08, 0)
+		icon.BackgroundTransparency = 1
+		icon.Font = Enum.Font.FredokaOne
+		icon.TextScaled = true
+		icon.Text = entry.emoji
+		icon.Parent = tile
+
+		local chance = Instance.new("TextLabel")
+		chance.Name = "Chance"
+		chance.Size = UDim2.new(0.56, 0, 0.56, 0)
+		chance.Position = UDim2.new(0.42, 0, 0.03, 0)
+		chance.BackgroundTransparency = 1
+		chance.Font = Enum.Font.FredokaOne
+		chance.TextScaled = true
+		chance.TextColor3 = ink
+		chance.TextStrokeColor3 = Color3.fromRGB(255, 255, 255)
+		chance.TextStrokeTransparency = 0
+		-- same rule as the egg board: below 1% an integer rounds a real chance to "0%", which
+		-- advertises something that cannot be won
+		chance.Text = entry.chance < 1 and string.format("%.1f%%", entry.chance)
+			or string.format("%.0f%%", entry.chance)
+		chance.Parent = cell
+
+		local foot = Instance.new("TextLabel")
+		foot.Name = "Foot"
+		foot.Size = UDim2.new(0.92, 0, 0.30, 0)
+		foot.Position = UDim2.new(0.04, 0, 0.66, 0)
+		foot.BackgroundTransparency = 1
+		foot.Font = Enum.Font.FredokaOne
+		foot.TextScaled = true
+		foot.TextXAlignment = Enum.TextXAlignment.Left
+		foot.Text = ("%s \u{2022} %d min"):format(entry.name, entry.minutes)
+		foot.TextColor3 = Color3.fromRGB(52, 60, 82)
+		foot.TextStrokeTransparency = 1
+		foot.Parent = cell
+	end
+
+	return anchor
+end
+
 -- THE ONE SHOP THIS ZONE HAS, IF IT HAS ONE.
 --
 -- Every village used to carry the same three potion counters, in all twenty zones, which made the
@@ -2362,9 +2561,11 @@ local function buildZoneShop(model, zone, cx, shopKey, shopDef, base)
 		-- a player wants off a gamble board is the two facts they cannot get anywhere else: what
 		-- comes out, and how likely each one is. Both are read from the tables the roll actually
 		-- uses, so the board cannot drift from the odds.
-		local kindShare = math.floor(100 / math.max(#GameConfig.PotionKinds, 1) + 0.5)
-		makeSign(model, ("ONE RANDOM POTION\n\u{1F9EC} DNA   \u{2B50} XP   \u{1F340} Luck  \u{2022}  %d%% each\n%s"):format(kindShare, GameConfig.GetMysteryOddsText()),
-			at(0, 18.2, 15), UDim2.new(23 * S, 0, 4.8 * S, 0), { maxDistance = 360 })
+		--
+		-- 12.8 MADE IT A BOARD RATHER THAN A PARAGRAPH -- see buildMysteryOddsBoard above, which is
+		-- the egg stall's odds strip wearing this shop's colour. The text form it replaces is still
+		-- in GameConfig (`GetMysteryOddsText`) for any future sign that wants one line of it.
+		buildMysteryOddsBoard(model, base, S, color)
 
 	elseif shopKey == "fusion" then
 		-- two pods with a beam between them: the fusion is the only thing this counter does, and a
