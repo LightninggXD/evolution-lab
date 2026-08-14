@@ -128,6 +128,27 @@ code. More than 13 means something new; the list below says which are already kn
 | `LightConfig.server.lua` | 38 | `Game` |
 | `ZoneBuilder_pre_gate_axis.lua` | 110, 112 | `scatterPoint`, `makeSign` |
 
+### ⚠️ A FOURTH CAUSE, found 2026-08-14: `local a, b, c` breaks the linter
+
+**`luanames.py` mis-parses a multi-name forward declaration.** Given
+
+```lua
+local a, b, c
+local gui = Instance.new("ScreenGui")
+gui.Name = "X"
+```
+
+it reports **two** unknown names — `c` (the last name in the list) and `gui` (the *next* `local`
+in the file). Both are correctly declared; the parser registers only the first name of the comma
+list and then loses a line. Measured on exactly that three-line fixture, and the same file with
+the `local a, b, c` line removed comes back **OK**.
+
+This matters because the count below is used as a tripwire. Anyone adding a comma-form declaration
+raises the baseline by two for no reason, and the next agent reads that as a regression. **Declare
+one per line** in new code (`SplicerUI.client.lua` does, with a comment saying why), or fix the
+parser and re-baseline in the same commit. It is a linter bug, not a Luau rule — the comma form is
+valid and is used elsewhere in this tree.
+
 They are three causes, not eleven:
 
 - **The linter's binding blind spot** — a `local` declared inside a `do` block, before a `repeat`,

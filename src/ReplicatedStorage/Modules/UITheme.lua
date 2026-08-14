@@ -680,6 +680,37 @@ function UITheme.NotifyRank(kind)
 	return NOTIFY_RANK[kind] or 1
 end
 
+-- ============================================================================
+-- PUBLIC: FormatNumber -- 1.23M, and the carry that is easy to get wrong
+-- ============================================================================
+-- ⚠️ MainUI HAS AN IDENTICAL LOCAL COPY OF THIS (`formatNumber`, near the top of that file) AND
+-- CANNOT DELEGATE TO IT. That copy is written ABOVE MainUI's `require` of this module, and Lua
+-- binds an upvalue where a function is WRITTEN -- so a body calling `UITheme.FormatNumber` there
+-- would resolve `UITheme` as a nil global and error on the first number the HUD prints. It is the
+-- same trap the comment beside MainUI's `corner` describes. **Change one, change the other**:
+-- moving MainUI's declaration below its require is the fix and is a row of its own, not a
+-- side-effect of whatever is being built today.
+--
+-- The threshold is 999.995 rather than 999.95 because this prints TWO decimals: 999,999 divides
+-- once to 999.999, which is under the loop's own test and so is accepted, and "%.2f" then renders
+-- it "1000.00K" -- a number one short of a million printed as a thousand thousand. The constant
+-- has to match the precision beside it.
+function UITheme.FormatNumber(n)
+	n = math.floor(n)
+	if n < 1000 then return tostring(n) end
+	local suffixes = { "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp" }
+	local mag = 0
+	while n >= 1000 and mag < #suffixes do
+		n = n / 1000
+		mag += 1
+	end
+	if n >= 999.995 and mag < #suffixes then
+		n = n / 1000
+		mag += 1
+	end
+	return string.format("%.2f%s", n, suffixes[mag])
+end
+
 local function buildLabelChild(inst, opts, base, text, maxText)
 	local label = Instance.new("TextLabel")
 	label.Name = "Label"

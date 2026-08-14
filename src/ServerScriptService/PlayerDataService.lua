@@ -292,10 +292,14 @@ function PlayerDataService.Load(player)
 		-- literals here because GameConfig.Upgrades.Mutation is gone. The credit and the zeroing
 		-- are the SAME write, which is what makes a second pass a no-op.
 		local mutationLevel = tonumber(data.Upgrades and data.Upgrades.Mutation) or 0
+		-- The KEY goes whatever the level was. Refunding only a bought level was the first version
+		-- and it left `Upgrades.Mutation = 0` sitting in every save that never bought one -- inert
+		-- (nothing reads a key `GameConfig.Upgrades` no longer has) but permanent, and a field that
+		-- outlives the feature it belonged to is what the next reader has to work out from scratch.
+		if data.Upgrades then data.Upgrades.Mutation = nil end
 		if mutationLevel > 0 then
 			local refund = math.floor(60 * ((1.35 ^ mutationLevel) - 1) / 0.35)
 			data.DNA = (data.DNA or 0) + refund
-			data.Upgrades.Mutation = nil
 			-- NOT on `data` -- see SplicerRefunds at the top of this file. SplicerService reads it
 			-- to tell the player once, because a silent refund reads as a save that lost an upgrade.
 			PlayerDataService.SplicerRefunds[player.UserId] = refund

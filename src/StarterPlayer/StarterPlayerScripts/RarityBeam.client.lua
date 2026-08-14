@@ -281,8 +281,14 @@ end
 local function playBeam(payload)
 	if active >= MAX_ACTIVE then return end
 
-	local rarity = GameConfig.GetRarity(payload.rarity)
-	local color = rarity.color
+	-- An explicit `color` wins, exactly as it does on the positionless branch below. Without this
+	-- the column could only ever be a PET rarity's colour, and the second publisher is not a pet:
+	-- a Splicer mutation is named "Mythic" / "Secret" / "Godly", none of which is a pet rarity, so
+	-- `GetRarity` would fall back to Common and beam a grey pillar for the rarest roll in the game.
+	local color = payload.color
+	if typeof(color) ~= "Color3" then
+		color = GameConfig.GetRarity(payload.rarity).color
+	end
 	local base = payload.position - Vector3.new(0, 3, 0)   -- a root part stands about 3 studs up
 
 	active += 1

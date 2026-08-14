@@ -47,7 +47,21 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 -- seconds between two beams from the same player, see the header
 local PLAYER_COOLDOWN = 6
 
+-- PER PLAYER **AND PER KIND**, not per player alone. With one publisher the distinction did not
+-- exist; with two it decides whether a Godly mutation can eat the Legendary hatch that happened
+-- four seconds earlier. They are different events and neither is the other's spam, so they hold
+-- separate clocks -- the thing the cooldown exists to stop is the SAME event repeating, which is
+-- the Auto Hatch loop described above.
 local lastBeam = {}
+
+local function onCooldown(player, kind)
+	local key = player.UserId .. "|" .. kind
+	local now = os.clock()
+	local last = lastBeam[key]
+	if last and now - last < PLAYER_COOLDOWN then return true end
+	lastBeam[key] = now
+	return false
+end
 
 local function remote()
 	-- created on demand, like every remote added since the place was last saved by hand
@@ -85,10 +99,6 @@ function AnnounceService.PetObtained(player, petDef, verb)
 	if not player or not petDef then return end
 	if not GameConfig.IsBeaconRarity(petDef.rarity) then return end
 
-	local now = os.clock()
-	local last = lastBeam[player.UserId]
-	if last and now - last < PLAYER_COOLDOWN then return end
-
 	-- The beam is a thing that happens in the world, so it needs somewhere to happen. A player whose
 	-- character is between respawns has no position and gets no beam -- silently, because there is
 	-- nothing wrong: they still got the pet, and the card that names it comes from HatchReveal.
@@ -96,7 +106,9 @@ function AnnounceService.PetObtained(player, petDef, verb)
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if not root then return end
 
-	lastBeam[player.UserId] = now
+	-- Checked AFTER the position test on purpose: a hatch that cannot be drawn must not spend the
+	-- cooldown that the next one, which can be, is going to need.
+	if onCooldown(player, "hatch") then return end
 
 	local rarity = GameConfig.GetRarity(petDef.rarity)
 	AnnounceService.Broadcast({
@@ -110,10 +122,42 @@ function AnnounceService.PetObtained(player, petDef, verb)
 	})
 end
 
+-- THE SECOND PUBLISHER (Phase 12), and the first that is not a pet. The rarity gate lives at the
+-- call site for this one rather than here, because "rare enough to announce" is a property of the
+-- Splicer's own ladder (`GameConfig.Splicer.announceMinIndex`) and this module has no business
+-- knowing where Mythic sits in it -- what belongs here is the cooldown, the position rule and the
+-- wording, which is everything below.
+--
+-- `color` is passed EXPLICITLY. Mutation names -- Mythic, Secret, Godly -- are not pet rarities,
+-- so the client's `GetRarity` fallback would paint the rarest roll in the game Common grey.
+function AnnounceService.MutationRolled(player, mutation)
+	if not player or not mutation then return end
+
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	if onCooldown(player, "mutation") then return end
+
+	AnnounceService.Broadcast({
+		kind = "mutation",
+		position = root.Position,
+		color = mutation.color,
+		headline = ("%s MUTATION!"):format(mutation.name:upper()),
+		subline = ("%s spliced %s at the DNA Splicer"):format(player.DisplayName, mutation.name),
+	})
+end
+
 function AnnounceService.Init()
 	remote()
 	Players.PlayerRemoving:Connect(function(player)
-		lastBeam[player.UserId] = nil
+		-- keyed per (player, kind) now, so the whole player's set has to go
+		local prefix = player.UserId .. "|"
+		for key in pairs(lastBeam) do
+			if key:sub(1, #prefix) == prefix then
+				lastBeam[key] = nil
+			end
+		end
 	end)
 end
 

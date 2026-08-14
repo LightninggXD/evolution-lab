@@ -17,6 +17,7 @@ local CreatureService = require(ServerScriptService.CreatureService)
 local BossService = require(ServerScriptService.BossService)
 local RebirthService = require(ServerScriptService.RebirthService)
 local RebirthShrine = require(ServerScriptService.RebirthShrine)
+local SplicerService = require(ServerScriptService.SplicerService)
 local RewardService = require(ServerScriptService.RewardService)
 local PotionService = require(ServerScriptService.PotionService)
 local PassService = require(ServerScriptService.PassService)
@@ -90,6 +91,11 @@ RebirthService.Init()
 -- after RebirthService (it wires each statue's prompt straight into HandleRebirth) and after
 -- ZoneBuilder.Build() above, which is what puts the Forest decor the plaza has to clear back
 RebirthShrine.Init()
+-- after RebirthShrine and after ZoneBuilder.Build(): the Splicer searches the LIVE Forest ground
+-- for a spot nothing is standing on, so everything that stands on that ground has to be there
+-- first or the search passes over ground that is about to be built on. After AnnounceService too,
+-- which is how a Mythic-or-better roll reaches the room.
+SplicerService.Init()
 RewardService.Init()
 PotionService.Init()
 -- before RobuxShopService: both take a Robux purchase path, and PassService owns the one that has
