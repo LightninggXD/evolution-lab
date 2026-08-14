@@ -51,7 +51,9 @@ local ZoneBuilder = {}
 -- 130 (12.8, after looking at 129 through a screen capture): the board's three percentages are
 -- inked off a HUE ramp instead of an RGB lerp -- the middle of that lerp is the grey axis, so the
 -- medium bottle's number was rendering as pale grey between two saturated neighbours.
-local BUILD_VERSION = 130
+-- 131 (12.9): GameConfig.ZoneShops goes 8 entries -> 15, so seven zones that had no counter now
+-- build one. A shop is geometry, so none of them appears without this bump.
+local BUILD_VERSION = 131
 
 -- The Colosseum carries its own stamp. Bumping BUILD_VERSION drops all 21 zones and rebuilds
 -- ~60,000 parts, which takes long enough that Studio regularly loses the connection partway (see
@@ -2467,9 +2469,11 @@ end
 --
 -- Every village used to carry the same three potion counters, in all twenty zones, which made the
 -- shop the least interesting thing on the street: there was never a reason to walk to a particular
--- zone for one. There are eight in the whole strip now (GameConfig.ZoneShops) -- five Mystery
--- Potion shops one every four zones, two Pet Fusion labs, and one Upgrade Emporium -- so arriving
--- somewhere that has one is an event.
+-- zone for one. There are fifteen in the whole strip now (GameConfig.ZoneShops) -- seven Mystery
+-- Potion shops, four Pet Fusion labs and four Upgrade Emporiums -- and they are deliberately not
+-- spread evenly: the first eleven zones carry six of them, and from zone 12 on EVERY zone has one
+-- (12.9). Rarity is what makes a shop an event early; by the late game the player has the currency
+-- and the missing counter is just a walk. Which one a zone carries is the information now.
 --
 -- Two ways a counter does its work, and the difference is which side owns the transaction:
 --
@@ -2767,7 +2771,7 @@ local function addZoneVillage(model, zone, cx, index)
 	addPlankText(nameBoard, zone.emoji .. " " .. zone.name, accent, { maxDistance = 620, pixelsPerStud = 14 })
 
 	-- THE SHOP, IF THIS ZONE HAS ONE -- west of the street and turned to face it, where the market
-	-- row used to stand. Twelve of the twenty zones now have no shop at all, which is the point:
+	-- row used to stand. Five of the twenty zones have no shop at all, and all five are early:
 	-- see the note on buildZoneShop and GameConfig.ZoneShops.
 	local facing = CFrame.Angles(0, math.rad(90), 0)
 	local shopKey, shopDef = GameConfig.GetZoneShop(index)

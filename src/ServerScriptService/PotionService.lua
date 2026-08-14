@@ -142,7 +142,7 @@ function PotionService.DriveHealthPotions()
 	end
 end
 
--- THE MYSTERY POTION SHOP. Five of these in the whole strip (GameConfig.ZoneShops), and the
+-- THE MYSTERY POTION SHOP. Seven of these in the whole strip (GameConfig.ZoneShops), and the
 -- product is the roll: one sealed bottle, any of the nine. The prompt carries its own price as a
 -- `MysteryCost` attribute so the purchase is validated against the counter the player is standing
 -- at rather than against a number the client sent -- the same shape the egg prompts use.

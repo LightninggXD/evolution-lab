@@ -1847,29 +1847,50 @@ GameConfig.EventBoss = {
 -- ===== WHICH SHOP STANDS IN WHICH ZONE =====
 -- Every one of the twenty villages used to carry the same three potion counters -- a market stall,
 -- a supply stall and a cauldron -- which meant the shop was never a reason to go anywhere. There
--- are eight shops in the whole strip now and each is the only one of its kind you will pass for a
--- while, so walking into a zone that has one is an event.
+-- are fifteen shops in the whole strip now -- eight of them in the last nine zones, five zones with
+-- none at all -- so which shop a zone carries is information rather than scenery.
 --
 -- Keyed by zone INDEX (= evolution stage), which is how the strip is actually ordered. The zone
 -- named beside each entry is what that index resolves to today; the index is what decides.
+-- ===== THE BACK HALF OF THE STRIP USED TO HAVE FOUR SHOPS IN NINE ZONES (12.9) =====
+--
+-- Eight shops was the right correction to twenty identical market rows and the wrong DISTRIBUTION:
+-- six of the eight stood in zones 3-11, so a player past the Wormhole walked four zones at a time
+-- between counters and the Upgrade Emporium -- the only door to the Mastery panel -- was at zone 8,
+-- i.e. behind them for the whole of the late game. Fifteen entries now, and the rule that replaces
+-- "one every four" is: **from zone 12 on, every zone has a shop**, in the repeating order
+-- Emporium -> Mystery -> Fusion -> Mystery. The front half is unchanged, including the two plain
+-- tutorial zones -- arriving somewhere with a shop is still meant to be an event where it is rare,
+-- and the late game is where a player has the currency to spend and no reason to walk past.
 GameConfig.ZoneShops = {
-	-- Mystery Potions: one every four zones, first at 3 (the first two are the tutorial stretch
-	-- and stay deliberately plain, which is where the old cauldron started too).
+	-- Mystery Potions: one every four zones to begin with, first at 3 (the first two are the
+	-- tutorial stretch and stay deliberately plain, which is where the old cauldron started too),
+	-- then every other zone from 13.
 	[3]  = "mystery",  -- Ocean
 	[7]  = "mystery",  -- Galaxy
 	[11] = "mystery",  -- Wormhole
+	[13] = "mystery",  -- Time Rift
 	[15] = "mystery",  -- Dream Dimension
+	[17] = "mystery",  -- Void Expanse
 	[19] = "mystery",  -- Singularity
-	-- Pet Fusion, at the two points where a player has been hatching long enough to be holding
+	-- Pet Fusion, at the points where a player has been hatching long enough to be holding
 	-- duplicates worth fusing.
-	-- MOVED 5 -> 4. The Fusion panel has exactly ONE door in the whole game -- this counter -- so
-	-- until a player reaches the zone holding it, the feature does not appear to exist. That is how
+	-- MOVED 5 -> 4. The Fusion panel had exactly ONE door in the whole game -- this counter -- so
+	-- until a player reached the zone holding it, the feature did not appear to exist. That is how
 	-- it was reported: "am I missing pet fusion, where is it, I am already on stage 4". By Volcano
-	-- you have walked three egg stalls and are holding duplicates worth fusing.
+	-- you have walked three egg stalls and are holding duplicates worth fusing. (12.8 gave it a
+	-- second door in the HUD; the counters are still what the panel is FOR.)
 	[4]  = "fusion",   -- Volcano
 	[10] = "fusion",   -- Nebula
-	-- The one place in the game that sells permanent power, for the two currencies that buy it.
+	[14] = "fusion",   -- Antimatter Zone
+	[18] = "fusion",   -- Celestial Throne
+	-- The one place in the game that sells permanent power, for the two currencies that buy it --
+	-- and the only entry point the Mastery panel has, which is why one copy at zone 8 was not
+	-- enough: everything it sells is bought with the money the LAST zones make.
 	[8]  = "upgrades", -- Black Hole
+	[12] = "upgrades", -- Quantum Realm
+	[16] = "upgrades", -- Mirror Universe
+	[20] = "upgrades", -- The Absolute Plane
 }
 
 -- `panel` is the MainUI panel a shop's counter opens; nil means the shop does its own work through
@@ -1914,7 +1935,7 @@ end
 GameConfig.MysteryShop = {
 	-- 3x the mid-tier egg, where the old guaranteed cauldron bottle was 2.5x. The roll averages
 	-- about 1.6 small-bottles' worth, so per DNA this is the better buy -- which it has to be:
-	-- there are five of these in the whole game and reaching one is a walk.
+	-- there are seven of these in the whole game and reaching the first of them is a walk.
 	costMult = 3,
 	minCost = 1200,
 	-- Weighted toward the small bottle, with the twenty-minute one rare enough to be worth the
