@@ -1819,6 +1819,38 @@ function GameConfig.GetRebirthDamageMult(data)
 		+ r * (r - 1) * GameConfig.RebirthDamageAccelPct / 100
 end
 
+-- ===== A BOSS IS PRICED AGAINST THE PLAYER'S REBIRTHS, AND ONLY AGAINST THOSE =====
+--
+-- 14.1: boss health is `BossTargetHits * GetZoneReferenceDamage(zone)`, and that reference is the
+-- damage of a BARE player standing in the zone -- no pets, no Stage Mastery, no rebirths, no
+-- passes. Every one of those four is a permanent multiplier the boss curve never learned about, and
+-- on a real endgame save they stacked to x166.6: The Absolute holds 789,272 and the owner's save
+-- swung for 1,175,100, so the hardest fight in the game ended on the first blow, with the
+-- screen-space health bar removed inside the frame that drew it.
+--
+-- ONLY THE REBIRTH TERM IS CANCELLED, and that is the whole design. Pricing the boss against the
+-- player's entire stack would make it ~150 blows forever whatever you brought to it -- which is
+-- exactly the `BOSS_MIN_HITS` clamp 11.9 removed and the `damageCap` 9.1 removed, one system over,
+-- for the same reason: when the cap IS the damage, nothing a player ever buys can show against a
+-- boss. Pets, Stage Mastery, the Income upgrade and the passes all still shorten the fight by their
+-- full amount. A rebirth does not, because a rebirth is the one axis that is permanent, unbounded
+-- and already the largest of the four (x8 by the fourth, and it keeps climbing after). Cancelling
+-- it is what makes a boss the same fight on the far side of a reset -- New Game+ -- instead of a
+-- victory lap that gets shorter until it is a single click.
+--
+-- APPLIED ON THE DAMAGE SIDE, NOT THE HEALTH SIDE, because a boss is SHARED: `Health` is one model
+-- attribute and two players on one boss chip one pool (see the note over `reviveSnapshot`). There is
+-- no per-player health to scale. Dividing each player's blow by their own factor is the same
+-- arithmetic -- blows = health * factor / damage either way -- and it is the more correct of the two
+-- for a shared pool, because each player's contribution is normalised to their own progress rather
+-- than to whoever happened to arrive first. It costs nothing on screen: the boss path sends
+-- `bossBar` (hp and max) and never a damage number, so there is no figure for a player to read as
+-- wrong. The creature beside it is untouched and still shows the full number.
+function GameConfig.GetBossDamageDivisor(data)
+	-- >= 1 for every rebirth count, so this can never turn a blow into a heal
+	return math.max(GameConfig.GetRebirthDamageMult(data), 1)
+end
+
 -- Which rebirth tier (1-4) a given stage index has reached. Tier 0 = not eligible yet.
 function GameConfig.GetRebirthTier(stageIndex)
 	return math.floor((stageIndex or 0) / GameConfig.RebirthTierSize)

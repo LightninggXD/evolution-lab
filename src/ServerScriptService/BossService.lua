@@ -156,8 +156,31 @@ end
 -- build, with any pets, at any stage. That is half the game behind a wall no player could pass.
 --
 -- Capping incoming damage at a share of the player's own maximum makes the two curves the same
--- curve. It does not make bosses easy -- twelve landed hits is still twelve, forty for the event
--- boss -- it makes them finishable.
+-- curve. It does not make bosses easy -- the blows the fight requires are still the blows it
+-- requires -- it makes them finishable.
+--
+-- ===== 14.2: THIS CAP WAS NEVER ARMED =====
+--
+-- `requiredHits` was optional and NOT ONE of the four call sites passed it, so the branch below
+-- never ran and raw `retaliateDamage` / `auraDamage` were applied in every fight in the game. The
+-- wall the block above says was removed was therefore still standing: The Absolute retaliates for
+-- 1,248-1,638 on 98% of your blows against a measured player maximum of 2,924, i.e. **2.0 landed
+-- blows survived** for a fight that needs more than five. It went unseen for exactly one reason --
+-- until 14.1 the player one-shot the boss, so it never got a turn. Fixing the one-shot is what made
+-- the older bug reachable, and the two are one change: on its own, 14.1 turns every boss from
+-- trivially winnable into arithmetically unwinnable.
+--
+-- WHAT IS PASSED NOW is the length of THIS player's fight -- `blowsToFell` below -- rather than a
+-- constant. That is what makes the cap scale-free, and the arithmetic is worth writing down because
+-- it is the whole design. Per blow the cap is `MaxHealth / (blows * 2)`, so over a whole fight:
+--
+--   retaliation:  0.98 * blows * MaxHealth / (blows * 2)   = 0.49 * MaxHealth
+--   aura:         (0.34/auraInterval) * blows * that       ~ 0.21 * MaxHealth
+--
+-- The `blows` term cancels in both. A player finishes any boss in any zone at any point on the
+-- ladder with roughly 30% of their health left, whether the fight took six blows or a hundred and
+-- fifty -- and a player who stands still, mistimes it or arrives under-geared still dies, because
+-- none of that is what the cap protects against.
 local function hurtPlayer(player, amount, requiredHits)
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -168,6 +191,13 @@ local function hurtPlayer(player, amount, requiredHits)
 	amount = math.max(amount, 1)
 	humanoid:TakeDamage(amount)
 	Remotes.Notify:FireClient(player, { kind = "playerHurt", amount = math.floor(amount) })
+end
+
+-- How many landed blows this player needs to fell this boss -- the `requiredHits` every call to
+-- `hurtPlayer` above is held to. Floored at 1 so a one-shot still leaves the cap meaningful, and
+-- ceil'd because a fight that needs 5.4 blows is a six-blow fight.
+local function blowsToFell(bossHealth, playerDamage)
+	return math.max(1, math.ceil(bossHealth / math.max(playerDamage, 1)))
 end
 
 local function hasDefeated(data, zoneKey)
@@ -2237,7 +2267,12 @@ local function spawnBoss(zone)
 				local plrData = PlayerDataService.Get(plr)
 				if hrp and (plrData and plrData.StageIndex or 1) >= (boss.minStageIndex or 1)
 					and (hrp.Position - body.Position).Magnitude <= auraRange then
-					hurtPlayer(plr, math.random(boss.auraDamage[1], boss.auraDamage[2]))
+					-- the same fight length the retaliation is held to, computed off the same two
+					-- numbers, so the aura and the blows cannot disagree about how long this is
+					local plrDamage = DNAService.GetCombatDamage(plrData)
+						/ GameConfig.GetBossDamageDivisor(plrData)
+					hurtPlayer(plr, math.random(boss.auraDamage[1], boss.auraDamage[2]),
+						blowsToFell(boss.health, plrDamage))
 				end
 			end
 		end)
@@ -2283,7 +2318,16 @@ local function spawnBoss(zone)
 		-- damage ladder at `GameConfig.BossTargetHits` blows for the zone it guards, so a boss is
 		-- roughly sixty swings for a player who has just arrived and fewer for one who has geared.
 		-- See the BOSS HEALTH IS DERIVED block in GameConfig.
-		local playerDamage = DNAService.GetCombatDamage(data)
+		--
+		-- Divided by the player's own rebirth multiplier (14.1). The blow a creature takes is
+		-- untouched; only a boss asks what a reset was worth, and the answer is "nothing, so that
+		-- the fight survives one". The reasoning, and why it is a divisor here rather than a
+		-- multiplier on the health, is written out over GameConfig.GetBossDamageDivisor.
+		-- floored, and floored at 1: the divisor keeps the health attribute an integer the way every
+		-- other write to it is, and a rebirth deep enough to round a blow to zero would be a boss
+		-- that cannot be hurt at all
+		local playerDamage = math.max(
+			math.floor(DNAService.GetCombatDamage(data) / GameConfig.GetBossDamageDivisor(data)), 1)
 		local health = math.max((model:GetAttribute("Health") or boss.health) - playerDamage, 0)
 		model:SetAttribute("Health", health)
 		drawHealth(health)
@@ -2376,7 +2420,8 @@ local function spawnBoss(zone)
 		})
 
 		if health > 0 and math.random() < boss.retaliateChance then
-			hurtPlayer(player, math.random(boss.retaliateDamage[1], boss.retaliateDamage[2]))
+			hurtPlayer(player, math.random(boss.retaliateDamage[1], boss.retaliateDamage[2]),
+				blowsToFell(boss.health, playerDamage))
 		end
 
 		if health <= 0 and not dead then
@@ -2615,7 +2660,9 @@ local function spawnEventBoss()
 				local character = plr.Character
 				local hrp = character and character:FindFirstChild("HumanoidRootPart")
 				if hrp and (hrp.Position - body.Position).Magnitude <= auraRange then
-					hurtPlayer(plr, math.random(boss.auraDamage[1], boss.auraDamage[2]))
+					-- the arena's own EVENT_MIN_HITS floor, mirrored here: this loop has no `data`
+					-- of its own and the clamp is what the fight length is bounded by anyway
+					hurtPlayer(plr, math.random(boss.auraDamage[1], boss.auraDamage[2]), EVENT_MIN_HITS)
 				end
 			end
 		end)
@@ -2666,7 +2713,11 @@ local function spawnEventBoss()
 		end
 
 		if health > 0 and math.random() < boss.retaliateChance then
-			hurtPlayer(player, math.random(boss.retaliateDamage[1], boss.retaliateDamage[2]))
+			-- EVENT_MIN_HITS already floors this at 40 blows, so the arena's fight length is bounded
+			-- from below whatever the player brings; the cap is still computed from the real number
+			-- rather than from the constant, because a shared target is longer for a lone player
+			hurtPlayer(player, math.random(boss.retaliateDamage[1], boss.retaliateDamage[2]),
+				blowsToFell(boss.health, playerDamage))
 		end
 
 		if health <= 0 and not dead then

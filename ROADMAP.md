@@ -525,8 +525,14 @@ per-pet, and repeatable, which is the shape a terminal sink has to have.
 ## Phase 14 — The endgame has no fight left · *opened 2026-08-15 by a measurement, not by a plan*
 
 Opened by closing 11.9. That row owed one real boss fight; the fight was fought, and the boss died
-on the first swing. Everything below is measured, and **no design decision has been taken yet** —
-14.1 is a finding written down before it is fixed, which is the rule interrupts follow.
+on the first swing. **Kristina chose repair (b) — price the boss against rebirths and only against
+rebirths — and both rows below are built and verified live on that decision.**
+
+**The two rows are one change and must be read together.** 14.1 alone takes every boss in the game
+from trivially winnable to *arithmetically unwinnable*, because it exposes 14.2: the cap that makes
+boss retaliation survivable was never armed, and nobody could see that while the boss was dying
+before it got a turn. Shipping 14.1 without 14.2 would have been strictly worse than shipping
+nothing.
 
 **The one number.** `GameConfig.BossTargetHits` is **150**, and boss health is derived as
 `BossTargetHits × GetZoneReferenceDamage(zone)`. `GetZoneReferenceDamage` is the damage of a
@@ -558,7 +564,8 @@ all: the boss is removed inside the frame that drew it.
 
 | ID | | Task | Verified how |
 |---|---|---|---|
-| 14.1 | `[ ]` | 👤 **OWNER DECISION FIRST — the finding above is recorded, the fix is not chosen.** Four shapes, and they are not equivalent: **(a)** scale boss health by the player's own full damage stack, which makes every boss ~150 swings forever — rejected on sight unless overruled, because it is the same clamp 9.1 and 11.9 both *removed*, and it means no upgrade a player ever buys shows against a boss; **(b)** price the boss against **rebirths only**, leaving pets/mastery/passes as the axes that still visibly pay — a boss becomes a real fight again on the first zone after each rebirth and shreds by the last, which is what New Game+ does everywhere; **(c)** post-game content (zones 21+, or a difficulty tier above The Absolute) — the honest answer and far the most work, three weeks from the 4–7 September launch; **(d)** accept it, and let the last boss be a victory lap. **Recommendation: (b)**, because it is the only one of the four that is a small change to one derivation and restores the fight without taking progression away | not started |
+| 14.1 | `[x]` | <!-- decision (b) taken by the owner 2026-08-15; coded + pushed + verified live the same session --> **A boss is priced against rebirths, and only against rebirths.** New pure `GameConfig.GetBossDamageDivisor(data)` returning `GetRebirthDamageMult(data)` floored at 1; `BossService.onHit` divides the blow by it, floored and floored-at-1 so the health attribute stays an integer and no rebirth can round a blow to nothing. **Applied on the damage side rather than the health side because a boss is SHARED** — `Health` is one model attribute and two players chip one pool, so there is no per-player health to scale; the arithmetic is identical (`blows = health × factor / damage` either way) and it is the more correct of the two for a shared pool, since each player's contribution is normalised to their own progress instead of to whoever arrived first. Rejected: pricing against the player's whole stack, which is the `BOSS_MIN_HITS` clamp 11.9 removed and the `damageCap` 9.1 removed |**VERIFIED LIVE 2026-08-15 against Boss_AbsolutePlane**, real `TeleportToZone` + real `AutoAttack` at the shipped 0.34 s cadence. The blow went from **1,175,100 to 146,887 — exactly ÷8.00**, the rebirth multiplier at 4 rebirths, and the health bar that had never rendered now steps visibly: **789,272 → 642,385 → 495,498 → 348,611**, three equal bites of 146,887. Swings to fell went **0.67 → 5.37**, the predicted number to two decimals. Nothing else moved: creature damage is untouched (the creature beside it still takes the full 1,175,100), and the boss path sends only `bossBar` (hp, max) and never a damage number, so the division has no figure on screen a player could read as wrong. **Left uncancelled on purpose, and worth stating plainly:** pets ×2.42, Stage Mastery ×2.68, the Income upgrade ×1.07 and the passes ×3.00 still shorten the fight by their full amount, so a geared pass owner faces roughly **3–6 blows** where a bare arrival faces 150. That is the decision, not a defect — but it is the number to revisit first if the last boss still reads as short |
+| 14.2 | `[x]` | <!-- found 2026-08-15 while verifying 14.1; coded + pushed + verified live the same session --> **The cap on incoming boss damage was never armed.** `hurtPlayer(player, amount, requiredHits)` clamps a blow to `MaxHealth / (requiredHits × 2)`, and a 10-line comment above it explains that this is what stopped bosses from zones 11+ being unbeatable by any build — but **`requiredHits` was optional and not one of the four call sites passed it**, so the branch never ran and raw `retaliateDamage` / `auraDamage` were applied in every boss fight in the game. It was invisible only because the boss died before it could swing back. New local `blowsToFell(bossHealth, playerDamage)` is passed at all four sites (both zone-boss sites compute the player's real post-14.1 damage; the two Colosseum sites use their own `EVENT_MIN_HITS` floor). Passing the **fight's real length** rather than a constant is what makes it scale-free: the `blows` term cancels, so retaliation costs ≤ 0.49 × MaxHealth and the aura ≤ 0.21 × MaxHealth over a fight of *any* length |**VERIFIED LIVE 2026-08-15, and the fight was won.** Before: The Absolute retaliates 1,248–1,638 on 98% of blows against a measured player maximum of **2,924** — **2.0 blows survived** for a fight needing more than five, and the probe died on blow 3 with the boss at 348,611 (44%), which is the wall the comment claims was removed, still standing. After: the same fight, the same save — incoming blows **487, 487, 264** against a cap of `2924 / (3 × 2) = 487.3`, **exact to the decimal**, boss felled in 3 swings, **survived at 1,715 / 2,924 = 58.7%**. Then checked analytically across **all twenty zones for a player who has just walked in** (`GetZoneReferenceDamage`, i.e. no pets, no mastery, no rebirths, no passes): the fight is **150–180 blows** everywhere — the authored `BossTargetHits` of 150 — and total incoming runs **30.0% of max health in Forest to 70.2% at The Absolute**, so every boss in the game is now finishable bare, and the worst case lands on the predicted 0.49 + 0.21 = **0.70** |
 
 ---
 
@@ -632,6 +639,25 @@ Gathered 2026-08-07/08 while writing this plan.
   plus kills and XP. Every change is a *gain* from genuine play — nothing was lost — and the restore
   was not made because the DataStore write was refused by the sandbox; the recorded Phase 13
   baseline of 30 pets / 62 diamonds no longer matches on those two fields.
+  **Then 14.1 and 14.2 were both built and verified in the same session.** Kristina chose repair
+  **(b)** — price the boss against rebirths and only against rebirths — and the build found that
+  it could not ship alone. Verifying 14.1 (the blow correctly divided ×8, the health bar stepping
+  789,272 → 642,385 → 495,498 → 348,611 for the first time) killed the probe on blow 3, which
+  exposed **14.2: `hurtPlayer`'s cap on incoming damage was never armed.** Its `requiredHits`
+  argument was optional and **no call site passed it**, so ten lines of comment explaining how the
+  zone-11+ wall was removed described a branch that never ran. The two are one change — 14.1 alone
+  takes every boss from trivially winnable to arithmetically unwinnable — and both are now `[x]` on
+  live measurement: the blow exactly ÷8.00, incoming capped to **487, 487, 264** against a computed
+  487.3, the fight won at **58.7%** health, and an all-twenty-zone check showing a player who has
+  just walked in faces **150–180 blows** and spends **30–70%** of their health, the worst case
+  landing on the predicted 0.70. **The general rule this paid for: an optional argument that
+  nothing passes is a feature that does not exist, and a long comment above it is what stops
+  anyone checking.** **Second save note, and this one is not the probe's kills:** Studio grants
+  every pass, so **VIP's Auto Hatch ran for the whole session** and spent the save down while Play
+  was open — the owner's save finished at **100 pets (88 Normal) and 12 Diamonds**, from 30 and 62
+  at session start. DNA and kills rose. Nothing was corrupted and no progress was lost, but the bag
+  and the Diamond balance are not what she left them at, and the restore was refused by the sandbox
+  in both directions. **Close Play when a fight is not being measured.**
 
 - **2026-08-14 (eighteenth session)** — **PHASE 13 OPENED AND CLOSED: pets can be enchanted, and the
   Diamond has somewhere to go that never runs out.** Opened on a fully clean sweep — all **61** live
