@@ -58,7 +58,12 @@ local ZoneBuilder = {}
 -- the twenty Premium podiums keep advertising four species and the rarest thing in the game is
 -- sold nowhere. Premium goes 4 cells -> 5, which is the width the Better board already had, so no
 -- stall gets wider than it was.
-local BUILD_VERSION = 132
+-- 133 (15.8): VILLAGE_CREAM was read by the crate lid, a lamp knob and the banner emblem ~170
+-- lines above its own `local`, so those three parts have been painted with a nil colour -- i.e.
+-- Roblox's default grey -- in every village in the game since the palette was introduced. The
+-- declaration moved above `addZoneProps`; colour is baked into the part at build time, so the
+-- fix is invisible without this bump.
+local BUILD_VERSION = 133
 
 -- The Colosseum carries its own stamp. Bumping BUILD_VERSION drops all 21 zones and rebuilds
 -- ~60,000 parts, which takes long enough that Studio regularly loses the connection partway (see
@@ -1563,6 +1568,19 @@ local function addGroundDetail(model, zone, cx)
 	end
 end
 
+-- ===== THE VILLAGE PALETTE, DECLARED HERE BECAUSE addZoneProps READS IT =====
+-- These four were authored ~170 lines below, beside the VILLAGE_STYLE table that reassigns them
+-- per zone, which reads well and compiled fine -- and meant the three uses in addZoneProps below
+-- (the crate lid, a knob and the banner emblem) resolved to a nil GLOBAL, so those parts took
+-- Roblox's default grey instead of cream. A `local` is only visible BELOW its own line no matter
+-- where the function is called from. If you move this block, it has to stay above addZoneProps.
+-- The values here are the Forest set and are the documented fallback; `applyVillageStyle` at the
+-- VILLAGE_STYLE table overwrites all four per zone, and that is still the only writer.
+local VILLAGE_WOOD = Color3.fromRGB(154, 108, 62)
+local VILLAGE_WOOD_DARK = Color3.fromRGB(101, 69, 40)
+local VILLAGE_CLOTH = Color3.fromRGB(240, 235, 222)
+local VILLAGE_CREAM = Color3.fromRGB(252, 244, 226)
+
 -- ===== SET DRESSING =====
 -- Crates, banners, signposts and spinning pickups. Cheap, but they are what makes a space read as
 -- lived-in: the reference art is full of small readable objects at player height.
@@ -1785,12 +1803,11 @@ end
 -- Material matters as much as colour here: Wood and WoodPlanks are what say "cottage", and a
 -- zone whose village is cut from Basalt, Ice, Marble or Neon reads as a different civilisation
 -- without a single part moving.
-local VILLAGE_WOOD = Color3.fromRGB(154, 108, 62)
-local VILLAGE_WOOD_DARK = Color3.fromRGB(101, 69, 40)
-local VILLAGE_CLOTH = Color3.fromRGB(240, 235, 222)
-local VILLAGE_CREAM = Color3.fromRGB(252, 244, 226)
+-- The four locals themselves are declared ABOVE addZoneProps, not here, because that function
+-- reads three of them -- see the note there. This is where they are documented and where they are
+-- reassigned; it is not where they are introduced.
 
--- The defaults above are the Forest set, kept as the fallback so a zone with no entry here builds
+-- The defaults are the Forest set, kept as the fallback so a zone with no entry here builds
 -- exactly as it always did.
 local VILLAGE_DEFAULT = {
 	wood = VILLAGE_WOOD, dark = VILLAGE_WOOD_DARK,
