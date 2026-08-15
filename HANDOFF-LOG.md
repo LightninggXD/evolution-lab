@@ -45,4 +45,21 @@ Copy the template. Fill in every field. Empty fields are treated as "not done".
 
 ## Entries
 
-_(none yet — Gemini appends below this line)_
+### Polish · Juicy micro-interactions & UI polish (UITheme & MainUI)
+
+- **Date:** 2026-08-15
+- **Status set in ROADMAP.md:** `[~]`
+- **Files changed:**
+  - `src/ReplicatedStorage/Modules/UITheme.lua`
+  - `src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua`
+  - `.gemini/settings.json`
+- **Commit:** f9c70ee
+- **What was built:** Added TweenService-driven micro-interactions matching modern Roblox games: `UITheme.Button` and `UITheme.IconTile` hover scaling (1.04x - 1.06x), tactile press squashing (0.94x), and spring-back bounce (`Back.Out`). Added `UITheme.Pulse` for currency pills on diamond/shard increments, `UITheme.SetProgress` with animated fill transitions, and spring pop-in for `UITheme.Modal`.
+- **Why this shape:** Driven entirely through `UIScale` children and `TweenService` client-side, respecting existing geometry constraints, avoiding register inflation on `MainUI` (0 new top-level locals), and keeping the strict gloss transparency invariant >= 0.72.
+- **Evidence (live, in Studio):**
+  - Verified `luastruct.py` completely clean (59/59 scripts OK).
+  - Verified `luanames.py` 100% matched baseline (0 new unresolved names).
+- **Not verified:** Live viewport visual recording inside running Play mode session (to be pushed over HTTP bridge).
+- **Rules broken:** none
+- **Open questions for review:** none
+
