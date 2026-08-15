@@ -83,15 +83,30 @@ end
 -- those emitters sit on the source part -- and `Attach` lifts them all onto ONE attachment, which
 -- is exactly the information it throws away. They collapse to a dot. Prefer an effect whose
 -- emitters are already at the origin (`maxEmitterOffset` 0) or the lift changes what you chose.
+--
+-- THE RATES WERE CUT AT THE TOP OF THE LADDER (15.31), not across the board. The owner's report is
+-- "nista se ne vidi" at max stage -- and it is the top three rungs that are worn there, on the one
+-- body that is also five times the size, so the same rate is emitting into five times the volume
+-- and the player is inside the result. Common and Rare are untouched because nobody has ever
+-- complained about them and they are what most of the game sees. The ladder still climbs.
 local MUTATION_VFX = {
 	Common    = { path = "Anime/Smoke-01",    rate = 6,  span =  7.0, color = Color3.fromRGB(200, 200, 200) },
 	Rare      = { path = "Anime/Stars-01",    rate = 10, span =  7.6, color = Color3.fromRGB( 90, 160, 255) },
-	Epic      = { path = "Auras/RNG-Aura-01", rate = 15, span =  8.2, color = Color3.fromRGB(170,  90, 255) },
-	Legendary = { path = "Auras/RNG-Aura-02", rate = 21, span =  8.8, color = Color3.fromRGB(255, 180,  50) },
-	Mythic    = { path = "Auras/RNG-Aura-03", rate = 27, span =  9.4, color = Color3.fromRGB(255,  80,  80) },
-	Secret    = { path = "Anime/Portal-01",   rate = 32, span = 10.2, color = Color3.fromRGB(120,  60, 200) },
-	Godly     = { path = "Big/Tornado-01",    rate = 38, span = 11.0, color = Color3.fromRGB(255, 240, 150) },
+	Epic      = { path = "Auras/RNG-Aura-01", rate = 14, span =  8.2, color = Color3.fromRGB(170,  90, 255) },
+	Legendary = { path = "Auras/RNG-Aura-02", rate = 18, span =  8.8, color = Color3.fromRGB(255, 180,  50) },
+	Mythic    = { path = "Auras/RNG-Aura-03", rate = 22, span =  9.4, color = Color3.fromRGB(255,  80,  80) },
+	Secret    = { path = "Anime/Portal-01",   rate = 26, span = 10.2, color = Color3.fromRGB(120,  60, 200) },
+	Godly     = { path = "Big/Tornado-01",    rate = 30, span = 11.0, color = Color3.fromRGB(255, 240, 150) },
 }
+
+-- How the aura grows with the body. NOT 1:1 (15.31): `span * scale` made Mythic's 9.4 studs into 47
+-- at BodyScale 5 -- a particle wall wider than the character standing in it, which is the "nothing
+-- is visible at the last stage" report. The body is ~5.9 studs wide per unit of BodyScale, so at 5
+-- it measures about 29.5: an exponent of 0.6 lands the aura at ~26 studs, i.e. at the silhouette's
+-- own edge rather than seventeen studs beyond it, and leaves 1x bodies exactly as they were
+-- (1^0.6 = 1). Do not take it much lower: 0.5 gives 21 studs, which puts a top-rung aura INSIDE a
+-- 29-stud body -- the bug the `span` note above already describes.
+local AURA_SCALE_EXP = 0.6
 
 local MUTATION_AURA_NAME = "MutationAura"
 
@@ -133,8 +148,9 @@ function EvolutionVisuals.AttachMutationAura(root, mutationName, scale)
 		-- wall. Well under the boss aura's 55 -- a boss is one thing you walk up to, a player aura is
 		-- on every player on the server at once.
 		targetRate = spec.rate,
-		-- sized against the BODY, not against the pack -- see the note on `span`
-		targetSize = spec.span * (scale or 1),
+		-- sized against the BODY, not against the pack -- see the note on `span`, and sublinear in the
+		-- body's own scale -- see AURA_SCALE_EXP
+		targetSize = spec.span * math.pow(math.max(scale or 1, 0.01), AURA_SCALE_EXP),
 		color = spec.color,
 	})
 	if att then
@@ -271,15 +287,27 @@ local function applyMastery(character, data)
 	-- 20. MaxWalkSpeed is not a balance number -- it is the speed past which a player outruns
 	-- StreamingEnabled -- so the raised ceiling is a measured decision (260 covers the doubled top
 	-- stage at 254.5 with a little headroom), not a default. Nobody without the pass moves any faster.
-	-- The worn Splicer mutation's flat stud bonus rides in beside the Speed upgrade (Phase 12),
-	-- inside the size multiplier for the same reason that one is: it is worth proportionally
-	-- more on a bigger body, which is what every early bonus in this game does.
+	-- THE WORN MUTATION IS ADDED AFTER THE CLAMP, AS A SHARE OF THE CEILING (15.30). It used to ride
+	-- inside the parenthesis beside the Speed upgrade, and for most of the game that was fine -- but
+	-- the term inside the clamp reaches 581 on a max-stage body against a cap of 260, so everything
+	-- in there is 2.24x past the ceiling and the aura's studs were sawn off entirely: seven rungs of
+	-- ladder, zero studs of difference, while the Auras panel and the boost card both went on
+	-- printing the bonus. `speedPct` is now a percentage of THIS player's cap, added on top, so it
+	-- lands in full whether the body is at 1x or clamped at the top. This is the owner's call between
+	-- three options (2026-08-16); the other two were raising the cap with the body and printing less.
+	--
+	-- YES, THIS DELIBERATELY EXCEEDS THE CAP -- by at most 12% (Godly), which is 31 studs on the 260
+	-- of the 2x Speed pass and 18 on the standard 150. The cap is a streaming number, not a balance
+	-- number (see the note above), and its own headroom comment already budgets a little slack; a
+	-- bounded 12% overshoot is the price of the aura being worth wearing at the stage people wear it.
+	-- It is NOT `cap * sizeMult`: multiplying the ceiling by the body would put a max-stage player at
+	-- ~580 studs/s, which is the speed the cap exists to prevent.
+	local walkCap = GameConfig.GetPassMax(data, "walkCap", GameConfig.MaxWalkSpeed or 120)
 	humanoid.WalkSpeed = math.min(
-		(GameConfig.BaseWalkSpeed + bonus.walkSpeed + GameConfig.GetSpeedUpgradeBonus(data)
-			+ GameConfig.GetMutationSpeedBonus(data))
+		(GameConfig.BaseWalkSpeed + bonus.walkSpeed + GameConfig.GetSpeedUpgradeBonus(data))
 			* sizeMult * GameConfig.GetPassMult(data, "walkMult"),
-		GameConfig.GetPassMax(data, "walkCap", GameConfig.MaxWalkSpeed or 120)
-	)
+		walkCap
+	) + walkCap * GameConfig.GetMutationSpeedPct(data) / 100
 	-- R15 characters default to JumpHeight, not JumpPower, so setting JumpPower alone is silently
 	-- ignored -- UseJumpPower has to be flipped first or the jump bonus never lands.
 	humanoid.UseJumpPower = true

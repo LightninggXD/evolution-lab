@@ -350,7 +350,12 @@ local BODY = {
 	[17] = { tr = 0.25 },
 	[18] = { mat = Enum.Material.Marble },
 	[19] = { tr = 0.2 },
-	[20] = { mat = Enum.Material.Neon, tr = 0.12 },
+	-- 20 THE ABSOLUTE: SHADED, NOT NEON (15.31). Neon takes no shading at all, so the last body in
+	-- the game -- the one that should be the most impressive -- was the one stage with no form: a
+	-- flat self-lit gold cut-out. BUILD[20] was already trimmed to four features because "a costume
+	-- reads by its outline", and a Neon shell undid that from underneath. The crown, halo and lit
+	-- core still carry the glow.
+	[20] = { mat = Enum.Material.SmoothPlastic, tr = 0.12 },
 }
 
 -- One shell over `hostName`, sized as a multiple of that host. `spanName` lets a shell swallow the

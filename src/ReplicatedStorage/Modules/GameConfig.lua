@@ -296,13 +296,18 @@ function GameConfig.GetMutationIncomeMult(data)
 	return m and m.incomeMult or 1
 end
 
--- Flat studs, the same shape as GetSpeedUpgradeBonus and applied beside it: it lands BEFORE
--- the body-size multiplier, so a bonus rolled at Cell is worth proportionally more later. The
--- column used to be a `speedMult` that NOTHING read -- this is the first time the mutation's
--- second stat is true.
-function GameConfig.GetMutationSpeedBonus(data)
+-- A PERCENTAGE OF THE WALK CAP, NOT FLAT STUDS (15.30). It used to be flat studs added beside
+-- GetSpeedUpgradeBonus, INSIDE the clamp -- and measured on the owner's max-stage save the term
+-- before the clamp was 581.58 against a cap of 260, so the whole seven-stud ladder (52 studs after
+-- the size multiplier) fell off the end and no aura choice moved the character by one stud, while
+-- both the Auras panel and the boost card kept printing the bonus. The ladder is now a share of
+-- whatever ceiling that player has, added AFTER the clamp by applyMastery, so it lands in full at
+-- every stage -- at 1x, at max, and with or without the 2x Speed pass. Renamed rather than
+-- redefined in place: a reader still asking for `speedBonus` gets nil and fails loudly instead of
+-- quietly printing studs that are now percent.
+function GameConfig.GetMutationSpeedPct(data)
 	local m = data and data.SplicerMutation and GameConfig.GetMutationByName(data.SplicerMutation)
-	return (m and m.speedBonus) or 0
+	return (m and m.speedPct) or 0
 end
 
 -- ===== INCOME CURVE =====
@@ -391,15 +396,17 @@ GameConfig.Upgrades = {
 -- announce threshold and "which of two is better" all compare indices, so a new entry goes in
 -- rank position, never appended out of order. Repriced with the Splicer (was 1.3 .. 30): these
 -- are BOUGHT now, and a x30 top end would let one lucky roll outweigh the entire Income
--- upgrade ladder. `speedBonus` is flat studs of walk speed (see GetMutationSpeedBonus).
+-- upgrade ladder. `speedPct` is a PERCENTAGE OF THAT PLAYER'S WALK CAP (see GetMutationSpeedPct
+-- for why it is no longer flat studs) -- whole numbers, because every line that prints it prints
+-- `+%d%% speed` and a half percent of a cap is not a difference anyone can feel.
 GameConfig.Mutations = {
-	{ name = "Common",    weight = 500, incomeMult = 1.05, speedBonus = 1, color = Color3.fromRGB(200,200,200) },
-	{ name = "Rare",      weight = 200, incomeMult = 1.10, speedBonus = 2, color = Color3.fromRGB(90,160,255) },
-	{ name = "Epic",      weight = 80,  incomeMult = 1.18, speedBonus = 3, color = Color3.fromRGB(170,90,255) },
-	{ name = "Legendary", weight = 25,  incomeMult = 1.30, speedBonus = 4, color = Color3.fromRGB(255,180,50) },
-	{ name = "Mythic",    weight = 8,   incomeMult = 1.50, speedBonus = 5, color = Color3.fromRGB(255,80,80) },
-	{ name = "Secret",    weight = 2,   incomeMult = 1.80, speedBonus = 6, color = Color3.fromRGB(20,20,20) },
-	{ name = "Godly",     weight = 1,   incomeMult = 2.25, speedBonus = 8, color = Color3.fromRGB(255,240,150) },
+	{ name = "Common",    weight = 500, incomeMult = 1.05, speedPct = 2,  color = Color3.fromRGB(200,200,200) },
+	{ name = "Rare",      weight = 200, incomeMult = 1.10, speedPct = 3,  color = Color3.fromRGB(90,160,255) },
+	{ name = "Epic",      weight = 80,  incomeMult = 1.18, speedPct = 5,  color = Color3.fromRGB(170,90,255) },
+	{ name = "Legendary", weight = 25,  incomeMult = 1.30, speedPct = 6,  color = Color3.fromRGB(255,180,50) },
+	{ name = "Mythic",    weight = 8,   incomeMult = 1.50, speedPct = 8,  color = Color3.fromRGB(255,80,80) },
+	{ name = "Secret",    weight = 2,   incomeMult = 1.80, speedPct = 10, color = Color3.fromRGB(20,20,20) },
+	{ name = "Godly",     weight = 1,   incomeMult = 2.25, speedPct = 12, color = Color3.fromRGB(255,240,150) },
 }
 
 -- ===== ZONES =====

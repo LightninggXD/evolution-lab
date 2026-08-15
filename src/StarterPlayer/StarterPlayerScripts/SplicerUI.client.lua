@@ -301,8 +301,8 @@ local function refresh()
 
 	local worn = currentData.SplicerMutation and GameConfig.GetMutationByName(currentData.SplicerMutation)
 	if worn then
-		currentLabel.Text = ("Wearing %s -- x%.2f income, +%d speed")
-			:format(worn.name, worn.incomeMult, worn.speedBonus or 0)
+		currentLabel.Text = ("Wearing %s -- x%.2f income, +%d%% speed")
+			:format(worn.name, worn.incomeMult, worn.speedPct or 0)
 		currentLabel.TextColor3 = worn.color
 	else
 		currentLabel.Text = "No mutation yet -- splice one to begin"
@@ -547,7 +547,7 @@ local function reveal(payload)
 		nameLabel.Text = payload.name
 		paintName(color)
 
-		statLabel.Text = ("x%.2f income  ·  +%d speed"):format(payload.incomeMult or 1, payload.speedBonus or 0)
+		statLabel.Text = ("x%.2f income  ·  +%d%% speed"):format(payload.incomeMult or 1, payload.speedPct or 0)
 		footLabel.Text = payload.equipped and "✅ Now worn" or "Kept -- your current mutation is stronger"
 
 		-- Keyed through `PlayNotify` rather than naming a sound file, so the Splicer inherits the

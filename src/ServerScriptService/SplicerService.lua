@@ -510,7 +510,7 @@ function SplicerService.HandleEquipMutation(player, mutationName)
 	--    nil -- and the join path stamps it -- so writing the save alone leaves the old aura burning
 	--    on the body for the rest of the session. Stamping it also fires the attribute hook in
 	--    EvolutionVisuals.Init, which is what rebuilds the aura without a respawn.
-	--  * RefreshBonuses is the walk speed: `speedBonus` is applied by applyMastery, which recomputes
+	--  * RefreshBonuses is the walk speed: `speedPct` is applied by applyMastery, which recomputes
 	--    the whole product rather than adding a delta.
 	--  * PushToClient is what redraws the Auras panel and 15.24's boost card. Without it the panel
 	--    still catches up on the next periodic push, seconds after a button the player just pressed.
@@ -520,8 +520,8 @@ function SplicerService.HandleEquipMutation(player, mutationName)
 
 	Remotes.Notify:FireClient(player, {
 		kind = "reward",
-		message = ("\u{1F9EC} Now wearing the %s aura! x%.2f DNA, +%d speed")
-			:format(mut.name, mut.incomeMult, mut.speedBonus),
+		message = ("\u{1F9EC} Now wearing the %s aura! x%.2f DNA, +%d%% speed")
+			:format(mut.name, mut.incomeMult, mut.speedPct),
 	})
 end
 
@@ -586,7 +586,7 @@ function SplicerService.HandleRoll(player)
 		color = mutation.color,
 		index = idx,
 		incomeMult = mutation.incomeMult,
-		speedBonus = mutation.speedBonus,
+		speedPct = mutation.speedPct,
 		equipped = equipped,
 		spent = cost,
 		rollIndex = data.SplicerRolls,

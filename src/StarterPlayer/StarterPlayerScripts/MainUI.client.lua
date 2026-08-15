@@ -1962,12 +1962,22 @@ local hudRefs = {}
 	themeLabel(mutationEffects, 15)
 
 	-- x2 stays "x2"; x1.5 becomes "x1.5" rather than taking the thread down. See the note below.
+	--
+	-- TWO decimals, not one (15.29). `%.1f` was written for the potion and event cards, whose
+	-- multipliers are all x1.5 / x2 / x3 and exact at one decimal -- but this same helper prints the
+	-- worn mutation, and three of the seven are two-decimal: Common 1.05 drew as `x1.1`, Epic 1.18 as
+	-- `x1.2`, Godly 2.25 as `x2.2` (rounded DOWN, so the best aura in the game under-sold itself).
+	-- The Auras panel prints the true value with `%.2f`, so the boost card was contradicting a panel
+	-- four inches away in the same frame. Trailing zero trimmed, so `1.50 -> "1.5"` and nothing that
+	-- was already correct changes.
 	local function formatMult(m)
 		m = tonumber(m) or 1
 		if math.abs(m - math.floor(m + 0.5)) < 0.001 then
 			return tostring(math.floor(m + 0.5))
 		end
-		return ("%.1f"):format(m)
+		local s = ("%.2f"):format(m)
+		s = s:gsub("0$", "") -- 1.50 -> 1.5; 1.05 and 2.25 keep both digits
+		return s
 	end
 
 	-- Its OWN loop, not a hook on DataUpdate: the number has to fall every second, and data only
@@ -2090,8 +2100,8 @@ local hudRefs = {}
 				mutationCard.Visible = true
 				mutationBadge.BackgroundColor3 = wornDef.color
 				mutationName.Text = ("%s Mutation"):format(wornDef.name)
-				mutationEffects.Text = ("x%s DNA   \u{2022}   +%d speed"):format(
-					formatMult(wornDef.incomeMult or 1), math.floor(wornDef.speedBonus or 0))
+				mutationEffects.Text = ("x%s DNA   \u{2022}   +%d%% speed"):format(
+					formatMult(wornDef.incomeMult or 1), math.floor(wornDef.speedPct or 0))
 			else
 				mutationCard.Visible = false
 			end
@@ -8124,12 +8134,12 @@ end)()
 			r.count.Text = isOwned and ("x" .. n) or "?"
 			r.name.TextTransparency = isOwned and 0 or 0.35
 			if isOwned then
-				r.effect.Text = ("\u{1F48E} x%.2f DNA   \u{26A1} +%d speed"):format(mut.incomeMult, mut.speedBonus)
+				r.effect.Text = ("\u{1F48E} x%.2f DNA   \u{26A1} +%d%% speed"):format(mut.incomeMult, mut.speedPct)
 				r.effect.TextTransparency = 0
 			else
 				-- The locked row is the only line in the game that says where a mutation comes from.
-				r.effect.Text = ("\u{1F512} Not found yet \u{2022} x%.2f DNA, +%d speed"):format(
-					mut.incomeMult, mut.speedBonus)
+				r.effect.Text = ("\u{1F512} Not found yet \u{2022} x%.2f DNA, +%d%% speed"):format(
+					mut.incomeMult, mut.speedPct)
 				r.effect.TextTransparency = 0.15
 			end
 
@@ -8153,8 +8163,8 @@ end)()
 		if headerSub then
 			local m = worn and GameConfig.GetMutationByName(worn)
 			headerSub.Text = m
-				and ("%d of %d found \u{2022} wearing %s (x%.2f DNA, +%d speed)")
-					:format(ownedCount, #GameConfig.Mutations, m.name, m.incomeMult, m.speedBonus)
+				and ("%d of %d found \u{2022} wearing %s (x%.2f DNA, +%d%% speed)")
+					:format(ownedCount, #GameConfig.Mutations, m.name, m.incomeMult, m.speedPct)
 				or ("%d of %d found \u{2022} nothing worn -- roll one at the DNA Splicer")
 					:format(ownedCount, #GameConfig.Mutations)
 		end

@@ -42,6 +42,7 @@ end
 	def   - a GameConfig pet definition (key, name, emoji, color, rarity)
 	tier  - "Normal" / "Golden" / "Rainbow" / "Celestial"
 	opts  - { scale = number, nameplate = bool, plateDistance = number, sparkle = bool }
+	          -- `sparkle` is now inert: 15.31 removed the rarity glow it used to switch off.
 
 	Returns model, root, pieces. `root` is the PrimaryPart; every entry in `pieces` is
 	{ p = Part, cf = CFrame } giving that part's offset from the root.
@@ -165,7 +166,13 @@ function PetModel.Build(def, tier, opts)
 	ring.Shape = Enum.PartType.Cylinder
 	ring.Size = Vector3.new(0.22, 2.9, 2.9) * scale
 	ring.Color = rarity.color
-	ring.Material = Enum.Material.Neon
+	-- COLOUR, NOT LIGHT (15.31). The ring was Neon and every Epic-and-above pet also carried a
+	-- PointLight and a sparkle emitter -- with up to eight pets equipped that is eight self-lit discs
+	-- and eight lights orbiting a body that is already lit, and the owner's report is that the
+	-- character cannot be seen inside them. The ring keeps the rarity colour, which is the whole point
+	-- of it, and lets the world's light decide how bright it is; the PointLight and the sparkle are
+	-- gone entirely (see the block that used to follow this one).
+	ring.Material = Enum.Material.SmoothPlastic
 	ring.Transparency = 0.25
 	ring.Anchored = true
 	ring.CanCollide = false
@@ -175,43 +182,15 @@ function PetModel.Build(def, tier, opts)
 	ring.Parent = model
 	addPiece(ring, CFrame.new(Vector3.new(0, -1.5, 0) * scale) * CFrame.Angles(0, 0, math.rad(90)))
 
-	-- WHICH RARITIES GLOW. Epic by name, and everything the announce table considers worth a beam --
-	-- which is Legendary and, since 12.12, Secret. Written as `IsBeaconRarity` rather than as a
-	-- second list of names so a rarity added above Legendary cannot end up rarer than an Epic and
-	-- duller than one, which is exactly what a Secret was for the length of this edit.
-	if rarity.name == "Epic" or GameConfig.IsBeaconRarity(rarity.name) then
-		local light = Instance.new("PointLight")
-		light.Color = rarity.color
-		light.Range = 13
-		light.Brightness = 2
-		light.Parent = ring
-		if opts.sparkle ~= false then
-			local sparkle = Instance.new("ParticleEmitter")
-			sparkle.Color = ColorSequence.new(rarity.color)
-			sparkle.LightEmission = 1
-			sparkle.Size = NumberSequence.new(0.32 * scale)
-			sparkle.Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 1),
-				NumberSequenceKeypoint.new(0.3, 0.1),
-				NumberSequenceKeypoint.new(1, 1),
-			})
-			sparkle.Lifetime = NumberRange.new(0.7, 1.2)
-			sparkle.Rate = (rarity.name == "Secret" and 16)
-				or (rarity.name == "Legendary" and 9)
-				or 5
-			sparkle.Speed = NumberRange.new(0.6, 1.4)
-			sparkle.SpreadAngle = Vector2.new(180, 180)
-			sparkle.Parent = body
-		end
-	end
-
 	-- ---- fused pets wear their tier as a crown, so tier and rarity never compete for the same cue
 	local tierMult = GameConfig.PetTierMultiplier[tier] or 1
 	if tierMult > 1 then
 		local crownColor = GameConfig.PetTierColor[tier] or Color3.fromRGB(255, 215, 60)
-		block("CrownBand", Vector3.new(1.5, 0.24, 1.4), Vector3.new(0, 2.58, -0.2), crownColor, Enum.Material.Neon)
+		-- Metal, not Neon (15.31): a fused pet's crown is the tier cue and it reads by its shape, which
+		-- a self-lit material flattens away. Metal keeps the gold and gains an edge to see it by.
+		block("CrownBand", Vector3.new(1.5, 0.24, 1.4), Vector3.new(0, 2.58, -0.2), crownColor, Enum.Material.Metal)
 		for i = -1, 1 do
-			block("CrownSpike", Vector3.new(0.28, 0.44, 0.28), Vector3.new(i * 0.5, 2.85, -0.2), crownColor, Enum.Material.Neon)
+			block("CrownSpike", Vector3.new(0.28, 0.44, 0.28), Vector3.new(i * 0.5, 2.85, -0.2), crownColor, Enum.Material.Metal)
 		end
 	end
 
