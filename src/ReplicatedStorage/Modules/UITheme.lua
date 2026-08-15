@@ -11,10 +11,21 @@
 ]]
 
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local SoundLibrary = require(script.Parent:WaitForChild("SoundLibrary"))
 local IconLibrary = require(script.Parent:WaitForChild("IconLibrary"))
 
 local UITheme = {}
+
+-- ============================================================================
+-- MICRO-INTERACTION TWEEN CONFIGURATIONS
+-- ============================================================================
+local HOVER_TWEEN_INFO = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local LEAVE_TWEEN_INFO = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local PRESS_DOWN_INFO  = TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local PRESS_UP_INFO    = TweenInfo.new(0.20, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local PULSE_TWEEN_INFO = TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
 
 -- THE CLICK, IN THE ONE PLACE EVERY BUTTON ALREADY GOES THROUGH.
 --
@@ -808,8 +819,14 @@ function UITheme.Button(parent, opts)
 		fit()
 	end
 
-	-- press feedback
+	local scale = Instance.new("UIScale")
+	scale.Name = "Scale"
+	scale.Scale = 1
+	scale.Parent = button
+
+	-- press and hover feedback
 	local pressed = false
+	local hovered = false
 	local restPos = button.Position
 	local function down()
 		if pressed then
@@ -817,8 +834,11 @@ function UITheme.Button(parent, opts)
 		end
 		pressed = true
 		restPos = button.Position
-		button.Position = restPos + UDim2.new(0, 0, 0, 3)
+		button.Position = restPos + UDim2.new(0, 0, 0, 2)
 		press(true)
+		if RunService:IsClient() then
+			TweenService:Create(scale, PRESS_DOWN_INFO, { Scale = 0.94 }):Play()
+		end
 		-- on DOWN, with the sink, not on the click release: the sound is feedback for the press and
 		-- has to land on the same frame the button visibly moves
 		clickSound()
@@ -830,10 +850,30 @@ function UITheme.Button(parent, opts)
 		pressed = false
 		button.Position = restPos
 		press(false)
+		if RunService:IsClient() then
+			local targetScale = hovered and 1.04 or 1.0
+			TweenService:Create(scale, PRESS_UP_INFO, { Scale = targetScale }):Play()
+		end
+	end
+	local function enter()
+		hovered = true
+		if not pressed and RunService:IsClient() and button.Active and button.Selectable ~= false then
+			TweenService:Create(scale, HOVER_TWEEN_INFO, { Scale = 1.04 }):Play()
+		end
+	end
+	local function leave()
+		hovered = false
+		if pressed then
+			up()
+		end
+		if RunService:IsClient() then
+			TweenService:Create(scale, LEAVE_TWEEN_INFO, { Scale = 1.0 }):Play()
+		end
 	end
 	button.MouseButton1Down:Connect(down)
 	button.MouseButton1Up:Connect(up)
-	button.MouseLeave:Connect(up)
+	button.MouseEnter:Connect(enter)
+	button.MouseLeave:Connect(leave)
 
 	if opts.badge then
 		UITheme.Badge(button, opts.badge, opts.badgeColor)
@@ -1010,9 +1050,15 @@ function UITheme.IconTile(parent, opts)
 		UITheme.Badge(tile, opts.badge, opts.badgeColor)
 	end
 
+	local scale = Instance.new("UIScale")
+	scale.Name = "Scale"
+	scale.Scale = 1
+	scale.Parent = tile
+
 	local pressed = false
+	local hovered = false
 	local restPos = tile.Position
-	tile.MouseButton1Down:Connect(function()
+	local function down()
 		if pressed then
 			return
 		end
@@ -1020,8 +1066,11 @@ function UITheme.IconTile(parent, opts)
 		restPos = tile.Position
 		tile.Position = restPos + UDim2.new(0, 0, 0, 3)
 		press(true)
+		if RunService:IsClient() then
+			TweenService:Create(scale, PRESS_DOWN_INFO, { Scale = 0.92 }):Play()
+		end
 		clickSound()
-	end)
+	end
 	local function up()
 		if not pressed then
 			return
@@ -1029,9 +1078,30 @@ function UITheme.IconTile(parent, opts)
 		pressed = false
 		tile.Position = restPos
 		press(false)
+		if RunService:IsClient() then
+			local targetScale = hovered and 1.06 or 1.0
+			TweenService:Create(scale, PRESS_UP_INFO, { Scale = targetScale }):Play()
+		end
 	end
+	local function enter()
+		hovered = true
+		if not pressed and RunService:IsClient() and tile.Active and tile.Selectable ~= false then
+			TweenService:Create(scale, HOVER_TWEEN_INFO, { Scale = 1.06 }):Play()
+		end
+	end
+	local function leave()
+		hovered = false
+		if pressed then
+			up()
+		end
+		if RunService:IsClient() then
+			TweenService:Create(scale, LEAVE_TWEEN_INFO, { Scale = 1.0 }):Play()
+		end
+	end
+	tile.MouseButton1Down:Connect(down)
 	tile.MouseButton1Up:Connect(up)
-	tile.MouseLeave:Connect(up)
+	tile.MouseEnter:Connect(enter)
+	tile.MouseLeave:Connect(leave)
 
 	return tile
 end
@@ -1207,8 +1277,17 @@ function UITheme.Modal(parent, opts)
 		maxTextSize = 30,
 	})
 
+	local modalScale = Instance.new("UIScale")
+	modalScale.Name = "ModalScale"
+	modalScale.Scale = 1
+	modalScale.Parent = modal
+
 	modal:GetPropertyChangedSignal("Visible"):Connect(function()
 		dim.Visible = modal.Visible
+		if modal.Visible and RunService:IsClient() then
+			modalScale.Scale = 0.88
+			TweenService:Create(modalScale, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1.0 }):Play()
+		end
 	end)
 	modal.Destroying:Connect(function()
 		dim:Destroy()
@@ -1529,6 +1608,45 @@ function UITheme.ShowIconOrText(button, useIcon, text, iconName)
 	-- back to text in BOTH states rather than showing an empty button. An icon that does not exist
 	-- must never be able to produce a button with nothing on it.
 	button.Text = (useIcon and icon) and "" or (text or "")
+end
+
+-- ============================================================================
+-- JUICY INTERACTION HELPERS: Pulse & SetProgress
+-- ============================================================================
+function UITheme.Pulse(inst, maxScale)
+	if not inst or not RunService:IsClient() then
+		return
+	end
+	local scale = inst:FindFirstChild("Scale")
+	if not scale or not scale:IsA("UIScale") then
+		scale = inst:FindFirstChildOfClass("UIScale")
+	end
+	if not scale then
+		scale = Instance.new("UIScale")
+		scale.Name = "Scale"
+		scale.Scale = 1
+		scale.Parent = inst
+	end
+	scale.Scale = maxScale or 1.15
+	TweenService:Create(scale, PULSE_TWEEN_INFO, { Scale = 1.0 }):Play()
+end
+
+function UITheme.SetProgress(bar, progress, animated)
+	if not bar then
+		return
+	end
+	local fill = bar:FindFirstChild("Fill")
+	if not fill or not fill:IsA("Frame") then
+		return
+	end
+	local target = math.clamp(progress or 0, 0, 1)
+	if animated ~= false and RunService:IsClient() then
+		TweenService:Create(fill, TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Size = UDim2.new(target, 0, 1, 0)
+		}):Play()
+	else
+		fill.Size = UDim2.new(target, 0, 1, 0)
+	end
 end
 
 return UITheme

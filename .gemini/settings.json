@@ -2,8 +2,11 @@
   "contextFileName": "GEMINI.md",
   "mcpServers": {
     "roblox-studio": {
-      "command": "C:\\Users\\Kristina\\AppData\\Local\\Roblox\\Versions\\version-a57f2f633baf4a86\\StudioMCP.exe",
-      "args": ["--stdio"],
+      "command": "cmd.exe",
+      "args": [
+        "/c",
+        "C:\\Users\\Kristina\\AppData\\Local\\Roblox\\mcp.bat"
+      ],
       "trust": true
     }
   }

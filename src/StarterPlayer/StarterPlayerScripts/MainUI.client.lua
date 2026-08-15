@@ -7451,9 +7451,23 @@ local function refreshUI()
 	-- free registers -- MainUI is at Luau's 200 top-level local cap -- and the write that was
 	-- supposed to replace them never landed. Reached through the frames instead, which costs no
 	-- locals at all.
+	local prevDiamonds = tonumber(diamondPill:GetAttribute("PrevVal") or 0)
+	local prevShards = tonumber(shardPill:GetAttribute("PrevVal") or 0)
+
 	dnaPill.Value.Text = formatNumber(data.DNA)
 	diamondPill.Value.Text = formatNumber(data.Diamonds or 0)
 	shardPill.Value.Text = formatNumber(data.EvolutionShards or 0)
+
+	if (data.Diamonds or 0) > prevDiamonds and prevDiamonds > 0 then
+		UITheme.Pulse(diamondPill)
+	end
+	if (data.EvolutionShards or 0) > prevShards and prevShards > 0 then
+		UITheme.Pulse(shardPill)
+	end
+
+	dnaPill:SetAttribute("PrevVal", data.DNA or 0)
+	diamondPill:SetAttribute("PrevVal", data.Diamonds or 0)
+	shardPill:SetAttribute("PrevVal", data.EvolutionShards or 0)
 
 	-- the starting hint has done its job the moment there is any DNA on the counter
 	if data.DNA > 0 then
