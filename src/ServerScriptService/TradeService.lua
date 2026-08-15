@@ -657,6 +657,18 @@ function TradeService.Init()
 		end
 	end)
 
+	-- THE TWO OUTBOUND REMOTES HAVE TO EXIST BEFORE ANY CLIENT LOOKS FOR THEM, and until now they
+	-- did not. `pushSession` and `Request` call `ensureRemote("TradeUpdate")` / `("TradeInvite")`
+	-- at the moment they first need to send -- which is the first trade anyone starts. `MainUI`
+	-- binds with `Remotes:FindFirstChild("TradeUpdate")` at startup and wraps the connection in
+	-- `if tradeUpdateRemote then`, so on a fresh server it found nil, skipped the connect without a
+	-- word, and no trade update could ever reach a client. Measured live 2026-08-15: a real
+	-- `TradeUpdate` payload fired at a joined client left `TradeModal.Visible = false`, because
+	-- nothing was listening. 15.5 fixed the server half of "no offer could ever be drawn"; this is
+	-- the client half of the same sentence.
+	ensureRemote("TradeUpdate")
+	ensureRemote("TradeInvite")
+
 	-- Wire Remotes for client communication
 	local reqRemote = ensureRemote("TradeRequest")
 	reqRemote.OnServerEvent:Connect(function(player, targetUserId)

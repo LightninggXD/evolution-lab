@@ -5976,11 +5976,21 @@ local CHAR_LINE_H = 132
 	-- which needs the dark outline exactly as much as the dark ones need it gone. 0.62 is the line
 	-- between the two on this sheet -- the locked grey (150,158,178) sits a hair above it and keeps
 	-- its stroke, the mid-grey subtitle sits below and loses it.
+	-- THICKNESS, NOT ONLY TRANSPARENCY -- and this line is the whole reason the fix above needed a
+	-- capture to check. Phase 15 taught `themeLabel` to call `OutlineText(label, 0)` for dark ink,
+	-- and these five labels are AUTHORED dark (46,54,74) and REPAINTED bright at runtime with the
+	-- character's own colour. So they arrive here with a stroke whose Thickness is already 0, and a
+	-- helper that moves only Transparency has nothing left to switch on: "The Final" rendered at
+	-- luminance 0.900 on a 0.953 card with no outline at all -- a difference of 0.052, which is a
+	-- ghost rather than a blob but is just as unreadable. Restore both, or a zeroed stroke is
+	-- permanent for any label that is dark at build time and bright afterwards.
 	local function inkOnLight(label)
 		local st = label:FindFirstChildOfClass("UIStroke")
 		if not st then return end
 		local c = label.TextColor3
-		st.Transparency = (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) < 0.62 and 1 or 0
+		local bright = (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) >= 0.62
+		st.Transparency = bright and 0 or 1
+		st.Thickness = bright and 4 or 0 -- 4 is themeLabel's own non-dark default
 	end
 
 	-- TEXT AND BUTTON ONLY. Called from refreshCharacterPanel, which runs on every DataUpdate --

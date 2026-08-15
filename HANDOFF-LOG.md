@@ -242,3 +242,44 @@ Phase 15 row is `[~]`. `.mcp.json` now declares the server at the repo root for 
 so three village props are painted nil (default grey). It is roadmap row 15.8 rather than a fix
 here, because the change only reaches the world through `BUILD_VERSION`, which regenerates all 21
 zones.
+
+---
+
+## ✅ VERIFICATION — Claude, 2026-08-15 (twenty-seventh session)
+
+Ran each Phase 15 row's own check live in Studio. **Closed 15.1, 15.2, 15.3, 15.4, 15.6; opened
+15.9 and 15.10; 15.5 stays `[~]`.**
+
+**The environment fault the last session mis-diagnosed.** It wrote that the `roblox-studio` MCP was
+"not registered for Claude Code". It was registered and was dying at startup: `mcp.bat` resolved
+`StudioMCP.exe` from a registry value and a hardcoded fallback that a Studio update had left both
+pointing at a deleted version folder. Exit 1, no tools listed, no error printed. Fixed by scanning
+`Versions` newest-first. **Do not spend a session on "needs a restart" again — probe the batch.**
+
+**Order of operations that mattered.** Studio held the pre-fix sources (its `MainUI` still contained
+"Chimpanzini" and no `darkInk` branch). All three files were pushed over the HTTP bridge and hashed
+byte-identical *before* any capture: UITheme 68008/306018008, TradeService 30672/980945299, MainUI
+441689/107390350.
+
+**Evidence per row** — see `ROADMAP.md`, each row's "Verified how" column now carries the numbers.
+
+**Two defects found by the captures, both fixed this session:**
+
+| # | What | Where | How it hid |
+|---|---|---|---|
+| 1 | Bright label, bright card, outline zeroed — "The Final" at ink 0.900 on a 0.953 card, difference 0.052 | `MainUI` `inkOnLight` | 15.1 zeroes stroke **Thickness**; `inkOnLight` only moved **Transparency**, so it had nothing to switch back on |
+| 2 | Trade UI could never receive an update on any server | `TradeService.Init` | `MainUI` binds `TradeUpdate` with `FindFirstChild` inside `if remote then`; the remote is created lazily on the first trade, i.e. always after the client looked |
+
+Defect 2 matters beyond its own row: **15.5's scope fix alone would have shipped a still-dead
+feature.** Neither defect is visible to `luastruct.py`, `luanames.py`, `luascope.py` or a compile.
+
+**Not verified:** two real clients running the real `Request → Accept → SetOffer` chain (15.5).
+Studio's Play Solo is one client. The drawing path and the remote are proven; `pushSession`'s own
+call into `resolveOfferPets` is not.
+
+**Rules broken:** none. No save was written — 15.4's join-only branch was reached with a doctored
+copy of a captured payload fired at a fresh `MainUI` clone, and Play was stopped at the end.
+
+**For Gemini, from this round:** a UI row's check names a *surface*. Look at the whole surface, not
+at the thing the row says it fixed — both defects above were sitting in plain sight next to a
+change that was itself correct.
