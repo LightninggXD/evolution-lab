@@ -320,13 +320,26 @@ end
 -- ============================================================================
 -- 8.1 (SERVER HALF) -- REQUEST AND ACCEPT
 -- ============================================================================
--- Returns session, or nil plus a reason string. The reason is returned rather than notified, so a
--- test reads the same answer the player would be shown.
+-- Returns session, or nil plus a reason string.
+--
+-- EVERY REFUSAL A PLAYER CAN CAUSE NOW SAYS SO (15.18). The header here used to read "the reason is
+-- returned rather than notified, so a test reads the same answer the player would be shown" -- and
+-- the second half of that sentence was not true: only the cooldown, the rate limit and the reach
+-- check called `tell`, so the four branches above them refused in complete silence. Found on the
+-- live two-client run: an invite timed out, leaving a session pending, and every further press of
+-- Ask did nothing whatsoever -- no window, no message, nothing to distinguish "the server refused
+-- you" from "the button is broken". It cost a run to diagnose from the outside, which is what a
+-- player would have to do. `refuse` both tells and returns, so tests still read the same string.
+local function refuse(userId, message)
+	tell(userId, { kind = "error", message = message })
+	return nil, message
+end
+
 function TradeService.Request(fromUserId, toUserId)
-	if fromUserId == toUserId then return nil, "You cannot trade with yourself" end
-	if not dataOf(fromUserId) or not dataOf(toUserId) then return nil, "That player is not ready" end
-	if TradeService.GetSession(fromUserId) then return nil, "You are already in a trade" end
-	if TradeService.GetSession(toUserId) then return nil, "They are already in a trade" end
+	if fromUserId == toUserId then return refuse(fromUserId, "You cannot trade with yourself") end
+	if not dataOf(fromUserId) or not dataOf(toUserId) then return refuse(fromUserId, "That player is not ready") end
+	if TradeService.GetSession(fromUserId) then return refuse(fromUserId, "You are already in a trade") end
+	if TradeService.GetSession(toUserId) then return refuse(fromUserId, "They are already in a trade") end
 
 	local now = os.clock()
 	if lastRequest[fromUserId] and now - lastRequest[fromUserId] < REQUEST_COOLDOWN then
@@ -372,11 +385,14 @@ end
 
 function TradeService.Accept(userId, tradeId)
 	local session = sessions[tradeId]
-	if not session or session.closed then return nil, "That trade has gone" end
+	-- ...and the same for Accept (15.18). "That trade has gone" is the one a player actually meets:
+	-- the invite prompt hides itself after 15 seconds, so pressing Accept a moment late used to be
+	-- indistinguishable from pressing a dead button.
+	if not session or session.closed then return refuse(userId, "That trade has gone") end
 	-- only the RECEIVER accepts: the sender accepting their own request would open a window the
 	-- other player never agreed to
-	if session.b.userId ~= userId then return nil, "That request is not yours to accept" end
-	if session.state ~= "pending" then return nil, "Already open" end
+	if session.b.userId ~= userId then return refuse(userId, "That request is not yours to accept") end
+	if session.state ~= "pending" then return refuse(userId, "Already open") end
 	session.state = "open"
 	pushSession(session, "open")
 	return session

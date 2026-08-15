@@ -9842,7 +9842,14 @@ end)()
 	-- cursor between the press and the release.
 	local function repaintDistances()
 		for _, row in ipairs(pickerScroll:GetChildren()) do
-			local uid = row:IsA("Frame") and tonumber(row.Name:match("^Player_(%d+)$"))
+			-- THE ID IS AN ATTRIBUTE, NOT A SUBSTRING OF THE NAME (15.19). It was
+			-- `row.Name:match("^Player_(%d+)$")`, with a comment arguing that an attribute "would do
+			-- the same job with one more step". The one step was the job: **Studio's test players
+			-- have NEGATIVE UserIds** -- Player1 is -1 and Player2 is -2 -- and `%d+` does not match
+			-- a minus sign, so every row resolved to nil and the distance label read "…" forever.
+			-- It would have worked in production, where ids are positive, and failed in every test
+			-- anyone could run, which is the worst way round. Found on the first live two-client run.
+			local uid = row:IsA("Frame") and row:GetAttribute("TradeUserId")
 			local label = uid and row:FindFirstChild("Distance")
 			local other = uid and Players:GetPlayerByUserId(uid)
 			if label and other then
@@ -9871,9 +9878,11 @@ end)()
 			if other ~= player then
 				shown += 1
 				local row = Instance.new("Frame")
-				-- the userId is carried in the NAME because repaintDistances has to find the row
-				-- again a second later, and an attribute would do the same job with one more step
+				-- The name is for reading in the explorer; the ATTRIBUTE is what repaintDistances
+				-- resolves against, because a userId is not always a run of digits -- see the note
+				-- there, and 15.19.
 				row.Name = "Player_" .. other.UserId
+				row:SetAttribute("TradeUserId", other.UserId)
 				row.Size = UDim2.new(1, -6, 0, 62)
 				row.LayoutOrder = shown
 				row.ZIndex = pickerScroll.ZIndex + 1
