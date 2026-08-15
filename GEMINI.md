@@ -209,3 +209,23 @@ Stop and write to `HANDOFF-LOG.md`, then ask the owner, when:
 - You would need to write to the owner's DataStore save.
 
 Do not guess on any of these. Guessing on the first one costs real money.
+
+## 11. Tooling & Architecture Invariants (Learned Patterns)
+
+### Roblox Studio Dynamic MCP Discovery (Windows)
+Roblox Studio updates into dynamic version directories (e.g. `version-xxxxxxxxxxxx`). Never hardcode Studio binary paths in MCP configs. In `C:\Users\Kristina\AppData\Local\Roblox\mcp.bat`, dynamically query the Windows Registry:
+```cmd
+for /f "tokens=2*" %%a in ('reg query "HKCU\Software\Roblox\RobloxStudio" /ve 2^>nul') do (
+    set "STUDIO_DIR=%%b"
+)
+```
+
+### Luau 200 Top-Level Register Invariant
+Luau enforces a strict 200 local register ceiling per scope. When adding UI sections or handlers in monolithic scripts (`MainUI.client.lua`), always encapsulate within an IIFE:
+```lua
+;(function()
+    -- local logic has an isolated 200-register budget
+end)()
+```
+Export callbacks or triggers onto shared tables like `hudRefs`.
+
