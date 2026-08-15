@@ -30,6 +30,7 @@ local LeaderboardService = require(ServerScriptService.LeaderboardService)
 local StatsService = require(ServerScriptService.StatsService)
 local EventService = require(ServerScriptService.EventService)
 local HubPlaza = require(ServerScriptService.HubPlaza)
+local TradeService = require(ServerScriptService.TradeService)
 
 -- ===== STREAMING =====
 -- The two radii that decide how much world a client is holding. Roblox's defaults (min 64,
@@ -133,6 +134,7 @@ HubPlaza.Init()
 -- fully wired. It hooks PlayerAdded itself rather than being called from the block below, because
 -- it needs its own wait-for-data anyway and folding it in there would make that block do two jobs.
 OfflineService.Init()
+TradeService.Init()
 
 -- Hook evolution -> zone unlock checks + visual update (kept out of DNAService to avoid circular requires)
 DNAService.OnEvolve = function(player, data)

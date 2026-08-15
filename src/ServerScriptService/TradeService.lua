@@ -139,6 +139,83 @@ local function dataOf(userId)
 	return PlayerDataService.Cache[userId]
 end
 
+local function ensureRemote(name, class)
+	class = class or "RemoteEvent"
+	local remotes = RS:FindFirstChild("Remotes")
+	if not remotes then
+		remotes = Instance.new("Folder")
+		remotes.Name = "Remotes"
+		remotes.Parent = RS
+	end
+	local r = remotes:FindFirstChild(name)
+	if not r then
+		r = Instance.new(class)
+		r.Name = name
+		r.Parent = remotes
+	end
+	return r
+end
+
+local function resolveOfferPets(userId, offerIds)
+	local data = dataOf(userId)
+	if not data then return {} end
+	local list = {}
+	for _, id in ipairs(offerIds or {}) do
+		local _, pet = petIndexById(data, id)
+		if pet then
+			local def = GameConfig.GetPetDef(pet.key)
+			table.insert(list, {
+				id = pet.id,
+				key = pet.key,
+				tier = pet.tier or 1,
+				name = def and def.name or pet.key,
+				rarity = def and def.rarity or "Common",
+				emoji = def and def.emoji or "🐾",
+			})
+		end
+	end
+	return list
+end
+
+local function pushSession(session, stateOverride)
+	if not session then return end
+	local updateRemote = ensureRemote("TradeUpdate")
+
+	local pA = Players:GetPlayerByUserId(session.a.userId)
+	local pB = Players:GetPlayerByUserId(session.b.userId)
+
+	local petsA = resolveOfferPets(session.a.userId, session.a.offer)
+	local petsB = resolveOfferPets(session.b.userId, session.b.offer)
+
+	local state = stateOverride or session.state
+
+	if pA then
+		updateRemote:FireClient(pA, {
+			tradeId = session.id,
+			state = state,
+			partnerName = pB and pB.Name or "Partner",
+			partnerUserId = session.b.userId,
+			myOffer = petsA,
+			partnerOffer = petsB,
+			myConfirmed = session.a.confirmed,
+			partnerConfirmed = session.b.confirmed,
+		})
+	end
+
+	if pB then
+		updateRemote:FireClient(pB, {
+			tradeId = session.id,
+			state = state,
+			partnerName = pA and pA.Name or "Partner",
+			partnerUserId = session.a.userId,
+			myOffer = petsB,
+			partnerOffer = petsA,
+			myConfirmed = session.b.confirmed,
+			partnerConfirmed = session.a.confirmed,
+		})
+	end
+end
+
 local function rootOf(userId)
 	local player = Players:GetPlayerByUserId(userId)
 	local character = player and player.Character
@@ -243,10 +320,17 @@ function TradeService.Request(fromUserId, toUserId)
 
 	local now = os.clock()
 	if lastRequest[fromUserId] and now - lastRequest[fromUserId] < REQUEST_COOLDOWN then
+		tell(fromUserId, { kind = "error", message = "Slow down" })
 		return nil, "Slow down"
 	end
-	if not underRateLimit(fromUserId) then return nil, "Too many trades -- wait a minute" end
-	if not withinReach(fromUserId, toUserId) then return nil, "Stand closer to trade" end
+	if not underRateLimit(fromUserId) then
+		tell(fromUserId, { kind = "error", message = "Too many trades -- wait a minute" })
+		return nil, "Too many trades -- wait a minute"
+	end
+	if not withinReach(fromUserId, toUserId) then
+		tell(fromUserId, { kind = "error", message = "Stand closer to trade" })
+		return nil, "Stand closer to trade"
+	end
 
 	lastRequest[fromUserId] = now
 
@@ -261,10 +345,18 @@ function TradeService.Request(fromUserId, toUserId)
 	sessionOf[fromUserId] = session.id
 	sessionOf[toUserId] = session.id
 
-	-- No client message from here. The Notify kinds this game has are rewards, errors and world
-	-- popups; "somebody wants to trade" is a prompt that has to be answerable, which means it
-	-- belongs to the trade window that does not exist yet. Announcing it through the error channel
-	-- because that channel happens to be reachable is how a UI ends up shaped by its plumbing.
+	local inviteRemote = ensureRemote("TradeInvite")
+	local pFrom = Players:GetPlayerByUserId(fromUserId)
+	local pTo = Players:GetPlayerByUserId(toUserId)
+	if pTo and pFrom then
+		inviteRemote:FireClient(pTo, {
+			fromUserId = fromUserId,
+			fromName = pFrom.Name,
+			tradeId = session.id,
+		})
+		tell(fromUserId, { kind = "reward", message = ("Trade request sent to %s!"):format(pTo.Name) })
+	end
+
 	return session
 end
 
@@ -276,12 +368,14 @@ function TradeService.Accept(userId, tradeId)
 	if session.b.userId ~= userId then return nil, "That request is not yours to accept" end
 	if session.state ~= "pending" then return nil, "Already open" end
 	session.state = "open"
+	pushSession(session, "open")
 	return session
 end
 
 function TradeService.Cancel(userId, reason)
 	local session = TradeService.GetSession(userId)
 	if not session then return false end
+	pushSession(session, "cancelled")
 	closeSession(session, reason or "cancelled")
 	for _, s in ipairs({ session.a, session.b }) do
 		tell(s.userId, { kind = "error", message = "Trade cancelled" })
@@ -342,6 +436,7 @@ function TradeService.SetOffer(userId, petIds)
 	session.a.confirmed = false
 	session.b.confirmed = false
 
+	pushSession(session, "open")
 	return session
 end
 
@@ -356,8 +451,22 @@ function TradeService.Confirm(userId, tradeId)
 	me.confirmed = true
 
 	if session.a.confirmed and session.b.confirmed then
-		return TradeService.Commit(session.id)
+		session.state = "countdown"
+		pushSession(session, "countdown")
+		task.delay(3, function()
+			if not session.closed and session.state == "countdown" and session.a.confirmed and session.b.confirmed then
+				local res, err = TradeService.Commit(session.id)
+				if res then
+					pushSession(session, "completed")
+				else
+					pushSession(session, "cancelled")
+				end
+			end
+		end)
+		return session
 	end
+
+	pushSession(session, "open")
 	return session
 end
 
@@ -540,6 +649,38 @@ function TradeService.Init()
 				end
 			end
 		end
+	end)
+
+	-- Wire Remotes for client communication
+	local reqRemote = ensureRemote("TradeRequest")
+	reqRemote.OnServerEvent:Connect(function(player, targetUserId)
+		local targetId = tonumber(targetUserId)
+		if not targetId and typeof(targetUserId) == "Instance" and targetUserId:IsA("Player") then
+			targetId = targetUserId.UserId
+		end
+		if targetId then
+			TradeService.Request(player.UserId, targetId)
+		end
+	end)
+
+	local acceptRemote = ensureRemote("TradeAccept")
+	acceptRemote.OnServerEvent:Connect(function(player, tradeId)
+		TradeService.Accept(player.UserId, tradeId)
+	end)
+
+	local cancelRemote = ensureRemote("TradeCancel")
+	cancelRemote.OnServerEvent:Connect(function(player)
+		TradeService.Cancel(player.UserId, "cancelled")
+	end)
+
+	local offerRemote = ensureRemote("TradeSetOffer")
+	offerRemote.OnServerEvent:Connect(function(player, petIds)
+		TradeService.SetOffer(player.UserId, petIds)
+	end)
+
+	local confirmRemote = ensureRemote("TradeConfirm")
+	confirmRemote.OnServerEvent:Connect(function(player, tradeId)
+		TradeService.Confirm(player.UserId, tradeId)
 	end)
 end
 

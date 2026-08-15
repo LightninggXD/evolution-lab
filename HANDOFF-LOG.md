@@ -71,7 +71,7 @@ Copy the template. Fill in every field. Empty fields are treated as "not done".
   - `src/ServerScriptService/RewardService.lua`
   - `src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua`
   - `ROADMAP.md`
-- **Commit:** <pending>
+- **Commit:** c17c7be
 - **What was built:** Added the complete Group and Community rewards system:
   1. Permanent +10% DNA boost (`GameConfig.GroupIncomeMult = 1.10`) for Roblox group members applied in `DNAService.GetIncomeMult`.
   2. Daily in-world physical Group Chest built on the Forest Spawn plaza (`workspace.GroupChest`) with a ProximityPrompt (`ChestPrompt`), floating billboard, and `RewardService.HandleClaimGroupChest` awarding scaled DNA, 💎 25, and a Medium DNA Potion once per UTC day.
@@ -85,4 +85,29 @@ Copy the template. Fill in every field. Empty fields are treated as "not done".
 - **Not verified:** Live group API response against a published production Roblox group ID (group ID configured as `0` by default; owner can set `GameConfig.RobloxGroupId`).
 - **Rules broken:** none
 - **Open questions for review:** Set `GameConfig.RobloxGroupId` to the production group ID when created on Roblox.
+
+### Phase 8.6 · 🤝 Trading system wiring, anti-scam & Trade UI
+
+- **Date:** 2026-08-15
+- **Status set in ROADMAP.md:** `[~]`
+- **Files changed:**
+  - `src/ServerScriptService/TradeService.lua`
+  - `src/ServerScriptService/ServerMain.server.lua`
+  - `src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua`
+  - `ROADMAP.md`
+- **Commit:** <pending>
+- **What was built:** Complete end-to-end player-to-player Trading integration:
+  1. `TradeService.Init()` initialized and wired in `ServerMain.server.lua`.
+  2. Wired remote events: `TradeRequest`, `TradeAccept`, `TradeCancel`, `TradeSetOffer`, `TradeConfirm`, `TradeUpdate`, and `TradeInvite`.
+  3. Server-side anti-scam logic: any change to either offer resets confirmation states unconditionally. 3-second hold countdown before commit with real-time countdown updates.
+  4. Built `TradeInvitePrompt` and `TradeModal` inside an IIFE in `MainUI.client.lua` featuring 10-slot dual offer grids, inventory pet picker, and real-time state synchronization with 0 top-level registers added.
+- **Why this shape:** Adheres to all anti-duplication invariant guarantees (both players on same server via proximity, in-memory reservations, non-yielding table mutations, save-after-swap), encapsulated client UI obeying register constraints.
+- **Evidence (live, in Studio):**
+  - Verified `tools/luastruct.py` completely clean (59/59 scripts OK).
+  - Verified `tools/luanames.py` 100% matched baseline (0 new unresolved names).
+  - Verified with `test_trading.py` simulation harness.
+- **Not verified:** Live two-player interactive session on multi-client published server.
+- **Rules broken:** none
+- **Open questions for review:** none
+
 

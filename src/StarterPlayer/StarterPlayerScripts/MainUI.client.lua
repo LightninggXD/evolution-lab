@@ -9144,3 +9144,515 @@ end)
 		end
 	end)
 end)()
+
+-- ============================================================================
+-- TRADING UI & REMOTES (Phase 8.6)
+-- ============================================================================
+;(function()
+	local currentTradeId = nil
+	local currentSession = nil
+	local myOfferIds = {}
+	local countdownActive = false
+
+	-- 1. TRADE INVITE PROMPT (HUD Pop-in)
+	local inviteFrame = Instance.new("Frame")
+	inviteFrame.Name = "TradeInvitePrompt"
+	inviteFrame.Size = UDim2.new(0, 360, 0, 90)
+	inviteFrame.Position = UDim2.new(0.5, -180, 0, 80)
+	inviteFrame.BackgroundTransparency = 1
+	inviteFrame.Visible = false
+	inviteFrame.ZIndex = 50
+	inviteFrame.Parent = screenGui
+
+	local inviteCard = UITheme.Card(inviteFrame, {
+		size = UDim2.new(1, 0, 1, 0),
+		color = UITheme.Color.CardDark,
+		border = UITheme.Color.Gold,
+		padding = 10,
+		zIndex = 50,
+	})
+
+	local inviteLabel = Instance.new("TextLabel")
+	inviteLabel.Name = "InviteText"
+	inviteLabel.Size = UDim2.new(1, 0, 0, 26)
+	inviteLabel.Position = UDim2.new(0, 0, 0, 0)
+	inviteLabel.BackgroundTransparency = 1
+	inviteLabel.Font = UITheme.Font.Bold
+	inviteLabel.TextSize = 16
+	inviteLabel.TextColor3 = UITheme.Color.TextWhite
+	inviteLabel.Text = "🤝 Trade Request"
+	inviteLabel.ZIndex = 51
+	inviteLabel.Parent = inviteCard
+
+	local inviteSub = Instance.new("TextLabel")
+	inviteSub.Name = "InviteSub"
+	inviteSub.Size = UDim2.new(1, 0, 0, 18)
+	inviteSub.Position = UDim2.new(0, 0, 0, 24)
+	inviteSub.BackgroundTransparency = 1
+	inviteSub.Font = UITheme.Font.Regular
+	inviteSub.TextSize = 13
+	inviteSub.TextColor3 = UITheme.Color.TextMuted
+	inviteSub.Text = "Player wants to trade with you"
+	inviteSub.ZIndex = 51
+	inviteSub.Parent = inviteCard
+
+	local acceptBtn = UITheme.Button(inviteCard, {
+		text = "Accept",
+		color = UITheme.Color.Green,
+		size = UDim2.new(0, 120, 0, 30),
+		position = UDim2.new(0.5, -130, 1, -34),
+		fontSize = 14,
+		zIndex = 52,
+	})
+
+	local declineBtn = UITheme.Button(inviteCard, {
+		text = "Decline",
+		color = UITheme.Color.Red,
+		size = UDim2.new(0, 120, 0, 30),
+		position = UDim2.new(0.5, 10, 1, -34),
+		fontSize = 14,
+		zIndex = 52,
+	})
+
+	local inviteTimer = 0
+	local pendingTradeId = nil
+
+	acceptBtn.Activated:Connect(function()
+		inviteFrame.Visible = false
+		if pendingTradeId then
+			local acceptRemote = Remotes:FindFirstChild("TradeAccept")
+			if acceptRemote then
+				acceptRemote:FireServer(pendingTradeId)
+			end
+			pendingTradeId = nil
+		end
+	end)
+
+	declineBtn.Activated:Connect(function()
+		inviteFrame.Visible = false
+		pendingTradeId = nil
+	end)
+
+	local tradeInviteRemote = Remotes:FindFirstChild("TradeInvite")
+	if tradeInviteRemote then
+		tradeInviteRemote.OnClientEvent:Connect(function(payload)
+			if not payload or not payload.tradeId then return end
+			pendingTradeId = payload.tradeId
+			inviteSub.Text = ("%s wants to trade with you"):format(payload.fromName or "Player")
+			inviteFrame.Visible = true
+			inviteTimer = os.clock()
+			task.delay(15, function()
+				if inviteFrame.Visible and os.clock() - inviteTimer >= 14.5 then
+					inviteFrame.Visible = false
+					pendingTradeId = nil
+				end
+			end)
+		end)
+	end
+
+	-- 2. MAIN TRADE MODAL
+	local tradeModal = Instance.new("Frame")
+	tradeModal.Name = "TradeModal"
+	tradeModal.Size = UDim2.new(0, 680, 0, 520)
+	tradeModal.Visible = false
+	tradeModal.ZIndex = 40
+	tradeModal.Parent = screenGui
+	registerPanel(tradeModal)
+	panelClose(tradeModal)
+
+	local header, topY = UITheme.PanelHeader(tradeModal, {
+		title = "🤝 Secure Trading",
+		subtitle = "Trade pets safely with other players (Anti-scam verified)",
+		accent = UITheme.Color.PanelBlue,
+		maxTextSize = 26,
+		margin = 16,
+		top = 12,
+	})
+
+	-- Left Column: My Offer
+	local leftCol = Instance.new("Frame")
+	leftCol.Name = "MyOfferCol"
+	leftCol.Size = UDim2.new(0.5, -22, 0, 200)
+	leftCol.Position = UDim2.new(0, 16, 0, topY)
+	leftCol.BackgroundTransparency = 1
+	leftCol.ZIndex = 41
+	leftCol.Parent = tradeModal
+
+	local leftCard = UITheme.Card(leftCol, {
+		size = UDim2.new(1, 0, 1, 0),
+		color = UITheme.Color.CardDark,
+		border = UITheme.Color.BorderMuted,
+		padding = 8,
+		zIndex = 41,
+	})
+
+	local myHeader = Instance.new("TextLabel")
+	myHeader.Size = UDim2.new(1, 0, 0, 22)
+	myHeader.BackgroundTransparency = 1
+	myHeader.Font = UITheme.Font.Bold
+	myHeader.TextSize = 15
+	myHeader.TextColor3 = UITheme.Color.Gold
+	myHeader.Text = "You (Your Offer)"
+	myHeader.ZIndex = 42
+	myHeader.Parent = leftCard
+
+	local myStatus = Instance.new("TextLabel")
+	myStatus.Size = UDim2.new(1, 0, 0, 18)
+	myStatus.Position = UDim2.new(0, 0, 0, 22)
+	myStatus.BackgroundTransparency = 1
+	myStatus.Font = UITheme.Font.SemiBold
+	myStatus.TextSize = 13
+	myStatus.TextColor3 = UITheme.Color.TextMuted
+	myStatus.Text = "⏳ Deciding..."
+	myStatus.ZIndex = 42
+	myStatus.Parent = leftCard
+
+	local mySlotsGrid = Instance.new("Frame")
+	mySlotsGrid.Name = "MySlots"
+	mySlotsGrid.Size = UDim2.new(1, 0, 1, -44)
+	mySlotsGrid.Position = UDim2.new(0, 0, 0, 44)
+	mySlotsGrid.BackgroundTransparency = 1
+	mySlotsGrid.ZIndex = 42
+	mySlotsGrid.Parent = leftCard
+
+	local myGridLayout = Instance.new("UIGridLayout")
+	myGridLayout.CellSize = UDim2.new(0, 56, 0, 64)
+	myGridLayout.CellPadding = UDim2.new(0, 6, 0, 6)
+	myGridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	myGridLayout.Parent = mySlotsGrid
+
+	-- Right Column: Partner Offer
+	local rightCol = Instance.new("Frame")
+	rightCol.Name = "PartnerOfferCol"
+	rightCol.Size = UDim2.new(0.5, -22, 0, 200)
+	rightCol.Position = UDim2.new(0.5, 6, 0, topY)
+	rightCol.BackgroundTransparency = 1
+	rightCol.ZIndex = 41
+	rightCol.Parent = tradeModal
+
+	local rightCard = UITheme.Card(rightCol, {
+		size = UDim2.new(1, 0, 1, 0),
+		color = UITheme.Color.CardDark,
+		border = UITheme.Color.BorderMuted,
+		padding = 8,
+		zIndex = 41,
+	})
+
+	local partnerHeader = Instance.new("TextLabel")
+	partnerHeader.Size = UDim2.new(1, 0, 0, 22)
+	partnerHeader.BackgroundTransparency = 1
+	partnerHeader.Font = UITheme.Font.Bold
+	partnerHeader.TextSize = 15
+	partnerHeader.TextColor3 = UITheme.Color.Blue
+	partnerHeader.Text = "Partner's Offer"
+	partnerHeader.ZIndex = 42
+	partnerHeader.Parent = rightCard
+
+	local partnerStatus = Instance.new("TextLabel")
+	partnerStatus.Size = UDim2.new(1, 0, 0, 18)
+	partnerStatus.Position = UDim2.new(0, 0, 0, 22)
+	partnerStatus.BackgroundTransparency = 1
+	partnerStatus.Font = UITheme.Font.SemiBold
+	partnerStatus.TextSize = 13
+	partnerStatus.TextColor3 = UITheme.Color.TextMuted
+	partnerStatus.Text = "⏳ Deciding..."
+	partnerStatus.ZIndex = 42
+	partnerStatus.Parent = rightCard
+
+	local partnerSlotsGrid = Instance.new("Frame")
+	partnerSlotsGrid.Name = "PartnerSlots"
+	partnerSlotsGrid.Size = UDim2.new(1, 0, 1, -44)
+	partnerSlotsGrid.Position = UDim2.new(0, 0, 0, 44)
+	partnerSlotsGrid.BackgroundTransparency = 1
+	partnerSlotsGrid.ZIndex = 42
+	partnerSlotsGrid.Parent = rightCard
+
+	local partnerGridLayout = Instance.new("UIGridLayout")
+	partnerGridLayout.CellSize = UDim2.new(0, 56, 0, 64)
+	partnerGridLayout.CellPadding = UDim2.new(0, 6, 0, 6)
+	partnerGridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	partnerGridLayout.Parent = partnerSlotsGrid
+
+	-- Middle Section: My Inventory Picker
+	local invLabel = Instance.new("TextLabel")
+	invLabel.Size = UDim2.new(1, -32, 0, 20)
+	invLabel.Position = UDim2.new(0, 16, 0, topY + 208)
+	invLabel.BackgroundTransparency = 1
+	invLabel.Font = UITheme.Font.Bold
+	invLabel.TextSize = 14
+	invLabel.TextColor3 = UITheme.Color.TextWhite
+	invLabel.Text = "Your Pet Inventory (Click to offer/remove):"
+	invLabel.TextXAlignment = Enum.TextXAlignment.Left
+	invLabel.ZIndex = 41
+	invLabel.Parent = tradeModal
+
+	local invScroll = Instance.new("ScrollingFrame")
+	invScroll.Name = "InvPickerScroll"
+	invScroll.Size = UDim2.new(1, -32, 0, 110)
+	invScroll.Position = UDim2.new(0, 16, 0, topY + 232)
+	invScroll.BackgroundTransparency = 0.5
+	invScroll.BackgroundColor3 = Color3.fromRGB(15, 18, 26)
+	invScroll.BorderSizePixel = 0
+	invScroll.ZIndex = 42
+	invScroll.ScrollBarThickness = 6
+	invScroll.ScrollBarImageColor3 = Color3.fromRGB(60, 70, 90)
+	invScroll.Parent = tradeModal
+
+	local invCorner = Instance.new("UICorner")
+	invCorner.CornerRadius = UDim.new(0, 8)
+	invCorner.Parent = invScroll
+
+	local invGrid = Instance.new("UIGridLayout")
+	invGrid.CellSize = UDim2.new(0, 64, 0, 84)
+	invGrid.CellPadding = UDim2.new(0, 6, 0, 6)
+	invGrid.Parent = invScroll
+
+	local invPadding = Instance.new("UIPadding")
+	invPadding.PaddingLeft = UDim.new(0, 6)
+	invPadding.PaddingTop = UDim.new(0, 6)
+	invPadding.PaddingRight = UDim.new(0, 6)
+	invPadding.PaddingBottom = UDim.new(0, 6)
+	invPadding.Parent = invScroll
+
+	-- Bottom Action Bar
+	local cancelTradeBtn = UITheme.Button(tradeModal, {
+		text = "❌ Cancel Trade",
+		color = UITheme.Color.Red,
+		size = UDim2.new(0, 200, 0, 42),
+		position = UDim2.new(0, 16, 1, -56),
+		fontSize = 15,
+		zIndex = 43,
+	})
+
+	local confirmTradeBtn = UITheme.Button(tradeModal, {
+		text = "✅ Confirm Trade",
+		color = UITheme.Color.Green,
+		size = UDim2.new(0, 240, 0, 42),
+		position = UDim2.new(1, -256, 1, -56),
+		fontSize = 15,
+		zIndex = 43,
+	})
+
+	local countdownBanner = Instance.new("TextLabel")
+	countdownBanner.Name = "CountdownBanner"
+	countdownBanner.Size = UDim2.new(0, 300, 0, 30)
+	countdownBanner.Position = UDim2.new(0.5, -150, 1, -50)
+	countdownBanner.BackgroundTransparency = 1
+	countdownBanner.Font = UITheme.Font.Bold
+	countdownBanner.TextSize = 16
+	countdownBanner.TextColor3 = UITheme.Color.Gold
+	countdownBanner.Text = "🔒 Locking in trade: 3..."
+	countdownBanner.Visible = false
+	countdownBanner.ZIndex = 44
+	countdownBanner.Parent = tradeModal
+
+	-- Helper to render pet slot
+	local function makeSlotCard(pet, parent, isRemovable, onRemove)
+		local tile = Instance.new("TextButton")
+		tile.Size = UDim2.new(1, 0, 1, 0)
+		tile.BackgroundColor3 = Color3.fromRGB(25, 30, 42)
+		tile.BorderSizePixel = 0
+		tile.Text = ""
+		tile.AutoButtonColor = false
+		tile.ZIndex = parent.ZIndex + 1
+		tile.Parent = parent
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 6)
+		corner.Parent = tile
+
+		local rarityColor = UITheme.Color[pet.rarity] or UITheme.Color.Common
+		local border = Instance.new("UIStroke")
+		border.Color = rarityColor
+		border.Thickness = 1.5
+		border.Parent = tile
+
+		local icon = Instance.new("TextLabel")
+		icon.Size = UDim2.new(1, 0, 0, 32)
+		icon.Position = UDim2.new(0, 0, 0, 2)
+		icon.BackgroundTransparency = 1
+		icon.Font = UITheme.Font.Bold
+		icon.TextSize = 22
+		icon.Text = pet.emoji or "🐾"
+		icon.ZIndex = tile.ZIndex + 1
+		icon.Parent = tile
+
+		local name = Instance.new("TextLabel")
+		name.Size = UDim2.new(1, -4, 0, 24)
+		name.Position = UDim2.new(0, 2, 0, 32)
+		name.BackgroundTransparency = 1
+		name.Font = UITheme.Font.SemiBold
+		name.TextSize = 11
+		name.TextColor3 = rarityColor
+		name.Text = pet.name or pet.key
+		name.TextTruncate = Enum.TextTruncate.AtEnd
+		name.ZIndex = tile.ZIndex + 1
+		name.Parent = tile
+
+		if isRemovable and onRemove then
+			tile.Activated:Connect(function()
+				onRemove(pet.id)
+			end)
+		end
+		return tile
+	end
+
+	-- Render offers
+	local function refreshTradeUI()
+		if not currentSession then return end
+
+		partnerHeader.Text = ("%s's Offer"):format(currentSession.partnerName or "Partner")
+
+		-- Clear slots
+		for _, c in ipairs(mySlotsGrid:GetChildren()) do
+			if c:IsA("TextButton") or c:IsA("Frame") then c:Destroy() end
+		end
+		for _, c in ipairs(partnerSlotsGrid:GetChildren()) do
+			if c:IsA("TextButton") or c:IsA("Frame") then c:Destroy() end
+		end
+		for _, c in ipairs(invScroll:GetChildren()) do
+			if c:IsA("TextButton") or c:IsA("Frame") then c:Destroy() end
+		end
+
+		-- Populate My Offer
+		for _, pet in ipairs(currentSession.myOffer or {}) do
+			makeSlotCard(pet, mySlotsGrid, not currentSession.myConfirmed, function(id)
+				for idx, val in ipairs(myOfferIds) do
+					if val == id then
+						table.remove(myOfferIds, idx)
+						break
+					end
+				end
+				local offerRemote = Remotes:FindFirstChild("TradeSetOffer")
+				if offerRemote then offerRemote:FireServer(myOfferIds) end
+			end)
+		end
+
+		-- Populate Partner Offer
+		for _, pet in ipairs(currentSession.partnerOffer or {}) do
+			makeSlotCard(pet, partnerSlotsGrid, false)
+		end
+
+		-- Populate Inventory picker
+		local data = currentData
+		if data and data.Pets then
+			local equippedSet = {}
+			for _, eqId in ipairs(data.EquippedPetIds or {}) do equippedSet[eqId] = true end
+			local offeredSet = {}
+			for _, offId in ipairs(myOfferIds) do offeredSet[offId] = true end
+
+			for _, pet in ipairs(data.Pets) do
+				if not equippedSet[pet.id] then
+					local def = GameConfig.GetPetDef(pet.key)
+					local pObj = {
+						id = pet.id,
+						key = pet.key,
+						name = def and def.name or pet.key,
+						rarity = def and def.rarity or "Common",
+						emoji = def and def.emoji or "🐾",
+					}
+					local isOffered = offeredSet[pet.id]
+					local btn = makeSlotCard(pObj, invScroll, true, function(id)
+						if isOffered then
+							for idx, val in ipairs(myOfferIds) do
+								if val == id then
+									table.remove(myOfferIds, idx)
+									break
+								end
+							end
+						else
+							if #myOfferIds < 10 then
+								table.insert(myOfferIds, id)
+							end
+						end
+						local offerRemote = Remotes:FindFirstChild("TradeSetOffer")
+						if offerRemote then offerRemote:FireServer(myOfferIds) end
+					end)
+					if isOffered then
+						btn.BackgroundColor3 = Color3.fromRGB(40, 55, 75)
+					end
+				end
+			end
+			local count = #data.Pets
+			invScroll.CanvasSize = UDim2.new(0, 0, 0, math.ceil(count / 8) * 90 + 10)
+		end
+
+		-- Status labels
+		if currentSession.myConfirmed then
+			myStatus.Text = "✅ Ready!"
+			myStatus.TextColor3 = UITheme.Color.Green
+		else
+			myStatus.Text = "⏳ Deciding..."
+			myStatus.TextColor3 = UITheme.Color.TextMuted
+		end
+
+		if currentSession.partnerConfirmed then
+			partnerStatus.Text = "✅ Ready!"
+			partnerStatus.TextColor3 = UITheme.Color.Green
+		else
+			partnerStatus.Text = "⏳ Deciding..."
+			partnerStatus.TextColor3 = UITheme.Color.TextMuted
+		end
+
+		-- Countdown banner
+		if currentSession.state == "countdown" then
+			countdownBanner.Visible = true
+			confirmTradeBtn.Visible = false
+		else
+			countdownBanner.Visible = false
+			confirmTradeBtn.Visible = true
+			if currentSession.myConfirmed then
+				UITheme.SetText(confirmTradeBtn, "Waiting...")
+				UITheme.SetColor(confirmTradeBtn, UITheme.Color.Locked)
+			else
+				UITheme.SetText(confirmTradeBtn, "✅ Confirm Trade")
+				UITheme.SetColor(confirmTradeBtn, UITheme.Color.Green)
+			end
+		end
+	end
+
+	-- Cancel button
+	cancelTradeBtn.Activated:Connect(function()
+		local cancelRemote = Remotes:FindFirstChild("TradeCancel")
+		if cancelRemote then cancelRemote:FireServer() end
+		tradeModal.Visible = false
+		currentSession = nil
+		myOfferIds = {}
+	end)
+
+	-- Confirm button
+	confirmTradeBtn.Activated:Connect(function()
+		if not currentSession or currentSession.myConfirmed then return end
+		local confirmRemote = Remotes:FindFirstChild("TradeConfirm")
+		if confirmRemote then confirmRemote:FireServer(currentSession.tradeId) end
+	end)
+
+	-- Remote event listener for TradeUpdate
+	local tradeUpdateRemote = Remotes:FindFirstChild("TradeUpdate")
+	if tradeUpdateRemote then
+		tradeUpdateRemote.OnClientEvent:Connect(function(payload)
+			if not payload then return end
+			if payload.state == "cancelled" or payload.state == "completed" then
+				tradeModal.Visible = false
+				currentSession = nil
+				myOfferIds = {}
+				return
+			end
+
+			currentSession = payload
+			currentTradeId = payload.tradeId
+
+			-- sync myOfferIds
+			myOfferIds = {}
+			for _, p in ipairs(payload.myOffer or {}) do
+				table.insert(myOfferIds, p.id)
+			end
+
+			if not tradeModal.Visible then
+				toggleOnly(tradeModal)
+			end
+			refreshTradeUI()
+		end)
+	end
+end)()
+
