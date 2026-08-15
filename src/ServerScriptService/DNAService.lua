@@ -151,8 +151,32 @@ end
 function DNAService.GetAutoCollectAmount(data, excludeEvents)
 	local level = data.Upgrades.AutoCollect
 	if level <= 0 then return 0 end
-	-- 0.04 a level, capped at 1.2 -- i.e. levels 1..30 buy the curve and 30 is the ceiling
-	local rate = math.min(level * 0.04, 1.2)
+	-- ===== 15.22: THE CEILING WAS 70 LEVELS BELOW WHAT THE TILE SELLS =====
+	--
+	-- This was `math.min(level * 0.04, 1.2)`, and the report it produced was *"Auto Collect -- I do
+	-- not know what it collects, it has no point"* from a save sitting at **level 52**. It was
+	-- literally pointless there: the rate hit its 1.2 ceiling at level 30 and the shop went on
+	-- selling levels 31..100 at `1.38^level`, each one buying **nothing at all**. An upgrade that
+	-- charges a geometric price for a flat effect is worse than one that is missing, because the
+	-- player pays to find out.
+	--
+	-- The cap is not deleted -- it is what stops the runaway that made a Worm-stage save hold 772M
+	-- DNA -- it is CONTINUED. Levels 1..30 buy the same steep 0.04 a level they always did (nothing
+	-- any existing save has bought changes value), and 31..100 buy 0.012 a level, so the ladder ends
+	-- at 2.04 clicks a second instead of stopping dead a third of the way up.
+	--
+	-- Still expressed as A FRACTION OF ONE CLICK PER SECOND, which is the unit that keeps this
+	-- honest: a player who is actually fighting lands roughly a kill a second, and a kill pays a
+	-- full click times the tier and the zone multiplier (x5 to x33), so active play still out-earns
+	-- idling by an order of magnitude at every point on this curve. It reaches OfflineService too,
+	-- at half rate and capped at eight hours, which is the other reason the top end is 2.04 and not
+	-- something rounder and larger.
+	local rate
+	if level <= 30 then
+		rate = level * 0.04
+	else
+		rate = 1.2 + math.min(level - 30, 70) * 0.012
+	end
 	local base = rate * GameConfig.GetClickBase(data.StageIndex)
 	return base * DNAService.GetIncomeMult(data, excludeEvents)
 end
@@ -587,6 +611,15 @@ function DNAService.Init()
 				local data = PlayerDataService.Get(player)
 				if data then
 					local amt = DNAService.GetAutoCollectAmount(data)
+					-- 15.22: the tile can now SAY what this pays, and this is the only place in the
+					-- game that knows the number. The rate is `GetClickBase(stage)` through the whole
+					-- income stack -- pets, mutation, zones, potions, passes, events -- none of which
+					-- the client can compose without a second copy of `GetIncomeMult` that would
+					-- eventually disagree with this one. So the server stamps the figure it just paid
+					-- onto the save table, and `PushToClient` carries it in the payload it already
+					-- sends. Stamped even when it is 0, so a tile at level 0 reads "+0/s" rather than
+					-- keeping the last number a different save left there.
+					data.__autoPerSec = amt
 					if amt > 0 then
 						data.DNA += amt
 						PlayerDataService.UpdateLeaderstats(player)

@@ -612,9 +612,14 @@ for i, key in ipairs(upgradeOrder) do
 	--
 	-- The chip colour is Shade(Outline, 0.22) inline rather than a named constant, because this file
 	-- is at Luau's 200-local ceiling and one more top-level name is not worth a readability win.
+	-- 15.22 TOOK 8 px OFF THE ICON AND 8 OFF THE GAP UNDER THE NAME, to open a 22 px band for the
+	-- effect line below. The tile is 200 x 140 and every band in it is now spoken for: icon 8..44,
+	-- name 46..76, effect 78..100, cost pill 100..132. Nothing was moved that a measurement in an
+	-- earlier row depended on -- the level badge is still top-right at 6 and the cost pill still
+	-- sits 8 px off the bottom.
 	local iconLabel = Instance.new("TextLabel")
 	iconLabel.Name = "Icon"
-	iconLabel.Size = UDim2.new(1, -12, 0, 44)
+	iconLabel.Size = UDim2.new(1, -12, 0, 36)
 	iconLabel.Position = UDim2.new(0.5, 0, 0, 8)
 	iconLabel.AnchorPoint = Vector2.new(0.5, 0)
 	iconLabel.BackgroundTransparency = 1
@@ -625,7 +630,7 @@ for i, key in ipairs(upgradeOrder) do
 
 	local titleLabel = Instance.new("TextLabel")
 	titleLabel.Size = UDim2.new(1, -12, 0, 30)
-	titleLabel.Position = UDim2.new(0.5, 0, 0, 54)
+	titleLabel.Position = UDim2.new(0.5, 0, 0, 46)
 	titleLabel.AnchorPoint = Vector2.new(0.5, 0)
 	titleLabel.BackgroundTransparency = 1
 	titleLabel.TextWrapped = true
@@ -633,6 +638,36 @@ for i, key in ipairs(upgradeOrder) do
 	titleLabel.ZIndex = btn.ZIndex + UITheme.Z.Content
 	titleLabel.Parent = btn
 	themeLabel(titleLabel, 22, Color3.fromRGB(255, 255, 255))
+
+	-- ===== WHAT THE LEVEL YOU OWN IS ACTUALLY DOING (15.22) =====
+	--
+	-- None of these four tiles has ever printed an effect. The report was about Auto Collect --
+	-- *"I do not know what it collects"* -- and it was the fairest possible reading of a tile that
+	-- showed an icon, a name, a level and a price and nothing else: the only way to learn what a
+	-- level bought was to buy one and watch the DNA counter, which for a per-second trickle inside
+	-- an income stack is not observable at all. The same is true of the other three, so all four
+	-- get the line rather than singling out the one that was complained about.
+	--
+	-- Each tile prints ITS OWN contribution, not the whole stack, because the stack is shared -- a
+	-- pet multiplier belongs to the pet, not to this upgrade -- and a tile that claimed the lot
+	-- would double-count against the next tile that did the same. Auto Collect is the exception,
+	-- and it is the honest one: what a player wants from it is the DNA it actually pays them per
+	-- second, so it prints the server's own figure (`__autoPerSec`, stamped by the loop that pays
+	-- it) rather than a fraction nobody can price.
+	local effectLabel = Instance.new("TextLabel")
+	effectLabel.Name = "EffectLabel"
+	effectLabel.Size = UDim2.new(1, -12, 0, 22)
+	effectLabel.Position = UDim2.new(0.5, 0, 0, 78)
+	effectLabel.AnchorPoint = Vector2.new(0.5, 0)
+	effectLabel.BackgroundTransparency = 1
+	-- ONE LINE, NEVER TWO. A 22 px box floors at 14 px text (themeLabel), so a wrapped string is
+	-- clipped rather than shrunk -- 15.16 in one sentence. Every string this label can hold is
+	-- short by construction; TextWrapped stays off so a long one truncates visibly instead.
+	effectLabel.TextWrapped = false
+	effectLabel.Text = ""
+	effectLabel.ZIndex = btn.ZIndex + UITheme.Z.Content
+	effectLabel.Parent = btn
+	themeLabel(effectLabel, 16, UITheme.Color.Cream)
 
 	local levelBadge = Instance.new("Frame")
 	levelBadge.Name = "LevelBadge"
@@ -683,7 +718,7 @@ for i, key in ipairs(upgradeOrder) do
 		Remotes.BuyUpgrade:FireServer(key)
 	end)
 
-	upgradeButtons[key] = { button = btn, levelLabel = levelLabel, costLabel = costLabel, badge = levelBadge }
+	upgradeButtons[key] = { button = btn, levelLabel = levelLabel, costLabel = costLabel, badge = levelBadge, effectLabel = effectLabel }
 end
 
 -- ===== Diamond Upgrades row (bought with premium Diamonds, not DNA) =====
@@ -1858,6 +1893,65 @@ local hudRefs = {}
 	themeLabel(eventEffects, 15)
 	themeLabel(eventClock, 17)
 
+	-- ============================================================================
+	-- THE MUTATION YOU ARE WEARING (15.24)
+	-- ============================================================================
+	-- The report was *"I need somewhere to see which aura is equipped, or whatever this DNA machine
+	-- gives"*, and it was exactly right: the Splicer sells a permanent income-and-speed multiplier
+	-- that is WORN one at a time (`data.SplicerMutation`), and the only place in the entire game
+	-- that named it was a line inside the Splicer's own roll panel -- i.e. you had to walk back to
+	-- the machine to find out what you had bought from it. The particle aura on the body is the only
+	-- other trace, and a particle does not say "x1.50".
+	--
+	-- IT BELONGS ON THIS STRIP AND NOWHERE ELSE. The strip is already the answer to "what is
+	-- currently affecting me": potions that are running out, passes that are permanent, the live
+	-- event, the arena clock. A worn mutation is the same class of fact as a pass -- permanent,
+	-- bought, invisible without a readout -- so it is a card here rather than a new HUD element,
+	-- and it inherits the budget, the fit pass and the tile-column clearance for free.
+	--
+	-- Dropped FIRST when the viewport is short (see the fit order below), beside the pass card and
+	-- for the same reason: nothing about it is about to expire.
+	local mutationCard = Instance.new("Frame")
+	mutationCard.Name = "WornMutation"
+	mutationCard.Size = UDim2.new(0, 244, 0, 48)
+	mutationCard.LayoutOrder = -3             -- above the arena clock (-2), the event (-1) and the chips (0)
+	mutationCard.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
+	mutationCard.Visible = false
+	mutationCard.ZIndex = UITheme.Z.Content + 1
+	mutationCard.Parent = stack
+	styleCard(mutationCard, UITheme.Color.Purple, UDim.new(0, 12), 3)
+
+	local mutationBadge = Instance.new("TextLabel")
+	mutationBadge.Name = "Badge"
+	mutationBadge.Size = UDim2.new(0, 36, 0, 36)
+	mutationBadge.Position = UDim2.new(0, 6, 0, 6)
+	mutationBadge.BackgroundColor3 = UITheme.Color.Purple
+	mutationBadge.Text = "\u{2622}\u{FE0F}"
+	mutationBadge.ZIndex = mutationCard.ZIndex + 1
+	mutationBadge.Parent = mutationCard
+	corner(mutationBadge, UDim.new(0.5, 0))
+	themeLabel(mutationBadge, 20)
+
+	local mutationName = Instance.new("TextLabel")
+	mutationName.Name = "MutationName"
+	mutationName.Size = UDim2.new(1, -62, 0, 20)
+	mutationName.Position = UDim2.new(0, 50, 0, 4)
+	mutationName.BackgroundTransparency = 1
+	mutationName.TextXAlignment = Enum.TextXAlignment.Left
+	mutationName.ZIndex = mutationCard.ZIndex + 1
+	mutationName.Parent = mutationCard
+	themeLabel(mutationName, 17)
+
+	local mutationEffects = Instance.new("TextLabel")
+	mutationEffects.Name = "Effects"
+	mutationEffects.Size = UDim2.new(1, -62, 0, 18)
+	mutationEffects.Position = UDim2.new(0, 50, 1, -20)
+	mutationEffects.BackgroundTransparency = 1
+	mutationEffects.TextXAlignment = Enum.TextXAlignment.Left
+	mutationEffects.ZIndex = mutationCard.ZIndex + 1
+	mutationEffects.Parent = mutationCard
+	themeLabel(mutationEffects, 15)
+
 	-- x2 stays "x2"; x1.5 becomes "x1.5" rather than taking the thread down. See the note below.
 	local function formatMult(m)
 		m = tonumber(m) or 1
@@ -1971,6 +2065,28 @@ local hudRefs = {}
 			-- `nil` is a real state and is NOT zero -- it means BossService has not published yet
 			-- (the first second of a server, or a client that got here first). Drawing "0:00" for that
 			-- would announce a boss that is not coming, so the card simply stays hidden.
+			-- The worn mutation (15.24). Read from the save the server pushes, and looked up in the
+			-- same `GameConfig.Mutations` row the server pays from -- the colour, the name and both
+			-- numbers come out of one table, so the card cannot quote an effect the income stack is
+			-- not applying. Nothing worn: no card, rather than a card saying "none", because the
+			-- Splicer is optional and an empty row would read as something missing.
+			local worn = currentData and currentData.SplicerMutation
+			local wornDef = nil
+			if worn then
+				for _, m in ipairs(GameConfig.Mutations) do
+					if m.name == worn then wornDef = m break end
+				end
+			end
+			if wornDef then
+				mutationCard.Visible = true
+				mutationBadge.BackgroundColor3 = wornDef.color
+				mutationName.Text = ("%s Mutation"):format(wornDef.name)
+				mutationEffects.Text = ("x%s DNA   \u{2022}   +%d speed"):format(
+					formatMult(wornDef.incomeMult or 1), math.floor(wornDef.speedBonus or 0))
+			else
+				mutationCard.Visible = false
+			end
+
 			local arenaSecs = RS:GetAttribute("ArenaBossSeconds")
 			if arenaSecs == nil then
 				arenaCard.Visible = false
@@ -2050,7 +2166,10 @@ local hudRefs = {}
 				-- The arena card is dropped AFTER the pass chips and BEFORE the event card (11.20):
 				-- a pass is permanent and has nothing to miss, the arena boss returns every half hour
 				-- and is also announced on its own board, and a live event runs once a week.
-				local order = { passCard, arenaCard, eventCard }
+				-- 15.24 put the worn mutation beside the pass card at the front: both are permanent,
+				-- neither is about to expire, and between the two the passes are the more familiar
+				-- fact, so the mutation goes first.
+				local order = { mutationCard, passCard, arenaCard, eventCard }
 				local byTime = {}
 				for _, kind in ipairs(KINDS) do
 					local b = boosts and boosts[kind]
@@ -4735,7 +4854,9 @@ panelClose(robuxPanel)
 -- Reached by path rather than by a handle for the usual reason: this file is at the 200-local cap.
 UITheme.PanelHeader(robuxPanel, {
 	title = "🛍️ Robux Shop",
-	subtitle = "Packs, passes and today's pick",
+	-- 15.23: a constant, and it stays a constant. The subtitle used to be overwritten every push
+	-- with a countdown to the daily "pick" -- see refreshRobuxShop for why that clock is gone.
+	subtitle = "Packs, potions and passes",
 	accent = UITheme.Color.Green,
 	maxTextSize = 30,
 })
@@ -4798,10 +4919,9 @@ robuxLayout.Parent = robuxGrid
 	-- two Catalysts carry `panel = "fusion"` because they answer a question the player only has while
 	-- looking at a pet they cannot fuse yet.
 	--
-	-- ONE PREDICATE, USED THREE TIMES -- the grid, the pick, and the refresh loop -- because a
-	-- product hidden from the cards but still eligible to be "today's pick" would advertise a tile
-	-- that does not exist, and one still walked by the refresh would write into a label that was
-	-- never built.
+	-- ONE PREDICATE, USED TWICE -- the grid and the refresh loop -- because a product hidden from
+	-- the cards but still walked by the refresh would write into a label that was never built.
+	-- (It had a third caller until 15.23: the daily "pick", which is gone.)
 	local function inGrid(product)
 		return not product.delisted and product.panel == nil
 	end
@@ -4809,10 +4929,6 @@ robuxLayout.Parent = robuxGrid
 	local gridProducts = {}
 	for _, product in ipairs(GameConfig.RobuxProducts) do
 		if inGrid(product) then table.insert(gridProducts, product) end
-	end
-
-	local function pickIndex()
-		return (math.floor(os.time() / 86400) % #gridProducts) + 1
 	end
 
 	for i, product in ipairs(gridProducts) do
@@ -4927,19 +5043,6 @@ robuxLayout.Parent = robuxGrid
 			ribbon.ZIndex = card.ZIndex + UITheme.Z.Badge
 		end
 
-		-- the pick's own marker, drawn over the tile rather than in place of the ribbon so a tile can
-		-- be both the best value and today's pick without one of the two facts disappearing
-		if i == pickIndex() then
-			local star = Instance.new("TextLabel")
-			star.Name = "PickStar"
-			star.Size = UDim2.new(0, 30, 0, 30)
-			star.Position = UDim2.new(0, 2, 0, 12)
-			star.BackgroundTransparency = 1
-			star.Text = "\u{2B50}"
-			star.ZIndex = card.ZIndex + UITheme.Z.Badge
-			star.Parent = card
-			themeLabel(star, 24)
-		end
 	end
 
 	-- Re-run on every data push, which is also what makes the countdown in the title tick without a
@@ -4964,14 +5067,18 @@ robuxLayout.Parent = robuxGrid
 				end
 			end
 		end
-		local left = 86400 - (os.time() % 86400)
-		-- Into the SUBTITLE now (11.13), so the panel's name stops changing length every second and
-		-- keeps its icon. The ⭐ stays mid-string: it belongs to the sentence about the pick.
-		local sub = robuxPanel:FindFirstChild("Header")
-		sub = sub and sub:FindFirstChild("Subtitle")
-		if sub then
-			sub.Text = ("\u{2B50} Today's pick resets in %dh %02dm"):format(left // 3600, (left % 3600) // 60)
-		end
+		-- 15.23 DELETED THE COUNTDOWN THAT USED TO BE WRITTEN HERE, and the reason is that it counted
+		-- down to nothing. "⭐ Today's pick resets in 10h 51m" sat under the title of a shop whose
+		-- every tile is on sale permanently, at a fixed Robux price, with the same grant tomorrow as
+		-- today -- so the clock promised an expiry that does not exist. A countdown is a claim that
+		-- something is about to be lost; putting one over a Robux shop that loses nothing is a lie
+		-- the player can check in twelve hours. The daily "pick" it timed was a star drawn on one
+		-- rotating tile that carried no discount and no bonus, so it went with it.
+		--
+		-- What stays is the part that is genuinely per-player and genuinely changes: the DNA amounts
+		-- above, which are scaled to the reader's own stage and would otherwise print stage-one
+		-- numbers. The ribbons stay too -- +24% BONUS / BEST VALUE are derived from real value per
+		-- Robux, i.e. a fact about the tile rather than a clock.
 	end
 	hudRefs.refreshRobuxShop()
 end)()
@@ -7634,6 +7741,22 @@ local function refreshUI()
 		-- no spaces round the slash: this is a 84 px corner badge, not a sentence
 		refs.levelLabel.Text = ("Lv %d/%d"):format(level, upgradeMax)
 		refs.costLabel.Text = maxed and "ZONE LOCKED" or ("\u{1F9EC} " .. formatNumber(cost))
+		-- 15.22: what this level is doing right now, in the unit the upgrade is bought for. Auto
+		-- Collect prints the server's own per-second figure (see the stamp in DNAService's loop);
+		-- the other three are arithmetic on the level alone, so they need nothing from the server
+		-- and cannot drift from it. `__autoPerSec` is absent for one tick on a fresh join, which is
+		-- what the `or 0` is for -- a tile that reads "+0/s" for a second is honest.
+		if refs.effectLabel then
+			if key == "AutoCollect" then
+				refs.effectLabel.Text = ("\u{1F9EC} %s/sec"):format(formatNumber(data.__autoPerSec or 0))
+			elseif key == "Income" then
+				refs.effectLabel.Text = ("x%.2f DNA earned"):format(1 + level * 0.12)
+			elseif key == "Luck" then
+				refs.effectLabel.Text = ("+%d%% egg luck"):format(level * GameConfig.PetLuckPerUpgradeLevel)
+			elseif key == "Speed" then
+				refs.effectLabel.Text = ("+%.1f walk speed"):format(GameConfig.GetSpeedUpgradeBonus(data))
+			end
+		end
 		if refs.button then
 			setButtonColor(refs.button, (not maxed and data.DNA >= cost)
 				and UITheme.Color.Green or UITheme.Color.Locked)
@@ -8833,111 +8956,6 @@ local shopPanels = {
 	hudRefs.refreshEggPanel = refresh
 end)()
 
--- ================= MARKET: ONE TILE, TWO DOORS (12.8) =================
---
--- The two panels a player could not open from anywhere -- Eggs and Fusion -- get one shared entry
--- point, and it is a flyout rather than two more tiles: two doors added to a nine-tile cluster is a
--- wall of buttons, and these two belong together anyway (both are "the stalls", both are things you
--- normally walk to). Two clicks from anywhere, which is the row's own bar.
---
--- WHAT THIS DOES NOT DO: it does not sell anything. The egg panel prices and prints odds from
--- anywhere and locks the hatch buttons until you are standing at the podium (`nearestEggZone`), and
--- fusing goes through Remotes.FusePet, which the server validates. So the walk to the stall still
--- buys the thing; the flyout only buys the LOOKING, which is what was actually missing.
---
--- The whole block is an immediately-called function with nothing escaping to the top level, because
--- this file is at Luau's 200-local ceiling. A `do ... end` is NOT enough -- see the note over the
--- Season Pass panel for the two times that mistake deleted the entire HUD.
-;(function()
-	local marketButton = columnTile("R", 9, "\u{1F3EA}", "Market", UITheme.Color.Coral)
-
-	-- ===== THE FLYOUT IS A CHILD OF THE TILE, and that is the whole trick =====
-	--
-	-- The responsive pass at the bottom of this file rewrites every tile's Size and Position at
-	-- startup and on every ViewportSize change. A flyout placed from the tile's AbsolutePosition
-	-- would have to be re-measured on each of those -- and would have to get the topbar inset right
-	-- while doing it, since this ScreenGui has IgnoreGuiInset = true and an offset Position is
-	-- therefore measured from a different origin than an AbsolutePosition (58px apart, measured).
-	-- Anchored to the tile's own bottom-left corner it rides the layout for free and there is no
-	-- arithmetic to get wrong.
-	--
-	-- It opens LEFTWARD because the cluster is pinned to the right edge of the screen: opening it
-	-- outward would put it off the display on every viewport.
-	local fly = Instance.new("Frame")
-	fly.Name = "MarketFlyout"
-	fly.AnchorPoint = Vector2.new(1, 1)
-	fly.Position = UDim2.new(0, -14, 1, 0)
-	fly.Size = UDim2.new(0, 216, 0, 104)
-	fly.BackgroundTransparency = 1
-	fly.Visible = false
-	fly.ZIndex = 2
-	fly.Parent = marketButton
-
-	-- 64 apart for two 46-tall buttons, which UITheme.Button renders at 44/40 -- the pair is 24px of
-	-- nominal gap, and a stacked pair loses 10 to the two 5px border strokes, so what is actually
-	-- visible between them is 14. See the HUD layout note: a gap is never the gap you asked for.
-	local eggsBtn = UITheme.Button(fly, {
-		name = "MarketEggs", text = "\u{1F95A} Eggs", color = UITheme.Color.Sunny,
-		size = UDim2.new(1, 0, 0, 46), position = UDim2.new(0, 0, 0, 0),
-		radius = 14, zIndex = 4, maxTextSize = 22,
-	})
-	local fusionBtn = UITheme.Button(fly, {
-		name = "MarketFusion", text = "\u{1F9EC} Fusion", color = UITheme.Color.Bubblegum,
-		size = UDim2.new(1, 0, 0, 46), position = UDim2.new(0, 0, 0, 64),
-		radius = 14, zIndex = 4, maxTextSize = 22,
-	})
-
-	-- ===== CLICKING ANYWHERE ELSE SHUTS IT =====
-	--
-	-- A transparent TextButton, parented to the tile and twenty screens wide, so it needs no mouse
-	-- coordinates and no inset correction either -- the same reason the flyout itself hangs off the
-	-- tile. It exists only while the flyout is open, and it sits UNDER the flyout by ZIndex so the
-	-- two buttons still get their own clicks. One click is swallowed by it, which is what a menu
-	-- dismiss is supposed to cost.
-	local scrim = Instance.new("TextButton")
-	scrim.Name = "MarketScrim"
-	scrim.Text = ""
-	scrim.AutoButtonColor = false
-	scrim.BackgroundTransparency = 1
-	scrim.AnchorPoint = Vector2.new(0.5, 0.5)
-	scrim.Position = UDim2.new(0.5, 0, 0.5, 0)
-	scrim.Size = UDim2.new(20, 0, 20, 0)
-	scrim.Visible = false
-	scrim.ZIndex = 1
-	scrim.Parent = marketButton
-
-	local function setOpen(open)
-		fly.Visible = open
-		scrim.Visible = open
-	end
-
-	marketButton.MouseButton1Click:Connect(function()
-		if fly.Visible then
-			setOpen(false)
-		else
-			-- a flyout in the corner would otherwise open BEHIND an open panel (panels are ZIndex 20,
-			-- the tile cluster is not), which reads as the button doing nothing
-			closeAllPanels()
-			setOpen(true)
-		end
-	end)
-	scrim.MouseButton1Click:Connect(function()
-		setOpen(false)
-	end)
-
-	-- No egg key: the panel falls back to Basic and to the zone the save says the player is in, which
-	-- is exactly what it does for any caller with nothing to say. Standing at a podium is still what
-	-- unlocks the buy, and walking up to one while the panel is open unlocks it without reopening.
-	eggsBtn.MouseButton1Click:Connect(function()
-		setOpen(false)
-		if hudRefs.showEggPanel then hudRefs.showEggPanel(nil) end
-	end)
-	fusionBtn.MouseButton1Click:Connect(function()
-		setOpen(false)
-		if hudRefs.showFusionPanel then hudRefs.showFusionPanel() end
-	end)
-end)()
-
 -- ===== The two tile columns, fitted to the screen =====
 -- Both columns are laid out in raw pixels: the left runs DOWN from y=100, the right runs UP from
 -- the bottom, five tiles at a 96 pitch. That needs 596px of height, and a Roblox phone viewport is
@@ -9047,11 +9065,19 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt, playerWhoTrigger
 	if not which then return end
 	-- Fusion is handled by name rather than through the table above: its panel is built inside a
 	-- block and only escapes as a function on hudRefs, which already does the toggle and the refresh.
-	-- ONE OF TWO WAYS IN SINCE 12.8, and the comment that used to say "the ONLY way, there is
-	-- deliberately no HUD button" is the thing that row changed on purpose -- the Market flyout in
-	-- the tile cluster calls this same `hudRefs.showFusionPanel`. Do not delete that tile to restore
-	-- the old rule: fusion was being reported as a missing feature by players who had not yet walked
-	-- into Volcano, which is the whole reason the lab was moved from zone 5 to zone 4 as well.
+	-- ===== AND SINCE 15.25 IT IS THE ONLY WAY IN AGAIN =====
+	--
+	-- 12.8 added a Market tile whose flyout opened this panel and the egg panel from anywhere, and
+	-- wrote here "do not delete that tile" -- because fusion had been reported as a missing feature
+	-- by players who had not yet walked into Volcano. The owner removed the tile anyway on
+	-- 2026-08-15 ("I do not need the Market button"), which is her call and is recorded as 15.25.
+	--
+	-- WHAT THAT COSTS, so the next reader does not have to rediscover it: fusing now requires
+	-- standing at the Pet Fusion Lab counter in Volcano (zone 4 -- it was moved down from 5 for the
+	-- same discoverability reason). The egg panel is unaffected in practice, since every zone has a
+	-- podium. If the report ever comes back, the cheap fix is a Fusion door on the Pets panel's
+	-- action row rather than a tenth tile: that row is at 678 px of 744 and both wide buttons would
+	-- have to give up 30 px each, which is a measurement to take and not a guess.
 	if which == "fusion" then
 		if hudRefs.showFusionPanel then hudRefs.showFusionPanel() end
 		return

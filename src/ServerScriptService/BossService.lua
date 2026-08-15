@@ -2230,7 +2230,7 @@ local function spawnBoss(zone)
 	-- measured from the hit box centre, so it has to clear the rig's own half-width before a
 	-- player standing at its feet is in range at all
 	local clickDetector = Instance.new("ClickDetector")
-	clickDetector.MaxActivationDistance = math.max(16, boss.size * 0.75)
+	clickDetector.MaxActivationDistance = math.max(22, boss.size * 0.95)
 	clickDetector.Parent = hitbox
 
 	model:SetAttribute("Health", boss.health)
@@ -2286,7 +2286,10 @@ local function spawnBoss(zone)
 
 	-- the reach the remote below is held to, hoisted so the click path can be held to it too --
 	-- a ClickDetector's MaxActivationDistance is enforced on the client and proves nothing here
-	local strikeReach = math.max(30, boss.size * 1.1)
+	-- 15.21 restored this from `math.max(30, boss.size * 1.1)`. A zone boss is 75 to 121 studs
+	-- across, and both reaches here are measured from its CENTRE, so a floor under half its own
+	-- width prices a fight the player can only reach by standing inside the model.
+	local strikeReach = math.max(70, boss.size * 1.4)
 
 	local function onHit(player)
 		if dead or not model.Parent then return end
@@ -2633,7 +2636,7 @@ local function spawnEventBoss()
 	})
 
 	local clickDetector = Instance.new("ClickDetector")
-	clickDetector.MaxActivationDistance = math.max(24, boss.size * 0.8)
+	clickDetector.MaxActivationDistance = math.max(60, boss.size * 1.1)
 	clickDetector.Parent = hitbox
 
 	model:SetAttribute("Health", boss.health)
@@ -2668,7 +2671,7 @@ local function spawnEventBoss()
 		end)
 	end
 
-	local strikeReach = math.max(34, boss.size * 1.05)
+	local strikeReach = math.max(90, boss.size * 1.3)
 
 	local function onHit(player)
 		if dead or not model.Parent then return end

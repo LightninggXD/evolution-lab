@@ -910,8 +910,29 @@ local AUTO_INTERVAL = 0.34
 -- never refused -- and raising this past 60 without raising the server's floor would silently
 -- start dropping blows the player can see themselves make.
 --
--- Bosses keep 32 studs, giving clean close melee range under 10 meters.
-local AUTO_REACH = { Creatures = 22, Bosses = 32 }
+-- Bosses keep 70, and that is not an oversight: a zone boss is 75 to 121 studs across, so 70 studs
+-- from its centre is barely clear of its own body.
+--
+-- ===== 15.21: THESE WERE 22 AND 32 FOR A DAY, AND THE MEASUREMENT THAT SETTLES IT =====
+--
+-- A "tighten combat to true melee, under 10 meters" pass cut this pair to { 22, 32 } and cut the
+-- server's two reaches to match. The report it produced was exact: *"auto attack is too close now,
+-- I have to stand in the core of the mob to kill it"*. It is arithmetic, not taste, and the number
+-- nothing on this path had ever measured is the PLAYER's own body:
+--
+--   * a max-stage character's bounding box measures 30.7 x 42.9 x 27.1 studs, so its half-width
+--     from the HumanoidRootPart -- the point this reach is measured FROM -- is 15.4;
+--   * a Critter's own box is ~22 studs wide, i.e. 11 from its centre -- the point it is measured TO.
+--
+-- So at 22 the two bodies had to OVERLAP by about 4 studs before the client would nominate a
+-- target, and against a Swarmer the gap left was 0.6 studs. At 60 the same player stands 33 studs
+-- clear. Bosses were worse and were unreachable rather than tight: a boss is 75-121 studs across,
+-- so 32 studs from its centre is *inside its model* at every zone in the game.
+--
+-- A distance in meters is not the unit this game is played in. Everything on this path -- the reach,
+-- the rig sizes, the player's own body -- is authored in studs, and the player's body is the thing
+-- that grew twenty times over the course of a save. Convert nothing; measure both bodies.
+local AUTO_REACH = { Creatures = 60, Bosses = 70 }
 
 -- ===== THE REBIRTH LOCK, AS SEEN FROM HERE (11.6) =====
 --
