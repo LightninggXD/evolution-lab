@@ -764,6 +764,24 @@ Gathered 2026-08-07/08 while writing this plan.
   photographed and five attempts say why: the pop lives about a second, and a max-stage character
   fills any camera close enough to read a 76px billboard.
 
+  **Then the same "both sides at once" question was asked of everything else that pairs across a
+  boundary, and all of it came back clean** — recorded so nobody spends a session re-deriving it.
+  `Notify` **kinds**: 26 sent, and the set sent and the set the client branches on are *identical*,
+  0 either way. **`hudRefs`**: every function read is assigned (the two that looked missing are
+  declared `function hudRefs.X`, not `hudRefs.X =`). **Attributes**: four are read and never set —
+  `MysteryCost` is set through a table (`addPrompt(..., { MysteryCost = cost })`), and `FaceFlip`,
+  `BulkPrompt` and `IsLip` are each documented *in their own file* as deliberately inert. **Save
+  fields**: no client read names a field the server never writes. **Name-keyed config tables**, the
+  class that produced 11.30 *and* 11.31: all four zone-keyed tables cover all 20 zones exactly, the
+  four pet-tier tables agree with each other, and every rarity a pet uses has a row. **And every
+  `ProximityPrompt` in the built world is wired** — 81 of them, checked live rather than by reading:
+  60 eggs, 7 mystery dispensers, 4 fusion, 4 mastery, 4 robux, 1 splicer, 1 chest and 4 rebirth
+  plinths, the last wired by a direct `Triggered:Connect` rather than by an attribute. Two things
+  that audit taught: `ShopPanel = "eggs"` is set by `PetService.WireKiosks` **at server start**, so
+  in the Edit world every egg podium looks unwired and is not; and the client sees only what has
+  streamed in, so the sweep has to run on the server for coverage and on the client to prove the
+  attributes replicate. Both were run.
+
   Cost of the tool's own accuracy, recorded because each one is a fact about this codebase: the
   `Remotes` **folder** is fetched by the same `WaitForChild` call the remotes are; a find-or-create
   block binds its local to the **class name** `RemoteEvent`; and a binding is a **position, not a
