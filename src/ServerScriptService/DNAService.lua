@@ -159,48 +159,25 @@ end
 
 -- ===== ACTIONS =====
 
--- THE CLICK IS THE GAME, WHICH IS EXACTLY WHY IT NEEDS A CEILING.
+-- THE CLICK-FOR-DNA REMOTE IS GONE, AND THE REASON IS THE SHAPE OF WHAT WAS LEFT (15.12).
 --
--- `CollectClick` took no arguments and did no checking: one line in an exploit client --
--- `while true do CollectClick:FireServer() end` -- paid out `GetClickAmount` per invocation, at
--- whatever rate the network would carry. That is every upgrade, every Premium egg and every
--- Diamond purchase in the game inside a minute, and because each call also replicated the entire
--- save back down (see PushToClient) it was a way to flatten the server at the same time.
+-- `DNAService.HandleClick` used to be reached over `Remotes.CollectClick`, and it was hardened
+-- against exactly the exploit its name suggests: an interval cap at 14 clicks a second, above what
+-- a human hand can do, with the whole-save reply throttled separately so a mashed mouse could not
+-- flatten the server. All of that was correct. What none of it could survive is the game moving on:
+-- DNA per swing now comes from `CreatureService`, which reads `GetClickAmount` directly, and the
+-- two `+` pills in the HUD open the Robux shop. **Nothing in this game fired `CollectClick`.**
 --
--- 0.07s is 14 clicks a second. A person clicks about 8, a mashed mouse about 12; the cap is set
--- above what a human hand can do on purpose, because a legitimate player who is refused a click
--- they actually made is a much worse outcome than an exploiter earning at 14/s instead of 1000/s.
-local CLICK_INTERVAL = 0.07
-local lastClick = {}   -- [userId] = os.clock()
-
--- ...and the REPLY is throttled separately. The click itself has to land immediately, but the
--- whole save does not have to cross the wire fourteen times a second to say so -- the leaderstat
--- is already live and the periodic sync below is three seconds away.
-local PUSH_INTERVAL = 0.25
-local lastPush = {}    -- [userId] = os.clock()
-
-function DNAService.HandleClick(player)
-	local data = PlayerDataService.Get(player)
-	if not data then return end
-
-	local now = os.clock()
-	if lastClick[player.UserId] and now - lastClick[player.UserId] < CLICK_INTERVAL then
-		return
-	end
-	lastClick[player.UserId] = now
-
-	local amount, wasCrit = DNAService.GetClickAmount(data)
-	data.DNA += amount
-	PlayerDataService.UpdateLeaderstats(player)
-	-- a crit pushes regardless: it fires a notification the client draws against this data
-	if wasCrit or not lastPush[player.UserId] or now - lastPush[player.UserId] >= PUSH_INTERVAL then
-		lastPush[player.UserId] = now
-		PlayerDataService.PushToClient(player)
-	end
-	if wasCrit then
-		Remotes.Notify:FireClient(player, { kind = "crit", amount = amount })
-	end
-end
+-- A server handler that pays currency and that no legitimate client calls is not dead code, it is
+-- an exploit-only faucet: the only software that can reach it is software written to cheat, and
+-- the rate cap sets the exploiter's income rather than denying it -- 14/s of `GetClickAmount`,
+-- which scales with stage, is an endgame player's entire economy in a couple of minutes. Removing
+-- the connection removes the surface; there is no legitimate caller to break.
+--
+-- Found by `tools/luaremotes.py`, which pairs every remote's senders against its listeners. It is
+-- the same tool and the same run that found 15.11, and this is the mirror image of that finding:
+-- there the server listened and the game never spoke, here the server listens and only a cheat
+-- client would.
 
 function DNAService.HandleBuyUpgrade(player, upgradeKey)
 	local data = PlayerDataService.Get(player)
@@ -560,16 +537,12 @@ function DNAService.HandleBuyStageMastery(player, stageIndex)
 end
 
 function DNAService.Init()
-	Remotes.CollectClick.OnServerEvent:Connect(function(player)
-		DNAService.HandleClick(player)
-	end)
-
-	-- both tables are keyed by UserId and would otherwise hold an entry for every player who has
-	-- ever been on this server
-	game.Players.PlayerRemoving:Connect(function(player)
-		lastClick[player.UserId] = nil
-		lastPush[player.UserId] = nil
-	end)
+	-- `Remotes.CollectClick.OnServerEvent` was connected here, and the `PlayerRemoving` handler
+	-- below it existed only to clear the two per-user throttle tables that connection needed. Both
+	-- are gone with the faucet -- see the note over ACTIONS. The remote instance itself is left in
+	-- the saved `Remotes` folder on purpose: deleting it is a place edit rather than a code one,
+	-- and an unconnected RemoteEvent does nothing at all, while a `Remotes.CollectClick` index in a
+	-- copy of this file that had not been updated would hard-error a whole service at boot.
 
 	Remotes.BuyStageMastery.OnServerEvent:Connect(function(player, stageIndex)
 		if typeof(stageIndex) == "number" then
