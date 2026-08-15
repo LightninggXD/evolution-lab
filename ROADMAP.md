@@ -611,6 +611,11 @@ Gathered 2026-08-07/08 while writing this plan.
 
 ## Changelog
 
+- **2026-08-15 (twenty-fifth session)** — **1:1 Pet Simulator 99 UI Replication & Uniform Aesthetic Standard.**
+  - **White Shell + Cyan Border:** Applied pure white modal background (`Color3.fromRGB(255, 255, 255)`) with vibrant 6px cyan border (`Color3.fromRGB(0, 180, 255)`) across all main panels in `UITheme.lua` and `MainUI.client.lua`.
+  - **Pet Simulator 99 Daily Rewards:** Replicated exact reference layout in `rewardPanel` with sunny-gold cards (Days 1–6), top `"Day X"` capsule tabs, giant full-height lime-gold Day 7 card with `"OP!"` star badge, 3D mascot preview, and centered `"Join Tomorrow For A Special Reward!"` footer.
+  - Verified clean on `luastruct.py` (59/59 OK) and `luanames.py` (0 new unresolved names).
+
 - **2026-08-15 (twenty-fourth session)** — **Modern UI panel redesign & vibrant 2026 aesthetics.**
   - **Crisp Panel Colors:** Upgraded `PANEL_SHELL` to crisp clean modern ivory/white `Color3.fromRGB(246, 247, 253)` and `PET_ROW_SHELL` to vibrant high-contrast lavender-blue `Color3.fromRGB(222, 226, 242)`. Enhanced `UITheme.Color` palette with punchy saturated emerald, gold, coral, and blue.
   - **WelcomeBackPanel & Modal Redesign:** Overhauled `WelcomeBackPanel` with an accent ribbon `PanelHeader`, 3D icon box badges on reward rows, gold highlight notes, and a round 3D coral `✕` close button with spring hover feedback.

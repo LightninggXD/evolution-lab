@@ -85,7 +85,7 @@ local DISPLAY_FONT = UITheme.Font.Display
 -- cream panels. The gradient helps too: GradientFor lifts the top stop to rgb(244,243,251) and
 -- drops the bottom to rgb(163,160,176), so the panel has a lit top and a shaded foot rather than
 -- one flat wash.
-local PANEL_SHELL = Color3.fromRGB(246, 247, 253)
+local PANEL_SHELL = Color3.fromRGB(255, 255, 255)
 
 -- Roblox's own TextLabel default. A label still carrying it never picked a colour -- see themeLabel.
 
@@ -206,8 +206,13 @@ local function styleCard(inst, baseColor, radius, thickness)
 	-- already gives: these two routes must produce the same object. Snapping in one and not the other
 	-- would have been a new way for them to diverge.
 	local strokeInst = Instance.new("UIStroke")
-	strokeInst.Thickness = UITheme.SnapStroke(thickness or UITheme.Stroke.Heavy)
-	strokeInst.Color = OUTLINE_COLOR
+	if baseColor == PANEL_SHELL or baseColor == UITheme.Color.PanelWhite then
+		strokeInst.Thickness = 6
+		strokeInst.Color = UITheme.Color.PanelBorder or Color3.fromRGB(0, 180, 255)
+	else
+		strokeInst.Thickness = UITheme.SnapStroke(thickness or UITheme.Stroke.Heavy)
+		strokeInst.Color = OUTLINE_COLOR
+	end
 	strokeInst.Transparency = 0
 	strokeInst.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	strokeInst.LineJoinMode = Enum.LineJoinMode.Round
@@ -3855,62 +3860,86 @@ local function buildDayCell(dayIndex, size, position, big)
 	frame.Size = size
 	frame.Position = position
 	frame.Parent = rewardPanel
-	local idleColor = big and UITheme.Color.Gold or UITheme.Color.Blue
-	local strokeInst = styleCard(frame, idleColor, UDim.new(0, 16), big and 5 or 4)
+	local idleColor = big and Color3.fromRGB(225, 255, 140) or Color3.fromRGB(255, 250, 195)
+	local strokeInst = styleCard(frame, idleColor, UDim.new(0, 16), big and 5 or 3.5)
+
+	local headerPill = Instance.new("Frame")
+	headerPill.Name = "HeaderPill"
+	headerPill.Size = UDim2.new(0, big and 110 or 80, 0, big and 30 or 24)
+	headerPill.Position = UDim2.new(0.5, 0, 0, 6)
+	headerPill.AnchorPoint = Vector2.new(0.5, 0)
+	headerPill.ZIndex = frame.ZIndex + UITheme.Z.Badge
+	headerPill.Parent = frame
+	styleCard(headerPill, Color3.fromRGB(255, 255, 255), UDim.new(1, 0), 2)
 
 	local dayLabel = Instance.new("TextLabel")
 	dayLabel.Name = "DayLabel"
-	dayLabel.Size = UDim2.new(1, -14, 0, big and 40 or 28)
-	dayLabel.Position = UDim2.new(0, 7, 0, big and 12 or 8)
+	dayLabel.Size = UDim2.new(1, 0, 1, 0)
 	dayLabel.BackgroundTransparency = 1
 	dayLabel.Text = "Day " .. dayIndex
-	dayLabel.Parent = frame
-	themeLabel(dayLabel, big and 34 or 24)
+	dayLabel.ZIndex = headerPill.ZIndex + UITheme.Z.Content
+	dayLabel.Parent = headerPill
+	themeLabel(dayLabel, big and 20 or 16, Color3.fromRGB(24, 18, 38))
 
-	local icon = "🧬"
-	if reward.potions and reward.shards then
-		icon = "🌟"
-	elseif reward.potions then
-		icon = "🧪"
-	elseif reward.shards or reward.diamonds then
-		icon = "💎"
+	if big then
+		local opBadge = Instance.new("Frame")
+		opBadge.Name = "OpBadge"
+		opBadge.Size = UDim2.new(0, 64, 0, 26)
+		opBadge.Position = UDim2.new(0, 8, 0, 8)
+		opBadge.ZIndex = frame.ZIndex + UITheme.Z.Badge + 1
+		opBadge.Parent = frame
+		styleCard(opBadge, UITheme.Color.Orange, UDim.new(1, 0), 2)
+
+		local opLabel = Instance.new("TextLabel")
+		opLabel.Name = "OpLabel"
+		opLabel.Size = UDim2.new(1, 0, 1, 0)
+		opLabel.BackgroundTransparency = 1
+		opLabel.Text = "OP!"
+		opLabel.ZIndex = opBadge.ZIndex + UITheme.Z.Content
+		opLabel.Parent = opBadge
+		themeLabel(opLabel, 16, Color3.fromRGB(255, 255, 255))
 	end
-	-- THE ICON IS THE FACE OF THE CARD, so this is the one slot on this panel where the drawing
-	-- matters most. The box is unchanged; what changed is that an emoji's glyph fills about half
-	-- its line box while a drawing fills what it is given, so these come out visibly larger at the
-	-- same authored size. Day 7's 🌟 is gold on a gold card -- the case that pushed the icon drop
-	-- shadow into UITheme rather than being special-cased here (see iconSlot).
+
+	local icon = "\u{1F9EC}"
+	if reward.potions and reward.shards then
+		icon = "\u{1F31F}"
+	elseif reward.potions then
+		icon = "\u{1F9EA}"
+	elseif reward.shards or reward.diamonds then
+		icon = "\u{1F48E}"
+	end
+
 	local iconLabel = UITheme.IconSlot(frame, {
-		name = "IconLabel", icon = icon, maxTextSize = big and 84 or 46,
-		size = UDim2.new(1, 0, 0, big and 138 or 58),
-		position = UDim2.new(0, 0, 0, big and 62 or 38),
+		name = "IconLabel", icon = icon, maxTextSize = big and 80 or 44,
+		size = UDim2.new(1, 0, 0, big and 130 or 56),
+		position = UDim2.new(0, 0, 0, big and 50 or 34),
 	})
 
 	local amountLabel = Instance.new("TextLabel")
 	amountLabel.Name = "AmountLabel"
-	amountLabel.Size = UDim2.new(1, -12, 0, big and 34 or 24)
-	amountLabel.Position = UDim2.new(0, 6, 1, big and -84 or -56)
+	amountLabel.Size = UDim2.new(1, -12, 0, big and 32 or 22)
+	amountLabel.Position = UDim2.new(0, 6, 1, big and -78 or -50)
 	amountLabel.BackgroundTransparency = 1
 	amountLabel.TextWrapped = true
-	amountLabel.Text = formatNumber(reward.dna) .. " DNA"
+	amountLabel.Text = big and "Chimpanzini Bananini" or (formatNumber(reward.dna) .. " DNA")
 	amountLabel.Parent = frame
-	themeLabel(amountLabel, big and 28 or 21, UITheme.Color.Cream)
+	themeLabel(amountLabel, big and 24 or 19, Color3.fromRGB(24, 18, 38))
 
 	local bonusLabel = Instance.new("TextLabel")
 	bonusLabel.Name = "BonusLabel"
-	bonusLabel.Size = UDim2.new(1, -12, 0, big and 36 or 24)
-	bonusLabel.Position = UDim2.new(0, 6, 1, big and -46 or -30)
+	bonusLabel.Size = UDim2.new(1, -12, 0, big and 32 or 22)
+	bonusLabel.Position = UDim2.new(0, 6, 1, big and -42 or -26)
 	bonusLabel.BackgroundTransparency = 1
 	local bonusParts = {}
-	if reward.potions then table.insert(bonusParts, "🧪 x" .. reward.potions) end
-	if reward.shards then table.insert(bonusParts, "💎 x" .. reward.shards) end
-	if reward.diamonds then table.insert(bonusParts, "💎 x" .. reward.diamonds) end
+	if reward.potions then table.insert(bonusParts, "\u{1F9EA} x" .. reward.potions) end
+	if reward.shards then table.insert(bonusParts, "\u{1F48E} x" .. reward.shards) end
+	if reward.diamonds then table.insert(bonusParts, "\u{1F48E} x" .. reward.diamonds) end
 	bonusLabel.Text = table.concat(bonusParts, "  ")
 	bonusLabel.Visible = #bonusParts > 0
 	bonusLabel.Parent = frame
-	themeLabel(bonusLabel, big and 26 or 19)
+	themeLabel(bonusLabel, big and 22 or 17)
 
-	local checkmark = claimTick(frame, big and 42 or 34, big and 26 or 22)
+	local checkmark = claimTick(frame, big and 44 or 36, big and 26 or 22)
 
 	local claimButton = claimOverlay(frame)
 	claimButton.MouseButton1Click:Connect(function()
@@ -3944,6 +3973,17 @@ buildDayCell(
 	UDim2.new(0, GRID_X + 3 * (CELL_W + CELL_GAP) + 6, 0, GRID_Y),
 	true
 )
+
+local rewardFooterMsg = Instance.new("TextLabel")
+rewardFooterMsg.Name = "RewardFooterMsg"
+rewardFooterMsg.Size = UDim2.new(1, -32, 0, 28)
+rewardFooterMsg.Position = UDim2.new(0.5, 0, 1, -16)
+rewardFooterMsg.AnchorPoint = Vector2.new(0.5, 1)
+rewardFooterMsg.BackgroundTransparency = 1
+rewardFooterMsg.Text = "Join Tomorrow For A Special Reward!"
+rewardFooterMsg.ZIndex = rewardPanel.ZIndex + UITheme.Z.Content
+rewardFooterMsg.Parent = rewardPanel
+themeLabel(rewardFooterMsg, 22, Color3.fromRGB(255, 255, 255))
 
 -- ================= CODES (Phase 5.1) =================
 --

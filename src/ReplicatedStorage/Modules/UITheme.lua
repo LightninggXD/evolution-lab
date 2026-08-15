@@ -51,18 +51,19 @@ local Color = {
 	Shadow     = Color3.fromRGB(18, 12, 26),
 	White      = Color3.fromRGB(255, 255, 255),
 	Cream      = Color3.fromRGB(255, 248, 235),
-	PanelWhite = Color3.fromRGB(248, 249, 255),
-	PanelBlue  = Color3.fromRGB(80, 168, 245),
-	Gold       = Color3.fromRGB(255, 198, 45),
-	Orange     = Color3.fromRGB(250, 148, 38),
-	Blue       = Color3.fromRGB(68, 162, 235),
-	SkyBlue    = Color3.fromRGB(105, 205, 250),
-	Green      = Color3.fromRGB(46, 204, 113),
-	Red        = Color3.fromRGB(245, 68, 85),
-	Purple     = Color3.fromRGB(165, 105, 245),
-	Pink       = Color3.fromRGB(255, 105, 195),
-	Grey       = Color3.fromRGB(150, 150, 165),
-	Locked     = Color3.fromRGB(163, 161, 180),
+	PanelWhite  = Color3.fromRGB(255, 255, 255),
+	PanelBorder = Color3.fromRGB(0, 180, 255),
+	PanelBlue   = Color3.fromRGB(80, 168, 245),
+	Gold        = Color3.fromRGB(255, 198, 45),
+	Orange      = Color3.fromRGB(250, 148, 38),
+	Blue        = Color3.fromRGB(68, 162, 235),
+	SkyBlue     = Color3.fromRGB(105, 205, 250),
+	Green       = Color3.fromRGB(46, 204, 113),
+	Red         = Color3.fromRGB(245, 68, 85),
+	Purple      = Color3.fromRGB(165, 105, 245),
+	Pink        = Color3.fromRGB(255, 105, 195),
+	Grey        = Color3.fromRGB(150, 150, 165),
+	Locked      = Color3.fromRGB(163, 161, 180),
 
 	-- Bright pastel set -- used by the HUD tiles so the columns read as candy
 	-- buttons rather than the darker panel chrome.
@@ -268,8 +269,13 @@ local function applyShell(inst, color, radius, thickness)
 	-- button read as a sticker laid on the screen rather than as a coloured rectangle -- and at 4px
 	-- against these brighter gradients it had started to look like an accident.
 	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = snapStroke(thickness or UITheme.Stroke.Heavy)
-	stroke.Color = Color.Outline
+	if color == Color.PanelWhite then
+		stroke.Thickness = 6
+		stroke.Color = Color.PanelBorder
+	else
+		stroke.Thickness = snapStroke(thickness or UITheme.Stroke.Heavy)
+		stroke.Color = Color.Outline
+	end
 	stroke.Transparency = 0
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	stroke.LineJoinMode = Enum.LineJoinMode.Round
