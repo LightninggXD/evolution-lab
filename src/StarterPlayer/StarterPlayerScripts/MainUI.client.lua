@@ -168,7 +168,19 @@ end
 	above the gloss at Shell+1. Nested surfaces keep their own relative stacking via `delta`.
 ]]
 local function liftChildren(inst)
-	local baseZ = inst.ZIndex
+	-- ===== THE BASE IS READ ON EVERY LIFT, NEVER CAPTURED (15.28) =====
+	--
+	-- A surface styled at ZIndex 1 and then parented into a surface that is ITSELF lifted has its
+	-- whole subtree shifted by the parent's lift. A target measured against the ZIndex this surface
+	-- had at styleCard time is then stale by exactly that shift, every later child already clears
+	-- it, and the `child.ZIndex >= target` guard below turns into an unconditional return -- so
+	-- content added after styling never rises above the surface's own opaque ShadowBody.
+	--
+	-- That is the whole "the Daily Rewards cards are empty" report: Day1's own lift captured 1, the
+	-- panel's lift then moved the card to 24 with everything under it, and AmountLabel/BonusLabel
+	-- stayed at 24 underneath a ShadowBody drawn at 28. Only the pieces that set an explicit ZIndex
+	-- (the day pill, the claimed tick) were ever visible. Reading `inst.ZIndex` live is also order
+	-- independent: it lands on the right number whether the parent's lift runs before or after.
 	local function lift(child)
 		if not child:IsA("GuiObject") then return end
 		-- `IconShadow` joined this list in 11.15, and it was a real bug rather than a tidy-up.
@@ -180,8 +192,23 @@ local function liftChildren(inst)
 		-- pixels down-right at 55% transparency: a muddy edge on every icon sitting inside a
 		-- styleCard surface. Skipped by name here rather than fixed at the call sites, because it is
 		-- one bug with one cause and the toast chip is only the newest of the places it reaches.
-		if child.Name == "Gloss" or child.Name == "Shadow" or child.Name == "IconShadow" then return end
-		local target = baseZ + UITheme.Z.Content
+		--
+		-- ===== AND `ShadowBody`, WHICH IS WHY THE WHOLE HUD LOOKED MUDDY (15.28) =====
+		--
+		-- styleCard authors it at `inst.ZIndex + Z.Shell`, and Z.Shell is 0 -- the lip is MEANT to sit
+		-- at the surface's own level, one under the `InnerBody` that carries the actual colour, so all
+		-- you ever see of it is the 6px sticking out below. It was not on this list, so it was lifted
+		-- to Content (+4) like ordinary content and ended up FOUR ABOVE the body it is the shadow of.
+		--
+		-- It is full size and opaque, so every styleCard surface in this file was painting itself in
+		-- `shade(colour, -0.4)` with a 6px sliver of its real colour along the top edge. That is the
+		-- entire "everything is grey and murky" look: the shell is pure white and rendered mid-grey,
+		-- Lavender rendered as slate, Gold as bronze. UITheme's own widgets (the sidebar tiles, the
+		-- toasts) never went through this function, which is exactly why they were the only bright
+		-- things on screen and looked like they belonged to a different kit.
+		if child.Name == "Gloss" or child.Name == "Shadow" or child.Name == "IconShadow"
+			or child.Name == "InnerBody" or child.Name == "ShadowBody" then return end
+		local target = inst.ZIndex + UITheme.Z.Content
 		if child.ZIndex >= target then return end
 		local delta = target - child.ZIndex
 		child.ZIndex = target
@@ -203,76 +230,100 @@ end
 	safe inside UIListLayout/UIGridLayout parents) + a FAINT sheen that can never cover text.
 	Returns the UIStroke, same as the old helper.
 ]]
+local LIP_DEPTH = 6
+
 local function styleCard(inst, baseColor, radius, thickness)
 	baseColor = baseColor or UITheme.Color.Blue
 	local cornerRadius = (typeof(radius) == "UDim") and radius or UDim.new(0, radius or 16)
 
-	inst.BackgroundColor3 = baseColor
-	inst.BackgroundTransparency = 0
+	inst.BackgroundTransparency = 1
 	inst.BorderSizePixel = 0
 	inst:SetAttribute("BaseColor", baseColor)
-	corner(inst, cornerRadius)
 
-	-- 5 to match UITheme.applyShell. These two functions build the SAME object by two routes --
-	-- anything constructed here has to look identical to anything constructed there, or the HUD ends
-	-- up with two button styles on one screen.
-	-- ...and through the same stroke scale as `applyShell` (10.18), for the reason the comment above
-	-- already gives: these two routes must produce the same object. Snapping in one and not the other
-	-- would have been a new way for them to diverge.
-	-- ...and ALWAYS OUTLINE_COLOR, which is the invariant the inventory panel's comment below already
-	-- states ("the rim is recoloured after styleCard rather than through it"). A branch here that
-	-- handed the 6px cyan panel rim to anything filled PANEL_SHELL/PanelWhite is a test that every
-	-- white surface in the file passes: the Daily board's 24px "Day X" pills, the code input, the
-	-- Playtime track, the white cards. Only `registerPanel` knows what a panel is; it asks there.
-	local strokeInst = Instance.new("UIStroke")
-	strokeInst.Thickness = UITheme.SnapStroke(thickness or UITheme.Stroke.Heavy)
-	strokeInst.Color = OUTLINE_COLOR
-	strokeInst.Transparency = 0
-	strokeInst.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	strokeInst.LineJoinMode = Enum.LineJoinMode.Round
-	strokeInst.Parent = inst
+	local oldCorner = inst:FindFirstChild("UICorner")
+	if oldCorner then oldCorner:Destroy() end
+	local oldStroke = inst:FindFirstChild("UIStroke")
+	if oldStroke then oldStroke:Destroy() end
 
-	local grad = Instance.new("UIGradient")
+	local strokeT = UITheme.SnapStroke(thickness or UITheme.Stroke.Heavy)
+
+	local shadowBody = inst:FindFirstChild("ShadowBody") or Instance.new("Frame")
+	shadowBody.Name = "ShadowBody"
+	shadowBody.Size = UDim2.new(1, 0, 1, 0)
+	shadowBody.Position = UDim2.new(0, 0, 0, LIP_DEPTH)
+	shadowBody.BackgroundColor3 = shade(baseColor, -0.4)
+	shadowBody.BackgroundTransparency = 0
+	shadowBody.BorderSizePixel = 0
+	shadowBody.ZIndex = inst.ZIndex + UITheme.Z.Shell
+	corner(shadowBody, cornerRadius)
+	
+	local shadowStroke = shadowBody:FindFirstChild("UIStroke") or Instance.new("UIStroke")
+	shadowStroke.Name = "UIStroke"
+	shadowStroke.Thickness = strokeT
+	shadowStroke.Color = OUTLINE_COLOR
+	shadowStroke.Transparency = 0
+	shadowStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	shadowStroke.LineJoinMode = Enum.LineJoinMode.Round
+	shadowStroke.Parent = shadowBody
+	shadowBody.Parent = inst
+
+	local body = inst:FindFirstChild("InnerBody") or Instance.new("Frame")
+	body.Name = "InnerBody"
+	body.Size = UDim2.new(1, 0, 1, 0)
+	body.Position = UDim2.new(0, 0, 0, 0)
+	body.BackgroundColor3 = baseColor
+	body.BackgroundTransparency = 0
+	body.BorderSizePixel = 0
+	body.ClipsDescendants = true
+	body.ZIndex = inst.ZIndex + UITheme.Z.Body
+	corner(body, cornerRadius)
+	
+	local bodyStroke = body:FindFirstChild("UIStroke") or Instance.new("UIStroke")
+	bodyStroke.Name = "UIStroke"
+	bodyStroke.Thickness = strokeT
+	bodyStroke.Color = OUTLINE_COLOR
+	bodyStroke.Transparency = 0
+	bodyStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	bodyStroke.LineJoinMode = Enum.LineJoinMode.Round
+	bodyStroke.Parent = body
+	body.Parent = inst
+
+	local grad = body:FindFirstChild("Gradient") or Instance.new("UIGradient")
 	grad.Name = "Gradient"
 	grad.Rotation = 90
 	grad.Color = UITheme.GradientFor(baseColor)
-	grad.Parent = inst
+	grad.Parent = body
 
-	-- NO BOTTOM LIP. It was a full-width 6px bar carrying the shell's full corner radius, which is
-	-- wider than the shell is at the height it sat at -- so it stuck out of both bottom corners, and
-	-- out of a circular shell (the Journal discs) badly. It is the "ugly line at the bottom of the
-	-- button" in the 2026-08-11 report. Removed in UITheme.addShadow at the same time; these two
-	-- functions build the SAME object by two routes and must not diverge.
-
-	-- The sheen, with UITheme.addGloss's geometry -- see the long note there for why it is inset by
-	-- the shell's own corner radius rather than clipped. Same two cases, same numbers.
-	local gloss = Instance.new("Frame")
+	local gloss = inst:FindFirstChild("Gloss") or Instance.new("Frame")
 	gloss.Name = "Gloss"
 	gloss.BackgroundColor3 = UITheme.Color.White
-	gloss.BackgroundTransparency = 0.78 -- invariant: >= 0.72 (mirrors UITheme.addGloss)
+	gloss.BackgroundTransparency = 0.72
 	gloss.BorderSizePixel = 0
-	gloss.AnchorPoint = Vector2.new(0.5, 0)
 	gloss.ZIndex = inst.ZIndex + UITheme.Z.Gloss
+
+	local gc = gloss:FindFirstChild("UICorner")
+	if gc then gc:Destroy() end
+
+	gloss.AnchorPoint = Vector2.new(0, 0)
+	gloss.Position = UDim2.new(0, 0, 0, 0)
+	
 	if cornerRadius.Scale >= 0.5 then
-		gloss.Size = UDim2.new(0.56, 0, 0.26, 0)
-		gloss.Position = UDim2.new(0.5, 0, 0.10, 0)
-		corner(gloss, UDim.new(1, 0))
+		gloss.Size = UDim2.new(1, 0, 0.40, 0)
 	else
-		local pad = cornerRadius.Offset + 4
-		gloss.Size = UDim2.new(1, -pad * 2, 0.34, 0)
-		gloss.Position = UDim2.new(0.5, 0, 0, 5)
-		corner(gloss, UDim.new(0, math.max(cornerRadius.Offset - 3, 4)))
+		gloss.Size = UDim2.new(1, 0, 0.35, 0)
 	end
-	local glossGrad = gradient(gloss, ColorSequence.new(UITheme.Color.White), 90)
+
+	local glossGrad = gloss:FindFirstChild("UIGradient") or gradient(gloss, ColorSequence.new(UITheme.Color.White), 90)
+	glossGrad.Name = "UIGradient"
 	glossGrad.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.62),
-		NumberSequenceKeypoint.new(0.7, 0.94),
+		NumberSequenceKeypoint.new(0, 0.45),
+		NumberSequenceKeypoint.new(0.7, 0.85),
 		NumberSequenceKeypoint.new(1, 1),
 	})
-	gloss.Parent = inst
+	gloss.Parent = body
 
 	liftChildren(inst)
-	return strokeInst
+	return bodyStroke
 end
 
 local function styleButton(btn, baseColor, radius, thickness)
@@ -364,9 +415,35 @@ local function styleButton(btn, baseColor, radius, thickness)
 	return strokeInst
 end
 
--- Re-tint an already-styled button/card at runtime (keeps the gradient in sync with color swaps).
+-- ===== RE-TINT AN ALREADY-STYLED SURFACE -- AND ACTUALLY REPAINT IT (15.28) =====
+--
+-- `UITheme.SetColor` paints `inst.BackgroundColor3` and `inst.Gradient`, which is correct for the
+-- shells UITheme builds itself. `styleCard` above -- this file's own helper, and the ~30 legacy
+-- call sites' -- does NOT keep the colour there: it sets the host fully transparent and moves the
+-- fill into an `InnerBody` child carrying its own gradient, with a `ShadowBody` for the lip.
+--
+-- So SetColor on a styleCard surface wrote a colour nothing draws, and returned quietly. Every
+-- state recolour in this file was dead on arrival: the CLAIM! buttons, the Auto toggle, the Robux
+-- tabs, the potion rows, the Season track's nodes. Only the UIStroke recolours beside them ever
+-- showed, which is why so many states here are told apart by their rim alone.
+--
+-- Fixed here rather than in UITheme, because the two structures are genuinely different and
+-- UITheme's own widgets still want its version -- which is still called first, so the `BaseColor`
+-- attribute and the tile-body case keep working exactly as before.
 local function setButtonColor(btn, baseColor)
 	UITheme.SetColor(btn, baseColor)
+	local body = btn:FindFirstChild("InnerBody")
+	if not body then return end
+	body.BackgroundColor3 = baseColor
+	local grad = body:FindFirstChild("Gradient")
+	if grad and grad:IsA("UIGradient") then
+		grad.Color = UITheme.GradientFor(baseColor)
+	end
+	-- the same -0.4 styleCard built the lip with, so a recoloured card keeps its moulded edge
+	local lip = btn:FindFirstChild("ShadowBody")
+	if lip then
+		lip.BackgroundColor3 = shade(baseColor, -0.4)
+	end
 end
 
 -- ================= root gui =================
@@ -1552,7 +1629,7 @@ local hudRefs = {}
 	-- loop for both. The layout aligns to the BOTTOM of this frame, which is what makes a height
 	-- change headroom rather than movement: the strip stays 170 px off the bottom (clearing the
 	-- currency stack, 140 tall and 22 up) whether it is holding one boost or twelve.
-	stack.Size = UDim2.new(0, 250, 0, 250)
+	stack.Size = UDim2.new(0, 224, 0, 196)
 	stack.Position = UDim2.new(0, 20, 1, -170)
 	stack.AnchorPoint = Vector2.new(0, 1)
 	stack.BackgroundTransparency = 1
@@ -1594,51 +1671,57 @@ local hudRefs = {}
 			end
 		end
 
+		-- 216 x 38 AND A CAPSULE, NOT 244 x 48 AND A BOX (16.1). Every row on this strip is now the
+		-- same 38 px single line: an icon disc, one short phrase, a clock, and -- only here, because
+		-- only a potion is running out -- a 5 px bar along the bottom. `UDim.new(1, 0)` is a real
+		-- radius for `styleCard`, not a hack: it has a documented pill path that drops the gloss to
+		-- 0.40 height. The disc is 28 px on a 38 px row, so it shares the capsule's own left centre
+		-- (19, 19) and cannot clip against the rounding.
 		local card = Instance.new("Frame")
 		card.Name = kind .. "Timer"
-		card.Size = UDim2.new(0, 244, 0, 48)
+		card.Size = UDim2.new(0, 216, 0, 38)
 		card.LayoutOrder = order
 		card.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
 		card.Visible = false
 		card.ZIndex = UITheme.Z.Content + 1
 		card.Parent = stack
-		styleCard(card, sample.color, UDim.new(0, 12), 3)
+		styleCard(card, sample.color, UDim.new(1, 0), 3)
 
 		local bottle = Instance.new("TextLabel")
 		bottle.Name = "Bottle"
-		bottle.Size = UDim2.new(0, 36, 0, 36)
-		bottle.Position = UDim2.new(0, 6, 0, 6)
+		bottle.Size = UDim2.new(0, 28, 0, 28)
+		bottle.Position = UDim2.new(0, 5, 0, 5)
 		bottle.BackgroundColor3 = sample.color
 		bottle.Text = sample.emoji
 		bottle.ZIndex = card.ZIndex + 1
 		bottle.Parent = card
 		corner(bottle, UDim.new(0.5, 0))
-		themeLabel(bottle, 20)
+		themeLabel(bottle, 16)
 
 		local effect = Instance.new("TextLabel")
 		effect.Name = "Effect"
-		effect.Size = UDim2.new(1, -122, 0, 20)
-		effect.Position = UDim2.new(0, 50, 0, 4)
+		effect.Size = UDim2.new(1, -110, 0, 17)
+		effect.Position = UDim2.new(0, 40, 0, 4)
 		effect.BackgroundTransparency = 1
 		effect.TextXAlignment = Enum.TextXAlignment.Left
 		effect.ZIndex = card.ZIndex + 1
 		effect.Parent = card
-		themeLabel(effect, 17)
+		themeLabel(effect, 14)
 
 		local clock = Instance.new("TextLabel")
 		clock.Name = "Clock"
-		clock.Size = UDim2.new(0, 66, 0, 20)
-		clock.Position = UDim2.new(1, -72, 0, 4)
+		clock.Size = UDim2.new(0, 58, 0, 17)
+		clock.Position = UDim2.new(1, -64, 0, 4)
 		clock.BackgroundTransparency = 1
 		clock.TextXAlignment = Enum.TextXAlignment.Right
 		clock.ZIndex = card.ZIndex + 1
 		clock.Parent = card
-		themeLabel(clock, 17)
+		themeLabel(clock, 14)
 
 		local track = Instance.new("Frame")
 		track.Name = "Track"
-		track.Size = UDim2.new(1, -62, 0, 8)
-		track.Position = UDim2.new(0, 50, 1, -15)
+		track.Size = UDim2.new(1, -52, 0, 5)
+		track.Position = UDim2.new(0, 40, 1, -11)
 		track.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
 		track.BorderSizePixel = 0
 		track.ZIndex = card.ZIndex + 1
@@ -1658,79 +1741,19 @@ local hudRefs = {}
 	end
 
 	-- ============================================================================
-	-- THE PERMANENT HALF OF THE STRIP (6.4)
+	-- THE PASS CHIP TRAY IS GONE FROM THE HUD (16.1)
 	-- ============================================================================
-	-- Roadmap 6.4 asks for "pass icons and countdowns". THERE IS NO COUNTDOWN TO GIVE THEM: all nine
-	-- passes are permanent, and a clock on a number that never falls is worse than no clock at all --
-	-- it invites the player to wonder when the thing they bought forever runs out. So the strip is
-	-- split the way the boosts themselves are. A potion is a CARD with a bar and a clock because it is
-	-- running out; a pass is a CHIP because it is not, and the chip's whole message is "this is on".
+	-- It was a gold card carrying up to nine 34 px emoji discs, wrapped two rows deep, parked
+	-- permanently in the middle of the left edge. 6.4's own argument is what condemns it: a pass is
+	-- PERMANENT, so the chip never changes, never counts down and never asks for anything. It was
+	-- the single densest thing on the screen and the least actionable -- ten glyphs with no labels,
+	-- competing for the eye with the two clocks that actually move. Worse, it is the row that made
+	-- the strip TALL: 81 px of the 297 px that grew up the screen into the tile column.
 	--
-	-- Built once and shown or hidden, exactly like the three potion rows above and for the same
-	-- reason: ownership changes at most a handful of times in a session, and rebuilding nine frames
-	-- four times a second to say the same thing would be the most expensive idle loop in the HUD.
-	--
-	-- A GRID rather than a row, because nine 34 px chips do not fit across 244 px and a grid wraps by
-	-- itself -- a tenth pass costs nothing here. Invisible children are skipped by the layout, so the
-	-- rows close up on their own as passes are hidden.
-	local PASS_CELL, PASS_PAD, PASS_COLS = 34, 5, 6
-	local passChips = {}
-
-	local passCard = Instance.new("Frame")
-	passCard.Name = "PassBoosts"
-	passCard.Size = UDim2.new(0, 244, 0, PASS_CELL + 8)
-	passCard.LayoutOrder = 0                  -- above the potion cards; the stack aligns to the bottom
-	passCard.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
-	passCard.Visible = false
-	passCard.ZIndex = UITheme.Z.Content + 1
-	passCard.Parent = stack
-	styleCard(passCard, UITheme.Color.Gold, UDim.new(0, 12), 3)
-
-	local passGrid = Instance.new("Frame")
-	passGrid.Name = "Chips"
-	passGrid.Size = UDim2.new(1, -12, 1, -8)
-	passGrid.Position = UDim2.new(0, 6, 0, 4)
-	passGrid.BackgroundTransparency = 1
-	passGrid.ZIndex = passCard.ZIndex + 1
-	passGrid.Parent = passCard
-
-	local passLayout = Instance.new("UIGridLayout")
-	passLayout.CellSize = UDim2.new(0, PASS_CELL, 0, PASS_CELL)
-	passLayout.CellPadding = UDim2.new(0, PASS_PAD, 0, PASS_PAD)
-	passLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	passLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-	passLayout.Parent = passGrid
-
-	for order, pass in ipairs(GameConfig.GamePasses) do
-		local chip = Instance.new("TextLabel")
-		chip.Name = pass.key
-		chip.LayoutOrder = order
-		-- DARK DISC ON A GOLD CARD, and the first build got this backwards. `styleCard` paints the
-		-- whole card in the colour it is handed, so gold chips on a gold card came out as pale marks
-		-- that had to be hunted for. This is the potion row inverted -- there a coloured disc sits on a
-		-- dark card -- and the inversion is the point: one glance says these two rows are different
-		-- kinds of thing, a permanent one and a running-out one.
-		chip.BackgroundColor3 = UITheme.Color.Outline
-		chip.Text = pass.emoji
-		chip.Visible = false
-		chip.ZIndex = passGrid.ZIndex + 1
-		chip.Parent = passGrid
-		corner(chip, UDim.new(0.5, 0))
-		themeLabel(chip, 19)
-		-- THE CHIP IS THE DISC AND THE ICON AT ONCE, so 9.9 goes INSIDE it rather than replacing it:
-		-- the dark disc is what makes these read as permanent against the potion row's coloured
-		-- cards (see the note above), and an ImageLabel in its place would lose that. The glyph is
-		-- blanked and a drawing inset into the same box; a pass with no art keeps its emoji.
-		if UITheme.HasIcon(pass.emoji) then
-			chip.Text = ""
-			UITheme.IconSlot(chip, {
-				name = "Art", icon = pass.emoji,
-				size = UDim2.new(0.72, 0, 0.72, 0), position = UDim2.new(0.5, 0, 0.5, 0),
-				anchorPoint = Vector2.new(0.5, 0.5), zIndex = chip.ZIndex + 1,
-			})
-		end
-		passChips[#passChips + 1] = { key = pass.key, frame = chip }
-	end
+	-- Ownership is already answered properly, with names, art and prices, in the Robux panel's
+	-- Passes tab -- one tap from the same screen. Nothing else in the file referenced `passCard`
+	-- or `passChips`. If a permanent-boost readout is ever wanted back, it belongs inside a panel
+	-- next to what it costs, not on the strip reserved for things that expire.
 
 	-- ============================================================================
 	-- THE EVENT HALF OF THE STRIP (7.1)
@@ -1794,117 +1817,127 @@ local hudRefs = {}
 	--
 	-- Fed by ReplicatedStorage attributes BossService republishes every second -- no remote, nothing
 	-- to request, and a client that joins mid-interval reads the current value on its first tick.
+	-- ONE LINE, NOT A CARD (16.1). The two-line card carried a subtitle -- "The Devourer returns",
+	-- or the boss's health while it was alive -- under the clock. That is a sentence the player
+	-- reads once and never needs again, printed permanently, and it is what forced 48 px. A boss
+	-- clock only has to answer WHO and WHEN, so the name and the countdown share one 38 px capsule
+	-- and the subtitle is gone. The health it used to show is on the boss's own bar the moment the
+	-- fight starts, which is the only time it means anything.
 	local arenaCard = Instance.new("Frame")
 	arenaCard.Name = "ArenaBoss"
-	arenaCard.Size = UDim2.new(0, 244, 0, 48)
-	arenaCard.LayoutOrder = -2                -- above the event card (-1), which is above the chips (0)
+	arenaCard.Size = UDim2.new(0, 216, 0, 38)
+	arenaCard.LayoutOrder = -2                -- above the event pill (-1); the potion rows are 1..4
 	arenaCard.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
 	arenaCard.Visible = false
 	arenaCard.ZIndex = UITheme.Z.Content + 1
 	arenaCard.Parent = stack
-	styleCard(arenaCard, UITheme.Color.Red, UDim.new(0, 12), 3)
+	styleCard(arenaCard, UITheme.Color.Red, UDim.new(1, 0), 3)
 
 	local arenaBadge = Instance.new("TextLabel")
 	arenaBadge.Name = "Badge"
-	arenaBadge.Size = UDim2.new(0, 36, 0, 36)
-	arenaBadge.Position = UDim2.new(0, 6, 0, 6)
+	arenaBadge.Size = UDim2.new(0, 28, 0, 28)
+	arenaBadge.Position = UDim2.new(0, 5, 0, 5)
 	arenaBadge.BackgroundColor3 = UITheme.Color.Red
 	arenaBadge.Text = GameConfig.EventBoss.emoji
 	arenaBadge.ZIndex = arenaCard.ZIndex + 1
 	arenaBadge.Parent = arenaCard
 	corner(arenaBadge, UDim.new(0.5, 0))
-	themeLabel(arenaBadge, 20)
+	themeLabel(arenaBadge, 16)
 
+	-- Both labels are centred on the row (`0.5, -10` against a height of 20) rather than pinned to
+	-- a top margin: on a single-line pill there is no second line to leave room for, and a
+	-- top-pinned label on a 38 px capsule reads as if it has slipped.
 	local arenaName = Instance.new("TextLabel")
 	arenaName.Name = "ArenaName"
-	arenaName.Size = UDim2.new(1, -132, 0, 20)
-	arenaName.Position = UDim2.new(0, 50, 0, 4)
+	arenaName.Size = UDim2.new(1, -108, 0, 20)
+	arenaName.Position = UDim2.new(0, 40, 0.5, -10)
 	arenaName.BackgroundTransparency = 1
 	arenaName.TextXAlignment = Enum.TextXAlignment.Left
 	arenaName.ZIndex = arenaCard.ZIndex + 1
 	arenaName.Parent = arenaCard
-	themeLabel(arenaName, 17)
+	themeLabel(arenaName, 15)
 
 	local arenaClock = Instance.new("TextLabel")
 	arenaClock.Name = "Clock"
-	arenaClock.Size = UDim2.new(0, 76, 0, 20)
-	arenaClock.Position = UDim2.new(1, -82, 0, 4)
+	arenaClock.Size = UDim2.new(0, 62, 0, 20)
+	arenaClock.Position = UDim2.new(1, -68, 0.5, -10)
 	arenaClock.BackgroundTransparency = 1
 	arenaClock.TextXAlignment = Enum.TextXAlignment.Right
 	arenaClock.ZIndex = arenaCard.ZIndex + 1
 	arenaClock.Parent = arenaCard
-	themeLabel(arenaClock, 17)
+	themeLabel(arenaClock, 15)
 
-	local arenaSub = Instance.new("TextLabel")
-	arenaSub.Name = "Sub"
-	arenaSub.Size = UDim2.new(1, -62, 0, 18)
-	arenaSub.Position = UDim2.new(0, 50, 1, -20)
-	arenaSub.BackgroundTransparency = 1
-	arenaSub.TextXAlignment = Enum.TextXAlignment.Left
-	arenaSub.ZIndex = arenaCard.ZIndex + 1
-	arenaSub.Parent = arenaCard
-	themeLabel(arenaSub, 15)
-
+	-- ONE LINE, NOT A CARD (16.1). The effects line -- "x2 DNA   x2 Giant Loot   x2 XP" -- was the
+	-- widest string anywhere on the HUD and it said the same three things for a whole weekend
+	-- without moving. 12.13 above is the record of how much layout that one static line cost: two
+	-- passes of pixel-fitting against a name that would not fit beside it. The name and the clock
+	-- are the reason to look; what the event PAYS is on its own board in the world and in the
+	-- Season panel, where a player deciding whether to go can actually act on it.
+	--
+	-- The "+1" for a second concurrent event goes with it: "Colosseum Clash  +1" is 118 px at this
+	-- label's 14 px floor and the slot is 108. The headliner is drawn; the co-runner is not named.
 	local eventCard = Instance.new("Frame")
 	eventCard.Name = "EventBoost"
-	eventCard.Size = UDim2.new(0, 244, 0, 48)
-	eventCard.LayoutOrder = -1                -- above the pass chips, which are 0
+	eventCard.Size = UDim2.new(0, 216, 0, 38)
+	eventCard.LayoutOrder = -1                -- directly under the arena pill (-2)
 	eventCard.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
 	eventCard.Visible = false
 	eventCard.ZIndex = UITheme.Z.Content + 1
 	eventCard.Parent = stack
-	styleCard(eventCard, UITheme.Color.Coral, UDim.new(0, 12), 3)
+	styleCard(eventCard, UITheme.Color.Coral, UDim.new(1, 0), 3)
 
 	local eventBadge = Instance.new("TextLabel")
 	eventBadge.Name = "Badge"
-	eventBadge.Size = UDim2.new(0, 36, 0, 36)
-	eventBadge.Position = UDim2.new(0, 6, 0, 6)
+	eventBadge.Size = UDim2.new(0, 28, 0, 28)
+	eventBadge.Position = UDim2.new(0, 5, 0, 5)
 	eventBadge.BackgroundColor3 = UITheme.Color.Coral
 	eventBadge.Text = "\u{1F525}"
 	eventBadge.ZIndex = eventCard.ZIndex + 1
 	eventBadge.Parent = eventCard
 	corner(eventBadge, UDim.new(0.5, 0))
-	themeLabel(eventBadge, 20)
+	themeLabel(eventBadge, 16)
 
-	-- 128 PIXELS, NOT 112, AND THE 16 CAME OUT OF THE CLOCK BESIDE IT (12.13). The longest name in
-	-- the table used to be "Prism Festival" (85 px at the 14 px floor of this label's size
-	-- constraint); "Colosseum Clash" is 100, and with the "+1" that says a second event is running
-	-- alongside it, 118 -- which overflowed the old box and reported TextFits = false, measured on
-	-- the shipped card. The clock never needed 76: its longest possible string is "48m 09s" at
-	-- 59 px, so it keeps 60 and the name takes the slack. The two are still flush.
 	local eventName = Instance.new("TextLabel")
 	eventName.Name = "EventName"
-	eventName.Size = UDim2.new(1, -116, 0, 20)
-	eventName.Position = UDim2.new(0, 50, 0, 4)
+	eventName.Size = UDim2.new(1, -108, 0, 20)
+	eventName.Position = UDim2.new(0, 40, 0.5, -10)
 	eventName.BackgroundTransparency = 1
 	eventName.TextXAlignment = Enum.TextXAlignment.Left
 	eventName.ZIndex = eventCard.ZIndex + 1
 	eventName.Parent = eventCard
-	themeLabel(eventName, 17)
+	themeLabel(eventName, 15)
 
 	local eventClock = Instance.new("TextLabel")
 	eventClock.Name = "Clock"
-	eventClock.Size = UDim2.new(0, 60, 0, 20)
-	eventClock.Position = UDim2.new(1, -66, 0, 4)
+	eventClock.Size = UDim2.new(0, 62, 0, 20)
+	eventClock.Position = UDim2.new(1, -68, 0.5, -10)
 	eventClock.BackgroundTransparency = 1
 	eventClock.TextXAlignment = Enum.TextXAlignment.Right
 	eventClock.ZIndex = eventCard.ZIndex + 1
 	eventClock.Parent = eventCard
-
-	local eventEffects = Instance.new("TextLabel")
-	eventEffects.Name = "Effects"
-	eventEffects.Size = UDim2.new(1, -62, 0, 18)
-	eventEffects.Position = UDim2.new(0, 50, 1, -20)
-	eventEffects.BackgroundTransparency = 1
-	eventEffects.TextXAlignment = Enum.TextXAlignment.Left
-	eventEffects.ZIndex = eventCard.ZIndex + 1
-	eventEffects.Parent = eventCard
-	themeLabel(eventEffects, 15)
-	themeLabel(eventClock, 17)
+	themeLabel(eventClock, 15)
 
 	-- ============================================================================
-	-- THE MUTATION YOU ARE WEARING (15.24)
+	-- THE MUTATION YOU ARE WEARING IS A DOT ON THE AURAS TILE (16.1)
 	-- ============================================================================
+	-- 15.24's argument below is kept because it is still right about the PROBLEM -- there was
+	-- nowhere to see the worn aura -- and wrong only about the size of the answer. A card was the
+	-- answer when the strip had room. It does not: counting the pass tray, four of the eight rows
+	-- were facts that never change, and they pushed the two clocks that DO change up the screen
+	-- behind them. A permanent one-of-seven fact earns a GLYPH, not a sentence.
+	--
+	-- So it becomes a coloured dot in the corner of the Auras TILE -- the button that opens the
+	-- panel which already prints "wearing X" and the full "x1.80 DNA, +6 speed" line for every
+	-- tier. The dot says "you have one, and it is this rarity"; one tap says the rest. It costs no
+	-- screen space at all, and it puts the readout on the thing you would click anyway.
+	--
+	-- Parented to the tile rather than the strip, so the responsive pass that resizes the column
+	-- carries it for free. `FindFirstChild`, not `WaitForChild`: the tiles are built ~500 lines
+	-- above this block so it is already there, and yielding here would stall the rest of the HUD.
+	-- If it were ever missing, `Parent = nil` leaves the dot alive but unrendered -- the refresh
+	-- below stays valid and simply draws nothing.
+	--
+	-- ---- 15.24's original note, on why this readout has to exist at all: ----
 	-- The report was *"I need somewhere to see which aura is equipped, or whatever this DNA machine
 	-- gives"*, and it was exactly right: the Splicer sells a permanent income-and-speed multiplier
 	-- that is WORN one at a time (`data.SplicerMutation`), and the only place in the entire game
@@ -1920,56 +1953,24 @@ local hudRefs = {}
 	--
 	-- Dropped FIRST when the viewport is short (see the fit order below), beside the pass card and
 	-- for the same reason: nothing about it is about to expire.
-	local mutationCard = Instance.new("Frame")
-	mutationCard.Name = "WornMutation"
-	mutationCard.Size = UDim2.new(0, 244, 0, 48)
-	mutationCard.LayoutOrder = -3             -- above the arena clock (-2), the event (-1) and the chips (0)
-	mutationCard.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
-	mutationCard.Visible = false
-	mutationCard.ZIndex = UITheme.Z.Content + 1
-	mutationCard.Parent = stack
-	styleCard(mutationCard, UITheme.Color.Purple, UDim.new(0, 12), 3)
-
-	local mutationBadge = Instance.new("TextLabel")
-	mutationBadge.Name = "Badge"
-	mutationBadge.Size = UDim2.new(0, 36, 0, 36)
-	mutationBadge.Position = UDim2.new(0, 6, 0, 6)
-	mutationBadge.BackgroundColor3 = UITheme.Color.Purple
-	mutationBadge.Text = "\u{2622}\u{FE0F}"
-	mutationBadge.ZIndex = mutationCard.ZIndex + 1
-	mutationBadge.Parent = mutationCard
-	corner(mutationBadge, UDim.new(0.5, 0))
-	themeLabel(mutationBadge, 20)
-
-	local mutationName = Instance.new("TextLabel")
-	mutationName.Name = "MutationName"
-	mutationName.Size = UDim2.new(1, -62, 0, 20)
-	mutationName.Position = UDim2.new(0, 50, 0, 4)
-	mutationName.BackgroundTransparency = 1
-	mutationName.TextXAlignment = Enum.TextXAlignment.Left
-	mutationName.ZIndex = mutationCard.ZIndex + 1
-	mutationName.Parent = mutationCard
-	themeLabel(mutationName, 17)
-
-	local mutationEffects = Instance.new("TextLabel")
-	mutationEffects.Name = "Effects"
-	mutationEffects.Size = UDim2.new(1, -62, 0, 18)
-	mutationEffects.Position = UDim2.new(0, 50, 1, -20)
-	mutationEffects.BackgroundTransparency = 1
-	mutationEffects.TextXAlignment = Enum.TextXAlignment.Left
-	mutationEffects.ZIndex = mutationCard.ZIndex + 1
-	mutationEffects.Parent = mutationCard
-	themeLabel(mutationEffects, 15)
+	local mutationDot = Instance.new("Frame")
+	mutationDot.Name = "AuraDot"
+	mutationDot.Size = UDim2.new(0, 22, 0, 22)
+	mutationDot.Position = UDim2.new(1, -3, 0, 3)
+	mutationDot.AnchorPoint = Vector2.new(1, 0)
+	mutationDot.BackgroundColor3 = UITheme.Color.Purple
+	mutationDot.Visible = false
+	mutationDot.ZIndex = UITheme.Z.Badge
+	mutationDot.Parent = screenGui:FindFirstChild("AurasButton")
+	corner(mutationDot, UDim.new(0.5, 0))
+	stroke(mutationDot, 2, UITheme.Color.Outline)
 
 	-- x2 stays "x2"; x1.5 becomes "x1.5" rather than taking the thread down. See the note below.
-	--
 	-- TWO decimals, not one (15.29). `%.1f` was written for the potion and event cards, whose
-	-- multipliers are all x1.5 / x2 / x3 and exact at one decimal -- but this same helper prints the
-	-- worn mutation, and three of the seven are two-decimal: Common 1.05 drew as `x1.1`, Epic 1.18 as
-	-- `x1.2`, Godly 2.25 as `x2.2` (rounded DOWN, so the best aura in the game under-sold itself).
-	-- The Auras panel prints the true value with `%.2f`, so the boost card was contradicting a panel
-	-- four inches away in the same frame. Trailing zero trimmed, so `1.50 -> "1.5"` and nothing that
-	-- was already correct changes.
+	-- multipliers are all x1.5 / x2 / x3 and exact at one decimal -- but a mutation is not: three of
+	-- the seven are two-decimal, and Common 1.05 drew as `x1.1`, Epic 1.18 as `x1.2`, Godly 2.25 as
+	-- `x2.2` (rounded DOWN, so the best aura in the game under-sold itself) anywhere this helper met
+	-- one. Trailing zero trimmed, so `1.50 -> "1.5"` and nothing that was already correct changes.
 	local function formatMult(m)
 		m = tonumber(m) or 1
 		if math.abs(m - math.floor(m + 0.5)) < 0.001 then
@@ -2017,18 +2018,7 @@ local hudRefs = {}
 				end
 			end
 
-			-- The pass half. `data.Passes` is recomputed on every load and never trusted from the save
-			-- (see PassService), so a chip here is a live ownership answer rather than a stale one.
-			local passes = currentData and currentData.Passes
-			local owned = 0
-			for _, chip in ipairs(passChips) do
-				local on = passes and passes[chip.key] == true
-				chip.frame.Visible = on
-				if on then owned += 1 end
-			end
-			local used = math.max(1, math.ceil(owned / PASS_COLS))
-			passCard.Size = UDim2.new(0, 244, 0, 8 + used * PASS_CELL + (used - 1) * PASS_PAD)
-			passCard.Visible = owned > 0
+			-- (No pass half any more -- see 16.1 where the chip tray was built.)
 
 			-- The event half (7.1). Driven off the shared config against the SERVER's clock, not off
 			-- the payload's own text, so the seconds fall between publishes instead of jumping every
@@ -2053,26 +2043,8 @@ local hudRefs = {}
 				eventCard.Visible = true
 				eventBadge.Text = live.event.emoji
 				eventBadge.BackgroundColor3 = live.event.color
-				eventName.Text = (#activeNow > 1)
-					and ("%s  +%d"):format(live.event.name, #activeNow - 1)
-					or live.event.name
+				eventName.Text = live.event.name
 				eventClock.Text = GameConfig.FormatDuration(left)
-				local mults, luck = {}, 0
-				for _, entry in ipairs(activeNow) do
-					local effects = entry.event.effects or {}
-					for field in pairs(GameConfig.EventEffectLabels) do
-						local v = effects[field]
-						if type(v) == "number" then mults[field] = (mults[field] or 1) * v end
-					end
-					if type(effects.luckAdd) == "number" then luck += effects.luckAdd end
-				end
-				local bits = {}
-				for field, value in pairs(mults) do
-					table.insert(bits, ("x%s %s"):format(formatMult(value), GameConfig.EventEffectLabels[field]))
-				end
-				if luck > 0 then table.insert(bits, ("+%d%% Luck"):format(math.floor(luck))) end
-				table.sort(bits)
-				eventEffects.Text = table.concat(bits, "   ")
 			else
 				eventCard.Visible = false
 			end
@@ -2084,11 +2056,10 @@ local hudRefs = {}
 			-- `nil` is a real state and is NOT zero -- it means BossService has not published yet
 			-- (the first second of a server, or a client that got here first). Drawing "0:00" for that
 			-- would announce a boss that is not coming, so the card simply stays hidden.
-			-- The worn mutation (15.24). Read from the save the server pushes, and looked up in the
-			-- same `GameConfig.Mutations` row the server pays from -- the colour, the name and both
-			-- numbers come out of one table, so the card cannot quote an effect the income stack is
-			-- not applying. Nothing worn: no card, rather than a card saying "none", because the
-			-- Splicer is optional and an empty row would read as something missing.
+			-- The worn mutation (16.1). Tinted from the same `GameConfig.Mutations` row the server pays
+			-- from, so the colour on the tile cannot disagree with the income stack. Nothing worn: no
+			-- dot at all, rather than a grey one -- the Splicer is optional and a permanent grey mark
+			-- on the tile would read as something broken rather than something not yet bought.
 			local worn = currentData and currentData.SplicerMutation
 			local wornDef = nil
 			if worn then
@@ -2096,14 +2067,9 @@ local hudRefs = {}
 					if m.name == worn then wornDef = m break end
 				end
 			end
+			mutationDot.Visible = wornDef ~= nil
 			if wornDef then
-				mutationCard.Visible = true
-				mutationBadge.BackgroundColor3 = wornDef.color
-				mutationName.Text = ("%s Mutation"):format(wornDef.name)
-				mutationEffects.Text = ("x%s DNA   \u{2022}   +%d%% speed"):format(
-					formatMult(wornDef.incomeMult or 1), math.floor(wornDef.speedPct or 0))
-			else
-				mutationCard.Visible = false
+				mutationDot.BackgroundColor3 = wornDef.color
 			end
 
 			local arenaSecs = RS:GetAttribute("ArenaBossSeconds")
@@ -2113,13 +2079,10 @@ local hudRefs = {}
 				arenaCard.Visible = true
 				arenaName.Text = GameConfig.EventBoss.name
 				arenaClock.Text = "LIVE"
-				arenaSub.Text = ("\u{2764}\u{FE0F} %s  \u{2022}  in the Colosseum"):format(
-					formatNumber(RS:GetAttribute("ArenaBossHealth") or 0))
 			else
 				arenaCard.Visible = true
 				arenaName.Text = "Arena Boss"
 				arenaClock.Text = ("%d:%02d"):format(arenaSecs // 60, arenaSecs % 60)
-				arenaSub.Text = ("%s %s returns"):format(GameConfig.EventBoss.emoji, GameConfig.EventBoss.name)
 			end
 
 			-- ================================================================================
@@ -2165,8 +2128,14 @@ local hudRefs = {}
 			-- Read fresh every tick rather than captured once: `CurrentCamera` is nil for the first
 			-- frames of a join, and the viewport changes when the window is resized.
 			local viewportY = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.Y or 720
-			local budget = math.max(viewportY - 170 - 121 - 10, 96)
-			stack.Size = UDim2.new(0, 250, 0, budget)
+			-- CAPPED AT FOUR ROWS (16.1). The old budget was "every pixel between the tile column and
+			-- the currency stack", which on a desktop is 492 -- ten rows of headroom, and the strip was
+			-- happy to fill it. A HUD element free to grow to two thirds of the screen height is not a
+			-- HUD element. Four 38 px rows, each measured with the 6 px `styleCard` draws outside it,
+			-- plus three 6 px gaps, is 194; 196 is the ceiling and the drop pass below decides what
+			-- survives it. The floor stays 96 for the same phone-viewport reason as before.
+			local budget = math.clamp(viewportY - 170 - 121 - 10, 96, 196)
+			stack.Size = UDim2.new(0, 224, 0, budget)
 
 			-- Each card is measured with its stroke: `styleCard` draws 3 px outside the frame on
 			-- every side, so two stacked cards cost 6 px more than their own heights claim.
@@ -2182,13 +2151,11 @@ local hudRefs = {}
 			end
 			if not fits() then
 				-- longest remaining last, so the first potion dropped is the one with most time left.
-				-- The arena card is dropped AFTER the pass chips and BEFORE the event card (11.20):
-				-- a pass is permanent and has nothing to miss, the arena boss returns every half hour
-				-- and is also announced on its own board, and a live event runs once a week.
-				-- 15.24 put the worn mutation beside the pass card at the front: both are permanent,
-				-- neither is about to expire, and between the two the passes are the more familiar
-				-- fact, so the mutation goes first.
-				local order = { mutationCard, passCard, arenaCard, eventCard }
+				-- Only two non-potion rows are left after 16.1 -- the pass tray and the worn-mutation
+				-- card are gone -- and the arena still goes before the event for 11.20's reason: the
+				-- boss returns every half hour and is announced on its own board over the arena, while
+				-- a live event runs once a week and has nowhere else on screen to say so.
+				local order = { arenaCard, eventCard }
 				local byTime = {}
 				for _, kind in ipairs(KINDS) do
 					local b = boosts and boosts[kind]
@@ -6654,11 +6621,59 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 		Remotes.PromptRobuxPurchase:FireServer("SeasonPremium")
 	end)
 
-	-- right: the thirty columns, scrolling sideways
+	-- ===== THE TRACK SITS IN A TRAY (15.28) =====
+	--
+	-- Thirty columns floating on the shell's bare grey read as a spreadsheet: nothing said where the
+	-- board began or ended, and the two rows were told apart only by a padlock glyph on the lower
+	-- one. The tray draws the board, and its left gutter names the rows ONCE instead of thirty
+	-- times -- the columns are 92px wide and a "PREMIUM" caption does not fit in one, which is why
+	-- the row had no label at all before.
+	--
+	-- ZIndex 8 is deliberate and low. Inside `trackPage` the only siblings are `sideCard` (styleCard
+	-- leaves it in the 1..5 band, since nothing sets its ZIndex) and `trackScroll` at 24, so the
+	-- tray's own shadow at 8+Z.Content clears the card and stays under every column. It does not
+	-- need to clear the PANEL's shadow: under ZIndexBehavior.Sibling a child always draws above its
+	-- parent, and this is a child of trackPage.
+	local tray = Instance.new("Frame")
+	tray.Name = "TrackTray"
+	tray.Size = UDim2.new(1, -214, 0, 286)
+	tray.Position = UDim2.new(0, 214, 0.5, 0)
+	tray.AnchorPoint = Vector2.new(0, 0.5)
+	tray.ZIndex = 8
+	tray.Parent = trackPage
+	-- An explicit violet, NOT a shade of PANEL_SHELL: the shell is pure white and only looks grey
+	-- because GradientFor drops its foot to rgb(163,160,176), so any shade of it comes out a flat
+	-- hueless grey -- which is exactly the background this tray exists to stop being.
+	styleCard(tray, Color3.fromRGB(104, 98, 138), UDim.new(0, 18), 4)
+
+	-- Rotated -90 ABOUT ITS OWN CENTRE, so the box is authored landscape and lands portrait. A
+	-- 44-wide box carrying the same Rotation would still be measured 44 wide before the turn and
+	-- the 92px of text would spill sideways over the first column.
+	-- The y values are the two card rows: the scroll (254) centres in the tray (286) at y=16, the
+	-- column (220) centres in the scroll at y=17, so the free cell spans 33..125 and the premium
+	-- cell 161..253 -- centres 79 and 207.
+	for _, tag in ipairs({
+		{ text = "FREE", y = 79, color = UITheme.Color.Cream },
+		{ text = "PREMIUM", y = 207, color = UITheme.Color.Gold },
+	}) do
+		local tagLabel = Instance.new("TextLabel")
+		tagLabel.Name = tag.text .. "Tag"
+		tagLabel.Size = UDim2.new(0, 92, 0, 44)
+		tagLabel.Position = UDim2.new(0, 27, 0, tag.y)
+		tagLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+		tagLabel.BackgroundTransparency = 1
+		tagLabel.Rotation = -90
+		tagLabel.Text = tag.text
+		tagLabel.Parent = tray
+		themeLabel(tagLabel, 20, tag.color)
+	end
+
+	-- right: the thirty columns, scrolling sideways. x=268 rather than 224 -- the 44px it gives up
+	-- is the tray's gutter, and the canvas scrolls anyway so no reward cell is lost for it.
 	local trackScroll = Instance.new("ScrollingFrame")
 	trackScroll.Name = "TrackScroll"
-	trackScroll.Size = UDim2.new(1, -224, 0, 254)
-	trackScroll.Position = UDim2.new(0, 224, 0.5, 0)
+	trackScroll.Size = UDim2.new(1, -268, 0, 254)
+	trackScroll.Position = UDim2.new(0, 268, 0.5, 0)
 	trackScroll.AnchorPoint = Vector2.new(0, 0.5)
 	trackScroll.BackgroundTransparency = 1
 	trackScroll.BorderSizePixel = 0
@@ -6738,7 +6753,8 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 
 		local column = Instance.new("Frame")
 		column.Name = "Level" .. level
-		column.Size = UDim2.new(0, CELL, 0, CELL * 2 + 42)
+		-- 36 = the rail (26) plus the list layout's two 5px gaps. It was 42 for the old 32px chip.
+		column.Size = UDim2.new(0, CELL, 0, CELL * 2 + 36)
 		column.LayoutOrder = level
 		column.BackgroundTransparency = 1
 		column.ZIndex = trackScroll.ZIndex + UITheme.Z.Content
@@ -6752,27 +6768,68 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 
 		local freeRefs = buildCell(column, level, "free", 1)
 
-		-- the level number between the two rows, brighter on every tenth
-		local chip = Instance.new("Frame")
-		chip.Name = "Chip"
-		chip.Size = UDim2.new(0, CELL, 0, 32)
-		chip.LayoutOrder = 2
-		chip.ZIndex = column.ZIndex
-		chip.Parent = column
-		local chipStroke = styleCard(chip, row.milestone and UITheme.Color.Sunny or UITheme.Color.Locked, UDim.new(1, 0), 3)
+		-- ===== ONE RAIL THROUGH THE BOARD, NOT THIRTY LOOSE NUMBER CHIPS (15.28) =====
+		--
+		-- The strip between the two tracks used to be thirty separate pills, each saying only the
+		-- number it was already sitting under. It is now a single continuous bar that fills from the
+		-- left as the season is played, so the board answers "how far in am I" without reading a
+		-- number -- and it runs BETWEEN the free and premium rows, which is the one line on the page
+		-- that belongs to both of them.
+		--
+		-- It is still built PER COLUMN: the columns are placed by a UIListLayout, and a one-piece rail
+		-- parented to the scrolling frame would be laid out as a thirty-first column. The segment is
+		-- CELL + the layout's 12px padding wide and the column's vertical layout centres it, so each
+		-- segment overhangs 6px either side and the seams close into one unbroken bar.
+		local rail = Instance.new("Frame")
+		rail.Name = "Rail"
+		rail.Size = UDim2.new(0, CELL + 12, 0, 26)
+		rail.LayoutOrder = 2
+		rail.BackgroundColor3 = shade(UITheme.Color.Locked, -0.35)
+		rail.BorderSizePixel = 0
+		rail.ZIndex = column.ZIndex
+		rail.Parent = column
 
-		local chipLabel = Instance.new("TextLabel")
-		chipLabel.Size = UDim2.new(1, -8, 1, -6)
-		chipLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
-		chipLabel.AnchorPoint = Vector2.new(0.5, 0.5)
-		chipLabel.BackgroundTransparency = 1
-		chipLabel.Text = tostring(level)
-		chipLabel.Parent = chip
-		themeLabel(chipLabel, 22)
+		-- No UICorner and no UIStroke on either piece, on purpose: rounded ends or an outline on every
+		-- segment would draw thirty pill shapes again, which is the thing this replaced.
+		local railFill = Instance.new("Frame")
+		railFill.Name = "Fill"
+		railFill.Size = UDim2.new(0, 0, 1, 0)
+		railFill.BackgroundColor3 = UITheme.Color.Green
+		railFill.BorderSizePixel = 0
+		railFill.ZIndex = rail.ZIndex + 1
+		railFill.Parent = rail
+		gradient(railFill, ColorSequence.new(UITheme.Color.Mint, UITheme.Color.Green), 90)
+
+		-- The level number rides the rail as a node, so the bar passes THROUGH each milestone rather
+		-- than running alongside it. Milestone nodes are simply bigger -- the colour is state (see
+		-- refresh) and cannot also be used to mean "this one matters".
+		local node = Instance.new("Frame")
+		node.Name = "Node"
+		node.Size = UDim2.new(0, row.milestone and 40 or 34, 0, row.milestone and 40 or 34)
+		node.Position = UDim2.new(0.5, 0, 0.5, 0)
+		node.AnchorPoint = Vector2.new(0.5, 0.5)
+		node.ZIndex = rail.ZIndex + 2
+		node.Parent = rail
+		local nodeStroke = styleCard(node, UITheme.Color.Locked, UDim.new(1, 0), 3)
+
+		local nodeLabel = Instance.new("TextLabel")
+		nodeLabel.Name = "NodeLabel"
+		nodeLabel.Size = UDim2.new(1, -8, 1, -8)
+		nodeLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+		nodeLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+		nodeLabel.BackgroundTransparency = 1
+		nodeLabel.Text = tostring(level)
+		nodeLabel.ZIndex = node.ZIndex + UITheme.Z.Content
+		nodeLabel.Parent = node
+		themeLabel(nodeLabel, row.milestone and 21 or 18)
 
 		local premiumRefs = buildCell(column, level, "premium", 3)
 
-		cells[level] = { free = freeRefs, premium = premiumRefs, chip = chip, chipStroke = chipStroke }
+		cells[level] = {
+			free = freeRefs, premium = premiumRefs,
+			railFill = railFill, node = node, nodeStroke = nodeStroke,
+			milestone = row.milestone == true,
+		}
 	end
 
 	-- ================= QUEST PAGE =================
@@ -6946,6 +7003,12 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 			premiumButton.Visible = true
 		end
 
+		-- WHERE THE SEASON IS, AS ONE CONTINUOUS NUMBER: level 9 at 710/1500 XP is 9.47. Each segment
+		-- covers the half level either side of its own node, so the rail stops exactly where the
+		-- player is standing instead of jumping a whole card at a time. At max level there is no
+		-- "into the next one", and the bar is simply full.
+		local pos = level + ((need > 0 and level < SEASON.maxLevel) and (into / need) or 0)
+
 		for lvl = 1, SEASON.maxLevel do
 			local refs = cells[lvl]
 			local slot = tostring(lvl)
@@ -6980,6 +7043,26 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 					cellRefs.strokeInst.Color = OUTLINE_COLOR
 					cellRefs.strokeInst.Thickness = 4
 				end
+			end
+
+			-- the rail: full behind a level already passed, part full through the one being played
+			refs.railFill.Size = UDim2.new(math.clamp(pos - lvl + 0.5, 0, 1), 0, 1, 0)
+
+			-- and the node lights as the level lands. The one level AHEAD wears the ready rim, so the
+			-- board always points at the next thing rather than only marking the last -- the same
+			-- signal the Daily board and the Mastery list use for "this is the live one".
+			if reached then
+				setButtonColor(refs.node, refs.milestone and UITheme.Color.Gold or UITheme.Color.Green)
+				refs.nodeStroke.Color = OUTLINE_COLOR
+				refs.nodeStroke.Thickness = 3
+			elseif lvl == level + 1 then
+				setButtonColor(refs.node, UITheme.Color.Sunny)
+				refs.nodeStroke.Color = READY_RIM
+				refs.nodeStroke.Thickness = 4
+			else
+				setButtonColor(refs.node, UITheme.Color.Locked)
+				refs.nodeStroke.Color = OUTLINE_COLOR
+				refs.nodeStroke.Thickness = 3
 			end
 		end
 
@@ -8138,7 +8221,7 @@ end)()
 				r.effect.TextTransparency = 0
 			else
 				-- The locked row is the only line in the game that says where a mutation comes from.
-				r.effect.Text = ("\u{1F512} Not found yet \u{2022} x%.2f DNA, +%d%% speed"):format(
+				r.effect.Text = ("\u{1F512} Roll at the DNA Splicer \u{2022} x%.2f DNA, +%d%% speed"):format(
 					mut.incomeMult, mut.speedPct)
 				r.effect.TextTransparency = 0.15
 			end
