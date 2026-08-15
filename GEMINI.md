@@ -253,10 +253,11 @@ These four rules are what went wrong; they are cheap to follow and expensive to 
    reference screenshot; that day grants DNA, a potion, diamonds and shards, and no creature.
    Copy a reference's LAYOUT, never its content.
 
-And run the third tool, which exists because of this review:
+And run the third and fourth tools, which both exist because of this review:
 
 ```
 python tools/luascope.py
+python tools/luaremotes.py
 ```
 
 `luastruct.py` proves blocks balance. `luanames.py` proves a name exists **somewhere in the file**
@@ -265,3 +266,20 @@ the only one of the three that catches a `local` deleted while its uses stay, or
 above its own declaration. Its first run found two bugs that broke a feature completely each
 (the welcome card threw on every join; no trade offer could ever be drawn), and **Luau compiles
 both**, because an undeclared read is just a global read. Its known baseline is in its docstring.
+
+**`luaremotes.py` is the only one that reads two files at once, and that is the whole point.** All
+three above were clean over this repo on the day the trading feature was found to be completely
+unreachable, because the defect was not inside any file: `TradeService` had listened for
+`TradeRequest` since Phase 8.6 and **nothing in the game ever fired it**. This one pairs every
+remote's senders against its listeners across the whole tree and reports any remote with only one
+side. It takes the side from the API rather than the path (`FireServer` and `OnClientEvent` only
+exist on a client), so a shared `ReplicatedStorage` module never has to be classified. Its first
+clean run also found a **DNA faucet that only a cheat client could reach** — the same sentence,
+read in the mirror. It prints a second, non-fatal list: one-shot `OnClientEvent` connects made
+through a non-blocking `FindFirstChild`, which is silent and permanent if the server creates that
+remote lazily. Baseline in its docstring; **a clean run is the absence of one shape, not a proof of
+reachability.**
+
+**The rule all four of them share, and the one no tool replaces: run the row's own check by opening
+the feature the way a player would.** The first thing that finds is whether a player can open it
+at all — which is exactly what three lints and a compiler all missed.
