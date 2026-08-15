@@ -1380,7 +1380,16 @@ CombatFx.OnClientEvent:Connect(function(fx)
 			shardPickup(fx.p, fx.s)
 		end
 		if kill and fx.dna then
-			popNumber(fx.p, "+" .. shortNumber(fx.dna) .. " \u{1F9EC}", UITheme.Color.Mint, true)
+			-- A CRIT IS THE SAME NUMBER IN A DIFFERENT VOICE (15.14). It is not a second pop and it
+			-- is not a toast: the payout is already being drawn over the corpse, so the crit is that
+			-- draw wearing gold and saying so. `SoundLibrary.crit` is a positional entry (dist 160)
+			-- and has never been played by anything until now.
+			if fx.cr then
+				SoundLibrary.Play("crit", fx.p)
+				popNumber(fx.p, "\u{1F4A5} CRIT +" .. shortNumber(fx.dna) .. " \u{1F9EC}", UITheme.Color.Gold, true)
+			else
+				popNumber(fx.p, "+" .. shortNumber(fx.dna) .. " \u{1F9EC}", UITheme.Color.Mint, true)
+			end
 		elseif fx.d and fx.d > 0 then
 			popNumber(fx.p, "-" .. shortNumber(fx.d), Color3.fromRGB(255, 236, 168), false)
 		end

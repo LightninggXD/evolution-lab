@@ -7974,9 +7974,14 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 	-- second later must not inherit the last server message's importance.
 	local notifRank = UITheme.NotifyRank(payload.kind)
 
-	if payload.kind == "crit" then
-		showNotification("💥 CRITICAL! +" .. formatNumber(payload.amount) .. " DNA", Color3.fromRGB(255, 200, 60), notifRank)
-	elseif payload.kind == "upgrade" then
+	-- THE `crit` BRANCH IS GONE, AND IT WAS NEVER REACHED (15.14). Its only sender was
+	-- `DNAService.HandleClick` behind `Remotes.CollectClick`, which nothing in the game has fired
+	-- for as long as combat has paid the DNA -- so this toast has been unreachable, not merely
+	-- rare. A crit is now drawn at the kill by `CombatClient`, on the DNA pop that is already
+	-- there: it is a fact about one creature, and this HUD's own rule is that those belong where
+	-- they happen. `SoundLibrary.NOTIFY_SOUND.crit` and `UITheme.NotifyRank`'s row are left alone --
+	-- both are inert for a kind that no longer arrives, and both are one row rather than a branch.
+	if payload.kind == "upgrade" then
 		local def = GameConfig.Upgrades[payload.upgrade]
 		showNotification("⬆️ " .. def.displayName .. " upgraded to Lv." .. payload.level, Color3.fromRGB(90, 200, 255), notifRank)
 		-- nil-guarded like every other hudRefs consumer: a panel that failed to build must not take

@@ -3437,7 +3437,15 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 			local layerDna = layer and layer.dnaMult or 1
 			local layerXp = layer and layer.xpMult or 1
 
-			local amount = DNAService.GetClickAmount(data) * tier.dnaMult * layerDna
+			-- THE SECOND RETURN IS THE CRIT, AND IT WAS THROWN AWAY HERE (15.14).
+			-- `GetClickAmount` rolls `clamp(5 + luck * 0.5, 0, 75)` percent for a **x5** payout, and
+			-- this line took only the number. The one place in the game that announced a crit was
+			-- `DNAService.HandleClick`, behind `Remotes.CollectClick` -- which nothing has fired for
+			-- as long as combat has paid the DNA (see 15.12), so `MainUI`'s `kind == "crit"` toast
+			-- and `SoundLibrary`'s crit row have both been unreachable the whole time. A player can
+			-- buy Luck up to a 75% crit rate and never once be told a crit happened.
+			local amount, wasCrit = DNAService.GetClickAmount(data)
+			amount = amount * tier.dnaMult * layerDna
 			data.DNA += amount
 			data.XP = (data.XP or 0)
 				+ math.max(1, math.floor(tier.xp * layerXp * GameConfig.GetXPMult(data)))
@@ -3583,6 +3591,11 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 				-- nil on the ordinary kill, so the commonest payload in the game is not a field wider
 				-- for everybody.
 				sh = shards > 0 and shards or nil,
+				-- ...and the crit rides the same payload, for the same reason the shard does: it is
+				-- a fact about THIS kill, so it belongs on the number already being drawn over the
+				-- corpse rather than in a banner in the corner. It is `nil` on an ordinary kill, so
+				-- the commonest packet in the game does not grow a field for everybody.
+				cr = wasCrit or nil,
 			})
 
 			playDeath(model, rig, tier.size, knockDir, ringColor)
