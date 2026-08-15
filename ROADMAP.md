@@ -569,6 +569,44 @@ all: the boss is removed inside the frame that drew it.
 
 ---
 
+## Phase 15 — The Gemini audit · *opened 2026-08-15 by a screenshot*
+
+Kristina photographed the Daily Rewards board after the twenty-fourth and twenty-fifth sessions'
+UI work and every readable string on it was a solid black blob. The capture is the whole reason
+this phase exists: **all five sessions of that work reported `luastruct.py` clean and `luanames.py`
+matching baseline, and both statements were true.** A probe reads the model; only a render shows
+colour, overlap and occlusion (`roblox-gui-probe-blind-spots`).
+
+**The two rules the UI work broke, both already written down in this file's own comments:**
+
+1. **A colour is not a permission.** `styleCard` / `applyShell` were changed to hand the 6px cyan
+   panel rim to anything filled white — a test that a 24px "Day X" pill, the code input, the
+   Playtime progress track and every white card in the game all pass.
+2. **Dark ink and its outline are one decision.** `themeLabel` outlines every label in
+   `Color.Outline`; text authored at rgb(24,18,38) is then a glyph inside a halo of its own colour.
+
+**And one class of defect no tool here could see**, which is why `tools/luascope.py` now exists:
+a name that is bound *somewhere* in the file but not *where it is used*. Two shipped instances,
+both fatal to the feature that contains them, both invisible to a compile check.
+
+**⚠ EVERY ROW BELOW IS `[~]`, NOT `[x]`, AND THE REASON IS ENVIRONMENTAL:** the `roblox-studio` MCP
+server is configured for Gemini (`.gemini/settings.json`) but is not registered for Claude Code, so
+this session had no way to run or photograph the game. `.mcp.json` at the repo root now declares it
+for both; it needs a Claude Code restart to take effect. **Each row's check is one capture.**
+
+| ID | | Task | Verified how |
+|---|---|---|---|
+| 15.1 | `[~]` | **Dark ink drops its stroke, in the same branch.** `themeLabel` now measures the luminance of a colour passed in on purpose and calls `OutlineText(label, 0)` below 0.45. Nothing bright moves; the branch can only fire on ink that was already inside a halo of its own colour. The cut is 0.45 because this palette's dark ink is at 0.077 and its greys sit at 0.48–0.60 — a threshold belongs to a palette, not to a codebase | Open the Daily board and **read** it: the day pills, the DNA amounts and the hero card's line are words, not blobs. Then the Journal detail card and the pet rows, which use the same helper with rgb(46,54,74) |
+| 15.2 | `[~]` | **The cyan rim belongs to a panel, and only `registerPanel` knows what a panel is.** The fill-colour branch is gone from both `styleCard` and `applyShell`; the rim is applied in `registerPanel` (near-white test, so all three panel whites qualify) and in `UITheme.Modal`. The inventory panel's hand-set SkyBlue rim is retired into it — every panel now wears one rim | Open any two panels: the shell has the 6px cyan rim, and nothing INSIDE either does. Specifically the Daily day pills (3px dark), the code input, and the Playtime progress track |
+| 15.3 | `[~]` | **The Daily board says what the day pays.** Day 7's card read "Chimpanzini Bananini" — a pet that day does not grant (it is 23,000 DNA, a potion, 2 diamonds, 3 shards); the hero pill and the OP badge overlapped by 27px; and a second fixed footer line was added underneath `rewardBannerCard`, which already says the same thing with the real day number | Open the board: day 7 quotes DNA like every other card, the OP badge clears the pill, and there is one footer, not two |
+| 15.4 | `[~]` | **`WelcomeBackPanel` threw on the first payload of every session.** The redesign deleted the hand-built `local sub` and left the write to it 200 lines below, so `sub` was a nil global inside `maybeWelcomeBack` — the one function that opens the card. Now captured from `PanelHeader`'s fourth return. Its height was also 2px shorter than its own two rows, so the second card hung over the shell's rim (276 → 294) | Join with an unclaimed daily: the card opens, and its subtitle reads "Two things are waiting for you." when the Season Pass also has claims |
+| 15.5 | `[~]` | **`TradeService.resolveOfferPets` called `petIndexById` 71 lines above its `local function`** — a nil global, so every `pushSession` threw and no offer could ever be drawn. Moved above its caller | Two clients on the published place: open a trade, offer a pet, and see it appear in both grids (this is 8.6's own check) |
+| 15.6 | `[~]` | **The Trade and Group panels had no shell at all** — Roblox's default grey rectangle, square corners, no border, behind correctly-styled contents. Both now take the same `styleCard(panel, PANEL_SHELL, …)` line every other panel uses. The trade panel's strings were also authored at fixed 11–15px against the pre-redesign dark HUD (its inventory well was navy rgb(15,18,26) inside a white panel) and are through `themeLabel` now; and its rarity borders read `UITheme.Color[pet.rarity]`, keys that table has never held, so every tile was the same grey — `GameConfig.GetRarity` is what the rest of the game reads | Same two clients: the trade window is a white panel with a cyan rim, its pet tiles carry their rarity colour, and no string is under 14px |
+| 15.7 | `[x]` | <!-- verified by the two live-fatal bugs it found on its first run, plus a synthetic case --> **`tools/luascope.py`, the check the other two cannot make.** `luastruct.py` proves the blocks balance; `luanames.py` proves a name exists somewhere in the file and is *documented* as not scope-aware. This one walks a scope stack and proves a name is visible where it is read. Its baseline is recorded in its own docstring | **Found 15.4 and 15.5**, neither of which any other tool in this repo (or a Luau compile) can see, and reproduces on a five-line synthetic case. Clean over all 59 mirrored scripts otherwise |
+| 15.8 | `[ ]` | **`ZoneBuilder.lua:1622` paints three props with a nil colour.** `VILLAGE_CREAM` is read by the crate lid, a knob and the banner emblem 169 lines above its `local`, so those parts take Roblox's default grey instead of cream. Left open deliberately: the fix is one line, but it only reaches the world through `BUILD_VERSION`, which regenerates all 21 zones (`evolution-lab-zonebuilder-edit-wall`) — it should ride along with the next zone change rather than trigger one | Bump `BUILD_VERSION`, rebuild, and photograph a village crate: the lid is cream, not grey |
+
+---
+
 ## 👤 Owner action checklist
 
 Collect these once; each one blocks agents until it exists.
@@ -610,6 +648,31 @@ Gathered 2026-08-07/08 while writing this plan.
 ---
 
 ## Changelog
+
+- **2026-08-15 (twenty-sixth session)** — **PHASE 15 OPENED BY A SCREENSHOT: the Daily board's
+  text was unreadable, and the five sessions that built it all reported clean.** Kristina
+  photographed the panel; every string authored in dark ink was a solid black blob, the little day
+  pills wore a 6px cyan border meant for a 700px panel, and day 7 advertised a pet it does not
+  grant. **The two static tools were not lying — they cannot see this.** `luastruct.py` counts
+  blocks, `luanames.py` says a name exists somewhere in the file and documents that it is not
+  scope-aware, and neither reads a colour. Fixed centrally rather than at the call sites, because
+  both faults were one decision made in the wrong place: **dark ink drops its stroke inside
+  `themeLabel`**, and **the cyan rim moved out of `styleCard` / `applyShell` into `registerPanel`**,
+  which is the only function that knows what a panel is.
+  - **Two runtime-fatal bugs found by a new instrument.** `tools/luascope.py` walks a scope stack
+    and proves a name is visible *where it is read*. First run: `WelcomeBackPanel` writes to a `sub`
+    whose declaration the redesign deleted, so the welcome card threw on the first payload of every
+    session; and `TradeService.resolveOfferPets` calls `petIndexById` **71 lines above** its `local
+    function`, so every `pushSession` threw and no trade offer could ever be drawn. Luau compiles
+    both — an undeclared read is a global read — so a compile check cannot see them either.
+  - **Two panels had no shell at all.** Trade and Group were Roblox's default grey rectangle with
+    square corners, behind correctly-styled contents. The trade window's strings were also authored
+    at fixed 11–15px against the *previous* dark HUD, and its rarity borders indexed `UITheme.Color`
+    with `"Common"` / `"Legendary"` — keys it has never held, so every tile came out the same grey.
+  - **Nothing here is `[x]`.** The `roblox-studio` MCP server was configured for Gemini only, so
+    this session could not run or photograph the game; `.mcp.json` now declares it at the repo root
+    for both agents and takes effect on the next Claude Code start. Every 15.x row's check is one
+    capture, and they are written down per row.
 
 - **2026-08-15 (twenty-fifth session)** — **1:1 Pet Simulator 99 UI Replication & Uniform Aesthetic Standard.**
   - **White Shell + Cyan Border:** Applied pure white modal background (`Color3.fromRGB(255, 255, 255)`) with vibrant 6px cyan border (`Color3.fromRGB(0, 180, 255)`) across all main panels in `UITheme.lua` and `MainUI.client.lua`.

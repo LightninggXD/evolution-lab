@@ -117,8 +117,18 @@ local function themeLabel(label, maxSize, color)
 	label:SetAttribute("Themed", true)
 	label.Font = DISPLAY_FONT
 	label.TextStrokeTransparency = 1
+	-- DARK INK AND ITS OUTLINE ARE ONE DECISION. `OutlineText` wraps every label in Color.Outline
+	-- (rgb 26,18,36) at 4px, which is right for the white-on-colour text this HUD is made of and is
+	-- a solid black blob for dark text on a white card -- the glyph and its halo are then the same
+	-- colour. Every property reads correct while it happens (`Text`, `TextColor3`, `TextFits`), so
+	-- it survives any probe; it is only visible in a capture. It shipped on the Daily board's day
+	-- pills and reward names. A colour passed in on purpose is trusted -- what changes is that a
+	-- dark one now DROPS the stroke, because the light surface it was chosen for already separates
+	-- it. Anything at or above the cut keeps the chunky outline, so nothing white moves.
+	local darkInk = false
 	if color then
 		label.TextColor3 = color
+		darkInk = (0.299 * color.R + 0.587 * color.G + 0.114 * color.B) < 0.45
 	else
 		-- A label that never picked a colour still carries Roblox's near-black default, and
 		-- OutlineText below wraps it in a dark stroke -- dark on dark, which is how every panel
@@ -134,7 +144,7 @@ local function themeLabel(label, maxSize, color)
 		end
 	end
 	if not label:FindFirstChildOfClass("UIStroke") then
-		UITheme.OutlineText(label, 4) -- matches UITheme's own default; see the note there
+		UITheme.OutlineText(label, darkInk and 0 or 4) -- matches UITheme's own default; see the note there
 	end
 	if not label:FindFirstChildOfClass("UITextSizeConstraint") then
 		local maxT = maxSize
@@ -205,14 +215,14 @@ local function styleCard(inst, baseColor, radius, thickness)
 	-- ...and through the same stroke scale as `applyShell` (10.18), for the reason the comment above
 	-- already gives: these two routes must produce the same object. Snapping in one and not the other
 	-- would have been a new way for them to diverge.
+	-- ...and ALWAYS OUTLINE_COLOR, which is the invariant the inventory panel's comment below already
+	-- states ("the rim is recoloured after styleCard rather than through it"). A branch here that
+	-- handed the 6px cyan panel rim to anything filled PANEL_SHELL/PanelWhite is a test that every
+	-- white surface in the file passes: the Daily board's 24px "Day X" pills, the code input, the
+	-- Playtime track, the white cards. Only `registerPanel` knows what a panel is; it asks there.
 	local strokeInst = Instance.new("UIStroke")
-	if baseColor == PANEL_SHELL or baseColor == UITheme.Color.PanelWhite then
-		strokeInst.Thickness = 6
-		strokeInst.Color = UITheme.Color.PanelBorder or Color3.fromRGB(0, 180, 255)
-	else
-		strokeInst.Thickness = UITheme.SnapStroke(thickness or UITheme.Stroke.Heavy)
-		strokeInst.Color = OUTLINE_COLOR
-	end
+	strokeInst.Thickness = UITheme.SnapStroke(thickness or UITheme.Stroke.Heavy)
+	strokeInst.Color = OUTLINE_COLOR
 	strokeInst.Transparency = 0
 	strokeInst.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	strokeInst.LineJoinMode = Enum.LineJoinMode.Round
@@ -752,6 +762,22 @@ local function registerPanel(panel)
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 	table.insert(togglePanels, panel)
+
+	-- THE CYAN RIM IS A PANEL'S, AND THIS IS THE ONLY PLACE THAT KNOWS WHAT A PANEL IS.
+	-- Every floating panel passes through here exactly once, and nothing else does -- so the rim is
+	-- decided here rather than inside styleCard, where the only thing available to decide on is the
+	-- fill colour and "is it white" is true of a progress track and a 24px day pill as well.
+	-- Near-white rather than an equality test, because the panels are painted from three different
+	-- whites (PANEL_SHELL, PanelWhite, and the Pets panel's own 252,252,255) and a rim they share is
+	-- the whole point. Anything coloured keeps the dark outline styleCard gave it.
+	local shellStroke = panel:FindFirstChildOfClass("UIStroke")
+	if shellStroke then
+		local c = panel.BackgroundColor3
+		if math.min(c.R, c.G, c.B) > 0.95 then
+			shellStroke.Thickness = 6
+			shellStroke.Color = UITheme.Color.PanelBorder
+		end
+	end
 
 	-- EVERY PANEL IN THIS FILE IS SIZED IN PIXELS, AND SEVERAL ARE BIGGER THAN A PHONE.
 	--
@@ -3865,7 +3891,10 @@ local function buildDayCell(dayIndex, size, position, big)
 
 	local headerPill = Instance.new("Frame")
 	headerPill.Name = "HeaderPill"
-	headerPill.Size = UDim2.new(0, big and 110 or 80, 0, big and 30 or 24)
+	-- 88 on the hero card, not 110. The card is 200 wide, so a 110 pill centred on it runs from
+	-- x=45 to x=155 and the OP badge in the top-left corner starts at x=6 -- they overlapped by 27px
+	-- and the badge was drawn through the pill's border. 88 leaves a 6px gap against a 44 badge.
+	headerPill.Size = UDim2.new(0, big and 88 or 80, 0, big and 30 or 24)
 	headerPill.Position = UDim2.new(0.5, 0, 0, 6)
 	headerPill.AnchorPoint = Vector2.new(0.5, 0)
 	headerPill.ZIndex = frame.ZIndex + UITheme.Z.Badge
@@ -3884,8 +3913,8 @@ local function buildDayCell(dayIndex, size, position, big)
 	if big then
 		local opBadge = Instance.new("Frame")
 		opBadge.Name = "OpBadge"
-		opBadge.Size = UDim2.new(0, 64, 0, 26)
-		opBadge.Position = UDim2.new(0, 8, 0, 8)
+		opBadge.Size = UDim2.new(0, 44, 0, 26)
+		opBadge.Position = UDim2.new(0, 6, 0, 8)
 		opBadge.ZIndex = frame.ZIndex + UITheme.Z.Badge + 1
 		opBadge.Parent = frame
 		styleCard(opBadge, UITheme.Color.Orange, UDim.new(1, 0), 2)
@@ -3921,7 +3950,11 @@ local function buildDayCell(dayIndex, size, position, big)
 	amountLabel.Position = UDim2.new(0, 6, 1, big and -78 or -50)
 	amountLabel.BackgroundTransparency = 1
 	amountLabel.TextWrapped = true
-	amountLabel.Text = big and "Chimpanzini Bananini" or (formatNumber(reward.dna) .. " DNA")
+	-- THE CARD SAYS WHAT THE DAY PAYS, on day 7 as much as on day 1. It briefly read
+	-- "Chimpanzini Bananini" on the hero card, copied off a reference screenshot -- day 7 grants
+	-- 23,000 DNA, a potion, 2 diamonds and 3 shards and no creature at all, so the one card players
+	-- streak a whole week for was advertising a pet that does not come.
+	amountLabel.Text = formatNumber(reward.dna) .. " DNA"
 	amountLabel.Parent = frame
 	themeLabel(amountLabel, big and 24 or 19, Color3.fromRGB(24, 18, 38))
 
@@ -3974,16 +4007,11 @@ buildDayCell(
 	true
 )
 
-local rewardFooterMsg = Instance.new("TextLabel")
-rewardFooterMsg.Name = "RewardFooterMsg"
-rewardFooterMsg.Size = UDim2.new(1, -32, 0, 28)
-rewardFooterMsg.Position = UDim2.new(0.5, 0, 1, -16)
-rewardFooterMsg.AnchorPoint = Vector2.new(0.5, 1)
-rewardFooterMsg.BackgroundTransparency = 1
-rewardFooterMsg.Text = "Join Tomorrow For A Special Reward!"
-rewardFooterMsg.ZIndex = rewardPanel.ZIndex + UITheme.Z.Content
-rewardFooterMsg.Parent = rewardPanel
-themeLabel(rewardFooterMsg, 22, Color3.fromRGB(255, 255, 255))
+-- NO SECOND FOOTER LINE HERE. One was added at (0.5, 1, -16) reading "Join Tomorrow For A Special
+-- Reward!", which is the exact rectangle `rewardBannerCard` occupies (anchored 1,-14, 44 tall) --
+-- so it was a fixed sentence drawn underneath a card that already says the same thing and says it
+-- with the real day number ("Come back tomorrow for Day 6!"). Invisible, duplicated, and a
+-- top-level local on a file that lives against Luau's 200-register cap.
 
 -- ================= CODES (Phase 5.1) =================
 --
@@ -4327,9 +4355,11 @@ inventoryPanel.Parent = screenGui
 -- matches the tiles, and against a bright zone that reads as a hole cut in the screen. The rim is
 -- recoloured after styleCard rather than through it, because styleCard always uses OUTLINE_COLOR --
 -- deliberately, so nothing built through it can drift from UITheme's own shell.
+-- (The rim itself is `registerPanel`'s now -- every panel wears the same one, which is what this
+-- comment wanted in the first place. What stays here is the gradient removal below, which is this
+-- panel's own.)
 do
-	local shell = styleCard(inventoryPanel, UITheme.Color.PanelWhite, UDim.new(0, 22), 5)
-	if shell then shell.Color = UITheme.Color.SkyBlue end
+	styleCard(inventoryPanel, UITheme.Color.PanelWhite, UDim.new(0, 22), 5)
 	-- and FLAT. styleCard hangs a top-to-bottom gradient on everything it builds, which is what
 	-- gives the coloured tiles their gloss -- but the same ramp over a white sheet just greys the
 	-- bottom half of it, so the panel read as dirty rather than as paper.
@@ -7617,7 +7647,12 @@ end
 	local ROW_H, ROW_GAP = 88, 12
 	local panel = Instance.new("Frame")
 	panel.Name = "WelcomeBackPanel"
-	panel.Size = UDim2.new(0, 580, 0, 276)
+	-- 294 = the header's own 90 (top 14 + height 64 + gap 12) + two rows + the gap between them +
+	-- 16 of bottom margin. It was authored at 276, which is 2px SHORT of the rows alone, so the
+	-- second card hung over the shell's bottom rim. Two rows is the most this card can ever have
+	-- and it is authored at that height on purpose: registerPanel computes its responsive fit from
+	-- the authored size, so a panel that resized itself afterwards would be scaling off a stale one.
+	panel.Size = UDim2.new(0, 580, 0, 294)
 	panel.Position = PANEL_ANCHOR
 	panel.ZIndex = 20
 	panel.Visible = false
@@ -7626,7 +7661,13 @@ end
 	registerPanel(panel)
 	panelClose(panel)
 
-	local header, contentTop = UITheme.PanelHeader(panel, {
+	-- THE SUBTITLE IS CAPTURED, and that is not a tidy-up. The hand-built `local sub` this header
+	-- replaced was deleted while the line 200 lines down that writes to it ("Two things are waiting
+	-- for you.") was left standing -- so `sub` resolved to a nil GLOBAL and `maybeWelcomeBack`
+	-- threw on the first payload of every session, which is the one call that opens this card.
+	-- `luanames.py` cannot see it: it is deliberately not scope-aware and two OTHER functions in
+	-- this file declare a local called `sub`, so the name looked bound.
+	local header, contentTop, _, sub = UITheme.PanelHeader(panel, {
 		title = "\u{1F44B} Welcome Back!",
 		subtitle = "You have unclaimed rewards waiting!",
 		accent = UITheme.Color.Lavender,
@@ -9002,6 +9043,8 @@ end)
 	groupPanel.Visible = false
 	groupPanel.ZIndex = 40
 	groupPanel.Parent = screenGui
+	-- shell first, same as every other panel -- this one was an unstyled grey rectangle too
+	styleCard(groupPanel, PANEL_SHELL, UDim.new(0, 22), 5)
 	registerPanel(groupPanel)
 	panelClose(groupPanel)
 
@@ -9211,24 +9254,22 @@ end)()
 	inviteLabel.Size = UDim2.new(1, 0, 0, 26)
 	inviteLabel.Position = UDim2.new(0, 0, 0, 0)
 	inviteLabel.BackgroundTransparency = 1
-	inviteLabel.Font = UITheme.Font.Display
-	inviteLabel.TextSize = 16
-	inviteLabel.TextColor3 = UITheme.Color.Outline
 	inviteLabel.Text = "🤝 Trade Request"
 	inviteLabel.ZIndex = 51
 	inviteLabel.Parent = inviteCard
+	-- through themeLabel, like every other readable string in this file. It was authored at a fixed
+	-- TextSize of 16 (and its subtitle at 13) -- the one thing the helper exists to prevent.
+	themeLabel(inviteLabel, 22, UITheme.Color.Outline)
 
 	local inviteSub = Instance.new("TextLabel")
 	inviteSub.Name = "InviteSub"
 	inviteSub.Size = UDim2.new(1, 0, 0, 18)
 	inviteSub.Position = UDim2.new(0, 0, 0, 24)
 	inviteSub.BackgroundTransparency = 1
-	inviteSub.Font = UITheme.Font.Body
-	inviteSub.TextSize = 13
-	inviteSub.TextColor3 = UITheme.Color.Grey
 	inviteSub.Text = "Player wants to trade with you"
 	inviteSub.ZIndex = 51
 	inviteSub.Parent = inviteCard
+	themeLabel(inviteSub, 17, UITheme.Color.Grey)
 
 	local acceptBtn = UITheme.Button(inviteCard, {
 		text = "Accept",
@@ -9291,6 +9332,11 @@ end)()
 	tradeModal.Visible = false
 	tradeModal.ZIndex = 40
 	tradeModal.Parent = screenGui
+	-- A panel is not a panel until it has been through styleCard: this one shipped with no shell at
+	-- all, which is Roblox's default grey rectangle with square corners and no border, behind a
+	-- header and two columns that were all styled correctly. Same line every other panel in the file
+	-- uses, and it is what gives registerPanel below a UIStroke to put the cyan rim on.
+	styleCard(tradeModal, PANEL_SHELL, UDim.new(0, 22), 5)
 	registerPanel(tradeModal)
 	panelClose(tradeModal)
 
@@ -9323,23 +9369,22 @@ end)()
 	local myHeader = Instance.new("TextLabel")
 	myHeader.Size = UDim2.new(1, 0, 0, 22)
 	myHeader.BackgroundTransparency = 1
-	myHeader.Font = UITheme.Font.Display
-	myHeader.TextSize = 15
-	myHeader.TextColor3 = UITheme.Color.Gold
 	myHeader.Text = "You (Your Offer)"
 	myHeader.ZIndex = 42
 	myHeader.Parent = leftCard
+	-- EVERY STRING IN THIS PANEL GOES THROUGH themeLabel. It was authored against the pre-redesign
+	-- HUD -- fixed 11-15px TextSizes, no outline, dark navy tiles -- and then parented to a white
+	-- panel, so it was both unreadable and from a different game. The helper is the whole style.
+	themeLabel(myHeader, 20, UITheme.Color.Gold)
 
 	local myStatus = Instance.new("TextLabel")
 	myStatus.Size = UDim2.new(1, 0, 0, 18)
 	myStatus.Position = UDim2.new(0, 0, 0, 22)
 	myStatus.BackgroundTransparency = 1
-	myStatus.Font = UITheme.Font.Display
-	myStatus.TextSize = 13
-	myStatus.TextColor3 = UITheme.Color.Grey
 	myStatus.Text = "⏳ Deciding..."
 	myStatus.ZIndex = 42
 	myStatus.Parent = leftCard
+	themeLabel(myStatus, 16, UITheme.Color.Grey)
 
 	local mySlotsGrid = Instance.new("Frame")
 	mySlotsGrid.Name = "MySlots"
@@ -9375,23 +9420,19 @@ end)()
 	local partnerHeader = Instance.new("TextLabel")
 	partnerHeader.Size = UDim2.new(1, 0, 0, 22)
 	partnerHeader.BackgroundTransparency = 1
-	partnerHeader.Font = UITheme.Font.Display
-	partnerHeader.TextSize = 15
-	partnerHeader.TextColor3 = UITheme.Color.Blue
 	partnerHeader.Text = "Partner's Offer"
 	partnerHeader.ZIndex = 42
 	partnerHeader.Parent = rightCard
+	themeLabel(partnerHeader, 20, UITheme.Color.Blue)
 
 	local partnerStatus = Instance.new("TextLabel")
 	partnerStatus.Size = UDim2.new(1, 0, 0, 18)
 	partnerStatus.Position = UDim2.new(0, 0, 0, 22)
 	partnerStatus.BackgroundTransparency = 1
-	partnerStatus.Font = UITheme.Font.Display
-	partnerStatus.TextSize = 13
-	partnerStatus.TextColor3 = UITheme.Color.Grey
 	partnerStatus.Text = "⏳ Deciding..."
 	partnerStatus.ZIndex = 42
 	partnerStatus.Parent = rightCard
+	themeLabel(partnerStatus, 16, UITheme.Color.Grey)
 
 	local partnerSlotsGrid = Instance.new("Frame")
 	partnerSlotsGrid.Name = "PartnerSlots"
@@ -9412,24 +9453,24 @@ end)()
 	invLabel.Size = UDim2.new(1, -32, 0, 20)
 	invLabel.Position = UDim2.new(0, 16, 0, topY + 208)
 	invLabel.BackgroundTransparency = 1
-	invLabel.Font = UITheme.Font.Display
-	invLabel.TextSize = 14
-	invLabel.TextColor3 = UITheme.Color.Outline
 	invLabel.Text = "Your Pet Inventory (Click to offer/remove):"
 	invLabel.TextXAlignment = Enum.TextXAlignment.Left
 	invLabel.ZIndex = 41
 	invLabel.Parent = tradeModal
+	themeLabel(invLabel, 18, UITheme.Color.Outline)
 
 	local invScroll = Instance.new("ScrollingFrame")
 	invScroll.Name = "InvPickerScroll"
 	invScroll.Size = UDim2.new(1, -32, 0, 110)
 	invScroll.Position = UDim2.new(0, 16, 0, topY + 232)
-	invScroll.BackgroundTransparency = 0.5
-	invScroll.BackgroundColor3 = Color3.fromRGB(15, 18, 26)
+	-- a light inset, not a hole. rgb(15,18,26) at half transparency was a navy well cut into a
+	-- white panel; PET_ROW_SHELL is the colour the Pets panel already uses for exactly this job.
+	invScroll.BackgroundTransparency = 0
+	invScroll.BackgroundColor3 = PET_ROW_SHELL
 	invScroll.BorderSizePixel = 0
 	invScroll.ZIndex = 42
 	invScroll.ScrollBarThickness = 6
-	invScroll.ScrollBarImageColor3 = Color3.fromRGB(60, 70, 90)
+	invScroll.ScrollBarImageColor3 = UITheme.Color.Locked
 	invScroll.Parent = tradeModal
 
 	local invCorner = Instance.new("UICorner")
@@ -9472,56 +9513,44 @@ end)()
 	countdownBanner.Size = UDim2.new(0, 300, 0, 30)
 	countdownBanner.Position = UDim2.new(0.5, -150, 1, -50)
 	countdownBanner.BackgroundTransparency = 1
-	countdownBanner.Font = UITheme.Font.Display
-	countdownBanner.TextSize = 16
-	countdownBanner.TextColor3 = UITheme.Color.Gold
 	countdownBanner.Text = "🔒 Locking in trade: 3..."
 	countdownBanner.Visible = false
 	countdownBanner.ZIndex = 44
 	countdownBanner.Parent = tradeModal
+	themeLabel(countdownBanner, 24, UITheme.Color.Gold)
 
 	-- Helper to render pet slot
 	local function makeSlotCard(pet, parent, isRemovable, onRemove)
 		local tile = Instance.new("TextButton")
 		tile.Size = UDim2.new(1, 0, 1, 0)
-		tile.BackgroundColor3 = Color3.fromRGB(25, 30, 42)
-		tile.BorderSizePixel = 0
 		tile.Text = ""
 		tile.AutoButtonColor = false
 		tile.ZIndex = parent.ZIndex + 1
 		tile.Parent = parent
 
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0, 6)
-		corner.Parent = tile
-
-		local rarityColor = UITheme.Color[pet.rarity] or UITheme.Color.Grey
-		local border = Instance.new("UIStroke")
+		-- RARITY OFF GameConfig, NOT off the palette. `UITheme.Color[pet.rarity]` indexes the theme
+		-- with "Common"/"Legendary"/... -- keys that table has never held -- so every tile in the
+		-- window fell to the same grey and the rarity border said nothing. `GetRarity` is what the
+		-- Pets panel, the Journal and the hatch reveal all read.
+		local rarityColor = GameConfig.GetRarity(pet.rarity).color
+		local border = styleCard(tile, UITheme.Color.PanelWhite, UDim.new(0, 10), 3)
 		border.Color = rarityColor
-		border.Thickness = 1.5
-		border.Parent = tile
 
-		local icon = Instance.new("TextLabel")
-		icon.Size = UDim2.new(1, 0, 0, 32)
-		icon.Position = UDim2.new(0, 0, 0, 2)
-		icon.BackgroundTransparency = 1
-		icon.Font = UITheme.Font.Display
-		icon.TextSize = 22
-		icon.Text = pet.emoji or "🐾"
-		icon.ZIndex = tile.ZIndex + 1
-		icon.Parent = tile
+		local icon = UITheme.IconSlot(tile, {
+			name = "Icon", icon = pet.emoji or "🐾", maxTextSize = 30,
+			size = UDim2.new(1, 0, 0, 34), position = UDim2.new(0, 0, 0, 3),
+		})
+		icon.ZIndex = tile.ZIndex + UITheme.Z.Content
 
 		local name = Instance.new("TextLabel")
 		name.Size = UDim2.new(1, -4, 0, 24)
-		name.Position = UDim2.new(0, 2, 0, 32)
+		name.Position = UDim2.new(0, 2, 0, 36)
 		name.BackgroundTransparency = 1
-		name.Font = UITheme.Font.Display
-		name.TextSize = 11
-		name.TextColor3 = rarityColor
 		name.Text = pet.name or pet.key
 		name.TextTruncate = Enum.TextTruncate.AtEnd
-		name.ZIndex = tile.ZIndex + 1
+		name.ZIndex = tile.ZIndex + UITheme.Z.Content
 		name.Parent = tile
+		themeLabel(name, 15, rarityColor)
 
 		if isRemovable and onRemove then
 			tile.Activated:Connect(function()

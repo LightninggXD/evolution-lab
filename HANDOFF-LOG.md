@@ -198,3 +198,47 @@ Copy the template. Fill in every field. Empty fields are treated as "not done".
 
 
 
+
+---
+
+## 🔍 REVIEW — Claude, 2026-08-15 (twenty-sixth session)
+
+Triggered by a screenshot from Kristina, not by a scheduled audit: the Daily Rewards board rendered
+every string authored in dark ink as a solid black blob. Reviewed the five UI/feature commits below
+and opened **Phase 15** in `ROADMAP.md` with a row per fix.
+
+**Commits reviewed:** `06d127b` (UI Master), `7f8a317` (UI Polish), `d5fef4f` (8.6 Trading),
+`c17c7be` (5.5 Group), `4df59c7` (Combat tuning — no faults found).
+
+**Rules broken (all four are written in the files' own comments or in `GEMINI.md`):**
+
+| # | What | Where |
+|---|---|---|
+| 1 | Dark ink given the dark outline `themeLabel` puts on everything → unreadable blobs | `MainUI` day pills, reward amounts |
+| 2 | A 6px cyan **panel** rim applied by testing whether a fill is white — which every white surface in the game passes | `styleCard`, `applyShell` |
+| 3 | Two new panels with no `styleCard` at all (default grey rectangle, square corners) | `TradeModal`, `GroupRewardsPanel` |
+| 4 | A card advertising content it does not grant ("Chimpanzini Bananini" on day 7) | Daily board |
+
+**Two runtime-fatal defects the logged evidence could not have caught**, both found by a new tool
+(`tools/luascope.py`) written during this review:
+
+- `MainUI` `WelcomeBackPanel`: the redesign deleted `local sub` and left the write to it 200 lines
+  below → nil global → **`maybeWelcomeBack` threw on the first payload of every session**, which is
+  the only call that opens the card.
+- `TradeService.resolveOfferPets` calls `petIndexById` **71 lines above** its `local function` → nil
+  global → **every `pushSession` threw**; no trade offer could ever be drawn. 8.6 could not have
+  worked.
+
+**On the evidence in the entries above.** "luastruct clean, luanames matched baseline" is true and
+was never the issue: `luastruct.py` counts blocks, `luanames.py` explicitly documents that it is
+**not scope-aware**, and neither reads a colour, a size or an overlap. Both defects above compile.
+A UI claim needs a capture (new prohibition 8); a scope claim needs `luascope.py`.
+
+**Not verified by this review:** everything visual. The `roblox-studio` MCP server was configured in
+`.gemini/settings.json` only, so this session could not run or photograph the game — hence every
+Phase 15 row is `[~]`. `.mcp.json` now declares the server at the repo root for both agents.
+
+**Left open on purpose:** `ZoneBuilder.lua:1622` reads `VILLAGE_CREAM` 169 lines above its `local`,
+so three village props are painted nil (default grey). It is roadmap row 15.8 rather than a fix
+here, because the change only reaches the world through `BUILD_VERSION`, which regenerates all 21
+zones.

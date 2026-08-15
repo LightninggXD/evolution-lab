@@ -268,14 +268,16 @@ local function applyShell(inst, color, radius, thickness)
 	-- 5, not 4. The border is the loudest thing about the reference style -- it is what makes a
 	-- button read as a sticker laid on the screen rather than as a coloured rectangle -- and at 4px
 	-- against these brighter gradients it had started to look like an accident.
+	--
+	-- AND ALWAYS `Color.Outline`. A branch here that gave `Color.PanelWhite` the 6px cyan panel rim
+	-- instead was a test that ANY white surface passes -- and half the kit is white: the progress
+	-- bar's track (`UITheme.ProgressBar` fills this exact colour), every white card, the Daily
+	-- board's little "Day X" pills. A 24px pill in a 6px border is nearly all border. The rim
+	-- belongs to a PANEL, and only the two places that know what a panel is may ask for it
+	-- (`UITheme.Modal` below, `registerPanel` in MainUI).
 	local stroke = Instance.new("UIStroke")
-	if color == Color.PanelWhite then
-		stroke.Thickness = 6
-		stroke.Color = Color.PanelBorder
-	else
-		stroke.Thickness = snapStroke(thickness or UITheme.Stroke.Heavy)
-		stroke.Color = Color.Outline
-	end
+	stroke.Thickness = snapStroke(thickness or UITheme.Stroke.Heavy)
+	stroke.Color = Color.Outline
 	stroke.Transparency = 0
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	stroke.LineJoinMode = Enum.LineJoinMode.Round
@@ -1234,7 +1236,13 @@ function UITheme.Modal(parent, opts)
 	modal.Visible = false
 
 	local radius = toUDim(opts.radius, UDim.new(0, 22))
-	applyShell(modal, opts.color or Color.PanelWhite, radius, 5)
+	local _, modalStroke = applyShell(modal, opts.color or Color.PanelWhite, radius, 5)
+	-- The cyan rim, asked for explicitly. A modal IS a panel, so this is one of the two places
+	-- entitled to it -- see the note in applyShell about why it cannot be decided from the fill.
+	if modalStroke and (opts.color == nil or opts.color == Color.PanelWhite) then
+		modalStroke.Thickness = 6
+		modalStroke.Color = Color.PanelBorder
+	end
 	modal.Parent = parent
 
 	if opts.shadow ~= false then

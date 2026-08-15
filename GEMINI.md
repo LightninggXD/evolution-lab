@@ -9,7 +9,7 @@ trail — not to redesign anything.
 
 ---
 
-## 0. THE SEVEN HARD PROHIBITIONS
+## 0. THE EIGHT HARD PROHIBITIONS
 
 Breaking any of these causes damage that is expensive or impossible to undo.
 
@@ -29,6 +29,9 @@ Breaking any of these causes damage that is expensive or impossible to undo.
    Studio grants every game pass, so VIP's Auto Hatch runs continuously and spends the owner's real
    save. One session cost her 50 Diamonds and filled her pet bag to its 100 cap. Stop Play the
    moment a measurement finishes.
+8. **NEVER report a UI change without a SCREEN CAPTURE of it.** `luastruct.py` and `luanames.py`
+   are not evidence about a picture. Five sessions of UI work reported both tools clean while every
+   readable string on the Daily Rewards board rendered as a solid black blob. See §12.
 
 ---
 
@@ -229,3 +232,36 @@ end)()
 ```
 Export callbacks or triggers onto shared tables like `hudRefs`.
 
+
+## 12. UI rules that were already broken once (2026-08-15 review)
+
+Five sessions of UI work shipped with the Daily Rewards board unreadable. Both static tools passed.
+These four rules are what went wrong; they are cheap to follow and expensive to rediscover.
+
+1. **Dark ink and its outline are ONE decision.** `themeLabel` / `UITheme.Label` wrap every label in
+   `Color.Outline` (rgb 26,18,36). Text authored dark is then a glyph inside a halo of its own
+   colour — a solid blob, with `Text`, `TextColor3` and `TextFits` all reading correct. `themeLabel`
+   now drops the stroke below luminance 0.45 automatically. **Do not re-add a stroke to dark ink.**
+2. **A colour is not a permission.** The 6px cyan panel rim was applied by testing whether a fill
+   was white. Every white surface in the game passes that test: 24px day pills, the code input, the
+   progress track. **`registerPanel` and `UITheme.Modal` are the only two places that may apply it**,
+   because they are the only two that know the thing is a panel. `styleCard` and `applyShell` always
+   use `Color.Outline` — that invariant is written in their own comments.
+3. **A new panel needs `styleCard(panel, PANEL_SHELL, UDim.new(0, 22), 5)` before `registerPanel`.**
+   Two panels shipped without it and were Roblox's default grey rectangle with square corners.
+4. **A card must say what it actually pays.** Day 7 read "Chimpanzini Bananini", copied off a
+   reference screenshot; that day grants DNA, a potion, diamonds and shards, and no creature.
+   Copy a reference's LAYOUT, never its content.
+
+And run the third tool, which exists because of this review:
+
+```
+python tools/luascope.py
+```
+
+`luastruct.py` proves blocks balance. `luanames.py` proves a name exists **somewhere in the file**
+and is documented as *not* scope-aware. `luascope.py` proves a name is visible **where it is read** —
+the only one of the three that catches a `local` deleted while its uses stay, or a helper called
+above its own declaration. Its first run found two bugs that broke a feature completely each
+(the welcome card threw on every join; no trade offer could ever be drawn), and **Luau compiles
+both**, because an undeclared read is just a global read. Its known baseline is in its docstring.

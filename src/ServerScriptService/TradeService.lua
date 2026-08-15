@@ -156,6 +156,19 @@ local function ensureRemote(name, class)
 	return r
 end
 
+-- ABOVE `resolveOfferPets`, AND THAT IS THE FIX, not a tidy-up. It was declared 71 lines lower,
+-- which in Lua means the call below it was reading a GLOBAL of the same name -- nil -- so every
+-- `pushSession` threw "attempt to call a nil value" and no offer could ever be drawn. Every path
+-- in this file that shows or commits a trade goes through here, so nothing worked; and it is
+-- invisible to a compile check, to `luastruct.py` and to `luanames.py` alike (the name exists, it
+-- is simply not in scope yet). `tools/luascope.py` is the instrument that found it.
+local function petIndexById(data, petId)
+	for i, pet in ipairs(data.Pets or {}) do
+		if pet.id == petId then return i, pet end
+	end
+	return nil
+end
+
 local function resolveOfferPets(userId, offerIds)
 	local data = dataOf(userId)
 	if not data then return {} end
@@ -230,13 +243,6 @@ local function withinReach(userIdA, userIdB)
 	local a, b = rootOf(userIdA), rootOf(userIdB)
 	if not a or not b then return not (a or b) end
 	return (a.Position - b.Position).Magnitude <= PROXIMITY_STUDS
-end
-
-local function petIndexById(data, petId)
-	for i, pet in ipairs(data.Pets or {}) do
-		if pet.id == petId then return i, pet end
-	end
-	return nil
 end
 
 local function describe(pet)
