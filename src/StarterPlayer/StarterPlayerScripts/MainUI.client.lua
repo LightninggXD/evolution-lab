@@ -9469,12 +9469,19 @@ end)
 		toggleOnly(groupPanel)
 	end
 
-	local openRemote = Remotes:FindFirstChild("OpenGroupRewards")
-	if openRemote then
+	-- Spawned + WaitForChild, the same shape as the ZoneTransition connect near the top of the file
+	-- and for the same reason: the service creates this remote at run time, so a BUILD-TIME
+	-- FindFirstChild is a race. Losing it does not raise -- `if openRemote then` simply skips, the
+	-- connect never happens and is never retried, and the chest is silently unopenable for the whole
+	-- session. That is the dead-button shape 15.x already paid for once. Not blocking, so a service
+	-- that is slow to arrive cannot hold up the HUD being built.
+	task.spawn(function()
+		local openRemote = Remotes:WaitForChild("OpenGroupRewards", 30)
+		if not openRemote then return end
 		openRemote.OnClientEvent:Connect(function()
 			hudRefs.showGroupRewards()
 		end)
-	end
+	end)
 
 	Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 		if groupPanel.Visible then
@@ -9569,8 +9576,12 @@ end)()
 		pendingTradeId = nil
 	end)
 
-	local tradeInviteRemote = Remotes:FindFirstChild("TradeInvite")
-	if tradeInviteRemote then
+	-- Spawned + WaitForChild -- see the OpenGroupRewards connect for the full reason. This one is the
+	-- worst of the three to lose: an invite that never arrives looks exactly like a friend who never
+	-- sent one, so the failure is indistinguishable from normal play and nobody would ever report it.
+	task.spawn(function()
+		local tradeInviteRemote = Remotes:WaitForChild("TradeInvite", 30)
+		if not tradeInviteRemote then return end
 		tradeInviteRemote.OnClientEvent:Connect(function(payload)
 			if not payload or not payload.tradeId then return end
 			pendingTradeId = payload.tradeId
@@ -9584,7 +9595,7 @@ end)()
 				end
 			end)
 		end)
-	end
+	end)
 
 	-- 2. MAIN TRADE MODAL
 	local tradeModal = Instance.new("Frame")
@@ -9951,9 +9962,12 @@ end)()
 		if confirmRemote then confirmRemote:FireServer(currentSession.tradeId) end
 	end)
 
-	-- Remote event listener for TradeUpdate
-	local tradeUpdateRemote = Remotes:FindFirstChild("TradeUpdate")
-	if tradeUpdateRemote then
+	-- Remote event listener for TradeUpdate. Spawned + WaitForChild -- see the OpenGroupRewards
+	-- connect for the full reason. Losing this one strands a trade that has already STARTED: the
+	-- modal opens off the invite, both sides put pets in, and no state ever comes back.
+	task.spawn(function()
+		local tradeUpdateRemote = Remotes:WaitForChild("TradeUpdate", 30)
+		if not tradeUpdateRemote then return end
 		tradeUpdateRemote.OnClientEvent:Connect(function(payload)
 			if not payload then return end
 			if payload.state == "cancelled" or payload.state == "completed" then
@@ -9977,7 +9991,7 @@ end)()
 			end
 			refreshTradeUI()
 		end)
-	end
+	end)
 
 	-- ========================================================================
 	-- 4. THE PLAYER PICKER -- the entry point the feature never had (15.11)
