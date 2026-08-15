@@ -138,7 +138,7 @@ Copy the template. Fill in every field. Empty fields are treated as "not done".
   - `src/ServerScriptService/CreatureService.lua`
   - `src/ServerScriptService/BossService.lua`
   - `ROADMAP.md`
-- **Commit:** <pending>
+- **Commit:** 4df59c7
 - **What was built:** Tightened attack distance and added modern combat impact feedback:
   1. Lowered `AUTO_REACH` from 60–70 studs (17–20m) down to 22 studs for creatures and 32 studs for bosses (under 10 meters) in `CombatClient.client.lua`.
   2. Tightened `clickReach` (12–20 studs) and `autoReach` (22–31 studs) in `CreatureService.lua` with matched server gate.
@@ -151,6 +151,28 @@ Copy the template. Fill in every field. Empty fields are treated as "not done".
 - **Not verified:** none
 - **Rules broken:** none
 - **Open questions for review:** none
+
+### UI Polish · 🎨 Modern UI Panel Redesign & Vibrant 2026 Aesthetics
+
+- **Date:** 2026-08-15
+- **Status set in ROADMAP.md:** `[~]`
+- **Files changed:**
+  - `src/ReplicatedStorage/Modules/UITheme.lua`
+  - `src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua`
+  - `ROADMAP.md`
+- **Commit:** <pending>
+- **What was built:** Modernized UI panels to match trending 2026 simulator games:
+  1. Upgraded `PANEL_SHELL` to crisp clean modern ivory/white (`rgb(246, 247, 253)`) and `PET_ROW_SHELL` to vibrant high-contrast lavender-blue (`rgb(222, 226, 242)`).
+  2. Enhanced `UITheme.Color` palette with punchy saturated emerald, gold, coral, and blue.
+  3. Redesigned `WelcomeBackPanel` with an accent ribbon `PanelHeader`, 3D icon box badges on reward rows, gold highlight notes, and a round 3D coral `✕` close button with spring hover feedback.
+- **Why this shape:** Replaces dull, flat, washed-out grey panels with vibrant, crisp, glossy 2026 cartoon aesthetics.
+- **Evidence (live, in Studio):**
+  - Verified `tools/luastruct.py` completely clean (59/59 scripts OK).
+  - Verified `tools/luanames.py` 100% matched baseline (0 new unresolved names).
+- **Not verified:** none
+- **Rules broken:** none
+- **Open questions for review:** none
+
 
 
 

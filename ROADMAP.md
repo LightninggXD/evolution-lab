@@ -611,6 +611,11 @@ Gathered 2026-08-07/08 while writing this plan.
 
 ## Changelog
 
+- **2026-08-15 (twenty-fourth session)** — **Modern UI panel redesign & vibrant 2026 aesthetics.**
+  - **Crisp Panel Colors:** Upgraded `PANEL_SHELL` to crisp clean modern ivory/white `Color3.fromRGB(246, 247, 253)` and `PET_ROW_SHELL` to vibrant high-contrast lavender-blue `Color3.fromRGB(222, 226, 242)`. Enhanced `UITheme.Color` palette with punchy saturated emerald, gold, coral, and blue.
+  - **WelcomeBackPanel & Modal Redesign:** Overhauled `WelcomeBackPanel` with an accent ribbon `PanelHeader`, 3D icon box badges on reward rows, gold highlight notes, and a round 3D coral `✕` close button with spring hover feedback.
+  - Verified clean on `luastruct.py` (59/59 OK) and `luanames.py` (0 new unresolved names).
+
 - **2026-08-15 (twenty-third session)** — **Combat range tuning & modern 2026 impact feedback.**
   - **Attack Range Tightened (<10 meters):** Lowered `AUTO_REACH` from 60–70 studs (17–20m) to true melee distance: `AUTO_REACH = { Creatures = 22, Bosses = 32 }` (6–9m) in `CombatClient.client.lua`. Tightened `CreatureService.lua` click reach (12–20 studs) and auto-attack gate (22–31 studs). Updated `BossService.lua` strike reach to 28–34 studs.
   - **Hit Impact Juice:** Added expanding neon shockwave ring particles to `spark()` on hit and boosted damage number spring bounce in `CombatClient.client.lua`.

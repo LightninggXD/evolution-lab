@@ -85,18 +85,12 @@ local DISPLAY_FONT = UITheme.Font.Display
 -- cream panels. The gradient helps too: GradientFor lifts the top stop to rgb(244,243,251) and
 -- drops the bottom to rgb(163,160,176), so the panel has a lit top and a shaded foot rather than
 -- one flat wash.
-local PANEL_SHELL = Color3.fromRGB(226, 222, 245)
+local PANEL_SHELL = Color3.fromRGB(246, 247, 253)
 
 -- Roblox's own TextLabel default. A label still carrying it never picked a colour -- see themeLabel.
 
--- Pet rows sit one step lighter than the panel shell. The tier colour goes on a stripe rather
--- than the whole card because every PetTierColor is pale (luminance 0.61-0.86 -- Normal is
--- rgb(220,220,220)), and a pale card cannot carry the white outlined display text.
--- Moves WITH the shell above -- and now moves the OTHER WAY. It was "one step lighter" while the
--- panel was dark; on a light panel a lighter row is invisible against it, so the relationship
--- inverts and the row becomes one step darker. Still well above the outline, so the white row text
--- keeps its contrast.
-local PET_ROW_SHELL = Color3.fromRGB(178, 172, 208)
+-- Modern high-contrast clean card surface for inner list rows and items.
+local PET_ROW_SHELL = Color3.fromRGB(222, 226, 242)
 
 local function shade(c, amt)
 	return UITheme.Shade(c, amt)
@@ -1082,14 +1076,14 @@ local function panelClose(panel)
 	-- attached at the bottom of this block because `animatePanel` does not exist further up)
 	local btn = UITheme.Button(panel, {
 		name = "Close",
-		text = "X",
+		text = "\u{2715}",
 		color = UITheme.Color.Red,
-		size = UDim2.new(0, 42, 0, 42),
-		position = UDim2.new(1, -14, 0, 10),
+		size = UDim2.new(0, 44, 0, 44),
+		position = UDim2.new(1, -12, 0, 8),
 		anchorPoint = Vector2.new(1, 0),
-		radius = 12,
-		maxTextSize = 28,
-		zIndex = panel.ZIndex + UITheme.Z.Badge,
+		radius = UDim.new(1, 0),
+		maxTextSize = 26,
+		zIndex = panel.ZIndex + UITheme.Z.Badge + 2,
 	})
 	btn.MouseButton1Click:Connect(function()
 		animatePanel(panel, false)
@@ -7583,48 +7577,28 @@ end
 	local ROW_H, ROW_GAP = 88, 12
 	local panel = Instance.new("Frame")
 	panel.Name = "WelcomeBackPanel"
-	-- 2 rows is the maximum this card can ever have, and it is authored at that height so
-	-- registerPanel's responsive fit is computed once against the largest it can be. A card that
-	-- re-sized itself after being fitted would be measuring against a scale derived from the old
-	-- size -- the feedback loop registerPanel's own comment warns about.
-	panel.Size = UDim2.new(0, 560, 0, 116 + ROW_H * 2 + ROW_GAP + 20)
+	panel.Size = UDim2.new(0, 580, 0, 276)
 	panel.Position = PANEL_ANCHOR
 	panel.ZIndex = 20
 	panel.Visible = false
 	panel.Parent = screenGui
-	styleCard(panel, PANEL_SHELL, UDim.new(0, 22), 5)
+	styleCard(panel, PANEL_SHELL, UDim.new(0, 24), 5)
 	registerPanel(panel)
 	panelClose(panel)
 
-	local title = Instance.new("TextLabel")
-	title.Name = "Title"
-	title.Size = UDim2.new(1, -110, 0, 44)
-	title.Position = UDim2.new(0, 24, 0, 16)
-	title.BackgroundTransparency = 1
-	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Text = "\u{1F44B} Welcome back!"
-	title.ZIndex = panel.ZIndex + UITheme.Z.Content
-	title.Parent = panel
-	themeLabel(title, 36)
+	local header, contentTop = UITheme.PanelHeader(panel, {
+		title = "\u{1F44B} Welcome Back!",
+		subtitle = "You have unclaimed rewards waiting!",
+		accent = UITheme.Color.Lavender,
+		margin = 16,
+		top = 14,
+		height = 64,
+	})
 
-	local sub = Instance.new("TextLabel")
-	sub.Name = "Subtitle"
-	sub.Size = UDim2.new(1, -48, 0, 26)
-	sub.Position = UDim2.new(0, 24, 0, 62)
-	sub.BackgroundTransparency = 1
-	sub.TextXAlignment = Enum.TextXAlignment.Left
-	sub.Text = "You have something waiting."
-	sub.ZIndex = panel.ZIndex + UITheme.Z.Content
-	sub.Parent = panel
-	themeLabel(sub, 20, UITheme.Color.Cream)
-
-	-- A list layout rather than hand arithmetic, so hiding one row closes the gap it left instead
-	-- of leaving a hole the size of a card in the middle of the panel (11.3's rule, applied before
-	-- it can become a defect rather than after).
 	local rowHost = Instance.new("Frame")
 	rowHost.Name = "Rows"
-	rowHost.Size = UDim2.new(1, -48, 0, ROW_H * 2 + ROW_GAP)
-	rowHost.Position = UDim2.new(0, 24, 0, 104)
+	rowHost.Size = UDim2.new(1, -32, 0, ROW_H * 2 + ROW_GAP)
+	rowHost.Position = UDim2.new(0, 16, 0, contentTop)
 	rowHost.BackgroundTransparency = 1
 	rowHost.ZIndex = panel.ZIndex + UITheme.Z.Content
 	rowHost.Parent = panel
@@ -7634,58 +7608,73 @@ end
 	rowLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	rowLayout.Parent = rowHost
 
-	-- one line of the card: what is waiting, and the one button that goes there
-	local function buildRow(order, color, action)
+	local function buildRow(order, color, defaultIcon, action)
 		local row = Instance.new("Frame")
 		row.Size = UDim2.new(1, 0, 0, ROW_H)
 		row.LayoutOrder = order
 		row.ZIndex = rowHost.ZIndex + UITheme.Z.Content
 		row.Visible = false
 		row.Parent = rowHost
-		styleCard(row, PET_ROW_SHELL, UDim.new(0, 16), 4)
+		styleCard(row, PET_ROW_SHELL, UDim.new(0, 16), 3.5)
+
+		local iconBox = Instance.new("Frame")
+		iconBox.Name = "IconBox"
+		iconBox.Size = UDim2.new(0, 56, 0, 56)
+		iconBox.Position = UDim2.new(0, 14, 0.5, 0)
+		iconBox.AnchorPoint = Vector2.new(0, 0.5)
+		iconBox.ZIndex = row.ZIndex + UITheme.Z.Content
+		iconBox.Parent = row
+		styleCard(iconBox, UITheme.Shade(color, 0.25), UDim.new(0, 12), 2.5)
+
+		local iconLabel = Instance.new("TextLabel")
+		iconLabel.Name = "IconLabel"
+		iconLabel.Size = UDim2.new(1, 0, 1, 0)
+		iconLabel.BackgroundTransparency = 1
+		iconLabel.Text = defaultIcon or "\u{1F381}"
+		iconLabel.Font = DISPLAY_FONT
+		iconLabel.ZIndex = iconBox.ZIndex + UITheme.Z.Content
+		themeLabel(iconLabel, 30)
+		iconLabel.Parent = iconBox
 
 		local head = Instance.new("TextLabel")
 		head.Name = "Head"
-		head.Size = UDim2.new(1, -190, 0, 30)
-		head.Position = UDim2.new(0, 18, 0, 12)
+		head.Size = UDim2.new(1, -250, 0, 28)
+		head.Position = UDim2.new(0, 80, 0, 14)
 		head.BackgroundTransparency = 1
 		head.TextXAlignment = Enum.TextXAlignment.Left
 		head.ZIndex = row.ZIndex + UITheme.Z.Content
 		head.Parent = row
-		themeLabel(head, 26)
+		themeLabel(head, 24)
 
 		local note = Instance.new("TextLabel")
 		note.Name = "Note"
-		note.Size = UDim2.new(1, -190, 0, 26)
-		note.Position = UDim2.new(0, 18, 0, 46)
+		note.Size = UDim2.new(1, -250, 0, 24)
+		note.Position = UDim2.new(0, 80, 0, 46)
 		note.BackgroundTransparency = 1
 		note.TextXAlignment = Enum.TextXAlignment.Left
 		note.ZIndex = row.ZIndex + UITheme.Z.Content
 		note.Parent = row
-		themeLabel(note, 19, UITheme.Color.Cream)
+		themeLabel(note, 17, UITheme.Color.Gold)
 
 		local btn = Instance.new("TextButton")
 		btn.Name = "GoButton"
-		btn.Size = UDim2.new(0, 150, 0, 52)
-		btn.Position = UDim2.new(1, -16, 0.5, 0)
+		btn.Size = UDim2.new(0, 130, 0, 52)
+		btn.Position = UDim2.new(1, -14, 0.5, 0)
 		btn.AnchorPoint = Vector2.new(1, 0.5)
-		btn.Text = "OPEN"
+		btn.Text = "CLAIM"
 		btn.ZIndex = row.ZIndex + UITheme.Z.Content
 		btn.Parent = row
 		styleButton(btn, color, UDim.new(0, 14))
-		-- No explicit close: every one of these opens a panel through `toggleOnly`, which runs
-		-- `closeAllPanels` first, and this card is a registered panel -- so it closes itself on the
-		-- way out, animated, through the same path as everything else.
 		btn.MouseButton1Click:Connect(action)
 
-		return row, head, note, btn
+		return row, head, note, btn, iconLabel
 	end
 
-	local dailyRow, dailyHead, dailyNote = buildRow(1, UITheme.Color.Green, function()
+	local dailyRow, dailyHead, dailyNote, dailyBtn, dailyIcon = buildRow(1, UITheme.Color.Green, "\u{1F381}", function()
 		refreshRewardPanel()
 		toggleOnly(rewardPanel)
 	end)
-	local seasonRow, seasonHead, seasonNote = buildRow(2, UITheme.Color.Sunny, function()
+	local seasonRow, seasonHead, seasonNote, seasonBtn, seasonIcon = buildRow(2, UITheme.Color.Sunny, "\u{1F3C6}", function()
 		hudRefs.showSeasonPanel()
 	end)
 

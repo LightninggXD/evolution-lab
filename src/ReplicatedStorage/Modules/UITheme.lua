@@ -51,33 +51,28 @@ local Color = {
 	Shadow     = Color3.fromRGB(18, 12, 26),
 	White      = Color3.fromRGB(255, 255, 255),
 	Cream      = Color3.fromRGB(255, 248, 235),
-	PanelWhite = Color3.fromRGB(252, 252, 255),
-	PanelBlue  = Color3.fromRGB(86, 178, 232),
-	Gold       = Color3.fromRGB(255, 205, 70),
-	Orange     = Color3.fromRGB(247, 150, 35),
-	Blue       = Color3.fromRGB(74, 164, 224),
-	SkyBlue    = Color3.fromRGB(120, 205, 245),
-	Green      = Color3.fromRGB(95, 205, 105),
-	Red        = Color3.fromRGB(232, 72, 72),
-	Purple     = Color3.fromRGB(170, 110, 240),
-	Pink       = Color3.fromRGB(255, 110, 200),
+	PanelWhite = Color3.fromRGB(248, 249, 255),
+	PanelBlue  = Color3.fromRGB(80, 168, 245),
+	Gold       = Color3.fromRGB(255, 198, 45),
+	Orange     = Color3.fromRGB(250, 148, 38),
+	Blue       = Color3.fromRGB(68, 162, 235),
+	SkyBlue    = Color3.fromRGB(105, 205, 250),
+	Green      = Color3.fromRGB(46, 204, 113),
+	Red        = Color3.fromRGB(245, 68, 85),
+	Purple     = Color3.fromRGB(165, 105, 245),
+	Pink       = Color3.fromRGB(255, 105, 195),
 	Grey       = Color3.fromRGB(150, 150, 165),
-	-- "unavailable", on ~28 call sites: a claimed daily card, an unaffordable buy button, an
-	-- inactive tab, a locked pet slot. It was rgb(110,110,124), which was a step DOWN from the old
-	-- near-black panel and read correctly as dimmed. Against the light panel shell the same colour
-	-- reads as a hole punched in the card -- so it lifts with the panel and stays muted relative to
-	-- it rather than relative to nothing. Still far enough above Outline for white text to hold.
 	Locked     = Color3.fromRGB(163, 161, 180),
 
 	-- Bright pastel set -- used by the HUD tiles so the columns read as candy
 	-- buttons rather than the darker panel chrome.
-	Mint       = Color3.fromRGB(124, 226, 142),
-	Sunny      = Color3.fromRGB(255, 214, 92),
-	Bubblegum  = Color3.fromRGB(255, 138, 205),
-	Lavender   = Color3.fromRGB(186, 146, 250),
-	Aqua       = Color3.fromRGB(114, 202, 245),
-	Peach      = Color3.fromRGB(255, 168, 104),
-	Coral      = Color3.fromRGB(255, 124, 124),
+	Mint       = Color3.fromRGB(68, 225, 145),
+	Sunny      = Color3.fromRGB(255, 212, 75),
+	Bubblegum  = Color3.fromRGB(255, 130, 200),
+	Lavender   = Color3.fromRGB(175, 138, 250),
+	Aqua       = Color3.fromRGB(105, 205, 250),
+	Peach      = Color3.fromRGB(255, 160, 95),
+	Coral      = Color3.fromRGB(255, 95, 105),
 }
 UITheme.Color = Color
 
