@@ -88,7 +88,11 @@ local MAX_OFFER = 10
 -- Both characters must be within this of each other, at the request AND at the commit. It is the
 -- anti-scam half of 8.1 (a stranger cannot open a window at you from across the map) and the
 -- reason property 1 above holds.
-local PROXIMITY_STUDS = 40
+--
+-- It moved into GameConfig when the trade player picker was built (15.11): the picker labels every
+-- player in the server "in range" or "walk closer", so the client needs the same number this file
+-- enforces. Same move MAX_PETS made below, for the same reason.
+local PROXIMITY_STUDS = GameConfig.TradeProximityStuds
 -- Cheap spam control on top of the per-minute cap: one request every few seconds per player.
 local REQUEST_COOLDOWN = 4
 local TRADES_PER_MINUTE = 6

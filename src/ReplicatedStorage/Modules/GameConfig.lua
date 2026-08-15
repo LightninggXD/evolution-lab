@@ -1359,6 +1359,16 @@ GameConfig.MaxEquippedPets = 3
 -- duplication only bought a way for the two ceilings to drift apart.
 GameConfig.MaxOwnedPets = 100
 
+-- How close two players have to stand to open a trade, and to still be standing when it commits.
+-- It is the anti-scam half of 8.1: a stranger cannot open a window at you from across the map.
+--
+-- IT LIVES HERE for the same reason MaxOwnedPets does, and it moved here the moment a SECOND
+-- reader appeared. `TradeService` enforces it; the trade player picker in `MainUI` has to tell the
+-- player which of the people in the server are close enough to ask, and a client that prints "in
+-- range" off its own copy of the number is a client that will eventually promise a request the
+-- server refuses. One number, one meaning, two files that already require this one.
+GameConfig.TradeProximityStuds = 40
+
 -- Each zone's Pet Shop sells 3 eggs -- Basic/Better/Premium -- built by tiering that
 -- zone's base cost/luckBonus (same numbers the old single-egg-per-zone design used).
 local ZONE_EGG_BASE = {

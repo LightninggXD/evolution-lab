@@ -1038,6 +1038,15 @@ local shopToggleButton = columnTile("L", 1, "🛒", "Shop", UITheme.Color.Sunny)
 -- existed became the two TABS of this one: it opens Pets, and Potions is one click away.
 local inventoryButton  = columnTile("L", 2, "\u{1F392}", "Inventory", UITheme.Color.Bubblegum)
 local rebirthButton    = columnTile("L", 3, "♻️", "Rebirth", UITheme.Color.Lavender)
+-- THE TRADE TILE IS BUILT HERE AND HELD BY NOBODY, and both halves of that are deliberate.
+--
+-- Here, because the responsive column pass at the bottom of this file collects its tiles ONCE, by
+-- walking screenGui's children when it runs -- a tile created after it (the trading UI is ~8000
+-- lines below) is never laid out at all and keeps its authored pixel position on every viewport.
+-- Held by nobody, because this file is at Luau's 200-local ceiling and one more top-level local
+-- silently deletes the whole HUD; the trade block finds it back as `screenGui.TradeButton`, which
+-- is the name columnTile stamps on it (caption .. "Button").
+columnTile("L", 4, "\u{1F91D}", "Trade", UITheme.Color.Aqua)
 
 -- RIGHT CLUSTER (right-aligned), two tiles wide and filling upward from the bottom-right corner --
 -- see RIGHT_COUNT and the layout pass at the end of the file. Order runs left-to-right then up:
@@ -9727,5 +9736,203 @@ end)()
 			refreshTradeUI()
 		end)
 	end
+
+	-- ========================================================================
+	-- 4. THE PLAYER PICKER -- the entry point the feature never had (15.11)
+	-- ========================================================================
+	-- NOTHING IN THIS FILE HAS EVER FIRED `TradeRequest`. The server has listened for it since 8.6
+	-- (`TradeService.Init` wires `reqRemote.OnServerEvent` straight into `TradeService.Request`),
+	-- the invite prompt at the top of this block has always been able to answer one, and the modal
+	-- above draws whatever a session pushes at it -- but no button anywhere in the HUD ever SENT
+	-- one. So no trade could be started, and therefore no invite could ever arrive either: every
+	-- part of the feature worked and the whole of it was unreachable. `grep -rn TradeRequest src/`
+	-- returned exactly one line, and it was the server's.
+	--
+	-- This is 15.9's shape at one remove. There the client looked for a remote that did not exist
+	-- yet; here the client owns the only half of the conversation nothing speaks. Neither is
+	-- visible to luascope.py, luastruct.py or a Luau compile -- every name involved is in scope and
+	-- correct, it is simply never called. The check that finds this class is the row's own: open
+	-- the feature the way a player would.
+	local pickerPanel = Instance.new("Frame")
+	pickerPanel.Name = "TradePickerPanel"
+	pickerPanel.Size = UDim2.new(0, 460, 0, 420)
+	pickerPanel.Visible = false
+	pickerPanel.ZIndex = 40
+	pickerPanel.Parent = screenGui
+	styleCard(pickerPanel, PANEL_SHELL, UDim.new(0, 22), 5)
+	registerPanel(pickerPanel)
+	panelClose(pickerPanel)
+
+	local _, pickerTopY = UITheme.PanelHeader(pickerPanel, {
+		title = "🤝 Trade",
+		subtitle = ("Walk up to a player and ask -- both of you must be within %d studs")
+			:format(GameConfig.TradeProximityStuds),
+		accent = UITheme.Color.PanelBlue,
+		maxTextSize = 26,
+		margin = 16,
+		top = 12,
+	})
+
+	local pickerScroll = Instance.new("ScrollingFrame")
+	pickerScroll.Name = "PlayerList"
+	pickerScroll.BackgroundTransparency = 1
+	pickerScroll.BorderSizePixel = 0
+	pickerScroll.Position = UDim2.new(0, 16, 0, pickerTopY)
+	pickerScroll.Size = UDim2.new(1, -32, 1, -pickerTopY - 16)
+	pickerScroll.ZIndex = pickerPanel.ZIndex + UITheme.Z.Content
+	pickerScroll.ScrollBarThickness = 6
+	pickerScroll.ScrollBarImageColor3 = UITheme.Color.Locked
+	pickerScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	pickerScroll.Parent = pickerPanel
+
+	local pickerLayout = Instance.new("UIListLayout")
+	pickerLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	pickerLayout.Padding = UDim.new(0, 8)
+	pickerLayout.Parent = pickerScroll
+
+	-- Parented to the PANEL, not the scroll: inside the UIListLayout it would be laid out as a row
+	-- and push the first player down. Same reason petsEmptyLabel sits where it does.
+	local pickerEmpty = Instance.new("TextLabel")
+	pickerEmpty.Name = "EmptyLabel"
+	pickerEmpty.Size = UDim2.new(1, -60, 0, 80)
+	pickerEmpty.Position = UDim2.new(0, 30, 0, pickerTopY + 50)
+	pickerEmpty.BackgroundTransparency = 1
+	pickerEmpty.TextWrapped = true
+	pickerEmpty.Text = "Nobody else is here yet — trading needs a second player in the server."
+	pickerEmpty.ZIndex = pickerPanel.ZIndex + UITheme.Z.Content
+	pickerEmpty.Parent = pickerPanel
+	flatText(themeLabel(pickerEmpty, 22, Color3.fromRGB(150, 154, 168)))
+
+	local function studsTo(other)
+		local mine = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		local theirs = other.Character and other.Character:FindFirstChild("HumanoidRootPart")
+		if not mine or not theirs then return nil end
+		return (mine.Position - theirs.Position).Magnitude
+	end
+
+	-- Distance is repainted in place rather than by rebuilding the rows: players walk while the
+	-- panel is open, and a list that rebuilt itself every tick would destroy the button under the
+	-- cursor between the press and the release.
+	local function repaintDistances()
+		for _, row in ipairs(pickerScroll:GetChildren()) do
+			local uid = row:IsA("Frame") and tonumber(row.Name:match("^Player_(%d+)$"))
+			local label = uid and row:FindFirstChild("Distance")
+			local other = uid and Players:GetPlayerByUserId(uid)
+			if label and other then
+				local d = studsTo(other)
+				if not d then
+					label.Text = "waiting for them to spawn…"
+					label.TextColor3 = UITheme.Color.Grey
+				elseif d <= GameConfig.TradeProximityStuds then
+					label.Text = ("%d studs away — in range"):format(math.floor(d))
+					label.TextColor3 = UITheme.Color.Green
+				else
+					label.Text = ("%d studs away — walk closer"):format(math.floor(d))
+					label.TextColor3 = UITheme.Color.Coral
+				end
+			end
+		end
+	end
+
+	local function refreshPicker()
+		for _, child in ipairs(pickerScroll:GetChildren()) do
+			if child:IsA("GuiObject") then child:Destroy() end
+		end
+
+		local shown = 0
+		for _, other in ipairs(Players:GetPlayers()) do
+			if other ~= player then
+				shown += 1
+				local row = Instance.new("Frame")
+				-- the userId is carried in the NAME because repaintDistances has to find the row
+				-- again a second later, and an attribute would do the same job with one more step
+				row.Name = "Player_" .. other.UserId
+				row.Size = UDim2.new(1, -6, 0, 62)
+				row.LayoutOrder = shown
+				row.ZIndex = pickerScroll.ZIndex + 1
+				row.Parent = pickerScroll
+				styleCard(row, UITheme.Color.PanelWhite, UDim.new(0, 12), 3)
+
+				local nameLabel = Instance.new("TextLabel")
+				nameLabel.Name = "PlayerName"
+				nameLabel.Size = UDim2.new(1, -160, 0, 26)
+				nameLabel.Position = UDim2.new(0, 12, 0, 7)
+				nameLabel.BackgroundTransparency = 1
+				nameLabel.Text = "👤 " .. other.DisplayName
+				nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+				nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+				nameLabel.ZIndex = row.ZIndex + UITheme.Z.Content
+				nameLabel.Parent = row
+				themeLabel(nameLabel, 20, UITheme.Color.Outline)
+
+				local distLabel = Instance.new("TextLabel")
+				distLabel.Name = "Distance"
+				distLabel.Size = UDim2.new(1, -160, 0, 20)
+				distLabel.Position = UDim2.new(0, 12, 0, 34)
+				distLabel.BackgroundTransparency = 1
+				distLabel.Text = "…"
+				distLabel.TextXAlignment = Enum.TextXAlignment.Left
+				distLabel.ZIndex = row.ZIndex + UITheme.Z.Content
+				distLabel.Parent = row
+				-- authored Grey (mid-luminance) so themeLabel gives it the chunky dark outline;
+				-- repaintDistances only ever changes the FILL, and Green/Coral sit either side of
+				-- the same cut, so the outline decision stays correct for every state it takes
+				themeLabel(distLabel, 16, UITheme.Color.Grey)
+
+				local askBtn = UITheme.Button(row, {
+					name = "AskBtn",
+					text = "🤝 Ask",
+					size = UDim2.new(0, 118, 0, 40),
+					position = UDim2.new(1, -12, 0.5, 0),
+					anchorPoint = Vector2.new(1, 0.5),
+					color = UITheme.Color.Green,
+					radius = 12,
+					maxTextSize = 18,
+					zIndex = row.ZIndex + UITheme.Z.Content,
+				})
+				-- FIRED EVEN WHEN THE ROW SAYS "walk closer". The server owns that rule and answers
+				-- a refusal with its own Notify ("Stand closer to trade", "They are already in a
+				-- trade", the rate limit), which is a real answer -- a button greyed out by the
+				-- client's own guess at the distance would instead be a silent one, and the client
+				-- measures from a character that may not have replicated yet.
+				askBtn.MouseButton1Click:Connect(function()
+					local reqRemote = Remotes:FindFirstChild("TradeRequest")
+					if not reqRemote then
+						showNotification("❌ Trading is not available here", Color3.fromRGB(200, 60, 60), 2)
+						return
+					end
+					reqRemote:FireServer(other.UserId)
+				end)
+			end
+		end
+
+		pickerEmpty.Visible = shown == 0
+		pickerScroll.CanvasSize = UDim2.new(0, 0, 0, shown * 70)
+		repaintDistances()
+	end
+
+	local tradeTile = screenGui:FindFirstChild("TradeButton")
+	if tradeTile then
+		tradeTile.MouseButton1Click:Connect(function()
+			refreshPicker()
+			toggleOnly(pickerPanel)
+		end)
+	end
+
+	Players.PlayerAdded:Connect(function()
+		if pickerPanel.Visible then refreshPicker() end
+	end)
+	Players.PlayerRemoving:Connect(function()
+		if pickerPanel.Visible then task.defer(refreshPicker) end
+	end)
+
+	task.spawn(function()
+		while true do
+			task.wait(0.5)
+			if pickerPanel.Visible then
+				repaintDistances()
+			end
+		end
+	end)
 end)()
 
