@@ -119,6 +119,44 @@ gui.ResetOnSpawn = false
 gui.DisplayOrder = 110        -- over the HUD, under the zone-transition wipe (500)
 gui.Parent = player:WaitForChild("PlayerGui")
 
+-- ============================================================================
+-- ...AND IT GETS OUT OF THE WAY OF A PANEL (15.20)
+-- ============================================================================
+-- `DisplayOrder` beats `ZIndex` ACROSS ScreenGuis, and it does so absolutely: this gui is at 110
+-- and `EvolutionLabUI` never sets one at all, so it is at 0. No ZIndex a panel can choose will ever
+-- put it over this banner. Photographed on both clients of the two-client run: "⚔️ Click a creature
+-- to attack it" sat across the trade window covering BOTH offer column headers, and across the
+-- trade picker's header.
+--
+-- Lowering `DisplayOrder` is the wrong fix -- the 110 is deliberate, because the arrow points at
+-- the EVOLVE button and the banner has to clear the HUD it is talking about. What is actually true
+-- is that a panel is a MODAL surface: while one is open the guide is both wrong and in the way.
+--
+-- So the whole gui is disabled rather than each piece hidden. One watcher, and none of the
+-- visibility logic below it has to learn about panels -- including the two one-shot timed banners
+-- (`TutorialDone` and the climb beat), which set `Visible` once and would otherwise each need
+-- their own guard.
+task.spawn(function()
+	local mainGui = player.PlayerGui:WaitForChild("EvolutionLabUI", 30)
+	if not mainGui then
+		warn("[FirstJoin] EvolutionLabUI never appeared -- the guide cannot yield to panels")
+		return
+	end
+	while true do
+		local panelOpen = false
+		-- direct children only: `registerPanel` stamps `HudPanel` on the panel itself, and every
+		-- one of them is parented straight to the ScreenGui
+		for _, child in ipairs(mainGui:GetChildren()) do
+			if child:GetAttribute("HudPanel") and child.Visible then
+				panelOpen = true
+				break
+			end
+		end
+		gui.Enabled = not panelOpen
+		task.wait(0.15)
+	end
+end)
+
 local banner = Instance.new("Frame")
 banner.Name = "Banner"
 banner.AnchorPoint = Vector2.new(0.5, 0)

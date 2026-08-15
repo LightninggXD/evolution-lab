@@ -767,6 +767,13 @@ local function registerPanel(panel)
 	panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 	table.insert(togglePanels, panel)
 
+	-- STAMPED SO ANOTHER SCRIPT CAN ASK "IS A PANEL OPEN?" (15.20). `togglePanels` is a local in
+	-- this file and this file cannot afford to export one, so the answer travels on the object --
+	-- the same trick `columnTile` uses for `ColumnSide`/`ColumnOrder`, and for the same reason.
+	-- `FirstJoin` reads it to get its tutorial banner out from over a modal; anything else that
+	-- needs to yield to a panel can read it too, without this file gaining a register or a remote.
+	panel:SetAttribute("HudPanel", true)
+
 	-- THE CYAN RIM IS A PANEL'S, AND THIS IS THE ONLY PLACE THAT KNOWS WHAT A PANEL IS.
 	-- Every floating panel passes through here exactly once, and nothing else does -- so the rim is
 	-- decided here rather than inside styleCard, where the only thing available to decide on is the
