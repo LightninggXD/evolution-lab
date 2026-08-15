@@ -910,8 +910,20 @@ local AUTO_INTERVAL = 0.34
 -- never refused -- and raising this past 60 without raising the server's floor would silently
 -- start dropping blows the player can see themselves make.
 --
--- Bosses keep 70, and that is not an oversight: a zone boss is 75 to 121 studs across, so 70 studs
--- from its centre is barely clear of its own body.
+-- Bosses keep 70, and that is not an oversight -- but the reason written here was wrong about the
+-- bodies, and the correction is a measurement (15.21, closed 2026-08-16). "75 to 121 studs across"
+-- understates them: Boss_Desert's SOLID geometry measures 160 x 180 and its invisible HitBox is
+-- 173 x 173, so 70 studs from the anchor is 20-odd studs INSIDE the silhouette, not "barely clear".
+--
+-- 70 is still right, and the part that settles it is the COLLISION hull rather than the drawing:
+-- exactly one part in a boss collides (BossCollision, 64 studs across), so a player walking at a
+-- boss is stopped at 32 + their own half-width (16.3 at max stage) = ~48 studs from the anchor.
+-- That is 22 studs INSIDE this reach, so auto-attack has already engaged by the time the player
+-- physically cannot get any closer -- which is the only test that matters. Measured live: a
+-- standoff of 68.9 studs killed Boss_Forest (750 hp) without the character moving a single stud.
+--
+-- If a boss is ever given a wider collision hull, THIS number has to move with it. The rule is
+-- `reach > BossCollision/2 + player half-width`, not a fraction of the model's drawn size.
 --
 -- ===== 15.21: THESE WERE 22 AND 32 FOR A DAY, AND THE MEASUREMENT THAT SETTLES IT =====
 --
