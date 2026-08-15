@@ -3126,9 +3126,8 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 	-- slower, so every tier ends up at roughly the same standing gap and the reach only covers the
 	-- part of the distance the creature's own body occupies. 16 is that standing gap.
 	--
-	-- Resulting reach: Swarmer 19.9, Critter 22.6, Brute 25.6, Elite 31.6 -- against bodies of
-	-- 6.5 / 11 / 16 / 26, i.e. you have to be next to it.
-	local clickReach = tier.size * 0.6 + 16
+	-- Resulting reach: Swarmer 12.6, Critter 14.4, Brute 16.4, Elite 20.4 studs (under 6 meters)
+	local clickReach = tier.size * 0.4 + 10
 	-- the ground disc. Not registered as an attachment on purpose: the rig bobs, the ring does
 	-- not, and a ring that bobs with the creature stops reading as something on the floor.
 	local ringColor = TIER_RING[tierName] or TIER_RING.Critter
@@ -3179,26 +3178,6 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 	end
 
 	-- ONE BOX ROUND THE WHOLE RIG, which is what the mouse actually hits.
-	--
-	-- It used to be two ClickDetectors, on the torso and on the head, and every other part of a rig
-	-- was CanQuery = false so it could not swallow the ray. That works on a ball and fails on
-	-- everything the rigs became: a Swarmer IS its head, a Brute is mostly horns, spikes, wings and
-	-- paws, and on those the clickable region was a small block somewhere behind all of it. The
-	-- complaint was exact -- on some creatures only the head answered.
-	--
-	-- Same fix BossService already uses. The box is the model's own bounding volume, so it fits the
-	-- rig rather than a guess at it, with a margin on top: a target you have to be precise about is
-	-- the wrong kind of difficulty in a game whose whole verb is clicking.
-	-- ...AND CAPPED, which the `math.max` floor on its own is not.
-	--
-	-- `boxSize` is the model's bounding volume in the PrimaryPart's frame, and on a rig whose parts
-	-- are placed at a yaw it comes back considerably wider than the creature actually is: a 6.1-stud
-	-- Swarmer measured 13.3, so its hit box was built at 15.4 -- two and a half times the creature,
-	-- overlapping its neighbours, so clicking one of a pair could answer for the other.
-	--
-	-- The generous margin is still deliberate (see above) -- a target you have to be precise about
-	-- is the wrong difficulty for a game whose whole verb is clicking. It just has an upper bound
-	-- now: no wider than 1.7 of the size the tier is authored at, whatever the box claims.
 	local boxCF, boxSize = model:GetBoundingBox()
 	local hitMin, hitMax = tier.size * 1.3, tier.size * 1.7
 	local hitbox = Instance.new("Part")
@@ -3223,24 +3202,9 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 	clickDetector.MaxActivationDistance = clickReach
 	clickDetector.Parent = hitbox
 
-	-- ===== AUTO-ATTACK REACHES FURTHER THAN A CLICK, AND NOW IT HAS TO =====
-	--
-	-- "Auto-attack does not work at all" was measured, not a bug: the wiring is fine end to end (a
-	-- 70 HP Brute died in two seconds once something was in range), but the floor was 34 studs
-	-- centre-to-centre and the nearest creature to the Forest spawn is 109. It simply never found a
-	-- target during ordinary play, and it says nothing when it does not, so it read as dead.
-	--
-	-- The floor is 60 now and tracks the client's AUTO_REACH.Creatures exactly -- keep the two in
-	-- step, or the server accepts blows an honest client can never nominate, which is the difference
-	-- between a generous feature and a hole. `+ tier.size` is slack for the body, not extra range:
-	-- the client measures to the model's centre and the server to the body part's.
-	--
-	-- Deliberately looser than the click reach, and more so than before, because the two are now
-	-- different controls. A click is aimed and should be melee (see clickReach); an auto-attack is
-	-- the convenience feature and is meant to pick up whatever you walk past.
-	--
-	-- Resulting reach: Swarmer 66.5, Critter 71, Brute 76, Elite 86.
-	local autoReach = math.max(clickReach + 4, 60) + tier.size
+	-- ===== AUTO-ATTACK REACHES MELEE DISTANCE (UNDER 10 METERS) =====
+	-- Tracks client AUTO_REACH.Creatures (22 studs).
+	local autoReach = math.max(clickReach + 3, 22) + tier.size * 0.35
 
 	model:SetAttribute("Health", tier.health)
 	-- ===== WHAT THE CLIENT IS ALLOWED TO KNOW ABOUT THIS CREATURE (11.6) =====

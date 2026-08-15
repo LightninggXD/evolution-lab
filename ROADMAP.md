@@ -611,6 +611,11 @@ Gathered 2026-08-07/08 while writing this plan.
 
 ## Changelog
 
+- **2026-08-15 (twenty-third session)** — **Combat range tuning & modern 2026 impact feedback.**
+  - **Attack Range Tightened (<10 meters):** Lowered `AUTO_REACH` from 60–70 studs (17–20m) to true melee distance: `AUTO_REACH = { Creatures = 22, Bosses = 32 }` (6–9m) in `CombatClient.client.lua`. Tightened `CreatureService.lua` click reach (12–20 studs) and auto-attack gate (22–31 studs). Updated `BossService.lua` strike reach to 28–34 studs.
+  - **Hit Impact Juice:** Added expanding neon shockwave ring particles to `spark()` on hit and boosted damage number spring bounce in `CombatClient.client.lua`.
+  - Verified clean on `luastruct.py` (59/59 OK) and `luanames.py` (0 new unresolved names).
+
 - **2026-08-15 (twenty-second session)** — **Phase 5.4: Cross-server announcements via MessagingService.**
   - **MessagingService Integration:** Configured `MessagingService:PublishAsync` and `MessagingService:SubscribeAsync` on topic `GlobalAnnouncements_v1` in `AnnounceService.lua`.
   - **Cross-Server Toast Feeds:** Publishes Legendary pet hatches, Mythic/Godly mutations, late-game Zone 15+ boss clears, and Rebirths to other live servers, rendered as clean positionless HUD toasts in `RarityBeam.client.lua`.

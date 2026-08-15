@@ -410,8 +410,28 @@ local function spark(position, color, size, big)
 		Transparency = 1,
 	}):Play()
 
+	-- Modern expanding neon impact shockwave ring for chunky combat feedback
+	local ring = Instance.new("Part")
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Size = Vector3.new(0.15, size * 0.35, size * 0.35)
+	ring.CFrame = CFrame.new(position) * CFrame.Angles(0, 0, math.rad(90))
+	ring.Color = color
+	ring.Material = Enum.Material.Neon
+	ring.Transparency = 0.25
+	ring.Anchored = true
+	ring.CanCollide = false
+	ring.CanQuery = false
+	ring.CanTouch = false
+	ring.CastShadow = false
+	ring.Parent = fxFolder
+	TweenService:Create(ring, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = Vector3.new(0.08, size * 1.5, size * 1.5),
+		Transparency = 1,
+	}):Play()
+
 	Debris:AddItem(host, 0.8)
 	Debris:AddItem(flash, 0.2)
+	Debris:AddItem(ring, 0.22)
 end
 
 -- ============================================================================
@@ -890,9 +910,8 @@ local AUTO_INTERVAL = 0.34
 -- never refused -- and raising this past 60 without raising the server's floor would silently
 -- start dropping blows the player can see themselves make.
 --
--- Bosses keep 70, and that is not an oversight: a zone boss is 75 to 121 studs across, so 70 studs
--- from its centre is barely clear of its own body.
-local AUTO_REACH = { Creatures = 60, Bosses = 70 }
+-- Bosses keep 32 studs, giving clean close melee range under 10 meters.
+local AUTO_REACH = { Creatures = 22, Bosses = 32 }
 
 -- ===== THE REBIRTH LOCK, AS SEEN FROM HERE (11.6) =====
 --

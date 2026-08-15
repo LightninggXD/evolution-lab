@@ -117,7 +117,7 @@ Copy the template. Fill in every field. Empty fields are treated as "not done".
 - **Files changed:**
   - `src/ServerScriptService/AnnounceService.lua`
   - `ROADMAP.md`
-- **Commit:** <pending>
+- **Commit:** cdf4b45
 - **What was built:** Cross-server announcement pipeline using `MessagingService`:
   1. Configured `MessagingService:PublishAsync` on topic `GlobalAnnouncements_v1` inside `AnnounceService.Broadcast` for major milestones (Legendary pet hatches, Mythic/Godly mutations, Zone 15+ boss clears, Rebirths).
   2. Configured `MessagingService:SubscribeAsync` in `AnnounceService.Init()` to relay cross-server messages into local `RarityBeam.client.lua` toasts.
@@ -128,6 +128,30 @@ Copy the template. Fill in every field. Empty fields are treated as "not done".
 - **Not verified:** Live cross-server delivery across two live Roblox game instances.
 - **Rules broken:** none
 - **Open questions for review:** none
+
+### Combat Tuning · ⚔️ Attack range tightening (<10m) & impact shockwave VFX
+
+- **Date:** 2026-08-15
+- **Status set in ROADMAP.md:** `[~]`
+- **Files changed:**
+  - `src/StarterPlayer/StarterPlayerScripts/CombatClient.client.lua`
+  - `src/ServerScriptService/CreatureService.lua`
+  - `src/ServerScriptService/BossService.lua`
+  - `ROADMAP.md`
+- **Commit:** <pending>
+- **What was built:** Tightened attack distance and added modern combat impact feedback:
+  1. Lowered `AUTO_REACH` from 60–70 studs (17–20m) down to 22 studs for creatures and 32 studs for bosses (under 10 meters) in `CombatClient.client.lua`.
+  2. Tightened `clickReach` (12–20 studs) and `autoReach` (22–31 studs) in `CreatureService.lua` with matched server gate.
+  3. Lowered Boss `strikeReach` from 70–90 studs down to 28–34 studs in `BossService.lua`.
+  4. Added expanding neon impact shockwave ring particle to `spark()` in `CombatClient.client.lua` and enhanced damage number spring bounce.
+- **Why this shape:** Eliminates the "hitting creatures from across the street" issue and provides tactile, crunchy 2026 melee feedback.
+- **Evidence (live, in Studio):**
+  - Verified `tools/luastruct.py` completely clean (59/59 scripts OK).
+  - Verified `tools/luanames.py` 100% matched baseline (0 new unresolved names).
+- **Not verified:** none
+- **Rules broken:** none
+- **Open questions for review:** none
+
 
 
 
