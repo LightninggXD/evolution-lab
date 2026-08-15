@@ -9037,7 +9037,12 @@ end)
 		card.Size = UDim2.new(1, 0, 0, 90)
 		card.LayoutOrder = order
 		card.ZIndex = scroll.ZIndex
-		UITheme.applyShell(card, UITheme.Color.PanelWhite, UDim.new(0, 14), 3)
+		-- `styleCard`, NOT `UITheme.applyShell`: applyShell is a LOCAL function inside UITheme and is
+		-- never exported, so `UITheme.applyShell` is nil and calling it threw here, taking the whole
+		-- rewards panel down with it. styleCard is this file's half of the same pair -- see the note
+		-- over its definition, which says in as many words that the two routes must build the same
+		-- object.
+		styleCard(card, UITheme.Color.PanelWhite, UDim.new(0, 14), 3)
 		card.Parent = scroll
 
 		UITheme.IconSlot(card, {
@@ -9195,7 +9200,7 @@ end)()
 
 	local inviteCard = UITheme.Card(inviteFrame, {
 		size = UDim2.new(1, 0, 1, 0),
-		color = UITheme.Color.CardDark,
+		color = UITheme.Color.PanelWhite,
 		border = UITheme.Color.Gold,
 		padding = 10,
 		zIndex = 50,
@@ -9206,9 +9211,9 @@ end)()
 	inviteLabel.Size = UDim2.new(1, 0, 0, 26)
 	inviteLabel.Position = UDim2.new(0, 0, 0, 0)
 	inviteLabel.BackgroundTransparency = 1
-	inviteLabel.Font = UITheme.Font.Bold
+	inviteLabel.Font = UITheme.Font.Display
 	inviteLabel.TextSize = 16
-	inviteLabel.TextColor3 = UITheme.Color.TextWhite
+	inviteLabel.TextColor3 = UITheme.Color.Outline
 	inviteLabel.Text = "🤝 Trade Request"
 	inviteLabel.ZIndex = 51
 	inviteLabel.Parent = inviteCard
@@ -9218,9 +9223,9 @@ end)()
 	inviteSub.Size = UDim2.new(1, 0, 0, 18)
 	inviteSub.Position = UDim2.new(0, 0, 0, 24)
 	inviteSub.BackgroundTransparency = 1
-	inviteSub.Font = UITheme.Font.Regular
+	inviteSub.Font = UITheme.Font.Body
 	inviteSub.TextSize = 13
-	inviteSub.TextColor3 = UITheme.Color.TextMuted
+	inviteSub.TextColor3 = UITheme.Color.Grey
 	inviteSub.Text = "Player wants to trade with you"
 	inviteSub.ZIndex = 51
 	inviteSub.Parent = inviteCard
@@ -9309,8 +9314,8 @@ end)()
 
 	local leftCard = UITheme.Card(leftCol, {
 		size = UDim2.new(1, 0, 1, 0),
-		color = UITheme.Color.CardDark,
-		border = UITheme.Color.BorderMuted,
+		color = UITheme.Color.PanelWhite,
+		border = UITheme.Color.Locked,
 		padding = 8,
 		zIndex = 41,
 	})
@@ -9318,7 +9323,7 @@ end)()
 	local myHeader = Instance.new("TextLabel")
 	myHeader.Size = UDim2.new(1, 0, 0, 22)
 	myHeader.BackgroundTransparency = 1
-	myHeader.Font = UITheme.Font.Bold
+	myHeader.Font = UITheme.Font.Display
 	myHeader.TextSize = 15
 	myHeader.TextColor3 = UITheme.Color.Gold
 	myHeader.Text = "You (Your Offer)"
@@ -9329,9 +9334,9 @@ end)()
 	myStatus.Size = UDim2.new(1, 0, 0, 18)
 	myStatus.Position = UDim2.new(0, 0, 0, 22)
 	myStatus.BackgroundTransparency = 1
-	myStatus.Font = UITheme.Font.SemiBold
+	myStatus.Font = UITheme.Font.Display
 	myStatus.TextSize = 13
-	myStatus.TextColor3 = UITheme.Color.TextMuted
+	myStatus.TextColor3 = UITheme.Color.Grey
 	myStatus.Text = "⏳ Deciding..."
 	myStatus.ZIndex = 42
 	myStatus.Parent = leftCard
@@ -9361,8 +9366,8 @@ end)()
 
 	local rightCard = UITheme.Card(rightCol, {
 		size = UDim2.new(1, 0, 1, 0),
-		color = UITheme.Color.CardDark,
-		border = UITheme.Color.BorderMuted,
+		color = UITheme.Color.PanelWhite,
+		border = UITheme.Color.Locked,
 		padding = 8,
 		zIndex = 41,
 	})
@@ -9370,7 +9375,7 @@ end)()
 	local partnerHeader = Instance.new("TextLabel")
 	partnerHeader.Size = UDim2.new(1, 0, 0, 22)
 	partnerHeader.BackgroundTransparency = 1
-	partnerHeader.Font = UITheme.Font.Bold
+	partnerHeader.Font = UITheme.Font.Display
 	partnerHeader.TextSize = 15
 	partnerHeader.TextColor3 = UITheme.Color.Blue
 	partnerHeader.Text = "Partner's Offer"
@@ -9381,9 +9386,9 @@ end)()
 	partnerStatus.Size = UDim2.new(1, 0, 0, 18)
 	partnerStatus.Position = UDim2.new(0, 0, 0, 22)
 	partnerStatus.BackgroundTransparency = 1
-	partnerStatus.Font = UITheme.Font.SemiBold
+	partnerStatus.Font = UITheme.Font.Display
 	partnerStatus.TextSize = 13
-	partnerStatus.TextColor3 = UITheme.Color.TextMuted
+	partnerStatus.TextColor3 = UITheme.Color.Grey
 	partnerStatus.Text = "⏳ Deciding..."
 	partnerStatus.ZIndex = 42
 	partnerStatus.Parent = rightCard
@@ -9407,9 +9412,9 @@ end)()
 	invLabel.Size = UDim2.new(1, -32, 0, 20)
 	invLabel.Position = UDim2.new(0, 16, 0, topY + 208)
 	invLabel.BackgroundTransparency = 1
-	invLabel.Font = UITheme.Font.Bold
+	invLabel.Font = UITheme.Font.Display
 	invLabel.TextSize = 14
-	invLabel.TextColor3 = UITheme.Color.TextWhite
+	invLabel.TextColor3 = UITheme.Color.Outline
 	invLabel.Text = "Your Pet Inventory (Click to offer/remove):"
 	invLabel.TextXAlignment = Enum.TextXAlignment.Left
 	invLabel.ZIndex = 41
@@ -9467,7 +9472,7 @@ end)()
 	countdownBanner.Size = UDim2.new(0, 300, 0, 30)
 	countdownBanner.Position = UDim2.new(0.5, -150, 1, -50)
 	countdownBanner.BackgroundTransparency = 1
-	countdownBanner.Font = UITheme.Font.Bold
+	countdownBanner.Font = UITheme.Font.Display
 	countdownBanner.TextSize = 16
 	countdownBanner.TextColor3 = UITheme.Color.Gold
 	countdownBanner.Text = "🔒 Locking in trade: 3..."
@@ -9490,7 +9495,7 @@ end)()
 		corner.CornerRadius = UDim.new(0, 6)
 		corner.Parent = tile
 
-		local rarityColor = UITheme.Color[pet.rarity] or UITheme.Color.Common
+		local rarityColor = UITheme.Color[pet.rarity] or UITheme.Color.Grey
 		local border = Instance.new("UIStroke")
 		border.Color = rarityColor
 		border.Thickness = 1.5
@@ -9500,7 +9505,7 @@ end)()
 		icon.Size = UDim2.new(1, 0, 0, 32)
 		icon.Position = UDim2.new(0, 0, 0, 2)
 		icon.BackgroundTransparency = 1
-		icon.Font = UITheme.Font.Bold
+		icon.Font = UITheme.Font.Display
 		icon.TextSize = 22
 		icon.Text = pet.emoji or "🐾"
 		icon.ZIndex = tile.ZIndex + 1
@@ -9510,7 +9515,7 @@ end)()
 		name.Size = UDim2.new(1, -4, 0, 24)
 		name.Position = UDim2.new(0, 2, 0, 32)
 		name.BackgroundTransparency = 1
-		name.Font = UITheme.Font.SemiBold
+		name.Font = UITheme.Font.Display
 		name.TextSize = 11
 		name.TextColor3 = rarityColor
 		name.Text = pet.name or pet.key
@@ -9612,7 +9617,7 @@ end)()
 			myStatus.TextColor3 = UITheme.Color.Green
 		else
 			myStatus.Text = "⏳ Deciding..."
-			myStatus.TextColor3 = UITheme.Color.TextMuted
+			myStatus.TextColor3 = UITheme.Color.Grey
 		end
 
 		if currentSession.partnerConfirmed then
@@ -9620,7 +9625,7 @@ end)()
 			partnerStatus.TextColor3 = UITheme.Color.Green
 		else
 			partnerStatus.Text = "⏳ Deciding..."
-			partnerStatus.TextColor3 = UITheme.Color.TextMuted
+			partnerStatus.TextColor3 = UITheme.Color.Grey
 		end
 
 		-- Countdown banner
