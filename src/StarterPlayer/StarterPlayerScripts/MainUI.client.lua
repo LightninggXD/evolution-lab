@@ -5771,12 +5771,40 @@ local CHAR_LINE_H = 132
 			-- RESTORED 2026-08-15 (15.27) after a Gemini pass reinstated the filled squircle. That
 			-- pass is the same shape as 15.21: it undid a fix that exists because of a report she
 			-- made herself, and wrote a comment describing the new look rather than the reason.
-			cell.BackgroundTransparency = 1
+			--
+			-- ...AND THE FILLED DISC CAME BACK A THIRD TIME, ON ITS OWN (2026-08-16). Not by anyone
+			-- reinstating it: 15.28 rewrote `styleCard` to keep the colour in an `InnerBody` child
+			-- instead of on the host, so `cell.BackgroundTransparency = 1` below now clears a surface
+			-- that is no longer the one being seen, and the same three lines that used to strip a disc
+			-- to a ring strip nothing. Photographed with the fill cleared on two rows and left on the
+			-- third: hue-on-hue is real -- a green creature on a green puck flattens, and the damage
+			-- number under the disc goes from legible to a smudge.
+			--
+			-- The owner's call between the three ways out (2026-08-16) was NOT the ring: keep the
+			-- filled disc, which is the chunky look the rest of the HUD has, and take the collision
+			-- out of it by paling the FILL while the rim keeps the character's colour at full
+			-- strength. Hue and saturation come from the character and the value is set outright --
+			-- the same HSV idiom as the locked disc below, pointed the other way.
+			--
+			-- `pale` is carried on the refs table because `setButtonColor` repaints this surface on
+			-- every DataUpdate (15.28 made that call real; it used to paint nothing), so the pale is
+			-- what refreshCharacterPanel has to hand it or the disc goes back to full strength one
+			-- income tick later.
+			local paleH, paleS = Color3.toHSV(tint)
+			local pale = Color3.fromHSV(paleH, math.clamp(paleS * 0.34, 0, 1), 0.97)
+			cell.BackgroundColor3 = pale
+			local cellInner = cell:FindFirstChild("InnerBody")
+			if cellInner then cellInner.BackgroundColor3 = pale end
+			-- The gradient is authored off the full-strength colour, so over a pale fill it reads as
+			-- a grey wash rather than as moulding. It lives on the host in one lineage of this file
+			-- and under InnerBody in the other; both are cleared.
 			local cellGrad = cell:FindFirstChild("Gradient")
+				or (cellInner and cellInner:FindFirstChild("Gradient"))
 			if cellGrad then cellGrad:Destroy() end
-			-- and the sheen goes with it: a white highlight floating on nothing is not a highlight,
-			-- it is a smear across the model's head
+			-- and the sheen goes with it: a white highlight on a nearly-white disc is not a
+			-- highlight, it is a bright band across the model's head
 			local cellGloss = cell:FindFirstChild("Gloss")
+				or (cellInner and cellInner:FindFirstChild("Gloss"))
 			if cellGloss then cellGloss:Destroy() end
 			cellStroke.Color = tint
 			cellStroke.Thickness = UITheme.SnapStroke(4)
@@ -5896,7 +5924,7 @@ local CHAR_LINE_H = 132
 
 			characterCells[entry.key] = {
 				cell = cell, icon = icon, art = art, lock = lock, check = check, chance = damageLabel,
-				strokeInst = cellStroke, entry = entry, rarity = { color = tint },
+				strokeInst = cellStroke, entry = entry, rarity = { color = tint, pale = pale },
 			}
 		end
 
@@ -6269,17 +6297,30 @@ local CHAR_LINE_H = 132
 	end)
 
 	-- ===== THE RIGS, BUILT AS THEY COME INTO VIEW =====
-	-- A hundred cells is three thousand parts if they are all built, and the panel shows about
-	-- eighteen of them at a time. So a cell builds its rig when it scrolls into the window and
-	-- gives it back when it leaves, and at most two are built per pass -- a scroll that stops on a
-	-- fresh row builds them over the next few frames instead of hitching on one.
-	local function syncPreviews()
-		if not (characterPanel.Visible and currentData) then return end
+	-- A hundred cells is a hundred rigs if they are all built, and the panel shows about eighteen
+	-- at a time. So a cell builds its rig when it scrolls into the window and gives it back when it
+	-- leaves, and only a few are built per pass -- a scroll that stops on a fresh row builds them
+	-- over the next few frames instead of hitching on one.
+	--
+	-- ONE PASS IS NOT THE SAME AS ONE FRAME, AND THAT IS THE BUG THIS RETURN VALUE FIXES. A pass
+	-- ran on three signals only: opening the panel, a scroll, and a DataUpdate. Opening it is ONE
+	-- pass, so the panel used to open with two discs drawn and sixteen still showing the emoji
+	-- stand-in, and the rest arrived one income tick at a time -- seconds of a half-built page, on
+	-- the panel whose whole job is showing off a collection. Nothing was broken; the fill simply had
+	-- no engine of its own. `fillPreviews` below is that engine.
+	--
+	-- Measured 2026-08-16 on the live client: a rig costs 3.15 ms to build and frame, so a window
+	-- of eighteen is ~57 ms if it is done in one go -- three or four dropped frames, which is why
+	-- this is still a budget and not a loop. Three per pass is ~9.5 ms, inside a 60 Hz frame, and
+	-- fills a fresh window in six frames.
+	local function syncPreviews(budget)
+		if not (characterPanel.Visible and currentData) then return 0 end
 		local owned = currentData.Characters or {}
 		local top = characterScroll.AbsolutePosition.Y
 		local height = characterScroll.AbsoluteSize.Y
-		if height <= 0 then return end
-		local budget = 2
+		if height <= 0 then return 0 end
+		budget = budget or 3
+		local built = 0
 
 		for key, refs in pairs(characterCells) do
 			local y = refs.cell.AbsolutePosition.Y - top
@@ -6295,6 +6336,7 @@ local CHAR_LINE_H = 132
 						CharacterPreview.Frame(refs.art, refs.rig, { zoom = 1.16 })
 						refs.art.Visible = true
 						refs.icon.Visible = false
+						built += 1
 					end
 				end
 			elseif refs.rig then
@@ -6304,12 +6346,33 @@ local CHAR_LINE_H = 132
 				refs.icon.Visible = owned[key] == true
 			end
 		end
+		return built
+	end
+
+	-- Keeps passing until the window has nothing left to build. It stops on its own -- a pass that
+	-- builds nothing is the signal that the window is complete, and a cell whose rig fails to build
+	-- returns 0 as well, so a missing PreviewRig ends the loop instead of spinning on it.
+	--
+	-- `filling` is the guard that matters: this is reached from three places (open, scroll,
+	-- DataUpdate) and a scroll fires CanvasPosition on every frame of the drag. Without it a
+	-- one-second drag would leave sixty of these loops running against each other.
+	local filling = false
+	local function fillPreviews()
+		if filling then return end
+		filling = true
+		task.spawn(function()
+			while characterPanel.Visible do
+				if syncPreviews(3) == 0 then break end
+				task.wait()
+			end
+			filling = false
+		end)
 	end
 
 	-- Scrolling is the only thing that changes what is in view, and CanvasPosition is the only
 	-- honest signal for it -- the cells live inside the scrolling frame and their own positions
 	-- move with it.
-	characterScroll:GetPropertyChangedSignal("CanvasPosition"):Connect(syncPreviews)
+	characterScroll:GetPropertyChangedSignal("CanvasPosition"):Connect(fillPreviews)
 
 	-- ONE turntable, for the big figure only. Turning eighteen cell rigs as well would be six
 	-- hundred part CFrames written every frame behind a panel, and a 96px disc reads no better
@@ -6321,7 +6384,10 @@ local CHAR_LINE_H = 132
 
 	hudRefs.journalSelect = selectCharacter
 	hudRefs.journalPaintDetail = paintDetail
-	hudRefs.journalSync = syncPreviews
+	-- The FILL, not one pass: `refreshCharacterPanel` calls this on every DataUpdate, and a
+	-- discovery that lands while the panel is open should finish drawing the window rather than
+	-- adding three discs to it and waiting for the next income tick.
+	hudRefs.journalSync = fillPreviews
 	-- Opening the panel lands on the character you are wearing. An empty card next to a full grid
 	-- reads as something that failed to load.
 	hudRefs.journalOnOpen = function()
@@ -6331,7 +6397,7 @@ local CHAR_LINE_H = 132
 				selectCharacter(worn)
 			end
 		end
-		syncPreviews()
+		fillPreviews()
 	end
 
 	paintDetail()
@@ -6429,8 +6495,15 @@ local function refreshCharacterPanel()
 		-- and a BaseColor attribute nothing in the repo reads. The visible colour of a disc is
 		-- entirely `strokeInst.Color` below. Anyone chasing "why does changing the disc colour do
 		-- nothing" should start there and not here.
+		--
+		-- THAT NOTE IS NO LONGER TRUE AND THE ARGUMENT IS PASSED ACCORDINGLY (2026-08-16). 15.28
+		-- gave `setButtonColor` a body -- it paints `InnerBody`, its gradient and `ShadowBody` -- and
+		-- 15.28 also moved the disc's fill INTO InnerBody, so this call is now the thing that decides
+		-- what colour a disc is on every DataUpdate. It is handed the PALE fill the cell was built
+		-- with, not the character's full-strength colour: the rim carries full strength, the fill is
+		-- paled so the figure standing on it is not the same hue as its own background.
 		if isOwned then
-			setButtonColor(refs.cell, refs.rarity.color)
+			setButtonColor(refs.cell, refs.rarity.pale or refs.rarity.color)
 			-- the one being worn gets a bright rim, the same "this is active" signal the Daily
 			-- board and the Mastery list already use
 			-- Worn gets the full bright rim. A pick saved for ANOTHER stage gets the same colour at

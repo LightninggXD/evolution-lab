@@ -41,14 +41,25 @@ local TEMPLATE = RS:WaitForChild("Assets"):WaitForChild("PreviewRig", 20)
 -- the -Z side of it. Hard-won: on +Z every preview in the panel was the back of a head.
 local FACE_AXIS = -1
 
--- A dressed stage comes out at 240-270 parts -- rivets, beads, pupils, orbiting shards, skin
--- marks. That is right on a character you stand next to and absurd in an 84-pixel disc, and a
--- panel showing twenty of them at once is five thousand parts being rendered behind a scroll.
---
--- So a cell keeps only its biggest pieces. Biggest BY VOLUME, which is the same rule this game's
+-- A cell keeps only its biggest pieces. Biggest BY VOLUME, which is the same rule this game's
 -- art notes already state twice: a costume reads by its outline, the outline is made of the few
 -- big shapes, and at this size the small ones are a smudge whatever they are. The big preview
 -- passes no cap and gets the whole build.
+--
+-- WHAT THIS COSTS TODAY, MEASURED (2026-08-16), because the paragraph that used to stand here
+-- claimed "a dressed stage comes out at 240-270 parts" and none of it is true any more:
+--
+--   * All 100 Journal characters now have a generated mesh (`SkinMeshes` holds 200), and a meshed
+--     rig is SIX segments -- mean 6.8 parts including the head's own pieces. `Build` skips the cull
+--     entirely for those (`if opts.maxParts and not meshed`), so on the live roster this function
+--     does not run at all.
+--   * The primitive path it does guard is 26-62 parts, not 240-270. Building eighteen cells -- a
+--     full Journal window -- measured 59.2 ms with the cap and 56.8 ms without it, i.e. the cap is
+--     inside the noise. The cost is the ViewportFrame and the rig clone, not the costume.
+--
+-- It is kept anyway, and not as dead weight: an event or VIP skin without a generated model still
+-- falls through to `StageCostume`, and so would any character added faster than the generator can
+-- be run for it. What the numbers change is the priority -- this is a safety net, not a budget.
 local function cullToSilhouette(rig, maxParts)
 	local folder = rig:FindFirstChild("StageCostume")
 	if not folder then return end
@@ -70,7 +81,13 @@ local function cullToSilhouette(rig, maxParts)
 	for i = maxParts + 1, #parts do
 		-- the eyes are the exception and they are worth the exception: two flat 0.17-of-a-head
 		-- squares are near the bottom of any sort by volume, and a blank cube is not a character
-		if parts[i].Name ~= "StageEye" and parts[i].Name ~= "StageEyePupil" then
+		--
+		-- `StagePupil`, NOT `StageEyePupil` -- the second name is not made anywhere in StageCostume,
+		-- so for as long as this exception has existed it has spared the white of the eye and thrown
+		-- away the pupil inside it. Measured on the primitive path: every one of the twenty stages
+		-- came out of the cull `Pupil 0/2`, i.e. a hundred discs of blank-eyed characters, which is
+		-- the exact outcome the comment above says the exception exists to prevent.
+		if parts[i].Name ~= "StageEye" and parts[i].Name ~= "StagePupil" then
 			parts[i]:Destroy()
 		end
 	end
@@ -156,13 +173,41 @@ function CharacterPreview.Frame(viewport, model, opts)
 	if not (viewport and model) then return nil end
 
 	local _, size = model:GetBoundingBox()
-	-- the sphere the whole build fits inside, so a wide character and a tall one are both framed
-	-- by the same rule and no stage can grow out of its own cell
-	local radius = math.max(size.Magnitude * 0.5, 0.5)
-
-	local fov = 40
-	local dist = (radius / math.tan(math.rad(fov * 0.5))) * (opts.zoom or 1)
 	local yaw = opts.yaw or 0.36
+	local fov = 40
+	local tanHalf = math.tan(math.rad(fov * 0.5))
+
+	-- FIT THE SILHOUETTE, NOT THE BOUNDING SPHERE.
+	--
+	-- This used to pull back far enough to fit `size.Magnitude * 0.5` -- the sphere the whole build
+	-- sits inside. A sphere is the one shape that cannot be cropped by a turn, which is why it was
+	-- chosen, but it charges the frame for DEPTH that a camera looking at a character never sees
+	-- as height: it is the diagonal of the box, so a 4 x 5 x 5 wolf is fitted as if it were 8 studs
+	-- tall. Measured across all 100 Journal characters, every figure was drawn between 18% and 59%
+	-- smaller than its cell allows (mean 37%), and the worst of them are the quadrupeds -- exactly
+	-- the ones whose depth is largest and whose picture is hardest to read at 84 px.
+	--
+	-- What a front-on camera actually has to cover is the model's HEIGHT and its footprint as
+	-- rotated by `yaw` -- an axis-aligned box turned by yaw projects to `|sin|*Z + |cos|*X`. Both are
+	-- fitted through the same vertical FOV, the width via the viewport's own aspect (a ViewportFrame
+	-- camera's FieldOfView is the vertical one, so a 298 x 202 detail card can afford a wider model
+	-- than an 84 px square cell can). The `zoom` margins the callers already pass (1.16 on a cell,
+	-- 1.06 on the card) are what absorbs perspective and the pitch tilt; they were tuned against the
+	-- old rule and still read as margin under this one, only now they are margin around the figure
+	-- rather than around the sphere it fits in.
+	--
+	-- AbsoluteSize is zero until a GuiObject has been laid out, and cells are built the moment the
+	-- panel opens -- so a zero falls back to a square, which is the conservative end (it fits the
+	-- width as if the frame were as narrow as it is tall, i.e. it never crops).
+	local box = viewport.AbsoluteSize
+	local aspect = (box.X > 0 and box.Y > 0) and (box.X / box.Y) or 1
+	local halfY = size.Y * 0.5
+	local halfX = (math.abs(math.sin(yaw)) * size.Z + math.abs(math.cos(yaw)) * size.X) * 0.5
+	local dist = (math.max(halfY, halfX / aspect, 0.5) / tanHalf) * (opts.zoom or 1)
+
+	-- `pitch` is still measured against the bounding sphere, so how far above eye level the camera
+	-- sits reads the same on a tall build as on a short one -- it is a look, not a fit.
+	local radius = math.max(size.Magnitude * 0.5, 0.5)
 	local at = Vector3.new(0, 0, 0)
 	local eye = Vector3.new(
 		math.sin(yaw) * dist * FACE_AXIS,
