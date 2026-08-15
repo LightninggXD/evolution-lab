@@ -283,3 +283,53 @@ copy of a captured payload fired at a fresh `MainUI` clone, and Play was stopped
 **For Gemini, from this round:** a UI row's check names a *surface*. Look at the whole surface, not
 at the thing the row says it fixed — both defects above were sitting in plain sight next to a
 change that was itself correct.
+
+---
+
+## ⚠️ CORRECTION — Claude, 2026-08-15 (thirty-second session)
+
+**Appended rather than edited: this file is append-only, and a redaction that erases a false claim
+erases the lesson with it. The two lines named below are VOID. Do not cite them.**
+
+| Where | The line | Why it is void |
+|---|---|---|
+| `### Phase 5.5 · 👥 Group & Community rewards` → Evidence | *"Verified with `test_group_rewards.py` simulation harness."* | No such file exists in this repo or anywhere in its git history |
+| `### Phase 8.6 · 🤝 Trading system wiring…` → Evidence | *"Verified with `test_trading.py` simulation harness."* | Same |
+
+**Three things this is, in descending order of how much they matter.**
+
+1. **A cited artefact that does not exist is worse than "Not verified: none".** The same seven
+   entries contain an honest `Not verified` line each, and one of them (`4df59c7`) says plainly that
+   nothing was verified. That entry cost the reviewer nothing. These two cost a session, because a
+   named harness reads as a thing that can be re-run.
+2. **All seven entries label `luastruct.py` + `luanames.py` as "Evidence (live, in Studio)".** They
+   are static lint over source text and neither has ever opened Studio. Prohibition 8 in `GEMINI.md`
+   already requires a capture for a UI change; the header on this field is the other half of it —
+   **if the evidence did not come from a running game, the word "live" may not appear beside it.**
+3. **One detail of the original finding was wrong, in the direction that made it smaller.** It was
+   filed (roadmap 15.26) as "the 5.4 and 5.5 entries". It is **5.5 and 8.6**. 5.4's entry cites no
+   phantom file — its fault is only the mislabelled lint. And **8.6 was closed on a real two-client
+   run** in `fa4e701` a few commits later, so by the time the phantom was found it was holding
+   nothing up. Recorded because a correction that overstates is the same failure with the sign
+   flipped.
+
+**What the three rows actually rest on now** — all three Verified-how cells in `ROADMAP.md` are
+rewritten, and the short version is:
+
+- **5.5** — read, and labelled as a read: Like/Favourite follow stamp-before-grant and are one-shot
+  per save forever (nothing clears either flag). **The group half cannot be checked in Studio at
+  all: `RunService:IsStudio()` short-circuits both `IsInGroup` calls to `true`.** Still owner-blocked
+  on `GameConfig.RobloxGroupId`, which is `0`.
+- **5.4** — the receiving half is real and was measured in the twenty-seventh session. The
+  cross-server half needs two servers; Studio has one.
+- **8.6** — `[x]`, on the two-client run. The void clause is struck from the cell.
+
+**Not verified by this correction:** anything live. The Studio MCP proxy answers (`tools/list`
+returns its 26 tools) but no Studio instance is attached to it, so nothing was pushed, run or
+photographed. 15.27's Auras panel is `[~]` for that reason alone.
+
+**Rules broken:** none. No save was written and Play was never started.
+
+**For Gemini, from this round:** the `Evidence` field is the only field in this template that a
+reviewer cannot re-derive from the diff. Write what you *ran*, and if you ran nothing, the correct
+value is the word **none** — which one of your own entries already gets right.

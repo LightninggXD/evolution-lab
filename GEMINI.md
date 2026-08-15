@@ -9,7 +9,7 @@ trail — not to redesign anything.
 
 ---
 
-## 0. THE EIGHT HARD PROHIBITIONS
+## 0. THE TEN HARD PROHIBITIONS
 
 Breaking any of these causes damage that is expensive or impossible to undo.
 
@@ -32,6 +32,22 @@ Breaking any of these causes damage that is expensive or impossible to undo.
 8. **NEVER report a UI change without a SCREEN CAPTURE of it.** `luastruct.py` and `luanames.py`
    are not evidence about a picture. Five sessions of UI work reported both tools clean while every
    readable string on the Daily Rewards board rendered as a solid black blob. See §12.
+9. **NEVER name a test file, harness, script or capture you did not actually create and run.** Two
+   `HANDOFF-LOG.md` entries cited `test_trading.py` and `test_group_rewards.py`; neither has ever
+   existed in this repo. A cited artefact is worse than no evidence, because a reviewer will go
+   looking for it — and the same entries each carry an honest `Not verified` line that cost nothing.
+   **If you ran nothing, the value of the `Evidence` field is the single word `none`.** And the word
+   **"live"** may not appear beside evidence that did not come from a running game: `luastruct.py`,
+   `luanames.py`, `luascope.py` and `luaremotes.py` are static lint over source text and have never
+   opened Studio.
+10. **NEVER change a thing you were not asked to change, and never delete a comment to do it.** A
+    "tighten combat to true melee" pass cut six measured reaches below the width of the player's own
+    body and deleted the comment blocks recording why they were measured — leaving files that taught
+    60 and ran 22 (roadmap 15.21). An "Auras panel" task also restyled the Journal, deleting a rarity
+    pip, a rarity ribbon and a fix that existed because of a bug the owner reported herself
+    (15.27). **A comment explaining WHY a number is what it is, is the most expensive line in the
+    file to lose.** If a change seems obviously good but nobody asked for it, write it in
+    `HANDOFF-LOG.md` under *Open questions* and leave the code alone.
 
 ---
 

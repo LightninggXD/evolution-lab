@@ -1027,7 +1027,12 @@ local TILE_START_Y = 100 -- clears the topbar inset and the stage card above it
 -- podium, and fusion is validated on the server. So the flyout buys the browsing and gives away
 -- none of the walking. `rows` is 5 now; the responsive pass at the bottom of the file works that out
 -- from the tiles it finds, so nothing here has to be told about it.
-local RIGHT_COUNT = 9
+-- EIGHT AGAIN (15.25 deleted the Market tile, this constant was left behind at 9). It only decides
+-- the AUTHORED position -- the layout pass at the end of the file recounts the tiles it actually
+-- finds -- so the cost of the stale 9 was one frame of the whole right cluster sitting a pitch high
+-- before the first layout ran. That is exactly the flash the comment above says the authored
+-- position exists to prevent.
+local RIGHT_COUNT = 8
 local RIGHT_COLS = 2
 local RIGHT_BOTTOM_Y = 46
 local PANEL_ANCHOR = UDim2.new(0.5, 0, 0.5, 0)
@@ -1093,6 +1098,10 @@ local rebirthButton    = columnTile("L", 3, "♻️", "Rebirth", UITheme.Color.L
 -- silently deletes the whole HUD; the trade block finds it back as `screenGui.TradeButton`, which
 -- is the name columnTile stamps on it (caption .. "Button").
 columnTile("L", 4, "\u{1F91D}", "Trade", UITheme.Color.Aqua)
+-- ...and the Auras tile (15.27) for the same two reasons, found back as `screenGui.AurasButton`.
+-- Five in the left column against eight in the right: the layout pass measures each column from the
+-- tiles it finds, so this needed no other change.
+columnTile("L", 5, "\u{1F9EC}", "Auras", UITheme.Color.Purple)
 
 -- RIGHT CLUSTER (right-aligned), two tiles wide and filling upward from the bottom-right corner --
 -- see RIGHT_COUNT and the layout pass at the end of the file. Order runs left-to-right then up:
@@ -5781,6 +5790,10 @@ local CHAR_LINE_H = 132
 			--
 			-- The stroke stays `tint` rather than the shared outline colour precisely because the
 			-- fill no longer carries it; drop this and every disc in the Journal becomes identical.
+			--
+			-- RESTORED 2026-08-15 (15.27) after a Gemini pass reinstated the filled squircle. That
+			-- pass is the same shape as 15.21: it undid a fix that exists because of a report she
+			-- made herself, and wrote a comment describing the new look rather than the reason.
 			cell.BackgroundTransparency = 1
 			local cellGrad = cell:FindFirstChild("Gradient")
 			if cellGrad then cellGrad:Destroy() end
@@ -5879,50 +5892,21 @@ local CHAR_LINE_H = 132
 			corner(check, UDim.new(0.5, 0))
 			themeLabel(check, 22)
 
-			-- ===== THE RARITY PIP (12.6) =====
+			-- ===== NO RARITY BADGE HERE (15.28), AND THE REASON RETIRES 12.6 =====
 			--
-			-- The disc's own colour is the CHARACTER (see the note over `tint`), and that was the
-			-- right call -- but it cost the panel the one thing the old rarity fill did say, which
-			-- the locked-disc comment below still describes and no longer delivers: "there is a
-			-- Legendary here you have not found". Rarity is still authored on every entry and it
-			-- is still what StageCostume's skinMarks reads to decide how much flourish a character
-			-- wears, so it is a real property of the thing -- it just has no longer any business
-			-- owning ninety-six pixels.
+			-- 12.6 put a rarity pip on this disc and a rarity ribbon on the detail card, on the
+			-- argument that a collection screen should say "there is a Legendary here you have not
+			-- found". That argument was true of a game where characters DROPPED. It has not been
+			-- true since 9.5 made every skin its own evolve: the 200 are unlocked in **strict rank
+			-- order** (see the collection-order note in GameConfig), so the next one you get is the
+			-- next one on the ladder no matter what rarity says, and there is nothing a player can
+			-- do differently on learning it. The owner put it in one line -- *"I do not need the
+			-- rarity option in the journal, every character has to be collected anyway"*.
 			--
-			-- A pip owns twenty-six of them, in the corner, and the two facts stop competing: the
-			-- ring says WHICH character, the pip says HOW ORNATE. Mirrors the worn tick on the
-			-- opposite corner so the disc reads as one object with two badges rather than as a
-			-- badge stuck on an afterthought.
+			-- `entry.rarity` is NOT dead and must not be deleted: `StageCostume.skinMarks` reads it
+			-- to decide how much flourish a character wears, which is the form the fact takes now --
+			-- you see a Legendary's ornament ON the Legendary rather than a letter in its corner.
 			--
-			-- SHOWN ON LOCKED DISCS TOO, deliberately, and it is the only thing on a locked cell
-			-- besides the "?" -- the damage figure is hidden there because a number under
-			-- something you have never seen is noise, while the SHAPE of what is left to find is
-			-- exactly what a collection panel is for.
-			local pipRarity = GameConfig.GetRarity(entry.rarity)
-			local pip = Instance.new("TextLabel")
-			pip.Name = "Pip"
-			pip.Size = UDim2.new(0, 26, 0, 26)
-			pip.Position = UDim2.new(0, -2, 0, -2)
-			pip.BackgroundColor3 = pipRarity.color
-			pip.Text = (entry.rarity or "Common"):sub(1, 1)
-			-- above the lock (Badge+1) and the tick (Badge+2): a locked disc must still show it
-			pip.ZIndex = cell.ZIndex + UITheme.Z.Badge + 3
-			pip.Parent = cell
-			corner(pip, UDim.new(0.5, 0))
-			-- The stroke is authored BEFORE themeLabel, which only adds its own 4px one when the
-			-- label has none. Four pixels of near-black around a 26px disc closes over the glyph
-			-- inside it -- the pip would read as a dark dot with a smudge in the middle.
-			do
-				local pipStroke = Instance.new("UIStroke")
-				pipStroke.Thickness = UITheme.SnapStroke(2)
-				pipStroke.Color = OUTLINE_COLOR
-				pipStroke.Transparency = 0
-				pipStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
-				pipStroke.LineJoinMode = Enum.LineJoinMode.Round
-				pipStroke.Parent = pip
-			end
-			themeLabel(pip, 17, UITheme.Color.White)
-
 			-- A CLICK SELECTS, IT NO LONGER EQUIPS. It used to put the character straight on the body,
 			-- which meant the only way to find out what one looked like was to wear it, and the only
 			-- way to compare two was to wear both. The detail card on the right is where a character
@@ -5992,23 +5976,8 @@ local CHAR_LINE_H = 132
 	bigMark.Parent = stageBox
 	themeLabel(bigMark, 96, Color3.fromRGB(186, 194, 214))
 
-	-- ===== THE RARITY, IN WORDS (12.6) =====
-	--
-	-- The pip on the disc says how ornate an entry is with one letter and a colour; this is the same
-	-- fact spelled out for the one entry being looked at, and it rides in the corner of the well
-	-- rather than on a line of its own because the card has no line to spare and a ribbon on the
-	-- picture is where a collection game puts this.
-	--
-	-- Written by paintDetail, never created by it -- the whole panel's contract. It carries text and
-	-- a colour that change per selection, which is exactly why it exists up here.
-	local dRarity = Instance.new("TextLabel")
-	dRarity.Name = "DetailRarity"
-	dRarity.Size = UDim2.new(0, 118, 0, 26)
-	dRarity.Position = UDim2.new(0, 9, 0, 9)
-	dRarity.ZIndex = stageBox.ZIndex + 3 -- over the viewport (+1) and the "?" (+2)
-	dRarity.Parent = stageBox
-	styleCard(dRarity, UITheme.Color.Locked, UDim.new(0, 9), 2)
-	themeLabel(dRarity, 16, UITheme.Color.White)
+	-- (12.6's rarity ribbon stood in the corner of this well. It went with the pip on the disc --
+	-- see the note over the cells for why rarity stopped being a fact a Journal reader can act on.)
 
 	local dName = Instance.new("TextLabel")
 	dName.Name = "DetailName"
@@ -6136,7 +6105,6 @@ local CHAR_LINE_H = 132
 			dSub.Text = "Choose one from the list"
 			dStatLabel.Text = ""
 			dStatHp.Text = ""
-			dRarity.Visible = false
 			dHint.Text = ""
 			bigMark.Visible = true
 			bigMark.Text = "\u{1F4D2}"
@@ -6185,18 +6153,6 @@ local CHAR_LINE_H = 132
 			formatNumber(math.floor(GameConfig.GetRankDamage(shownRank))))
 		dStatHp.Text = ("\u{2764}\u{FE0F}  +%d%% Max Health"):format(
 			math.floor(GameConfig.GetCharacterHealthPct(entry, currentData)))
-
-		-- The rarity ribbon on the well. Shown for a locked entry too -- what is still out there is
-		-- the whole point of a collection screen -- and inked by LUMINANCE rather than by a list of
-		-- rarity names, so a rarity added later is handled without touching this line. Gold and grey
-		-- both come back bright and take the dark ink; blue and violet take white.
-		local rarityDef = GameConfig.GetRarity(entry.rarity)
-		dRarity.Visible = true
-		dRarity.Text = (entry.rarity or "Common"):upper()
-		setButtonColor(dRarity, rarityDef.color)
-		local rc = rarityDef.color
-		dRarity.TextColor3 = (0.299 * rc.R + 0.587 * rc.G + 0.114 * rc.B) > 0.55
-			and Color3.fromRGB(46, 40, 30) or UITheme.Color.White
 
 		equipButton.Visible = owned
 		if equipped then
@@ -6274,8 +6230,10 @@ local CHAR_LINE_H = 132
 		end
 
 		-- LAST, because every branch above can still be writing a colour and the test is on the
-		-- colour. dRarity is deliberately not in the list: its UIStroke is styleCard's BORDER, i.e.
-		-- the chip's own rim, not an outline around the glyphs.
+		-- colour. (`dRarity` used to be excluded from this list by name -- its UIStroke was
+		-- styleCard's BORDER rather than an outline around the glyphs. The ribbon is gone; the
+		-- exclusion note is kept because the distinction still applies to anything styleCard'd
+		-- that acquires a label.)
 		inkOnLight(dName)
 		inkOnLight(dSub)
 		inkOnLight(dStatLabel)
@@ -7992,6 +7950,229 @@ end
 	end
 end)()
 
+-- ============================================================================
+-- THE AURAS PANEL (15.27) -- every mutation the Splicer has ever given you, and
+-- which one is on your body right now
+-- ============================================================================
+--
+-- "I need somewhere to see which auras I have and which one is equipped" (2026-08-15). 15.24
+-- answered half of that: the boost strip now names the ONE you are wearing, because that strip is
+-- the answer to "what is affecting me right now". It cannot answer the other half -- a collection
+-- is a screen, not a card -- and until this panel there was no screen: `data.SplicerFound` has
+-- counted every roll since Phase 12 and NOTHING in the game read it.
+--
+-- Three decisions worth not re-deriving:
+--
+-- * The unfound entries are drawn, named and priced. That is the Journal's rule ("what is still
+--   out there is the whole point of a collection screen"), and here it also does a second job --
+--   the locked row is the only place in the game that says WHERE a mutation comes from.
+-- * The chip carries the COUNT, not another glyph. All seven rows would otherwise show the same
+--   emoji; the colour is what identifies an aura (it is literally the colour of the particles on
+--   your body) and the number beside it is the one fact the save holds that nothing displayed.
+-- * Wearing a WEAKER one is allowed. Both stats rise together with rarity, so this is never an
+--   optimisation -- it is the look. The row prints the multiplier it costs you and 15.24's card
+--   keeps printing the one you are on, so the trade is stated twice before it is made.
+;(function()
+	local ROW_H, ROW_GAP = 56, 8
+	local PANEL_W = 620
+
+	local aurasPanel = Instance.new("Frame")
+	aurasPanel.Name = "AurasPanel"
+	aurasPanel.Size = UDim2.new(0, PANEL_W, 0, 550)
+	aurasPanel.Visible = false
+	aurasPanel.ZIndex = 40
+	aurasPanel.Parent = screenGui
+	-- SHELL BEFORE registerPanel, and that order is the whole of 15.1: the cyan panel rim is chosen
+	-- inside registerPanel off a UIStroke that has to already exist. Styling afterwards leaves the
+	-- panel with the plain dark outline every card in the game wears and nothing marks it as a panel.
+	styleCard(aurasPanel, PANEL_SHELL, UDim.new(0, 22), 5)
+	registerPanel(aurasPanel)
+	panelClose(aurasPanel)
+
+	local _, topY, _, headerSub = UITheme.PanelHeader(aurasPanel, {
+		title = "\u{1F9EC} Auras",
+		subtitle = "Rolled at the DNA Splicer -- one is worn at a time",
+		accent = UITheme.Color.Purple,
+		maxTextSize = 28,
+		margin = 16,
+		top = 14,
+	})
+
+	local list = Instance.new("ScrollingFrame")
+	list.Name = "AuraList"
+	list.BackgroundTransparency = 1
+	list.BorderSizePixel = 0
+	list.Position = UDim2.new(0, 16, 0, topY)
+	list.Size = UDim2.new(1, -32, 1, -topY - 16)
+	list.ZIndex = aurasPanel.ZIndex + UITheme.Z.Content
+	list.ScrollBarThickness = 6
+	list.ScrollBarImageColor3 = Color3.fromRGB(60, 70, 90)
+	-- Seven rows fit without scrolling today; the canvas is computed rather than authored so an
+	-- eighth mutation added to GameConfig.Mutations arrives as a scroll instead of as a row nobody
+	-- can reach. (`Mutations` is rank-ordered, so a new one goes in rank position -- see the note
+	-- over that table -- and this panel inherits the order for free.)
+	list.CanvasSize = UDim2.new(0, 0, 0,
+		#GameConfig.Mutations * ROW_H + (#GameConfig.Mutations - 1) * ROW_GAP)
+	list.Parent = aurasPanel
+
+	local listLayout = Instance.new("UIListLayout")
+	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	listLayout.Padding = UDim.new(0, ROW_GAP)
+	listLayout.Parent = list
+
+	local rows = {}
+	local equipRemote
+	-- The remote is created by SplicerService.Init at server boot, so it is there long before a
+	-- player can open this -- but it is waited for rather than looked up, which is the 15.5 lesson:
+	-- a FindFirstChild at build time on a remote created anywhere else is a permanently dead button.
+	task.spawn(function()
+		equipRemote = Remotes:WaitForChild("EquipMutation", 30)
+	end)
+
+	for i, mut in ipairs(GameConfig.Mutations) do
+		local row = Instance.new("Frame")
+		row.Name = "Aura_" .. mut.name
+		row.Size = UDim2.new(1, 0, 0, ROW_H)
+		row.LayoutOrder = i
+		row.ZIndex = list.ZIndex
+		styleCard(row, UITheme.Color.PanelWhite, UDim.new(0, 14), 3)
+		row.Parent = list
+
+		-- THE COLOUR IS THE AURA. This chip is painted the exact Color3 the particles on the body
+		-- take, so the panel and the player are the same object seen twice.
+		local chip = Instance.new("Frame")
+		chip.Name = "Chip"
+		chip.Size = UDim2.new(0, 44, 0, 44)
+		chip.Position = UDim2.new(0, 10, 0.5, 0)
+		chip.AnchorPoint = Vector2.new(0, 0.5)
+		chip.ZIndex = row.ZIndex + UITheme.Z.Content
+		styleCard(chip, mut.color, UDim.new(0, 12), 3)
+		chip.Parent = row
+
+		-- Inked by luminance, not by rarity name: Godly is near-white and Secret is near-black, and
+		-- the two sit four rows apart in the same column.
+		local bright = (0.299 * mut.color.R + 0.587 * mut.color.G + 0.114 * mut.color.B) > 0.55
+		local count = UITheme.Label(chip, {
+			name = "Count",
+			text = "",
+			size = UDim2.new(1, -4, 1, -4),
+			position = UDim2.new(0, 2, 0, 2),
+			maxTextSize = 20,
+			minTextSize = 12,
+			color = bright and Color3.fromRGB(46, 40, 30) or UITheme.Color.White,
+			zIndex = chip.ZIndex + UITheme.Z.Content,
+		})
+
+		local name = UITheme.Label(row, {
+			name = "Name",
+			text = mut.name,
+			size = UDim2.new(1, -240, 0, 24),
+			position = UDim2.new(0, 66, 0, 7),
+			xAlign = "Left",
+			maxTextSize = 22,
+			minTextSize = 15,
+			color = Color3.fromRGB(30, 35, 45),
+			zIndex = row.ZIndex + UITheme.Z.Content,
+		})
+
+		local effect = UITheme.Label(row, {
+			name = "Effect",
+			text = "",
+			size = UDim2.new(1, -240, 0, 20),
+			position = UDim2.new(0, 66, 0, 30),
+			xAlign = "Left",
+			maxTextSize = 15,
+			minTextSize = 11,
+			color = Color3.fromRGB(80, 95, 115),
+			zIndex = row.ZIndex + UITheme.Z.Content,
+		})
+
+		local wear = UITheme.Button(row, {
+			name = "Wear",
+			text = "Wear",
+			size = UDim2.new(0, 140, 0, 40),
+			position = UDim2.new(1, -12, 0.5, 0),
+			anchorPoint = Vector2.new(1, 0.5),
+			color = UITheme.Color.Green,
+			radius = 12,
+			maxTextSize = 18,
+			zIndex = row.ZIndex + UITheme.Z.Content,
+		})
+		wear.MouseButton1Click:Connect(function()
+			-- Dimmed AND dead, the Journal's rule for its own Equip button: a greyed button that
+			-- still fires a remote and gets a refusal back says the press failed rather than that
+			-- there was nothing to press.
+			if not wear.Active or not equipRemote then return end
+			equipRemote:FireServer(mut.name)
+		end)
+
+		rows[mut.name] = { row = row, count = count, name = name, effect = effect, wear = wear }
+	end
+
+	local function refreshAurasPanel()
+		local found = (currentData and currentData.SplicerFound) or {}
+		local worn = currentData and currentData.SplicerMutation
+		local ownedCount = 0
+
+		for _, mut in ipairs(GameConfig.Mutations) do
+			local r = rows[mut.name]
+			local n = tonumber(found[mut.name]) or 0
+			local isOwned = n > 0
+			local isWorn = isOwned and worn == mut.name
+			if isOwned then ownedCount += 1 end
+
+			r.count.Text = isOwned and ("x" .. n) or "?"
+			r.name.TextTransparency = isOwned and 0 or 0.35
+			if isOwned then
+				r.effect.Text = ("\u{1F48E} x%.2f DNA   \u{26A1} +%d speed"):format(mut.incomeMult, mut.speedBonus)
+				r.effect.TextTransparency = 0
+			else
+				-- The locked row is the only line in the game that says where a mutation comes from.
+				r.effect.Text = ("\u{1F512} Not found yet \u{2022} x%.2f DNA, +%d speed"):format(
+					mut.incomeMult, mut.speedBonus)
+				r.effect.TextTransparency = 0.15
+			end
+
+			-- `UITheme.SetText` / `UITheme.SetColor`, never `.Text` and `setButtonColor`: a
+			-- UITheme.Button draws its caption into a child called "Label" and its fill into a
+			-- child "Body", so writing the button's own properties changes a surface nobody sees.
+			r.wear.Visible = isOwned
+			if isWorn then
+				UITheme.SetText(r.wear, "\u{2713} Wearing")
+				UITheme.SetColor(r.wear, UITheme.Color.Locked)
+				r.wear.Active = false
+				r.wear.AutoButtonColor = false
+			else
+				UITheme.SetText(r.wear, "Wear")
+				UITheme.SetColor(r.wear, UITheme.Color.Green)
+				r.wear.Active = true
+				r.wear.AutoButtonColor = true
+			end
+		end
+
+		if headerSub then
+			local m = worn and GameConfig.GetMutationByName(worn)
+			headerSub.Text = m
+				and ("%d of %d found \u{2022} wearing %s (x%.2f DNA, +%d speed)")
+					:format(ownedCount, #GameConfig.Mutations, m.name, m.incomeMult, m.speedBonus)
+				or ("%d of %d found \u{2022} nothing worn -- roll one at the DNA Splicer")
+					:format(ownedCount, #GameConfig.Mutations)
+		end
+	end
+
+	hudRefs.refreshAurasPanel = refreshAurasPanel
+
+	local aurasButton = screenGui:FindFirstChild("AurasButton")
+	if aurasButton then
+		aurasButton.MouseButton1Click:Connect(function()
+			toggleOnly(aurasPanel)
+			refreshAurasPanel()
+		end)
+	end
+
+	refreshAurasPanel()
+end)()
+
 Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 	local firstPayload = (currentData == nil)
 	currentData = data
@@ -8031,6 +8212,7 @@ Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 	refreshMasteryPanel()
 	refreshInventoryPanel()
 	refreshCharacterPanel()
+	if hudRefs.refreshAurasPanel then hudRefs.refreshAurasPanel() end
 
 	-- LAST, and that is load-bearing: the card reads `hudRefs.seasonClaimCount()`, which is the
 	-- number `refreshSeasonPanel` wrote a few lines up. Called before it, the count is 0 on the one

@@ -463,6 +463,68 @@ local function applyMutation(data, mutation)
 	return equipped
 end
 
+-- ===== WEARING ONE YOU HAVE ALREADY FOUND (15.27) =====
+--
+-- The roll is best-kept-wins and was the ONLY writer of `data.SplicerMutation`, so a collection of
+-- seven auras had exactly one reachable state: the best one you had ever rolled. The Auras panel
+-- adds the other six, and it is a real choice rather than a downgrade button -- both stats rise
+-- together with rarity, so the reason to wear a weaker one is the LOOK of it (the particle aura on
+-- the body is the mutation's colour). The cost of that choice is never hidden: the row prints the
+-- multiplier it is about to cost you, and 15.24's boost card keeps printing the one you are on.
+--
+-- Best-kept-wins is untouched by this. A later roll still compares against whatever is worn, so a
+-- player wearing Common for the look is auto-upgraded by the next Rare -- which is the correct
+-- reading of "a roll that lands better than what you have on".
+local lastEquip = {}
+local EQUIP_INTERVAL = 0.25
+function SplicerService.HandleEquipMutation(player, mutationName)
+	local PlayerDataService = require(script.Parent.PlayerDataService)
+	local EvolutionVisuals = require(script.Parent.Systems.EvolutionVisuals)
+
+	if type(mutationName) ~= "string" then return end
+	local now = os.clock()
+	local last = lastEquip[player.UserId]
+	if last and now - last < EQUIP_INTERVAL then return end
+	lastEquip[player.UserId] = now
+
+	local data = PlayerDataService.Get(player)
+	if not data then return end
+
+	-- OWNERSHIP IS THE WHOLE GUARD, and it is a count rather than a truthiness test: `SplicerFound`
+	-- holds how many of each have been rolled, and a 0 left behind by any future write is "not
+	-- found" while `not 0` is false in Luau.
+	local found = data.SplicerFound
+	if not found or (found[mutationName] or 0) <= 0 then
+		warn(("[SplicerService] %s tried to wear an unfound mutation: %s"):format(player.Name, mutationName))
+		return
+	end
+	local mut = GameConfig.GetMutationByName(mutationName)
+	if not mut then return end
+	if data.SplicerMutation == mutationName then return end
+
+	data.SplicerMutation = mutationName
+
+	-- THE SAME THREE LINES HandleRoll RUNS WHEN A ROLL EQUIPS ITSELF, and each one is load-bearing:
+	--  * the ATTRIBUTE is the replication channel, not the save. `EvolutionVisuals.WornMutation`
+	--    reads `player:GetAttribute("Mutation")` FIRST and only falls back to the save when it is
+	--    nil -- and the join path stamps it -- so writing the save alone leaves the old aura burning
+	--    on the body for the rest of the session. Stamping it also fires the attribute hook in
+	--    EvolutionVisuals.Init, which is what rebuilds the aura without a respawn.
+	--  * RefreshBonuses is the walk speed: `speedBonus` is applied by applyMastery, which recomputes
+	--    the whole product rather than adding a delta.
+	--  * PushToClient is what redraws the Auras panel and 15.24's boost card. Without it the panel
+	--    still catches up on the next periodic push, seconds after a button the player just pressed.
+	player:SetAttribute("Mutation", mutationName)
+	EvolutionVisuals.RefreshBonuses(player, data)
+	PlayerDataService.PushToClient(player)
+
+	Remotes.Notify:FireClient(player, {
+		kind = "reward",
+		message = ("\u{1F9EC} Now wearing the %s aura! x%.2f DNA, +%d speed")
+			:format(mut.name, mut.incomeMult, mut.speedBonus),
+	})
+end
+
 function SplicerService.HandleRoll(player)
 	local PlayerDataService = require(script.Parent.PlayerDataService)
 	local EvolutionVisuals = require(script.Parent.Systems.EvolutionVisuals)
@@ -540,7 +602,7 @@ end
 function SplicerService.Init()
 	local PlayerDataService = require(script.Parent.PlayerDataService)
 
-	for _, name in ipairs({ "SpliceRoll", "SpliceResult" }) do
+	for _, name in ipairs({ "SpliceRoll", "SpliceResult", "EquipMutation" }) do
 		if not Remotes:FindFirstChild(name) then
 			local r = Instance.new("RemoteEvent")
 			r.Name = name
@@ -601,6 +663,13 @@ function SplicerService.Init()
 		end
 	end)
 
+	Remotes.EquipMutation.OnServerEvent:Connect(function(player, mutationName)
+		local ok, err = pcall(SplicerService.HandleEquipMutation, player, mutationName)
+		if not ok then
+			warn("[SplicerService] equip failed for " .. player.Name .. ": " .. tostring(err))
+		end
+	end)
+
 	driveHelix()
 
 	-- ===== THE ONE-TIME REFUND NOTICE =====
@@ -625,6 +694,7 @@ function SplicerService.Init()
 
 	Players.PlayerRemoving:Connect(function(player)
 		lastRoll[player.UserId] = nil
+		lastEquip[player.UserId] = nil
 		PlayerDataService.SplicerRefunds[player.UserId] = nil
 	end)
 end

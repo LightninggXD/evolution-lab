@@ -333,6 +333,16 @@ function PlayerDataService.Load(player)
 		-- branch in GetMutationIncomeMult covers only the window where a save is already in a
 		-- running server's memory when this code arrives.
 		data.Mutations = nil
+		-- ===== THE ONE WORN IS BY DEFINITION ONE FOUND (15.27) =====
+		-- Both writers above set the pair together, so this repairs nothing that exists today -- it
+		-- is here because the Auras panel now DRAWS the difference. A save whose `SplicerMutation`
+		-- is not in `SplicerFound` would show the aura burning on the player's own body as an entry
+		-- they have never found, with its Wear button refused by `HandleEquipMutation`'s ownership
+		-- check. Idempotent, and it can only ever add the name the save is already wearing.
+		if type(data.SplicerMutation) == "string"
+			and (data.SplicerFound[data.SplicerMutation] or 0) <= 0 then
+			data.SplicerFound[data.SplicerMutation] = 1
+		end
 	-- ===== TRIMMING A COLLECTION TO THE NEW 30-PET CEILING =====
 	--
 	-- The cap was 600 and a live save reached 207. The owner's decision (2026-08-10) is to keep the
