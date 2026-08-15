@@ -434,7 +434,13 @@ end
 -- that matter: both are already drawn in the world and already sounded by CombatClient, at the
 -- creature and on the player's own head, so a second copy here would double every kill in the game.
 local NOTIFY_SOUND = {
-	-- a DNA crit is this game's big-hit moment, so it gets the heavy impact rather than a chime
+	-- a DNA crit is this game's big-hit moment, so it gets the heavy impact rather than a chime.
+	-- LIKE `machine` BELOW, NOTHING SENDS THIS KIND ANY MORE (15.14): a crit is drawn and sounded
+	-- at the creature by `CombatClient` now, off the kill's own `CombatFx` packet, because it is a
+	-- fact about one creature rather than a message about the account. That path calls
+	-- `SoundLibrary.Play("crit", position)` -- the POSITIONAL entry, at the corpse -- where this row
+	-- would have called `PlayLocal`, flat in the player's ears. The row is left because it costs
+	-- nothing and a kind that no longer arrives simply never looks it up.
 	crit = "crit",
 	upgrade = "purchase",        diamond = "diamond",         evolve = "evolve",
 	character = "levelUp",       questComplete = "levelUp",   zone = "levelUp",
