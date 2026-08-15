@@ -391,6 +391,24 @@ end
 -- The single most recognisable feature of the reference art. 4px to match the thicker shell
 -- border above -- a heavy button frame around a thinly outlined word reads as two different
 -- drawings sharing a rectangle.
+-- DARK INK AND ITS HALO ARE ONE DECISION, AND THIS IS WHERE THE THRESHOLD LIVES (15.15).
+--
+-- `outlineText` always draws in `Color.Outline`, rgb(26,18,36). That is right for the white-on-
+-- colour text this HUD is mostly made of and it is a solid blob around anything dark: the glyph and
+-- its halo are then the same colour, and every property reads correct while it happens (`Text`,
+-- `TextColor3`, `TextFits`), so it survives any probe and is only visible in a capture.
+--
+-- Phase 15.1 fixed this once, in `MainUI`'s own `themeLabel`, and the codebase then had the rule in
+-- one of the two constructors that apply a halo. `UITheme.Label` is the other one, and the Group &
+-- Community panel -- three card titles at ink 0.14 and three descriptions at 0.36, each inside a
+-- 4px stroke at 0.09 -- is what that cost. The threshold belongs to a PALETTE rather than to a
+-- file, so it is published here and both constructors read it instead of each carrying a copy.
+--
+-- 0.45 because this palette's dark ink sits at 0.077 and its greys at 0.48-0.60.
+local function isDarkInk(color)
+	return (0.299 * color.R + 0.587 * color.G + 0.114 * color.B) < 0.45
+end
+
 local function outlineText(label, thickness)
 	local stroke = Instance.new("UIStroke")
 	stroke.Thickness = thickness or 4
@@ -403,6 +421,17 @@ local function outlineText(label, thickness)
 end
 
 -- Big text, always. Never an 11-13px fixed TextSize on the HUD.
+-- ⚠ `TextScaled = true` TURNS `TextWrapped` ON, and it does it silently. Measured on a live client
+-- (15.16): a fresh TextLabel reads `TextWrapped = false`, setting `TextScaled = true` makes it read
+-- **true**, and only an assignment placed AFTER that one sticks. So any caller that turns wrapping
+-- off and then reaches a helper that scales has had its decision reversed one line later, with
+-- every property still reading correct.
+--
+-- That is not hypothetical: the potion rows in `MainUI` carry a ten-line comment explaining that
+-- their sub-label must never stack two lines into a 22px box, set `TextWrapped = false`, and then
+-- called `themeLabel` -- which lands here. The three Luck bottles and the large Health bottle wrap
+-- to 28px inside 22 and have their second line cut. `UITheme.Label`'s own `wrapped` option was
+-- inert for the same reason, being applied before this call rather than after it.
 local function autoSize(label, minSize, maxSize)
 	label.TextScaled = true
 	local c = Instance.new("UITextSizeConstraint")
@@ -415,6 +444,7 @@ end
 UITheme.GradientFor = gradientFor
 UITheme.OutlineText = outlineText
 UITheme.AutoSize = autoSize
+UITheme.IsDarkInk = isDarkInk
 
 -- Shared body used by Button and Card.
 local function buildSurface(inst, parent, opts, defaultRadius)
@@ -816,6 +846,25 @@ function UITheme.Button(parent, opts)
 		-- first pass. Bind the real measurement to the button's own resize instead of guessing.
 		local function fit()
 			local d = button.AbsoluteSize.Y * 0.62 + 10
+			-- ...AND THE RESERVATION IS CAPPED, BECAUSE IT IS COMPUTED FROM THE HEIGHT (15.17).
+			--
+			-- `d` is the icon's own width plus its margin, taken off BOTH sides so the text stays
+			-- centred on the button rather than centred under the icon. On a wide button that is
+			-- free. On a SHORT, TALL one it is most of the button: the Group & Community cards
+			-- carry a 115 x 42 action button, where d is 36 and the label was left **27px** -- too
+			-- narrow for any word in the language, so "Claim" rendered as "Clai" over "m" and
+			-- "Claim Chest" lost its second line entirely. Every property read correct
+			-- (`TextFits` was **true**, because two 14px lines do fit a 30px box); only the capture
+			-- showed it.
+			--
+			-- The floor is 55% of the button. Below that the inset gives way instead of the words:
+			-- the text may then sit a little closer to the icon than the symmetric rule wanted,
+			-- which is a cosmetic loss where the alternative is an unreadable button.
+			local w = button.AbsoluteSize.X
+			local floor = w * 0.55
+			if w - 16 - 2 * d < floor then
+				d = math.max(0, (w - 16 - floor) / 2)
+			end
 			label.Size = UDim2.new(1, -16 - 2 * d, 1, -12)
 		end
 		button:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
@@ -1122,7 +1171,6 @@ function UITheme.Label(parent, opts)
 	label.Font = DisplayFont
 	label.TextColor3 = opts.color or Color.White
 	label.Text = opts.text or ""
-	label.TextWrapped = opts.wrapped == true
 	label.ZIndex = opts.zIndex or Z.Content
 	if opts.position then
 		label.Position = opts.position
@@ -1147,8 +1195,19 @@ function UITheme.Label(parent, opts)
 		label.TextXAlignment = Enum.TextXAlignment.Center
 	end
 
-	outlineText(label, opts.strokeThickness)
+	-- The colour is set above, so the decision can be made here rather than guessed at. A caller
+	-- that asked for a thickness on dark ink still loses it: `strokeThickness` says how thick the
+	-- halo should be, never that a blob is wanted.
+	outlineText(label, isDarkInk(label.TextColor3) and 0 or opts.strokeThickness)
 	autoSize(label, opts.minTextSize or 14, opts.maxTextSize or opts.textSize or 30)
+	-- AFTER `autoSize`, because that is the only position where it survives -- see the note over it.
+	-- Only an EXPLICIT `wrapped = false` is honoured: `TextScaled` has been turning wrapping on for
+	-- all 23 call sites since this constructor was written, three of which ask for it by name and
+	-- none of which asks for it off, so defaulting to "off" here would silently unwrap twenty
+	-- labels that are laid out around wrapping today. The option is now real without being a change.
+	if opts.wrapped ~= nil then
+		label.TextWrapped = opts.wrapped == true
+	end
 	label.Parent = parent
 	return label
 end
@@ -1202,7 +1261,9 @@ function UITheme.Pill(parent, opts)
 	value.TextXAlignment = Enum.TextXAlignment.Left
 	value.Text = opts.text or "0"
 	value.ZIndex = frame.ZIndex
-	outlineText(value)
+	-- same rule as UITheme.Label: a Pill takes its colour from the caller, so a dark one would
+	-- otherwise be a currency readout inside a halo of its own darkness
+	outlineText(value, isDarkInk(value.TextColor3) and 0 or nil)
 	autoSize(value, 16, opts.maxTextSize or 34)
 	value.Parent = frame
 

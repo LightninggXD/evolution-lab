@@ -128,7 +128,11 @@ local function themeLabel(label, maxSize, color)
 	local darkInk = false
 	if color then
 		label.TextColor3 = color
-		darkInk = (0.299 * color.R + 0.587 * color.G + 0.114 * color.B) < 0.45
+		-- THE THRESHOLD MOVED INTO UITheme (15.15) and this reads it rather than repeating it. It
+		-- was written here first, and the copy is exactly what let the Group panel ship the same
+		-- defect through `UITheme.Label` -- the other constructor that applies a halo, which never
+		-- learned the rule. One palette, one number, both constructors.
+		darkInk = UITheme.IsDarkInk(color)
 	else
 		-- A label that never picked a colour still carries Roblox's near-black default, and
 		-- OutlineText below wraps it in a dark stroke -- dark on dark, which is how every panel
@@ -4530,8 +4534,10 @@ for i, potion in ipairs(GameConfig.Potions) do
 
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Name = "NameLabel"
-	nameLabel.Size = UDim2.new(1, -250, 0, 26)
-	nameLabel.Position = UDim2.new(0, 56, 0, 6)
+	-- 26 -> 24 and y 6 -> 4, to hand four pixels down to the sub-label below (15.16). This label is
+	-- capped at 22px of text, so 24 is still more box than it can use.
+	nameLabel.Size = UDim2.new(1, -250, 0, 24)
+	nameLabel.Position = UDim2.new(0, 56, 0, 4)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
 	nameLabel.Text = potion.emoji .. " " .. potion.shortName
@@ -4540,20 +4546,23 @@ for i, potion in ipairs(GameConfig.Potions) do
 
 	local subLabel = Instance.new("TextLabel")
 	subLabel.Name = "SubLabel"
-	-- WIDER, AND ON ONE LINE. `effectText` for the Luck bottles is "+120% egg, pet, character and
-	-- mutation luck" -- 52 characters. In a 224 x 22 box with TextScaled and TextWrapped that is
-	-- two wrapped lines inside 14px of bounds, which renders at about 7px: the three rows whose
-	-- text a player most needs to read were the only three in the whole GUI that did not fit.
+	-- TWO LINES, AND THE BOX IS SIZED FOR TWO (15.16). This started as "wider, and on ONE line":
+	-- the box was widened from -224 to -186 and `TextWrapped` was set false. **Neither half of that
+	-- worked.** The wrapping flag was set BEFORE `themeLabel`, and `themeLabel` sets `TextScaled`,
+	-- which turns wrapping back on -- measured live, a fresh label goes false -> true the instant
+	-- `TextScaled` is assigned, and only an assignment placed after it sticks. And the width was
+	-- never enough anyway: measured at the 14px floor, the four longest strings need **300, 305,
+	-- 310 and 320px** on one line against the **288** this box actually gets, so switching wrapping
+	-- off would have truncated the "  •  20 min" tail rather than fixing anything.
 	--
-	-- The row has the width to give: the count sits at -168 and the button at -100, so reserving
-	-- 250 for both left 68 studs of the row unused. TextWrapped off so it can never stack two lines
-	-- into a 22px box again -- if a future bottle out-writes the space it truncates visibly rather
-	-- than shrinking to nothing.
-	subLabel.Size = UDim2.new(1, -186, 0, 22)
-	subLabel.Position = UDim2.new(0, 56, 0, 32)
+	-- It cannot get wider -- the count sits at -168 and the button at -100 -- so it gets taller.
+	-- Wrapped at 288 those strings need 28px; the box is 30, sitting between the name label (which
+	-- gave up 4px above) and the row's own 62, so there is clearance at both ends. This is the DNA
+	-- bottles' row too, and they still take one line and sit at the top of it.
+	subLabel.Size = UDim2.new(1, -186, 0, 30)
+	subLabel.Position = UDim2.new(0, 56, 0, 28)
 	subLabel.BackgroundTransparency = 1
 	subLabel.TextXAlignment = Enum.TextXAlignment.Left
-	subLabel.TextWrapped = false
 	subLabel.Text = ("%s  \u{2022}  %d min"):format(potion.effectText, potion.minutes)
 	subLabel.Parent = row
 	themeLabel(subLabel, 17, UITheme.Color.Cream)
@@ -7748,7 +7757,13 @@ end
 
 		local note = Instance.new("TextLabel")
 		note.Name = "Note"
-		note.Size = UDim2.new(1, -250, 0, 24)
+		-- 24 -> 32 (15.16). Measured at the 14px floor, the Season Pass row's note -- "Finished
+		-- quests and levels you have already passed" -- wraps to two lines needing **28px** in a
+		-- 24px box, so its second line was cut on every join that opened this card. Wrapping is not
+		-- turned off here the way the potion rows do it: at 14px the string is wider than the 298
+		-- it has, so one line would truncate instead. The row is 88 tall and this ends at 78, so
+		-- the 10px below it is the clearance the growth is taken out of.
+		note.Size = UDim2.new(1, -250, 0, 32)
 		note.Position = UDim2.new(0, 80, 0, 46)
 		note.BackgroundTransparency = 1
 		note.TextXAlignment = Enum.TextXAlignment.Left
@@ -9135,7 +9150,10 @@ end)
 		UITheme.Label(card, {
 			name = "Desc",
 			text = descText,
-			size = UDim2.new(1, -210, 0, 42),
+			-- -210 -> -245, handing the width to the action button beside it (15.17). The card is
+			-- 548 wide; at -210 this description ended at 414 and the 115px button started at 421,
+			-- so the seven pixels between them were the only slack on the row.
+			size = UDim2.new(1, -245, 0, 42),
 			position = UDim2.new(0, 76, 0, 38),
 			xAlign = "Left",
 			maxTextSize = 14,
@@ -9148,7 +9166,11 @@ end)
 		local btn = UITheme.Button(card, {
 			name = "ActionBtn",
 			text = "🎁 Claim",
-			size = UDim2.new(0, 115, 0, 42),
+			-- 115 -> 150 (15.17). `UITheme.Button` reserves the icon's width on both sides of the
+			-- label, computed from the button's HEIGHT -- 36px a side here -- so at 115 the label
+			-- was 27px and "Claim Chest" could not be drawn. The cap added in UITheme keeps this
+			-- readable at any width; the extra 35px is what lets it stay on ONE line.
+			size = UDim2.new(0, 150, 0, 42),
 			position = UDim2.new(1, -12, 0.5, 0),
 			anchorPoint = Vector2.new(1, 0.5),
 			color = UITheme.Color.Green,

@@ -356,7 +356,11 @@ local function buildSign(parent)
 	clock.TextColor3 = UITheme.Color.Outline
 	clock.TextScaled = true
 	clock.Parent = bg
-	UITheme.OutlineText(clock, 3)
+	-- NO HALO ON THIS ONE (15.15). The colour above IS `Color.Outline` -- the very colour
+	-- `OutlineText` draws with -- so a stroke here wrapped the countdown in a 3px band of its own
+	-- ink. `UITheme.IsDarkInk` is the shared test; it is spelled out rather than called because
+	-- this label's colour is the outline colour by name, which is the clearest possible case.
+	UITheme.OutlineText(clock, 0)
 
 	local blurb = Instance.new("TextLabel")
 	blurb.Name = "Blurb"
