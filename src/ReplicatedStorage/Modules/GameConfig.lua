@@ -1948,6 +1948,27 @@ GameConfig.DailyRewards = {
 	{ day = 7, dna = 23000, potions = 1, potionId = "dna_l", diamonds = 2, shards = 3 },
 }
 
+-- ===== GROUP & COMMUNITY REWARDS (Phase 5.5) =====
+-- Group membership gives permanent +10% DNA and unlocks a daily chest.
+-- Liking and Favoriting reward one-time diamond and potion boosts.
+GameConfig.RobloxGroupId = 0 -- Configurable group id (default 0; in Studio always grants access)
+GameConfig.GroupIncomeMult = 1.10 -- +10% DNA permanent income boost for group members
+GameConfig.GroupChestReward = {
+	dna = 1000, -- scaled by GameConfig.ScaleReward
+	diamonds = 25,
+	potions = 1,
+	potionId = "dna_m",
+}
+GameConfig.LikeReward = {
+	diamonds = 15,
+	potions = 1,
+	potionId = "luck_m",
+}
+GameConfig.FavoriteReward = {
+	diamonds = 15,
+	shards = 2,
+}
+
 -- ===== POTIONS =====
 -- There used to be ONE potion: a five-minute x2 on income, held as a single integer on the save.
 -- Three effects in three sizes now -- nine bottles -- because a consumable with no choice in it is

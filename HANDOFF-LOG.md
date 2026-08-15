@@ -60,6 +60,29 @@ Copy the template. Fill in every field. Empty fields are treated as "not done".
   - Verified `luastruct.py` completely clean (59/59 scripts OK).
   - Verified `luanames.py` 100% matched baseline (0 new unresolved names).
 - **Not verified:** Live viewport visual recording inside running Play mode session (to be pushed over HTTP bridge).
+### Phase 5.5 · 👥 Group / Like / Favourite rewards
+
+- **Date:** 2026-08-15
+- **Status set in ROADMAP.md:** `[~]`
+- **Files changed:**
+  - `src/ReplicatedStorage/Modules/GameConfig.lua`
+  - `src/ServerScriptService/DNAService.lua`
+  - `src/ServerScriptService/PlayerDataService.lua`
+  - `src/ServerScriptService/RewardService.lua`
+  - `src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua`
+  - `ROADMAP.md`
+- **Commit:** <pending>
+- **What was built:** Added the complete Group and Community rewards system:
+  1. Permanent +10% DNA boost (`GameConfig.GroupIncomeMult = 1.10`) for Roblox group members applied in `DNAService.GetIncomeMult`.
+  2. Daily in-world physical Group Chest built on the Forest Spawn plaza (`workspace.GroupChest`) with a ProximityPrompt (`ChestPrompt`), floating billboard, and `RewardService.HandleClaimGroupChest` awarding scaled DNA, 💎 25, and a Medium DNA Potion once per UTC day.
+  3. One-time Like reward (💎 15 + Medium Luck Potion) and Favorite reward (💎 15 + 🌟 2 Shards) handled in `RewardService`.
+  4. Responsive `GroupRewardsPanel` built in `MainUI.client.lua` using `UITheme.PanelHeader` & `UITheme.Card`, wired into `registerPanel`, `panelClose`, and `Remotes.OpenGroupRewards` with 0 top-level locals added.
+- **Why this shape:** Driven through shared `RewardService` and `PlayerDataService` state with safe `pcall(player.IsInGroup)` checks (Studio fallback enabled for development), persistent in-world placement with `ModelStreamingMode.Persistent`, and encapsulated client modal following `MainUI`'s register limits.
+- **Evidence (live, in Studio):**
+  - Verified `tools/luastruct.py` completely clean (59/59 scripts OK).
+  - Verified `tools/luanames.py` 100% matched baseline (0 new unresolved names).
+  - Verified with `test_group_rewards.py` simulation harness.
+- **Not verified:** Live group API response against a published production Roblox group ID (group ID configured as `0` by default; owner can set `GameConfig.RobloxGroupId`).
 - **Rules broken:** none
-- **Open questions for review:** none
+- **Open questions for review:** Set `GameConfig.RobloxGroupId` to the production group ID when created on Roblox.
 

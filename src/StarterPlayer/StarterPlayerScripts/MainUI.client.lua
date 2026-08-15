@@ -8948,6 +8948,10 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt, playerWhoTrigger
 		if hudRefs.showEggPanel then hudRefs.showEggPanel(prompt:GetAttribute("EggKey")) end
 		return
 	end
+	if which == "group" or prompt.Name == "ChestPrompt" then
+		if hudRefs.showGroupRewards then hudRefs.showGroupRewards() end
+		return
+	end
 	local panel = shopPanels[which]
 	if panel then
 		toggleOnly(panel)
@@ -8958,3 +8962,185 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt, playerWhoTrigger
 		end
 	end
 end)
+
+-- ============================================================================
+-- GROUP & COMMUNITY REWARDS MODAL (Phase 5.5)
+-- ============================================================================
+;(function()
+	local groupPanel = Instance.new("Frame")
+	groupPanel.Name = "GroupRewardsPanel"
+	groupPanel.Size = UDim2.new(0, 580, 0, 430)
+	groupPanel.Visible = false
+	groupPanel.ZIndex = 40
+	groupPanel.Parent = screenGui
+	registerPanel(groupPanel)
+	panelClose(groupPanel)
+
+	local header, topY = UITheme.PanelHeader(groupPanel, {
+		title = "👥 Group & Community",
+		subtitle = "Join our group & support the game for permanent buffs and free gifts!",
+		accent = UITheme.Color.PanelBlue,
+		maxTextSize = 28,
+		margin = 16,
+		top = 14,
+	})
+
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Name = "RewardsList"
+	scroll.BackgroundTransparency = 1
+	scroll.BorderSizePixel = 0
+	scroll.Position = UDim2.new(0, 16, 0, topY)
+	scroll.Size = UDim2.new(1, -32, 1, -topY - 14)
+	scroll.ZIndex = groupPanel.ZIndex + UITheme.Z.Content
+	scroll.ScrollBarThickness = 6
+	scroll.ScrollBarImageColor3 = Color3.fromRGB(60, 70, 90)
+	scroll.CanvasSize = UDim2.new(0, 0, 0, 310)
+	scroll.Parent = groupPanel
+
+	local layout = Instance.new("UIListLayout")
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Padding = UDim.new(0, 10)
+	layout.Parent = scroll
+
+	local function makeRewardCard(order, iconEmoji, titleText, descText, buttonAction)
+		local card = Instance.new("Frame")
+		card.Name = "Card_" .. order
+		card.Size = UDim2.new(1, 0, 0, 90)
+		card.LayoutOrder = order
+		card.ZIndex = scroll.ZIndex
+		UITheme.applyShell(card, UITheme.Color.PanelWhite, UDim.new(0, 14), 3)
+		card.Parent = scroll
+
+		UITheme.IconSlot(card, {
+			icon = iconEmoji,
+			size = UDim2.new(0, 54, 0, 54),
+			position = UDim2.new(0, 12, 0.5, 0),
+			anchorPoint = Vector2.new(0, 0.5),
+			zIndex = card.ZIndex + UITheme.Z.Content,
+		})
+
+		UITheme.Label(card, {
+			name = "Title",
+			text = titleText,
+			size = UDim2.new(1, -210, 0, 24),
+			position = UDim2.new(0, 76, 0, 14),
+			xAlign = "Left",
+			maxTextSize = 20,
+			minTextSize = 14,
+			color = Color3.fromRGB(30, 35, 45),
+			zIndex = card.ZIndex + UITheme.Z.Content,
+		})
+
+		UITheme.Label(card, {
+			name = "Desc",
+			text = descText,
+			size = UDim2.new(1, -210, 0, 42),
+			position = UDim2.new(0, 76, 0, 38),
+			xAlign = "Left",
+			maxTextSize = 14,
+			minTextSize = 11,
+			color = Color3.fromRGB(80, 95, 115),
+			wrapped = true,
+			zIndex = card.ZIndex + UITheme.Z.Content,
+		})
+
+		local btn = UITheme.Button(card, {
+			name = "ActionBtn",
+			text = "🎁 Claim",
+			size = UDim2.new(0, 115, 0, 42),
+			position = UDim2.new(1, -12, 0.5, 0),
+			anchorPoint = Vector2.new(1, 0.5),
+			color = UITheme.Color.Green,
+			radius = 12,
+			maxTextSize = 18,
+			zIndex = card.ZIndex + UITheme.Z.Content,
+		})
+
+		btn.MouseButton1Click:Connect(function()
+			buttonAction(btn)
+		end)
+
+		return card, btn
+	end
+
+	local _, btn1 = makeRewardCard(1, "👥", "Official Roblox Group", "• +10% Permanent DNA on all kills & clicks\n• Daily Group Chest (+1K DNA, 💎25, 🧪Potion)", function(btn)
+		local rem = Remotes:FindFirstChild("ClaimGroupChest")
+		if rem then rem:FireServer() end
+	end)
+
+	local _, btn2 = makeRewardCard(2, "👍", "Like The Game", "• 💎 15 Free Diamonds\n• 🍀 1x Medium Luck Potion", function(btn)
+		local rem = Remotes:FindFirstChild("ClaimLikeReward")
+		if rem then rem:FireServer() end
+	end)
+
+	local _, btn3 = makeRewardCard(3, "⭐", "Favorite The Game", "• 💎 15 Free Diamonds\n• 🌟 2x Evolution Shards", function(btn)
+		local rem = Remotes:FindFirstChild("ClaimFavoriteReward")
+		if rem then rem:FireServer() end
+	end)
+
+	local function refreshGroupRewards()
+		if not currentData then return end
+		local data = currentData
+		-- Card 1: Group
+		local inGroup = data.InGroup == true
+		local today = math.floor(os.time() / 86400)
+		local lastClaim = math.floor((data.ClaimedGroupChest or 0) / 86400)
+		local chestReady = inGroup and (today > lastClaim)
+
+		if inGroup then
+			if chestReady then
+				UITheme.SetText(btn1, "🎁 Claim Chest")
+				UITheme.SetColor(btn1, UITheme.Color.Green)
+				btn1.Active = true
+			else
+				UITheme.SetText(btn1, "✅ Claimed")
+				UITheme.SetColor(btn1, UITheme.Color.Locked)
+				btn1.Active = false
+			end
+		else
+			UITheme.SetText(btn1, "🔗 Join Group")
+			UITheme.SetColor(btn1, UITheme.Color.Blue)
+			btn1.Active = true
+		end
+
+		-- Card 2: Like
+		if data.ClaimedLikeReward then
+			UITheme.SetText(btn2, "✅ Claimed")
+			UITheme.SetColor(btn2, UITheme.Color.Locked)
+			btn2.Active = false
+		else
+			UITheme.SetText(btn2, "🎁 Claim")
+			UITheme.SetColor(btn2, UITheme.Color.Green)
+			btn2.Active = true
+		end
+
+		-- Card 3: Favorite
+		if data.ClaimedFavoriteReward then
+			UITheme.SetText(btn3, "✅ Claimed")
+			UITheme.SetColor(btn3, UITheme.Color.Locked)
+			btn3.Active = false
+		else
+			UITheme.SetText(btn3, "🎁 Claim")
+			UITheme.SetColor(btn3, UITheme.Color.Green)
+			btn3.Active = true
+		end
+	end
+
+	hudRefs.showGroupRewards = function()
+		refreshGroupRewards()
+		toggleOnly(groupPanel)
+	end
+
+	local openRemote = Remotes:FindFirstChild("OpenGroupRewards")
+	if openRemote then
+		openRemote.OnClientEvent:Connect(function()
+			hudRefs.showGroupRewards()
+		end)
+	end
+
+	Remotes.DataUpdate.OnClientEvent:Connect(function(data)
+		if groupPanel.Visible then
+			refreshGroupRewards()
+		end
+	end)
+end)()

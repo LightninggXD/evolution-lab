@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local DataStoreService = game:GetService("DataStoreService")
 
 local GameConfig = require(RS.Modules.GameConfig)
@@ -85,6 +86,11 @@ local function defaultData()
 		-- os.time() of the last free daily spin (5.6). Compared by UTC day number, the same boundary
 		-- LastRewardClaim uses, so the login reward and the free spin roll over together.
 		LastFreeSpin = 0,
+		-- Group and Community status and claim timestamps (5.5)
+		InGroup = false,
+		ClaimedGroupChest = 0,
+		ClaimedLikeReward = false,
+		ClaimedFavoriteReward = false,
 		-- Both string-keyed. `Potions` is potion id -> how many bottles held ('dna_s' -> 3);
 		-- `PotionBoosts` is potion KIND -> { untilTs, mult | luckAdd } for the one bottle of that
 		-- kind currently running. See the POTIONS block in GameConfig.
@@ -476,6 +482,18 @@ function PlayerDataService.Load(player)
 	-- somebody who is gone -- which never gets cleared (PlayerRemoving already ran) and is handed
 	-- to them stale if they rejoin this same server.
 	if not player.Parent then return nil end
+
+	-- Group membership check (Phase 5.5)
+	if RunService:IsStudio() then
+		data.InGroup = true
+	elseif GameConfig.RobloxGroupId and GameConfig.RobloxGroupId > 0 then
+		local ok, inGroup = pcall(function()
+			return player:IsInGroup(GameConfig.RobloxGroupId)
+		end)
+		data.InGroup = (ok and inGroup) or false
+	else
+		data.InGroup = false
+	end
 
 	PlayerDataService.Cache[player.UserId] = data
 	return data

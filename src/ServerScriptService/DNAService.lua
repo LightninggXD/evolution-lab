@@ -38,6 +38,10 @@ function DNAService.GetIncomeMult(data, excludeEvents)
 	-- `incomeMult` field) -- this function never learns any pass by name. Because this is the single
 	-- income multiplier, the pass reaches clicks, kill payouts and idle auto-collect at once.
 	mult = mult * GameConfig.GetPassMult(data, "incomeMult")
+	-- Group member bonus: +10% permanent DNA boost (Phase 5.5)
+	if data.InGroup then
+		mult = mult * (GameConfig.GroupIncomeMult or 1.10)
+	end
 	-- ...and any live server-wide event, last of all (Phase 7.1). It takes no `data`, which is the
 	-- difference between an event and a pass written out: an event is the same for everybody on the
 	-- server, so a weekend cannot be something one player has and another does not.
