@@ -808,6 +808,18 @@ Gathered 2026-08-07/08 while writing this plan.
   **27px** for its text and "Claim" rendered as "Clai" over "m". Two 14px lines do fit a 30px box;
   what is wrong is that there are two of them. Only the capture showed it.
 
+  **The sweep was then widened twice more and both came back clean, which is worth recording so it
+  is not repeated.** The world's own signage — every `BillboardGui` and `SurfaceGui` in `Workspace`,
+  **2,018** of them, swept on the SERVER because a client only holds what streamed in — returns 0 on
+  both colour checks, and the event board's countdown, which was one of 15.15's three instances,
+  now measures **stroke 0.0** on the surface it was written for and is photographed reading
+  `1d 12h` in clean dark type. And the HUD outside the panels — the tile columns, the currency
+  stack, the stage card, the tickers — returns 0 as well, after one false positive that is itself
+  worth knowing: **a `UITheme.Button` keeps its own `Text` and hides it at `TextTransparency = 1`,
+  drawing through a `Label` child instead**, so a sweep that does not filter on transparency reports
+  that invisible string as dark ink in a dark halo. The final pass, panels and HUD together with
+  that guard, is **1,672 visible labels, 0 findings**.
+
   Cost of the tool's own accuracy, recorded because each one is a fact about this codebase: the
   `Remotes` **folder** is fetched by the same `WaitForChild` call the remotes are; a find-or-create
   block binds its local to the **class name** `RemoteEvent`; and a binding is a **position, not a
