@@ -54,6 +54,8 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MessagingService = game:GetService("MessagingService")
+local HttpService = game:GetService("HttpService")
 
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local UITheme = require(ReplicatedStorage.Modules.UITheme)
@@ -101,10 +103,28 @@ local function remote()
 	return r
 end
 
--- The one send. 5.4 adds a MessagingService PublishAsync beside this line and a SubscribeAsync that
--- calls straight back into it with `position` swapped for the receiving server's own landmark.
-function AnnounceService.Broadcast(payload)
+local TOPIC = "GlobalAnnouncements_v1"
+
+-- The one send. Broadcasts locally, and publishes to MessagingService for other servers.
+function AnnounceService.Broadcast(payload, fromMessaging)
 	remote():FireAllClients(payload)
+
+	if not fromMessaging and type(payload) == "table" and (payload.kind == "hatch" or payload.kind == "mutation" or payload.kind == "boss" or payload.kind == "rebirth") then
+		task.spawn(function()
+			pcall(function()
+				local crossPayload = {
+					kind = payload.kind,
+					headline = payload.headline,
+					subline = payload.subline,
+					rarity = payload.rarity,
+					color = payload.color and { payload.color.R, payload.color.G, payload.color.B } or nil,
+					jobId = game.JobId,
+				}
+				local json = HttpService:JSONEncode(crossPayload)
+				MessagingService:PublishAsync(TOPIC, json)
+			end)
+		end)
+	end
 end
 
 -- ============================================================================
@@ -284,6 +304,29 @@ function AnnounceService.Init()
 				lastBeam[key] = nil
 			end
 		end
+	end)
+
+	task.spawn(function()
+		pcall(function()
+			MessagingService:SubscribeAsync(TOPIC, function(message)
+				local ok, data = pcall(function()
+					return HttpService:JSONDecode(message.Data)
+				end)
+				if ok and type(data) == "table" and data.jobId ~= game.JobId then
+					local col = nil
+					if type(data.color) == "table" and #data.color == 3 then
+						col = Color3.new(data.color[1], data.color[2], data.color[3])
+					end
+					AnnounceService.Broadcast({
+						kind = data.kind,
+						headline = data.headline,
+						subline = data.subline,
+						rarity = data.rarity,
+						color = col,
+					}, true)
+				end
+			end)
+		end)
 	end)
 end
 

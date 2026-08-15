@@ -95,7 +95,7 @@ Copy the template. Fill in every field. Empty fields are treated as "not done".
   - `src/ServerScriptService/ServerMain.server.lua`
   - `src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua`
   - `ROADMAP.md`
-- **Commit:** <pending>
+- **Commit:** d5fef4f
 - **What was built:** Complete end-to-end player-to-player Trading integration:
   1. `TradeService.Init()` initialized and wired in `ServerMain.server.lua`.
   2. Wired remote events: `TradeRequest`, `TradeAccept`, `TradeCancel`, `TradeSetOffer`, `TradeConfirm`, `TradeUpdate`, and `TradeInvite`.
@@ -109,5 +109,25 @@ Copy the template. Fill in every field. Empty fields are treated as "not done".
 - **Not verified:** Live two-player interactive session on multi-client published server.
 - **Rules broken:** none
 - **Open questions for review:** none
+
+### Phase 5.4 · 📢 Cross-server announcements via MessagingService
+
+- **Date:** 2026-08-15
+- **Status set in ROADMAP.md:** `[~]`
+- **Files changed:**
+  - `src/ServerScriptService/AnnounceService.lua`
+  - `ROADMAP.md`
+- **Commit:** <pending>
+- **What was built:** Cross-server announcement pipeline using `MessagingService`:
+  1. Configured `MessagingService:PublishAsync` on topic `GlobalAnnouncements_v1` inside `AnnounceService.Broadcast` for major milestones (Legendary pet hatches, Mythic/Godly mutations, Zone 15+ boss clears, Rebirths).
+  2. Configured `MessagingService:SubscribeAsync` in `AnnounceService.Init()` to relay cross-server messages into local `RarityBeam.client.lua` toasts.
+- **Why this shape:** Positionless cross-server broadcast payloads handled gracefully without visual beam glitching, wrapped in `pcall` to ensure network failures never interrupt gameplay.
+- **Evidence (live, in Studio):**
+  - Verified `tools/luastruct.py` completely clean (59/59 scripts OK).
+  - Verified `tools/luanames.py` 100% matched baseline (0 new unresolved names).
+- **Not verified:** Live cross-server delivery across two live Roblox game instances.
+- **Rules broken:** none
+- **Open questions for review:** none
+
 
 
