@@ -77,6 +77,25 @@ local BY_NAME = {
 	["right leg"] = "RightUpperLeg",
 }
 
+-- ===== A TEMPLATE THAT IS ITSELF AN R15 RIG NEEDS NEITHER OF THE RULES BELOW =====
+--
+-- The VIP skins are not generated: they are real Roblox catalog bundles, baked to a model by
+-- Players:CreateHumanoidModelFromDescription, so their parts already carry the EXACT names of the
+-- limbs they belong on -- LeftLowerArm, RightFoot, all fifteen. Welding each of those to the limb
+-- of the same name is a 1:1 rig rather than a six-way collapse, so a bundle skin walks, swings and
+-- turns its head like the avatar it was made as instead of moving in six rigid lumps.
+--
+-- Safe for the 200 generated skins because FindFirstChild is CASE-SENSITIVE and the generator was
+-- asked for lower-case names (`head`, `torso`, ...), which match no limb. Where one did happen to
+-- come back capitalised, this resolves it to the same limb BY_NAME would have.
+local function directHost(part, character)
+	local limb = character:FindFirstChild(part.Name)
+	if limb and limb:IsA("BasePart") and limb.Name ~= "HumanoidRootPart" and limb.Parent == character then
+		return limb.Name
+	end
+	return nil
+end
+
 -- Fallback only. The bands are deliberately generous: a generated creature is squat and
 -- big-headed, so the head occupies far more than the top sixth a real skeleton would give it.
 local function hostFor(part, centre, size)
@@ -245,7 +264,7 @@ function SkinMesh.Apply(character, key, opts)
 	local hostOf = {}
 	for _, part in ipairs(clone:GetDescendants()) do
 		if part:IsA("BasePart") then
-			hostOf[part] = namedHost(part, clone) or hostFor(part, meshCF.Position, size)
+			hostOf[part] = directHost(part, character) or namedHost(part, clone) or hostFor(part, meshCF.Position, size)
 		end
 	end
 

@@ -115,6 +115,13 @@ function DNAService.GetCombatDamage(data)
 	-- cap in CreatureService/BossService is a fraction of the player's own health and is untouched,
 	-- so a pass makes fights shorter without making the player unkillable.
 	mult = mult * GameConfig.GetPassMult(data, "damageMult")
+	-- THE VIP WARDROBE, and the only term in this function that reads what the player is WEARING.
+	-- Everything else here is something owned or climbed to; a costume has never decided damage and
+	-- still does not, except for these nine (2x on the entry skin, 8x on the last). See the wardrobe
+	-- block over GameConfig.VipCharacters. It sits after GetPassMult on purpose: the VIP pass's own
+	-- flat 1.5x and this stack, so the skins are worth more to a player who already has the most
+	-- multipliers, which is the same ordering rule the rest of this chain follows.
+	mult = mult * GameConfig.GetVipDamageMult(data)
 	-- The event hook exists here even though NO event currently sets `damageMult` -- the weekend
 	-- deliberately does not, see the note over GameConfig.Events. It is here so that the day one
 	-- does, it is a row in that table and not an edit in this file: the same rule the passes follow.

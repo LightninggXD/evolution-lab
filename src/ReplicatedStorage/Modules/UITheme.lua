@@ -186,17 +186,24 @@ local pastelGradientFor = gradientFor
 --
 -- SNAPPED RATHER THAN ENFORCED. Three hundred call sites pass their own number and rewriting them
 -- all would be a very large diff for a two-pixel change, with a real chance of breaking a layout
--- that depends on its radius. Instead every radius entering the theme is rounded to the nearest
--- step, so the vocabulary becomes true without a single call site changing. A caller that wants
--- 14 gets Card's 16 and looks the same; the HUD as a whole gains a system.
+-- that depends on its radius. Instead every radius entering the theme is snapped to a step, so the
+-- vocabulary becomes true without a single call site changing.
+--
+-- ROUNDER, AND ROUNDER IS A DIRECTION RATHER THAN A NEAREST VALUE (2026-08-16, asked for as "sve
+-- nek bude ovalno" -- the whole button and HUD aesthetic). Two things changed together and they
+-- have to: the ladder moved up 10/16/20 -> 14/22/30, and the snap stopped being symmetrical. The
+-- nearest-step rule rounded a quarter of the HUD DOWN -- a call site asking for 24 got 20 -- which
+-- is the system making a surface squarer than its author wrote it. It snaps UP now: every radius
+-- lands on the first step at least as round as the one asked for. Nothing can get squarer, most
+-- things get rounder, and no call site changes.
 UITheme.Radius = {
 	Pill = UDim.new(1, 0),
-	Tile = UDim.new(0, 20),
-	Card = UDim.new(0, 16),
-	Chip = UDim.new(0, 10),
+	Tile = UDim.new(0, 30),
+	Card = UDim.new(0, 22),
+	Chip = UDim.new(0, 14),
 }
 
-local RADIUS_STEPS = { 10, 16, 20 }
+local RADIUS_STEPS = { 14, 22, 30 }
 
 -- The same argument for the outline. Measured: **eight distinct stroke widths** -- 4, 3, 5, 0, 3.5,
 -- 2, 2.5 and 6. The border is the loudest thing about this style, so half-pixel differences in it
@@ -232,17 +239,15 @@ local function snapRadius(u)
 	if px <= 0 then
 		return u
 	end
-	local best, bestD = RADIUS_STEPS[1], math.huge
+	-- the first step at least as round as what was asked for -- never a step below it
 	for _, step in ipairs(RADIUS_STEPS) do
-		local d = math.abs(px - step)
-		if d < bestD then best, bestD = step, d end
+		if px <= step then
+			return UDim.new(0, step)
+		end
 	end
-	-- anything far above the scale is a deliberate large shape (a panel corner) and is left alone;
-	-- snapping a 40 px panel down to 20 would be the system overriding a real decision.
-	if px > RADIUS_STEPS[#RADIUS_STEPS] + 6 then
-		return u
-	end
-	return UDim.new(0, best)
+	-- past the top of the ladder is a deliberate large shape (a panel corner) and is left alone;
+	-- snapping a 40 px panel down to 30 would be the system overriding a real decision.
+	return u
 end
 UITheme.SnapRadius = snapRadius
 
@@ -272,10 +277,24 @@ local function applyShell(inst, color, radius, thickness)
 
 	local strokeT = snapStroke(thickness or UITheme.Stroke.Heavy)
 
+	-- A PILL HAS NO ROOM FOR A LIP, AND THAT IS WHAT THE BLACK BEHIND THE HEALTH BAR WAS.
+	-- The lip is the body's own rectangle, shifted down LIP_DEPTH and painted dark. On a card that
+	-- reads as thickness: the shell's straight sides hide it and only the bottom edge shows. On a
+	-- STADIUM the sides ARE the curve -- shift that shape down and its flanks swing outwards into
+	-- exactly the part of the bounding box the body has already curved away from, so a dark crescent
+	-- appears at both ends of every pill in the game. `ProgressBar` sets ClipsDescendants, which
+	-- squares those crescents off into two black blocks capping the bar: that is the health bar
+	-- Kristina photographed on 2026-08-16 ("ima nesto crno iza, lose izgleda").
+	--
+	-- Nothing is lost by dropping it on a round shell. The moulded depth there is carried by the
+	-- body's own vertical gradient and the heavy outline -- which is the same conclusion `addShadow`
+	-- reached above, for the same geometry, one shape earlier.
+	local lipDepth = (cornerRadius.Scale >= 0.5) and 0 or LIP_DEPTH
+
 	local shadowBody = inst:FindFirstChild("ShadowBody") or Instance.new("Frame")
 	shadowBody.Name = "ShadowBody"
 	shadowBody.Size = UDim2.new(1, 0, 1, 0)
-	shadowBody.Position = UDim2.new(0, 0, 0, LIP_DEPTH)
+	shadowBody.Position = UDim2.new(0, 0, 0, lipDepth)
 	shadowBody.BackgroundColor3 = shade(color, -0.4)
 	shadowBody.BackgroundTransparency = 0
 	shadowBody.BorderSizePixel = 0

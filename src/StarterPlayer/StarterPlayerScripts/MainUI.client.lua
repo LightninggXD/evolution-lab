@@ -5829,10 +5829,13 @@ local CHAR_LINE_H = 132
 			entries = GameConfig.GetCharactersForStage(stageIndex),
 		})
 	end
+	-- THE WHOLE VIP WARDROBE, NOT ONE SKIN (16.2). Nine of them, so this row wraps onto a second
+	-- line by the same `lineCount` arithmetic every stage row already uses -- no special case here
+	-- either. See the wardrobe block over GameConfig.VipCharacters.
 	table.insert(sections, {
 		index = #GameConfig.Stages + 1,
 		stage = { emoji = GameConfig.VipCharacter.emoji, name = "VIP Exclusive" },
-		entries = { GameConfig.VipCharacter },
+		entries = GameConfig.VipCharacters,
 	})
 	if #GameConfig.EventCharacters > 0 then
 		table.insert(sections, {
@@ -5995,8 +5998,15 @@ local CHAR_LINE_H = 132
 			-- `offLadder`, not `vip` (12.7): the event skins are the second kind of skin that is not
 			-- on the ladder, and they score by the identical rule. Testing `vip` printed the ladder
 			-- figure for a rank of 0 under the Prism Herald, i.e. the weakest number in the game.
-			damageLabel.Text = entry.offLadder and "\u{2694}\u{FE0F} = best"
-				or ("\u{2694}\u{FE0F} %s"):format(formatNumber(damagePct))
+			--
+			-- A VIP SKIN IS THE ONE OFF-LADDER SKIN THAT CARRIES A FIGURE OF ITS OWN (16.2). It still
+			-- has no rung -- it MULTIPLIES whatever rung the wearer scores -- so what belongs under the
+			-- disc is the multiplier. A damage number here would be right for exactly one save.
+			-- Trailing zeros are trimmed, so 5.00 reads x5 while 2.75 keeps both digits.
+			damageLabel.Text = entry.vipDamageMult
+					and ("\u{2694}\u{FE0F} x" .. (("%.2f"):format(entry.vipDamageMult):gsub("%.?0+$", "")))
+				or (entry.offLadder and "\u{2694}\u{FE0F} = best"
+					or ("\u{2694}\u{FE0F} %s"):format(formatNumber(damagePct)))
 			damageLabel.ZIndex = cell.ZIndex + UITheme.Z.Badge
 			damageLabel.Parent = cell
 			themeLabel(damageLabel, 17, Color3.fromRGB(58, 66, 88))
@@ -6273,7 +6283,10 @@ local CHAR_LINE_H = 132
 		local equipped = currentData and currentData.WornCharacter == entry.key
 		-- The rung the player actually FIGHTS at. It is the best one owned, not the one on the body:
 		-- a costume is free now, see GameConfig.GetProgressRank.
-		local progressDamage = currentData and math.floor(GameConfig.GetBaseDamage(currentData)) or 0
+		-- ...times the VIP wardrobe, which is the one costume that DOES change it (16.2). Without that
+		-- term this card told a player standing in an x8 skin they hit for an eighth of what they do.
+		local progressDamage = currentData and math.floor(
+			GameConfig.GetBaseDamage(currentData) * GameConfig.GetVipDamageMult(currentData)) or 0
 
 		dName.Text = owned and entry.name or "???"
 		dName.TextColor3 = owned and (entry.color or Color3.fromRGB(46, 54, 74)) or Color3.fromRGB(150, 158, 178)
@@ -6299,8 +6312,10 @@ local CHAR_LINE_H = 132
 		-- GetCharacterRank straight and therefore printed the WEAKEST rung in the game beside the
 		-- strongest skin in it (GetRankDamage clamps a 0 up to rank 1).
 		local shownRank = GameConfig.GetEffectiveRank(currentData, entry)
+		-- A VIP skin's figure is that same rung MULTIPLIED, so the card answers "what would I hit for
+		-- in this?" rather than quoting a rung the skin then changes underneath the player.
 		dStatLabel.Text = ("\u{2694}\u{FE0F}  %s Damage"):format(
-			formatNumber(math.floor(GameConfig.GetRankDamage(shownRank))))
+			formatNumber(math.floor(GameConfig.GetRankDamage(shownRank) * (entry.vipDamageMult or 1))))
 		dStatHp.Text = ("\u{2764}\u{FE0F}  +%d%% Max Health"):format(
 			math.floor(GameConfig.GetCharacterHealthPct(entry, currentData)))
 
@@ -6336,7 +6351,8 @@ local CHAR_LINE_H = 132
 			-- so the Prism Herald's own card read "Evolve to this stage to discover it", which is
 			-- both untrue and unactionable. Each kind now names its actual route.
 			if entry.vip then
-				dHint.Text = "Comes with the VIP pass \u{2014} and goes away again if the pass does."
+				dHint.Text = ("Comes with the VIP pass \u{2014} x%s damage while it is on, and it goes away again if the pass does.")
+					:format((("%.2f"):format(entry.vipDamageMult or 1):gsub("%.?0+$", "")))
 			elseif entry.event then
 				local eventDef = GameConfig.GetEvent(entry.event)
 				local label = ("%s%s"):format(eventDef and (eventDef.emoji .. " ") or "",
@@ -6365,6 +6381,15 @@ local CHAR_LINE_H = 132
 			end
 		elseif equipped then
 			dHint.Text = ("This is what you look like right now.  You hit for %s."):format(formatNumber(progressDamage))
+		elseif entry.vipDamageMult then
+			-- THE ONE CARD IN THIS PANEL WHERE "a skin is looks only" IS FALSE (16.2), so it says the
+			-- trade instead of denying there is one: what this skin would put on the body, against what
+			-- is on it right now.
+			dHint.Text = ("Wear it for x%s damage \u{2014} %s instead of %s."):format(
+				(("%.2f"):format(entry.vipDamageMult):gsub("%.?0+$", "")),
+				formatNumber(currentData and math.floor(GameConfig.GetBaseDamage(currentData) * entry.vipDamageMult) or 0),
+				formatNumber(progressDamage))
+			dHint.TextColor3 = Color3.fromRGB(72, 168, 96)
 		else
 			local delta = math.floor(GameConfig.GetRankDamage(GameConfig.GetCharacterRank(entry))) - progressDamage
 			if delta > 0 then
