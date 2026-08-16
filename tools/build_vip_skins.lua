@@ -1,0 +1,135 @@
+--!strict
+-- Bakes the VIP wardrobe's bodies out of the Roblox catalog and into the place.
+--
+-- WHY THIS FILE EXISTS. The 200 ladder skins are generated meshes and the six event/VIP skins used
+-- to be too, so "how was that model made" was always answerable by re-running `generate_mesh`. The
+-- VIP wardrobe is not: each of its nine bodies is a real catalog BUNDLE, turned into a model by
+-- Players:CreateHumanoidModelFromDescription at author time and parked in
+-- ReplicatedStorage.Assets.SkinMeshes as `SkinMesh_<key>`. Those models are INSTANCES IN THE PLACE.
+-- They are not files, no commit carries them, and `src/` cannot mirror them -- so without this
+-- script the only record of how the wardrobe was built would be a Studio session that a crash ends.
+-- Losing the place now costs one run of this, and nothing else.
+--
+-- HOW TO RUN IT. Paste the whole file into the Studio MCP's `execute_luau` with
+-- `datamodel_type = "Edit"` (Play has no Assets folder to write into that survives). It is
+-- idempotent: an existing `SkinMesh_<key>` is destroyed and rebuilt, so re-running after changing a
+-- `bundleId` in GameConfig.VipCharacters is the whole update procedure.
+--
+-- IT READS GameConfig AND NOTHING ELSE. The roster, the keys and the bundle ids all come from
+-- GameConfig.VipCharacters, and the retired list comes from GameConfig.RetiredVipKeys -- so this
+-- script never has to be edited when the wardrobe changes, only re-run. `FIRST` and `LAST` exist
+-- because nine bundles do not download inside the MCP call's 120-second window; run it in slices of
+-- three or four.
+--
+-- WHAT IT STRIPS, AND WHY EACH ONE. `CreateHumanoidModelFromDescription` hands back a playable
+-- character: a Humanoid, a HumanoidRootPart, an Animate script and the default sounds. SkinMesh.Apply
+-- welds the parts of this model onto the player's own limbs, so every one of those is either dead
+-- weight or an active fault -- a second Humanoid inside a character is the loud one. What is
+-- deliberately KEPT is the limb NAMES (SkinMesh's `directHost` rule welds 1:1 by name, which is what
+-- makes a bundle body animate instead of moving in six lumps) and the Accessories, whose Handles
+-- fall through to the position-based host rule and land on the head or the back where they belong.
+local Players = game:GetService("Players")
+local AvatarEditorService = game:GetService("AvatarEditorService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local FIRST, LAST = 1, 9
+
+-- REQUIRED THROUGH A CLONE, NOT DIRECTLY. Edit mode caches a ModuleScript's return value for the
+-- lifetime of the Studio session, so a `require` here would hand back whatever GameConfig said the
+-- first time anything asked -- which, on the run that matters, is the wardrobe from BEFORE the push
+-- that changed it. A clone is a different instance and therefore a different cache entry.
+local sourceClone = ReplicatedStorage.Modules.GameConfig:Clone()
+sourceClone.Parent = ReplicatedStorage
+local GameConfig = require(sourceClone)
+sourceClone:Destroy()
+local folder = ReplicatedStorage:FindFirstChild("Assets") and ReplicatedStorage.Assets:FindFirstChild("SkinMeshes")
+assert(folder, "ReplicatedStorage.Assets.SkinMeshes is missing -- nothing to bake into")
+
+-- The outfit is the part of a bundle that carries the whole look; the other bundled items are the
+-- individual body parts, which a HumanoidDescription would have to be assembled from by hand.
+--
+-- A MODERN BUNDLE HAS TWO OUTFITS AND ONLY ONE OF THEM IS A BODY. Every Rthro-era bundle ships
+-- `<Name>` and `<Name> - Head`, both typed UserOutfit, and the head one describes a head and
+-- nothing else: `GetHumanoidDescriptionFromOutfitId` on it returns `Torso = 0`, so
+-- CreateHumanoidModelFromDescription builds the DEFAULT grey Roblox body and the bundle is not in
+-- the result at all. It does not error and it does not warn -- it hands back a complete, plausible,
+-- entirely wrong character, which is exactly the shape of bug that survives a code review and dies
+-- to a screenshot. Measured on Bec the Fire God: the main outfit gives `Torso = 4201587439` and one
+-- accessory, the head outfit gives `Torso = 0` and none.
+--
+-- So the outfit is chosen BY NAME -- the one called exactly what the bundle is called -- and the
+-- first UserOutfit is only the fallback, for the classic bundles that ship a single one.
+local function outfitOf(bundleId: number): number?
+	local details = AvatarEditorService:GetItemDetails(bundleId, Enum.AvatarItemType.Bundle)
+	local fallback = nil
+	for _, item in ipairs(details.BundledItems or {}) do
+		if tostring(item.Type) == "UserOutfit" then
+			if tostring(item.Name) == tostring(details.Name) then
+				return item.Id
+			end
+			fallback = fallback or item.Id
+		end
+	end
+	return fallback
+end
+
+local function bake(key: string, bundleId: number): string
+	local outfitId = outfitOf(bundleId)
+	if not outfitId then return ("%s: bundle %d has no outfit"):format(key, bundleId) end
+
+	local description = Players:GetHumanoidDescriptionFromOutfitId(outfitId)
+	local model = Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
+
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("Humanoid") or d:IsA("LuaSourceContainer") or d:IsA("Sound")
+			or d:IsA("Camera") or d.Name == "HumanoidRootPart" then
+			d:Destroy()
+		end
+	end
+	local parts = 0
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			parts += 1
+			d.Anchored = false
+			d.CanCollide = false
+			d.CanQuery = false
+			d.CanTouch = false
+			d.Massless = true
+		end
+	end
+	if parts == 0 then
+		model:Destroy()
+		return ("%s: bundle %d baked to an empty model"):format(key, bundleId)
+	end
+
+	local name = "SkinMesh_" .. key
+	local old = folder:FindFirstChild(name)
+	if old then old:Destroy() end
+	model.Name = name
+	model.Parent = folder
+
+	local size = model:GetExtentsSize()
+	return ("%s: %d parts, %.2f x %.2f x %.2f, bundle %d"):format(name, parts, size.X, size.Y, size.Z, bundleId)
+end
+
+local report = {}
+
+-- Retired keys first, so a rebuild also takes away the bodies of the skins the wardrobe dropped.
+-- Left behind they are 16 MeshParts each of a character nothing can wear or name.
+for _, key in ipairs(GameConfig.RetiredVipKeys or {}) do
+	local old = folder:FindFirstChild("SkinMesh_" .. key)
+	if old then
+		old:Destroy()
+		table.insert(report, "removed SkinMesh_" .. key)
+	end
+end
+
+for index, entry in ipairs(GameConfig.VipCharacters) do
+	if index >= FIRST and index <= LAST and entry.bundleId then
+		local ok, result = pcall(bake, entry.key, entry.bundleId)
+		table.insert(report, ok and result or ("%s: ERROR %s"):format(entry.key, tostring(result)))
+	end
+end
+
+table.insert(report, ("SkinMeshes now holds %d models"):format(#folder:GetChildren()))
+return table.concat(report, "\n")

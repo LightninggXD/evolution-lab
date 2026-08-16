@@ -63,7 +63,7 @@ local ZoneBuilder = {}
 -- Roblox's default grey -- in every village in the game since the palette was introduced. The
 -- declaration moved above `addZoneProps`; colour is baked into the part at build time, so the
 -- fix is invisible without this bump.
-local BUILD_VERSION = 134
+local BUILD_VERSION = 135
 
 -- The Colosseum carries its own stamp. Bumping BUILD_VERSION drops all 21 zones and rebuilds
 -- ~60,000 parts, which takes long enough that Studio regularly loses the connection partway (see
@@ -133,6 +133,16 @@ local SPAWN_POSITION = Vector3.new(0, 1, 366)
 
 -- Real Roblox PBR materials per zone instead of flat SmoothPlastic -- free, built-in,
 -- actual surface detail (bump/roughness) with no external assets needed.
+--
+-- NO FLOOR IS NEON, AND THAT IS A RULE RATHER THAN THREE CORRECTIONS (17.7). A `Neon` surface is
+-- drawn at full colour with no lighting applied to it at all: no shading across its width, no
+-- shadow from anything standing on it, no ambient, nothing for the sun to do. That is a fine thing
+-- to ask of a 2-stud trim strip and the wrong thing to ask of a 1250 x 1150 plane -- at that size it
+-- stops being a floor and becomes a lightbox, and every prop on it loses its contact shadow in the
+-- same stroke. TimeRift, CelestialThrone and AbsolutePlane each had it; they are Foil and Marble
+-- now, which are shiny in the way those zones wanted without emitting. The glow in those zones is
+-- still there -- it is on the trims and the props, where it now reads AS glow because the ground
+-- underneath it no longer does.
 local GROUND_MATERIAL = {
 	Forest = Enum.Material.Grass,
 	Desert = Enum.Material.Sand,
@@ -146,15 +156,46 @@ local GROUND_MATERIAL = {
 	Nebula = Enum.Material.Foil,
 	Wormhole = Enum.Material.Slate,
 	QuantumRealm = Enum.Material.Glass,
-	TimeRift = Enum.Material.Neon,
+	TimeRift = Enum.Material.Foil,
 	AntimatterZone = Enum.Material.Slate,
 	DreamDimension = Enum.Material.Foil,
 	MirrorUniverse = Enum.Material.Glass,
 	VoidExpanse = Enum.Material.Slate,
-	CelestialThrone = Enum.Material.Neon,
+	CelestialThrone = Enum.Material.Marble,
 	Singularity = Enum.Material.Foil,
-	AbsolutePlane = Enum.Material.Neon,
+	AbsolutePlane = Enum.Material.Marble,
 }
+
+-- ---- THE GROUND IS NEVER THE BRIGHTEST THING IN ITS OWN ZONE (17.7)
+--
+-- Reported as "ovi zadnji stagevi su samo bela svetlost i nista zivo se ne vidi", with a capture of
+-- The Absolute Plane: a white ground under a white haze with white props on it, the only readable
+-- thing in the frame being the black outline round her own body.
+--
+-- The zone's ground is authored at rgb(255, 255, 255) -- luminance 1.00, where the next brightest
+-- ground in the whole game is Desert's 0.79 and every other zone sits below it. Nothing placed on a
+-- floor that bright can be lighter than it, so the ground stops being a surface things sit ON and
+-- becomes the brightest object in frame; and the outline that carries this game's whole look has
+-- nothing left to sit against.
+--
+-- THE CEILING LIVES HERE RATHER THAN IN THE ZONE'S TABLE, for the same reason 17.1 put the emitter
+-- ceiling in `VFXLibrary` beside the tint: a zone author says what colour the ground IS, and the
+-- builder is what knows how bright a floor is allowed to BE. It is a ceiling and never an
+-- assignment -- nineteen of the twenty zones pass through it untouched.
+--
+-- The two white-floor workarounds already in this file (the patch tones below, and the cliffs) are
+-- deliberately left alone and still fire: a capped Absolute Plane reads 0.80, which is still the
+-- brightest ground in the game and still needs its decoration to step DOWN rather than up.
+local GROUND_MAX_LUM = 0.80
+
+local function groundColorOf(zone)
+	local c = zone.groundColor
+	local l = 0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B
+	if l <= GROUND_MAX_LUM then
+		return c
+	end
+	return c:Lerp(Color3.new(0, 0, 0), 1 - GROUND_MAX_LUM / l)
+end
 
 -- Optional AI-generated cliff/rock formation per zone, cloned repeatedly along a
 -- boundary to hide the flat invisible collision wall behind natural-looking terrain
@@ -989,7 +1030,7 @@ local ROCK_MATERIAL = {
 -- Rock is the zone's own ground colour pulled toward white in three steps, so a Forest cliff comes
 -- out pale green and a Mars cliff pale rust without one hand-picked palette anywhere.
 local function stoneTones(zone)
-	local g = zone.groundColor
+	local g = groundColorOf(zone)
 	-- cosmic zones ship a near-black ground; lifting those to a readable stone needs a much
 	-- bigger step toward white than a Desert's already-bright sand does
 	local lum = g.R * 0.3 + g.G * 0.59 + g.B * 0.11
@@ -1411,7 +1452,7 @@ local function addGroundDetail(model, zone, cx)
 	reserveScatter(cx, 426, 60)                             -- the zone name board and its battens
 	reserveScatter(cx - 104, 310, 22)                       -- the arrival sign post and its lamp
 
-	local g = zone.groundColor
+	local g = groundColorOf(zone)
 	-- On a white floor `g:Lerp(white, 0.16)` is still white, so half the ground decoration in the
 	-- Absolute Plane was invisible against the ground it was decorating -- the same blind spot the
 	-- cliffs had. Both patch tones step downward there.
@@ -1707,7 +1748,7 @@ local function addZoneProps(model, zone, cx)
 	-- Now it is a specimen on display: a stone pad, a post, and the coin turning just above the
 	-- top of it. The count comes down 26 -> 12 because this is three parts each instead of one and
 	-- because 26 of them was never sparkle, it was litter -- twelve on stands read as more.
-	local stone = zone.groundColor:Lerp(Color3.fromRGB(232, 228, 220), 0.62)
+	local stone = groundColorOf(zone):Lerp(Color3.fromRGB(232, 228, 220), 0.62)
 	for i = 1, 12 do
 		local x, z = scatterPoint(cx, 310, 390, 9)
 		reserveScatter(x, z, 9)
@@ -3862,15 +3903,15 @@ local function buildValleySide(model, zone, cx, side, p)
 	-- inside this one, silently.
 	local waterLib = cliffLib
 
-	local grass = zone.groundColor
+	local grass = groundColorOf(zone)
 	-- The cliff is NOT the ground colour. Rock reads as rock because it is a different material and
 	-- a different hue -- a cliff tinted from green grass is a green wall, which is what the first
 	-- attempt at this looked like. It carries a quarter of the zone's tint so a Volcano cliff and a
 	-- Moon cliff are still recognisably from their own worlds.
-	local rock = Color3.fromRGB(150, 128, 104):Lerp(zone.groundColor, 0.25)
+	local rock = Color3.fromRGB(150, 128, 104):Lerp(groundColorOf(zone), 0.25)
 	local rockLit = lighten(rock, 0.16)
 	local rockDark = darken(rock, 0.3)
-	local moss = Color3.fromRGB(104, 164, 82):Lerp(zone.groundColor, 0.45)
+	local moss = Color3.fromRGB(104, 164, 82):Lerp(groundColorOf(zone), 0.45)
 	local accent = vivid(zone.accentColor)
 	local ground = GROUND_MATERIAL[zone.key] or Enum.Material.Grass
 	local band = (TERRAIN_OUTER - TERRAIN_INNER) / p.tiers
@@ -4011,7 +4052,7 @@ local function buildValleySide(model, zone, cx, side, p)
 			Position = Vector3.new(x, y + h * 0.14, z),
 			Color = Color3.fromRGB(112, 76, 48), Material = Enum.Material.Wood,
 			CanCollide = false, CastShadow = false, Parent = model })
-		local needle = Color3.fromRGB(46, 116, 62):Lerp(zone.groundColor, 0.2)
+		local needle = Color3.fromRGB(46, 116, 62):Lerp(groundColorOf(zone), 0.2)
 		for i = 1, 3 do
 			local f = (i - 1) / 3
 			newPart({ Name = "TerraceCanopy", Size = Vector3.new(w * (1 - f * 0.42), h * 0.34, w * (1 - f * 0.42)),
@@ -8880,7 +8921,7 @@ function ZoneBuilder.Build()
 				Name = "Floor",
 				Size = Vector3.new(PLATFORM_WIDTH, 4, PLATFORM_DEPTH),
 				Position = Vector3.new(cx, -2, 0),
-				Color = zone.groundColor,
+				Color = groundColorOf(zone),
 				Material = GROUND_MATERIAL[zone.key] or Enum.Material.SmoothPlastic,
 				Parent = model,
 			})

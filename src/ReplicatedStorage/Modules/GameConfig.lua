@@ -3073,7 +3073,11 @@ GameConfig.GamePasses = {
 	  desc = "Equip three more pets at once.", petSlots = 3 },
 
 	{ key = "VIP",       passId = 1941409673, price = 499, emoji = "👑", name = "VIP",
-	  desc = "9 exclusive skins up to x8 damage, 1.5x DNA and damage, +15% Luck, a golden aura, a chat tag and 5 Diamonds a day.",
+	  -- The two figures in this sentence are the last row of GameConfig.VipCharacters. They are
+	  -- literals because this table is a plain list of strings that a dozen readers format, and
+	  -- GameConfig.GetVipLadderTop is here so a UI that wants the live number never has to trust
+	  -- this one. Move the wardrobe's top row and move this line with it.
+	  desc = "9 exclusive Roblox skins worth up to x15 damage and x1.5 DNA, 1.5x DNA and damage, +15% Luck, a golden aura, a chat tag and 5 Diamonds a day.",
 	  incomeMult = 1.5, damageMult = 1.5, luckAdd = 15, dailyDiamonds = 5, vip = true },
 }
 
@@ -4302,42 +4306,55 @@ end
 -- stage's evolve chain, move every rank above it, and make the Journal unable to ever read 200/200.
 -- Kept outside, it is visible and wearable while the collection arithmetic never sees it.
 --
--- There is no generated SkinMesh_vip_gold, and that is fine: SkinMesh.Has() is what callers use to
--- choose between the mesh and StageCostume, so this falls back to the costume painted in the colour
--- below -- i.e. a gold version of whatever stage the player is standing at, at any stage.
---
 -- ===== THE VIP WARDROBE IS NINE SKINS, AND IT IS THE ONE COSTUME THAT PAYS =====
 --
 -- Everything above this line obeys one rule -- progress pays, appearance is free (see
 -- GetProgressRank). The VIP wardrobe is the deliberate, single exception, asked for in as many
--- words: `vipDamageMult` is a flat multiplier on the whole damage chain, 2x on the entry skin
--- rising to 8x on the last one, and it is the ONLY place in the game where what a player is
--- wearing decides what they hit for.
+-- words: `vipDamageMult` is a flat multiplier on the whole damage chain and `vipIncomeMult` one on
+-- the whole DNA chain. These nine are the only place in the game where what a player is WEARING
+-- decides what they hit for and what they earn.
 --
--- Written as ONE evenly spaced ladder rather than nine hand-picked numbers: 2.0 + 0.75 per rung,
--- ending exactly on 8.0. Nine equal steps means no rung is ever a trap -- every skin further along
--- the row is strictly better than the one before it by the same amount -- and it means the row can
--- be re-tuned by moving the two ends rather than by re-balancing nine independent figures.
+-- Written as TWO evenly spaced ladders rather than eighteen hand-picked numbers:
+--   damage  3.0 + 1.5  per rung, ending exactly on 15.0
+--   income  1.10 + 0.05 per rung, ending exactly on 1.50
+-- Nine equal steps means no rung is ever a trap -- every skin further along the row is strictly
+-- better than the one before it by the same amount -- and the row can be re-tuned by moving the two
+-- ends rather than by re-balancing nine independent figures.
 --
 -- IT MULTIPLIES THE CHAIN, IT DOES NOT REPLACE THE LADDER. The wearer still scores as the best rung
 -- they have EARNED (GetEffectiveRank, unchanged), so a VIP who has climbed further hits harder than
 -- a VIP who has not -- the pass multiplies a player's own progress instead of standing in for it.
+-- That is the answer to "a VIP skin should hit like my best unlocked character": it hits like the
+-- best character this save has ever unlocked, times the rung of the wardrobe it is wearing.
 --
 -- ALL NINE ARE ONE PURCHASE. They are granted and revoked together by SyncVipCharacter, so the row
 -- is a wardrobe to pick a look from and a power curve to grow into, not nine separate sales.
 --
--- WHERE THE BODIES COME FROM (this is the part that is not like anything else in this file): eight
--- of the nine are real Roblox catalog bundles -- free ones -- baked into ReplicatedStorage.Assets
--- .SkinMeshes as `SkinMesh_<key>` by Players:CreateHumanoidModelFromDescription, so SkinMesh.Has
--- finds them exactly as it finds the 200 generated skins and nothing else in the pipeline had to
--- learn a new case. `bundleId` is recorded on each entry purely so the next reader can find the
--- source in the catalog; no code reads it. Their parts keep their R15 limb names, which is what
--- SkinMesh's `directHost` rule is for -- see the note there.
+-- WHERE THE BODIES COME FROM (this is the part that is not like anything else in this file): every
+-- one of them is a real Roblox catalog bundle, baked into ReplicatedStorage.Assets.SkinMeshes as
+-- `SkinMesh_<key>` by Players:CreateHumanoidModelFromDescription, so SkinMesh.Has finds them exactly
+-- as it finds the 200 generated skins and nothing else in the pipeline had to learn a new case.
+-- Their parts keep their R15 limb names, which is what SkinMesh's `directHost` rule is for -- see
+-- the note there. `tools/build_vip_skins.lua` is the script that bakes them and it is the ONLY
+-- record of how: the models are instances in the place, not files, so a lost place means re-running
+-- that script and nothing else.
 --
--- `vip_gold` keeps its place at the front: it is what every existing save already owns, and deleting
--- it would strip a skin out of live saves to no purpose. Note the paragraph higher up saying it has
--- no generated mesh is now STALE -- a `SkinMesh_vip_gold` was generated at some point since, and
--- SkinMesh.Has finds it, so it wears a mesh like the other eight rather than a painted costume.
+-- `bundleId` IS READ BY THAT SCRIPT AND BY NOTHING ELSE AT RUNTIME. It is the whole recipe: change
+-- the id, re-run the builder, and the skin is a different character with the same key, the same
+-- rung and the same save entry.
+--
+-- WHY THESE NINE BUNDLES. The row is what a 499-Robux pass is buying, so it is chosen to LOOK like
+-- it: all nine are Roblox's own catalog bundles rather than free classics, they escalate from a
+-- gold suit to the Korblox Deathspeaker (the most expensive avatar Roblox sells), and the middle of
+-- the row is where the monsters are -- a demon king, a skeletal dragon and a dragon lord. The row
+-- this replaced was eight free bundles (Junkbot, a vampire, a paladin...) and it read as a bin of
+-- starter avatars, which is the opposite of what the most expensive thing in the shop should read
+-- as. See GameConfig.RetiredVipKeys for what happens to the keys it dropped.
+--
+-- `vip_gold` keeps its key and its place at the front: it is the one every existing save already
+-- owns, so deleting it would strip a skin out of live saves to no purpose. Its BODY is new -- the
+-- Golden Suit of Bling Squared, a 3,150 Robux bundle -- because the thing that was wrong with it
+-- was never the key.
 GameConfig.VipCharacters = {
 	{
 		key = "vip_gold",
@@ -4354,48 +4371,72 @@ GameConfig.VipCharacters = {
 		-- "shards". It is read from the entry and NOT from the rarity because every skin outside the
 		-- ladder is Legendary, so rarity separates none of them from each other.
 		regalia = "crown",
-		vipDamageMult = 2.00,
+		-- Sunstar, a 756-Robux solar knight, and NOT the Golden Suit of Bling Squared it reads like it
+		-- should be. That bundle is a classic R6 package: converted to R15 it is a yellow suit with
+		-- the head buried inside the torso, i.e. a headless man in a yellow jacket, which is a worse
+		-- first impression than the primitive costume this whole wardrobe replaced. The entry rung of
+		-- a paid row cannot be the ugliest thing in it. See tools/build_vip_skins.lua.
+		vipDamageMult = 3.00, vipIncomeMult = 1.10, bundleId = 344,
 	},
 	{
-		key = "vip_junkbot", name = "Junkbot", emoji = "\u{1F916}", rarity = "Legendary",
-		color = Color3.fromRGB(214, 196, 96), vip = true, offLadder = true, regalia = "shards",
-		vipDamageMult = 2.75, bundleId = 589,
+		key = "vip_shogun", name = "Cyber Shogun", emoji = "\u{1F916}", rarity = "Legendary",
+		color = Color3.fromRGB(60, 200, 140), vip = true, offLadder = true, regalia = "shards",
+		vipDamageMult = 4.50, vipIncomeMult = 1.15, bundleId = 790,
 	},
 	{
-		key = "vip_vampire", name = "Count Bloxula", emoji = "\u{1F9DB}", rarity = "Legendary",
-		color = Color3.fromRGB(128, 74, 178), vip = true, offLadder = true, regalia = "crown",
-		vipDamageMult = 3.50, bundleId = 37,
+		key = "vip_valkyrie", name = "Skyfall Valkyrie", emoji = "\u{1FA7D}", rarity = "Legendary",
+		color = Color3.fromRGB(236, 240, 250), vip = true, offLadder = true, regalia = "wreath",
+		vipDamageMult = 6.00, vipIncomeMult = 1.20, bundleId = 452,
 	},
 	{
-		key = "vip_paladin", name = "Redcliff Paladin", emoji = "\u{1F6E1}\u{FE0F}", rarity = "Legendary",
-		color = Color3.fromRGB(236, 118, 70), vip = true, offLadder = true, regalia = "wreath",
-		vipDamageMult = 4.25, bundleId = 338,
-	},
-	{
-		key = "vip_samurai", name = "Grand Samurai", emoji = "\u{2694}\u{FE0F}", rarity = "Legendary",
-		color = Color3.fromRGB(108, 128, 176), vip = true, offLadder = true, regalia = "wreath",
-		vipDamageMult = 5.00, bundleId = 49,
-	},
-	{
-		key = "vip_mech", name = "Metal Menace", emoji = "\u{1F9BE}", rarity = "Legendary",
-		color = Color3.fromRGB(92, 190, 140), vip = true, offLadder = true, regalia = "shards",
-		vipDamageMult = 5.75, bundleId = 581,
+		key = "vip_demon", name = "Bull Demon King", emoji = "\u{1F479}", rarity = "Legendary",
+		color = Color3.fromRGB(226, 62, 68), vip = true, offLadder = true, regalia = "crown",
+		vipDamageMult = 7.50, vipIncomeMult = 1.25, bundleId = 604,
 	},
 	{
 		key = "vip_dragon", name = "Skeletal Dragon", emoji = "\u{1F409}", rarity = "Legendary",
-		color = Color3.fromRGB(238, 220, 156), vip = true, offLadder = true, regalia = "shards",
-		vipDamageMult = 6.50, bundleId = 577,
+		color = Color3.fromRGB(186, 236, 120), vip = true, offLadder = true, regalia = "shards",
+		vipDamageMult = 9.00, vipIncomeMult = 1.30, bundleId = 577,
 	},
 	{
-		key = "vip_reaper", name = "The Reaper", emoji = "\u{2620}\u{FE0F}", rarity = "Legendary",
-		color = Color3.fromRGB(116, 104, 186), vip = true, offLadder = true, regalia = "shards",
-		vipDamageMult = 7.25, bundleId = 100,
+		key = "vip_overseer", name = "The Overseer", emoji = "\u{1F441}\u{FE0F}", rarity = "Legendary",
+		color = Color3.fromRGB(206, 74, 192), vip = true, offLadder = true, regalia = "shards",
+		vipDamageMult = 10.50, vipIncomeMult = 1.35, bundleId = 243,
 	},
 	{
-		key = "vip_golden", name = "Golden Robloxian", emoji = "\u{1F31F}", rarity = "Legendary",
-		color = Color3.fromRGB(255, 232, 120), vip = true, offLadder = true, regalia = "crown",
-		vipDamageMult = 8.00, bundleId = 91,
+		key = "vip_dragonlord", name = "Dragon Lord", emoji = "\u{1F525}", rarity = "Legendary",
+		color = Color3.fromRGB(246, 132, 40), vip = true, offLadder = true, regalia = "crown",
+		vipDamageMult = 12.00, vipIncomeMult = 1.40, bundleId = 51,
 	},
+	{
+		key = "vip_doom", name = "The Doombringer", emoji = "\u{2620}\u{FE0F}", rarity = "Legendary",
+		color = Color3.fromRGB(150, 50, 90), vip = true, offLadder = true, regalia = "wreath",
+		vipDamageMult = 13.50, vipIncomeMult = 1.45, bundleId = 233,
+	},
+	{
+		key = "vip_korblox", name = "Korblox Deathspeaker", emoji = "\u{1F480}", rarity = "Legendary",
+		color = Color3.fromRGB(92, 150, 255), vip = true, offLadder = true, regalia = "crown",
+		vipDamageMult = 15.00, vipIncomeMult = 1.50, bundleId = 192,
+	},
+}
+
+-- ===== THE KEYS THE WARDROBE USED TO HAND OUT =====
+--
+-- A key that leaves GameConfig.VipCharacters stops resolving -- CHARACTER_BY_KEY never learns it,
+-- so GetCharacter returns nil and the Journal cannot draw it. That is fine for a save that only
+-- OWNS it (a dead key in `data.Characters` is ignored by everything that iterates the real tables),
+-- and it is NOT fine for a save that is WEARING it: `WornCharacter` would keep naming a skin that
+-- resolves to nothing, so the body falls back to bare and the player's own reflex is that the game
+-- forgot their purchase.
+--
+-- So the retired keys are listed rather than deleted, and SyncVipCharacter sweeps them out of both
+-- fields on the next load. Nothing here was ever published -- the eight-bundle row lived only in an
+-- unsaved Studio session -- so in practice this list will find nothing in a real save. It exists
+-- because the next time the row is re-cut it will not be free, and the sweep should already be
+-- there when that happens.
+GameConfig.RetiredVipKeys = {
+	"vip_junkbot", "vip_vampire", "vip_paladin", "vip_samurai",
+	"vip_mech", "vip_reaper", "vip_golden",
 }
 
 -- The entry-level skin, and the alias every reader that predates the wardrobe still uses. Kept
@@ -4684,15 +4725,44 @@ function GameConfig.GetVipDamageMult(data)
 	return entry.vipDamageMult
 end
 
+-- The DNA half of the same idea, and a term in DNAService.GetIncomeMult. Written as its own
+-- function rather than as a second return value because the two chains are computed in different
+-- places and a caller of one has no business holding the other's number.
+--
+-- The ownership re-check is the same one, for the same reason: a lapsed pass must stop paying on
+-- the next click and not on the next sync.
+function GameConfig.GetVipIncomeMult(data)
+	local entry = GameConfig.GetWornCharacter(data)
+	if not (entry and entry.vipIncomeMult) then return 1 end
+	if not (data and data.Characters and data.Characters[entry.key]) then return 1 end
+	return entry.vipIncomeMult
+end
+
 -- The strongest rung of the wardrobe this save can actually put on, or 1 when it can put on none.
--- The shop and the pass card quote it ("up to x8 damage"), so the figure advertised is read off the
+-- The shop and the pass card quote it ("up to x15 damage"), so the figure advertised is read off the
 -- same table the damage is read off and cannot drift from it.
-function GameConfig.GetBestVipDamageMult(data)
+--
+-- `field` picks which ladder is being asked about and defaults to damage, so every existing caller
+-- keeps its meaning; the pass card asks for both.
+function GameConfig.GetBestVipDamageMult(data, field)
+	field = field or "vipDamageMult"
 	local best = 1
 	for _, c in ipairs(GameConfig.VipCharacters) do
-		if data and data.Characters and data.Characters[c.key] and (c.vipDamageMult or 1) > best then
-			best = c.vipDamageMult
+		if data and data.Characters and data.Characters[c.key] and (c[field] or 1) > best then
+			best = c[field]
 		end
+	end
+	return best
+end
+
+-- The top of each ladder as authored, with no save involved -- what the shop can promise before it
+-- knows who is reading. Quoted by the pass description and by the VIP card, so raising the last row
+-- of the wardrobe raises the advertisement with it.
+function GameConfig.GetVipLadderTop(field)
+	field = field or "vipDamageMult"
+	local best = 1
+	for _, c in ipairs(GameConfig.VipCharacters) do
+		if (c[field] or 1) > best then best = c[field] end
 	end
 	return best
 end
@@ -4738,6 +4808,17 @@ end
 function GameConfig.SyncVipCharacter(data)
 	if not data then return end
 	data.Characters = data.Characters or {}
+
+	-- FIRST, THE KEYS THE WARDROBE NO LONGER HAS. Unconditional -- a retired key is retired whether
+	-- or not the pass is still owned -- and it clears `WornCharacter` too, because a worn key that
+	-- resolves to nothing puts the player in no skin at all with nothing on screen to say why. The
+	-- grant below then re-dresses them in the entry skin. See GameConfig.RetiredVipKeys.
+	for _, key in ipairs(GameConfig.RetiredVipKeys) do
+		data.Characters[key] = nil
+		if data.WornCharacter == key then
+			data.WornCharacter = GameConfig.VipCharacters[1].key
+		end
+	end
 
 	-- THE WHOLE WARDROBE MOVES TOGETHER. Nine skins, one pass: granting them one at a time would
 	-- mean nine places for a lapse to be half-applied, and there is nothing a player could do to own

@@ -234,7 +234,12 @@ local LIP_DEPTH = 6
 
 local function styleCard(inst, baseColor, radius, thickness)
 	baseColor = baseColor or UITheme.Color.Blue
-	local cornerRadius = (typeof(radius) == "UDim") and radius or UDim.new(0, radius or 16)
+	-- THROUGH THE LADDER, the way the thickness below already goes through `SnapStroke` (2026-08-16).
+	-- This builder made most of the HUD and it was the one surface builder in the game that did NOT
+	-- snap its radius, so the shape scale in `UITheme` governed everything except the screen you
+	-- actually look at. The snap only ever rounds UP, so nothing here can come out squarer than it
+	-- was authored.
+	local cornerRadius = UITheme.SnapRadius((typeof(radius) == "UDim") and radius or UDim.new(0, radius or 16))
 
 	inst.BackgroundTransparency = 1
 	inst.BorderSizePixel = 0
@@ -247,10 +252,15 @@ local function styleCard(inst, baseColor, radius, thickness)
 
 	local strokeT = UITheme.SnapStroke(thickness or UITheme.Stroke.Heavy)
 
+	-- NO LIP UNDER A PILL -- see `applyShell` in UITheme for the geometry. Short version: the lip is
+	-- this shape shifted down 6 px, and a stadium shifted down pokes its flanks out at both ends
+	-- exactly where the body has curved away, so every capsule on this HUD wore two dark caps.
+	local lipDepth = (cornerRadius.Scale >= 0.5) and 0 or LIP_DEPTH
+
 	local shadowBody = inst:FindFirstChild("ShadowBody") or Instance.new("Frame")
 	shadowBody.Name = "ShadowBody"
 	shadowBody.Size = UDim2.new(1, 0, 1, 0)
-	shadowBody.Position = UDim2.new(0, 0, 0, LIP_DEPTH)
+	shadowBody.Position = UDim2.new(0, 0, 0, lipDepth)
 	shadowBody.BackgroundColor3 = shade(baseColor, -0.4)
 	shadowBody.BackgroundTransparency = 0
 	shadowBody.BorderSizePixel = 0
@@ -1452,7 +1462,7 @@ local masterySummaryFill, masterySummaryLabel = select(2, UITheme.ProgressBar(ma
 	size = UDim2.new(1, -32, 0, 40),
 	position = UDim2.new(0, 16, 0, 94),
 	color = UITheme.Color.Gold,
-	radius = UDim.new(0, 12),
+	radius = UITheme.Radius.Pill,
 	thickness = 3,
 	text = "0 / " .. #GameConfig.Stages .. " mastered",
 	maxTextSize = 20,
@@ -6351,8 +6361,12 @@ local CHAR_LINE_H = 132
 			-- so the Prism Herald's own card read "Evolve to this stage to discover it", which is
 			-- both untrue and unactionable. Each kind now names its actual route.
 			if entry.vip then
-				dHint.Text = ("Comes with the VIP pass \u{2014} x%s damage while it is on, and it goes away again if the pass does.")
-					:format((("%.2f"):format(entry.vipDamageMult or 1):gsub("%.?0+$", "")))
+				-- BOTH LADDERS, because as of the wardrobe rebuild a VIP skin pays DNA as well as
+				-- damage and quoting only the half that was here first would undersell the row by
+				-- exactly the amount that was added to it.
+				dHint.Text = ("Comes with the VIP pass \u{2014} x%s damage and x%s DNA while it is on, and it goes away again if the pass does.")
+					:format((("%.2f"):format(entry.vipDamageMult or 1):gsub("%.?0+$", "")),
+						(("%.2f"):format(entry.vipIncomeMult or 1):gsub("%.?0+$", "")))
 			elseif entry.event then
 				local eventDef = GameConfig.GetEvent(entry.event)
 				local label = ("%s%s"):format(eventDef and (eventDef.emoji .. " ") or "",
@@ -6385,8 +6399,9 @@ local CHAR_LINE_H = 132
 			-- THE ONE CARD IN THIS PANEL WHERE "a skin is looks only" IS FALSE (16.2), so it says the
 			-- trade instead of denying there is one: what this skin would put on the body, against what
 			-- is on it right now.
-			dHint.Text = ("Wear it for x%s damage \u{2014} %s instead of %s."):format(
+			dHint.Text = ("Wear it for x%s damage and x%s DNA \u{2014} %s instead of %s."):format(
 				(("%.2f"):format(entry.vipDamageMult):gsub("%.?0+$", "")),
+				(("%.2f"):format(entry.vipIncomeMult or 1):gsub("%.?0+$", "")),
 				formatNumber(currentData and math.floor(GameConfig.GetBaseDamage(currentData) * entry.vipDamageMult) or 0),
 				formatNumber(progressDamage))
 			dHint.TextColor3 = Color3.fromRGB(72, 168, 96)

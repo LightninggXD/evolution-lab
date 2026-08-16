@@ -252,7 +252,7 @@ local function build()
 		size = UDim2.new(1, -32, 0, 16),
 		position = UDim2.new(0, 16, 0, contentY + 318),
 		color = UITheme.Color.Sunny,
-		radius = 8,
+		radius = UITheme.Radius.Pill,
 		thickness = 3,
 		zIndex = 22,
 	})

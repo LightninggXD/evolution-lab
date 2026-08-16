@@ -1044,7 +1044,10 @@ function UITheme.IconTile(parent, opts)
 	tile.TextTransparency = 1
 
 	local color = opts.color or Color.Blue
-	local radius = toUDim(opts.radius, UDim.new(0, 18))
+	-- The big pressable squares take the roundest step in the ladder rather than a number of their
+	-- own (2026-08-16). A HUD tile is the shape the eye reads the aesthetic off -- there are twelve of
+	-- them down both edges of the screen -- so this is where "everything rounder" is actually visible.
+	local radius = toUDim(opts.radius, UITheme.Radius.Tile)
 
 	-- TWO EDGES, NOT THREE. A tile is the dark outline and the coloured face, and nothing between.
 	--

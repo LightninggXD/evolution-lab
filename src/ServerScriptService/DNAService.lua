@@ -38,6 +38,11 @@ function DNAService.GetIncomeMult(data, excludeEvents)
 	-- `incomeMult` field) -- this function never learns any pass by name. Because this is the single
 	-- income multiplier, the pass reaches clicks, kill payouts and idle auto-collect at once.
 	mult = mult * GameConfig.GetPassMult(data, "incomeMult")
+	-- THE VIP WARDROBE'S DNA HALF, and the only term in this function that reads what the player is
+	-- WEARING. It sits after GetPassMult for the same reason the damage half does in
+	-- GetCombatDamage: the VIP pass's own 1.5x and the worn skin's 1.10-1.50 stack, so the row is
+	-- worth most to the player who already bought the most. See GameConfig.VipCharacters.
+	mult = mult * GameConfig.GetVipIncomeMult(data)
 	-- Group member bonus: +10% permanent DNA boost (Phase 5.5)
 	if data.InGroup then
 		mult = mult * (GameConfig.GroupIncomeMult or 1.10)

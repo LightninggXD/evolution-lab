@@ -1248,12 +1248,16 @@ local function ensureBossBar()
 	nameStroke.LineJoinMode = Enum.LineJoinMode.Round
 	nameStroke.Parent = bossBarName
 
+	-- A PILL, like every other bar in the game. This one asked for a 14 px box, which made it the
+	-- only rounded-RECTANGLE health bar on the screen -- and the one shape `applyShell` still puts a
+	-- dark lip under, so it wore two black caps where the lip swung out past its corners. Bars are
+	-- the archetype the Pill step exists for; there is no reason for this one to be the exception.
 	local _bar, fill, label = UITheme.ProgressBar(holder, {
 		name = "Bar",
 		size = UDim2.new(1, 0, 0, 40),
 		position = UDim2.new(0, 0, 1, 0),
 		anchorPoint = Vector2.new(0, 1),
-		radius = UDim.new(0, 14),
+		radius = UITheme.Radius.Pill,
 		thickness = 4,
 		progress = 1,
 		color = UITheme.Color.Red,
