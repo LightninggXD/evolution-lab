@@ -179,32 +179,67 @@ looking at the screen. Anything else that becomes reassignable must join it as a
 
 ---
 
-## 5. Done so far
+## 5. Done
 
-| module | lines | out of |
-|:--|--:|:--|
-| `ReplicatedStorage/Modules/UIKit.lua` | 589 | MainUI 16–555 |
-| `ReplicatedStorage/Modules/HUD/TradePanel.lua` | 1012 | MainUI's trading IIFE |
+**`MainUI` 11,743 → 5,015 lines.** Every closure block is out; 22 modules under
+`ReplicatedStorage/Modules/HUD/`, plus `Modules/UIKit` for the drawing kit.
 
-`MainUI` 11,743 → 10,302 lines. Verified: all lint clean, 55/55 files byte-identical to Studio,
-HUD renders with all 42 children, trade picker drawn, console clean.
+```
+UIKit 589        TradePanel 1012   JournalGrid 810     SeasonPass 947
+PotionTimers 664 EggShop 434       PetFusion 412       GroupRewards 218
+WelcomeBack 233  Quests 220        ProductTiles 201    AudioPanel 208
+PassShop 190     PetsActions 207   PetRelease 164      WheelEntry 144
+ScrollAffordance 123  InventoryTabs 116  RebirthRungs 115  Codes 115
+TileColumnFit 108     RebirthBeacon 101  CurrencyPlus 47
+```
 
-**22 blocks and ~5,360 lines remain** in MainUI — run `splitplan.py` for the current list. The
-next three by size are the Season Pass panel (927), the Journal's ownership block (790) and the
-potion timers (644).
+**`GameConfig` 5,205 → a 23-line loader + 16 parts** under `Modules/GameConfig/`: Evolution,
+Upgrades, Zones, Pets, Rebirth, Rewards, Potions, Shops, Diamonds, Mastery, RobuxShop, Events,
+Season, Helpers, Characters, Codes. No call site changed — it still returns one table.
+
+Verified for both: `luastruct` and `luascope` clean on all 92 files, no module writes to a former
+MainUI local, every file byte-identical to Studio, everything compiles, HUD photographed with the
+same 42 children and no losses, every extracted panel populated (SeasonPanel 2,204 descendants,
+CharacterPanel 2,730), Season Pass photographed open, and GameConfig compared field by field
+against the pre-split version in a live Studio session — 266 fields both sides, nothing missing,
+nothing extra, no type or length differences.
 
 ---
 
-## 6. After MainUI
+## 6. What is left, and why the next two are not the same job
 
-Not started; the seams are known but unmeasured.
+These were **measured**, not guessed — the numbers below are from the same scan `splitplan.py`
+does. Do not assume MainUI's recipe transfers; it does not, and here is the evidence.
 
-- **`GameConfig` (5,205)** — pure data, so the safest of the four. Split into siblings
-  (`GameConfigZones`, `GameConfigSkins`, `GameConfigPets`, `GameConfigProducts`…) with `GameConfig`
-  requiring them and re-exporting, so **no call site anywhere changes**. Check first what the
-  accessor functions close over.
-- **`ZoneBuilder` (9,281)** — read GEMINI.md §7 before touching it; a careless edit regenerates or
-  deletes the world. The decoration/prop builders are leaves and go first. `BUILD_VERSION` must
-  still beat the world's stamp or a rebuild is a silent no-op.
-- **`CreatureService` (3,869)** and **`BossService` (3,053)** — server-side, no register cap
-  pressure, so lower priority than the two above.
+### `ZoneBuilder` (9,281 lines) — a real refactor, not a move
+
+190 top-level locals, **48 of them used across spans of 600+ lines**, and `newPart` alone has
+**534 call sites** spread over the whole file. There is no line at which a cut leaves the locals
+behind, so §1's recipe does not apply.
+
+The order that does work:
+
+1. **First build `ZoneKit`** — `newPart`, `vivid`, `pulseForever`, `groundColorOf`,
+   `addPlankText`, the shadow-by-size rule, the solidity audit and the terrace-band constants.
+   That is the vocabulary the other 8,000 lines speak, and nothing else can move until it exists.
+2. Then the leaves, in this order, because each is a section that only reads the kit: the village
+   prop library (2,108), ground clutter (3,147), idols and ruins (3,463), the mesh prop layer
+   (5,172), the egg plaza (6,136 — 1,759 lines, the single biggest), the boss arena (7,895).
+3. **Read GEMINI.md §7 first.** A careless edit here regenerates or deletes the world, and
+   `BUILD_VERSION` must still beat the world's stamp or a rebuild is a silent no-op.
+
+### `CreatureService` (3,869) and `BossService` (3,053) — split the rig factory out
+
+Same shape, smaller: 115 and 82 top-level locals, 42 and 39 of them spanning 400+ lines. The
+coupling is concentrated in the rig-building vocabulary — `att` (171 and 210 sites), `mk` (197),
+`IDENTITY` (67 and 88), `pairUp`, `INK`, `lighten`.
+
+The seam that exists: in **BossService** those names are all defined between lines 234 and 545 and
+almost all their use is above 1,775, so `BOSS RIG FACTORY` + `GENERATED MESH RIGS` (223–1,775,
+~1,550 lines) comes out nearly whole. Check `att` and `INK` first — both are read again in the VFX
+section around 2,585–2,715, so either the kit goes in its own module both sides require, or those
+two uses move with it. **CreatureService** is the same story around its rig factory (533–2,300).
+
+### `UITheme` (2,889) and `StageCostume` (1,626)
+
+Untouched and not yet measured.

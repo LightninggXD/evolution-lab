@@ -832,6 +832,30 @@ Gathered 2026-08-07/08 while writing this plan.
 
 ## Changelog
 
+- **2026-08-17 (forty-sixth session, second half)** — **THE SPLIT WENT ALL THE WAY THROUGH THE TWO
+  FILES WHERE IT COULD BE MECHANICAL.** `MainUI` **11,743 → 5,015** and `GameConfig` **5,205 → a
+  44-line loader**; 38 new modules, and not one call site outside them changed.
+  **The multiplier was the tool, not the typing.** `tools/splits/extract.py` takes one block and
+  works out for itself which services it needs, which `UIKit` helpers, and which of `MainUI`'s own
+  locals it captured — then refuses to run if a dependency is not published on `hudRefs` yet,
+  because a module handed a nil helper does not error, it silently draws nothing.
+  `run_hud.py` drove it over all twenty remaining blocks, re-deriving each range from `splitplan.py`
+  every iteration because `--publish` inserts lines and shifts them.
+  **`GameConfig` was cut on a measurement, not a hope:** 21 top-level locals, every one used within
+  a few dozen lines of its own definition, none crossing a section heading — so sixteen parts could
+  be drawn where no local leaves its file. Each is `return function(GameConfig)` writing into the
+  shared table, order preserved because several parts build tables at load time from earlier ones.
+  Proved by loading both versions side by side in a live session: **266 fields both sides, nothing
+  missing, nothing extra, no type or length differences.**
+  **One bug worth keeping:** `luamap` ends a statement on block keywords and knows nothing about
+  brackets, so for `local x = UITheme.Pill(parent, {` it reported one line and the publish landed
+  *inside* the constructor. `tools/splits/fix_publishes.py` repairs that class of fault.
+  **`ZoneBuilder` was measured and deliberately NOT started.** 190 top-level locals, 48 spanning
+  600+ lines, `newPart` at **534 call sites** — there is no line where a cut leaves the locals
+  behind, so it needs a `ZoneKit` module built first and then the leaves moved onto it. Same for
+  the two combat services, whose coupling is concentrated in the rig-building vocabulary (`att` at
+  171 and 210 sites, `mk` at 197). The measured order for all three is `docs/SPLIT.md` §6.
+
 - **2026-08-17 (forty-sixth session)** — **THE GOD SCRIPTS ARE BEING TAKEN APART, AND THE FIRST
   THING BUILT WAS THE MAP.** The owner's second agent counted the codebase and put numbers on
   what everyone already felt: `MainUI` at 11,743 lines and 260-odd functions, `ZoneBuilder` at
