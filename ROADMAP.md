@@ -680,6 +680,34 @@ claims to have fixed.**
 
 ---
 
+## Phase 16 — The panel pass · *opened 2026-08-16 by a hash sweep, not by a plan*
+
+**This phase already existed in the place before it existed in this file.** A session-start sweep
+found six of the fifty live scripts divergent and `tools/provenance.py` returned **NO MATCH** on all
+six — Studio was carrying work that is in no commit, including a `MainUI` 16 KB larger than `src/`
+whose comments cite rows **16.1** and **16.2**. It was pulled out whole over the HTTP bridge and
+committed (`73e65a8`) before anything was written over it, so the two rows below are written
+**from the code that is already running**, and they are `[~]` for the honest reason: nobody has
+verified them against a check. That is what the rest of this phase does.
+
+**The rule this phase is about, stated once.** `applyShell` no longer paints the frame it is given.
+Since 15.28 it sets that frame fully transparent and moves the fill, its gradient and the bottom lip
+into **`InnerBody`** and **`ShadowBody`** children. So every helper that repaints a surface by
+writing `BackgroundColor3` on the host now writes to a surface nothing draws — and returns quietly.
+15.37 was one instance of this (the Journal disc), `setButtonColor` was the fix for a second, and
+16.3 is the general case.
+
+| ID | | Task | Check | Verified how |
+|---|---|---|---|---|
+| 16.1 | `[~]` | <!-- found in the place 2026-08-16, authored by an earlier uncommitted session --> **The HUD strip is capsules, not cards.** Every row on the boost strip is 216x38 and a capsule where it was 244x48 and a box; the two-line boost card (subtitle + effects line) is one line; the **pass chip tray is gone from the HUD** entirely; the worn mutation is a coloured **dot on the Auras tile** rather than its own card; and the strip is capped at four rows instead of "every pixel between the tile column and the bottom edge". Written up here from the code because it exists in no commit message and no row | Open the game with two boosts and an aura live: four capsules maximum, no pass chips, and the aura reads as a dot on the tile | not yet measured |
+| 16.2 | `[~]` | <!-- found in the place 2026-08-16, same source as 16.1 --> **The tile columns are 2x2 and the door to trading is the other player.** Both side columns are two tiles wide (they were single files); the **Trade tile is gone** and its feature is not — clicking any avatar in the world opens a 250x184 card over the click with their headshot, display name, live distance (in range / walk closer) and one green **Trade** button, with a quieter second button into the picker panel that still exists. Client raycast, not a `ClickDetector` per character; the server still re-checks identity, distance, rate limit and trade state in `TradeService.Request` exactly as before | Click another player: the card opens above them, clamped into the viewport, and its distance line repaints as you walk | not yet measured |
+| 16.3 | `[x]` | <!-- found live 2026-08-16 by a probe on the running HUD, one call --> **`UITheme.SetColor` has been a no-op on every modern surface, and it is the API ~25 state recolours go through.** It paints `inst.BackgroundColor3` and looks for `inst.Gradient`; after 15.28 the host is `BackgroundTransparency = 1` and both the fill and the gradient live in `InnerBody`, with the lip in `ShadowBody`. The `Body` tile branch is dead the same way — an `IconTile`'s face is itself an `applyShell` surface. Measured on the live HUD: **631 shells on screen**, and a `SetColor` to magenta moved the host's invisible colour and left the drawn fill, its gradient and the lip untouched. **`MainUI` already knows** — 15.28 added a local `setButtonColor` that repaints `InnerBody`/`ShadowBody` by hand and its comment says every state recolour in that file was "dead on arrival". What that fix did not reach is every **direct** `UITheme.SetColor` call: the Robux tabs, the mute toggle, the Auras `Wear` buttons, the shard button, the potion rows, the Locked/Green claim buttons, `SplicerUI`'s roll button and `ZoneTransition`'s name card. Fix the root — resolve the paint target once, so a surface with an `InnerBody` is painted there and a plain frame (a `ProgressBar` fill, which is what `CombatClient` recolours) is painted as before | `SetColor` a live shell and read `InnerBody.BackgroundColor3`, its `Gradient` and `ShadowBody` — all three move, and a plain frame still moves too | **fixed and measured live on BETA V0.2.** `UITheme.FaceOf` is public now and `SetColor` paints through it. On the live `TopBar.StageCard`: `InnerBody` 0.647,0.412,0.961 -> 1,0,1, its `Gradient`'s first keypoint 0.788,0.647,0.976 -> 1,0.4,1, and the `ShadowBody` lip 0.388,0.247,0.576 -> 0.6,0,0.6 -- fill, gradient and lip, all three, where the old code moved only the host's invisible colour. **Control run in the same call:** a bare `Frame` with no `InnerBody` still repaints 10,10,10 -> 0,255,0, so the `ProgressBar` fills `CombatClient` recolours are untouched. Restored to its authored rgb(165,105,245) afterwards |
+| 16.4 | `[x]` | <!-- found live 2026-08-16 in the same probe pass as 16.3 --> **15.2's cyan panel rim is gone from the entire game, and both halves of the test that sets it broke at once.** `registerPanel` is the one place that knows what a panel is, and it decides the rim with `panel:FindFirstChildOfClass("UIStroke")` plus a near-white test on `panel.BackgroundColor3`. After 15.28 the stroke is a child of `InnerBody`, not of the panel — so the lookup returns **nil** — and the host's own `BackgroundColor3` is never written at all, so it reads back Roblox's **default frame grey (0.639, 0.635, 0.647)**, which fails the near-white test even if a stroke had been found. Measured on the running HUD: **19 of 19 panels carrying `HudPanel`, host stroke missing on 19, thickness ≥ 6 on 0** — every panel in the game wearing the ordinary dark 5px card outline. Asked of the surface now (`UITheme.FaceOf`, made public for this) and of the `BaseColor` attribute `applyShell` stamps on the host, which is the reading that survives wherever the fill lives next. The `ShadowBody` lip keeps its dark outline deliberately: a lip recoloured to match stops reading as a shadow and starts reading as a second, misaligned rim | Open any panel: a 6px cyan rim on the face, dark lip beneath, and nothing else in the game gains one | **fixed and photographed.** Before: 19 panels, host stroke missing on 19, thickness >= 6 on **0**. After: **19 of 19** carrying a 6px stroke in `Color.PanelBorder`. Capture of the Zones panel shows the cyan rim back on the face with the dark lip beneath it |
+| 16.5 | `[x]` | <!-- photographed 2026-08-16 on the first capture of the session, before anything was touched --> **The Welcome Back card is authored for two rows and usually has one, so a third of it is empty shell.** Measured on the live card: panel 580x294, `Rows` 548x188, and one visible row — about **100 px of blank grey** under the daily reward, which reads as a card that failed to finish loading rather than as a card with one thing on it. Two rows is genuinely the maximum (daily + Season Pass) and the authored height is right for that; what was missing is that the Season row is the *uncommon* one. Sized to the rows that are actually visible, after they are decided. **Shrinking is the safe direction and that is why it may run after `registerPanel`:** the UIScale was fitted for 580x294, so a panel that ends up smaller still fits every viewport it fitted before — growing is what would be scaling off a stale number, and this never grows past the authored height | Join with only the daily waiting: the card ends a margin under the one row, not 100 px under it | **fixed and photographed on a real join.** The card opened with one live row and measured **580x194** against the authored 294, `Rows` exactly 88 tall -- the daily reward with a margin under it and no empty shell. Two rows still resolves to 294 by the same arithmetic |
+| 16.6 | `[x]` | <!-- opened 2026-08-16 by a contrast sweep, and the sweep's answer was wrong; the capture corrected it --> **Both Pets/Potions tabs are blank pills, and the shell is painted over the caption.** A `TextButton` draws its own text at its **own** ZIndex, and `styleCard` puts the fill in an `InnerBody` child one rung **above** it (`Z.Body`) — so since 15.28 the two tabs on the Inventory and Pets panels have been a grey pill and a blue pill with no words on either. The caption moves onto its own label at `Z.Content`, the way `styleButton` mirrors every other button in this file into a proxy, with `themeLabel`'s halo and the stroke matched to the glyph's own transparency (an opaque outline under a dimmed label draws the word in outline only). **The first reading of this row was wrong in an instructive way, and it is kept here for that:** a contrast sweep said the text sat at **1.13:1 against its own fill** and the fix was recorded as "add the missing outline" — true, these were the only **4 of 942** visible text runs in the HUD with no `UIStroke`, and *not the fault*. A colour probe cannot see occlusion. The second capture, taken after the halo shipped, showed two blank pills exactly as before, which is what named the real cause. The sweep itself is still worth keeping, in its corrected form: the naive test (text vs backing) flagged **736 of 942** runs, because in this HUD the outline *is* the contrast — a run reads if it separates from its backing **or** from its own stroke | Open Inventory: two captioned tabs, the inactive one dimmer rather than blank | **fixed and photographed.** Live: `ownText=""` on all four tabs, caption on a `Label` child at ZIndex **31** against the body's 28, transparency 0.00 on the active tab and 0.25 on the inactive one with the stroke matched to each. The capture reads a dimmed **Pets** on the grey pill beside a bright **Potions** on the blue one -- where the previous capture, taken with the halo already shipped, showed two blank pills. An occlusion sweep over the whole HUD found exactly these **4 of 1,212** text runs buried before the fix and **0 of 1,818** after it (the two counts differ because the second pass had more rows drawn) |
+
+---
+
 ## 👤 Owner action checklist
 
 Collect these once; each one blocks agents until it exists.
@@ -722,6 +750,54 @@ Gathered 2026-08-07/08 while writing this plan.
 ---
 
 ## Changelog
+
+- **2026-08-16 (thirty-eighth session)** — **PHASE 16 OPENED, AND IT WAS ALREADY RUNNING IN THE
+  PLACE.** Asked to improve the game and to start from the panels. The session-start sweep found
+  **six of the fifty live scripts divergent** and `tools/provenance.py` answered **NO MATCH** on all
+  six — Studio held work in no commit, including a `MainUI` 16 KB larger than `src/` whose comments
+  cite rows *16.1* and *16.2* that exist nowhere in this file. Pulled out whole over the HTTP bridge
+  and committed first (`73e65a8`), then written up as 16.1 and 16.2 and left `[~]`, because nobody
+  has run their checks.
+
+  **One structural change from 15.28 is behind everything that follows, and it is worth stating
+  once: `applyShell` no longer paints the frame it is given.** The fill, its gradient and the bottom
+  lip live in `InnerBody` and `ShadowBody` children and the host is left fully transparent. Every
+  helper that repaints or measures *the host* therefore reads and writes a surface nothing draws —
+  silently, with every property still reading back exactly what was set. Three separate faults this
+  session were that one sentence:
+
+  **16.3 — `UITheme.SetColor` has been a no-op on every modern surface**, and it is the API roughly
+  25 state recolours go through: the Robux tabs, the mute toggle, the Auras *Wear* buttons, the
+  shard button, the potion rows, every Locked/Green claim button, `SplicerUI`'s roll button,
+  `ZoneTransition`'s name card. Measured on the running HUD — **631 shells on screen**, and a
+  `SetColor` to magenta moved the host's invisible colour while the drawn fill, its gradient and the
+  lip stayed put. `MainUI` already knew and had patched around it locally (15.28's `setButtonColor`);
+  what that never reached was every *direct* call. Fixed at the root with a public
+  `UITheme.FaceOf`, and proved with a control: a plain frame with no `InnerBody` still repaints.
+
+  **16.4 — 15.2's cyan panel rim is gone from the entire game, and both halves of the test broke at
+  once.** `registerPanel` looks for `panel:FindFirstChildOfClass("UIStroke")` (now **nil** for every
+  panel — the stroke is on `InnerBody`) and then applies a near-white test to
+  `panel.BackgroundColor3`, which is never written any more and reads back **Roblox's default frame
+  grey**. Measured before: **19 panels, 19 missing host strokes, 0 rims**. After: 19 of 19. Asked of
+  `UITheme.FaceOf` and of the `BaseColor` attribute now, which is the reading that survives wherever
+  the fill lives next.
+
+  **16.6 — both Inventory tabs are blank pills, and the first diagnosis was wrong in a way worth
+  keeping.** A contrast sweep found them at **1.13:1** against their own fill and named the missing
+  outline — true (**4 of 942** visible runs in the HUD had no `UIStroke`, and they were these four)
+  and not the fault. The halo shipped and the next capture showed two blank pills exactly as before.
+  A `TextButton` draws its own text at its **own** ZIndex and `styleCard` puts the fill one rung
+  above it, so the shell had been painted over the caption since 15.28. The caption is a `Label`
+  child at `Z.Content` now. **A colour probe cannot see occlusion.** The corrected sweep is worth
+  keeping in both forms: the naive test (text vs backing) flagged **736 of 942** runs, because in
+  this HUD the outline *is* the contrast.
+
+  **16.5 is the only one that is not that bug** — the Welcome Back card is authored for two rows and
+  usually has one, so a third of it was empty shell (measured 580x294 around a single 88px row). It
+  is sized to what is actually waiting now, **580x194** on a real join. Shrinking after
+  `registerPanel` is safe in a way growing would not be: the UIScale was fitted for the authored
+  size, so anything smaller still fits every viewport it fitted before.
 
 - **2026-08-16 (thirty-seventh session)** - **THE JOURNAL, MEASURED RATHER THAN ADMIRED - and three of
   the four findings were in code whose own comments described a game that has moved on.** Asked for

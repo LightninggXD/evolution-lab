@@ -896,9 +896,27 @@ local function registerPanel(panel)
 	-- Near-white rather than an equality test, because the panels are painted from three different
 	-- whites (PANEL_SHELL, PanelWhite, and the Pets panel's own 252,252,255) and a rim they share is
 	-- the whole point. Anything coloured keeps the dark outline styleCard gave it.
-	local shellStroke = panel:FindFirstChildOfClass("UIStroke")
+	--
+	-- AND NEITHER THE STROKE NOR THE COLOUR IS ON `panel` ANY MORE (16.4). 15.28 moved the fill,
+	-- its gradient and the outline into an `InnerBody` child and left the host transparent, so both
+	-- halves of this test broke at once and in silence: `panel:FindFirstChildOfClass("UIStroke")`
+	-- returned **nil** for every panel in the game, and `panel.BackgroundColor3` read back Roblox's
+	-- default frame grey (0.639, 0.635, 0.647) -- which is not near-white, so even a found stroke
+	-- would have been left alone. Measured on the running HUD before the fix: **19 of 19 panels,
+	-- zero cyan rims**, every one of them wearing the ordinary dark 5px card outline instead.
+	--
+	-- Asked of the surface now, not of the host: `UITheme.FaceOf` answers `InnerBody` for a modern
+	-- shell and the object itself for anything older, and `BaseColor` is the attribute `applyShell`
+	-- stamps on the HOST with the colour it was actually asked for -- which is the one reading that
+	-- survives wherever the fill happens to live next.
+	--
+	-- The lip keeps its dark outline on purpose. The cyan belongs to the face of the panel; a
+	-- ShadowBody recoloured to match would stop reading as a shadow and start reading as a second,
+	-- misaligned rim.
+	local face = UITheme.FaceOf(panel)
+	local shellStroke = face and face:FindFirstChildOfClass("UIStroke")
 	if shellStroke then
-		local c = panel.BackgroundColor3
+		local c = panel:GetAttribute("BaseColor") or face.BackgroundColor3
 		if math.min(c.R, c.G, c.B) > 0.95 then
 			shellStroke.Thickness = 6
 			shellStroke.Color = UITheme.Color.PanelBorder
@@ -4872,6 +4890,39 @@ end)
 			tab.ZIndex = row.ZIndex + 1
 			tab.Parent = row
 			styleCard(tab, i == activeIndex and def.color or UITheme.Color.Locked, UDim.new(0, 14), 4)
+			-- ===== BOTH TABS WERE BLANK PILLS, AND THE OUTLINE WAS NOT THE REASON (16.6) =====
+			--
+			-- A TextButton draws its own text at its OWN ZIndex, and `styleCard` puts the fill in an
+			-- `InnerBody` child one rung ABOVE it (`Z.Body`) -- so since 15.28 the shell has been
+			-- painted straight over the caption. Photographed: a grey pill and a blue pill with no
+			-- words on either.
+			--
+			-- The first reading of this row was wrong in an instructive way. A contrast sweep said
+			-- the text was 1.13:1 against its own fill and the conclusion was "it needs the missing
+			-- outline" -- true (these were the only 4 of 942 visible runs with no `UIStroke`) and
+			-- not the fault. A colour probe cannot see occlusion; the capture can. Adding the halo
+			-- to a glyph nothing draws changed nothing, which is what the second capture showed.
+			--
+			-- So the caption moves onto its own label at `Z.Content`, the way `styleButton` mirrors
+			-- every other button in this file into a proxy. `themeLabel` gives it the chunky halo
+			-- for free, and the stroke is then matched to the glyph's own transparency: an outline
+			-- left opaque under a dimmed label draws the word in outline only, the trap the `+1`
+			-- popup and the notification fade both already carry notes about.
+			local cap = Instance.new("TextLabel")
+			cap.Name = "Label"
+			cap.Size = UDim2.new(1, -10, 1, 0)
+			cap.Position = UDim2.new(0.5, 0, 0.5, 0)
+			cap.AnchorPoint = Vector2.new(0.5, 0.5)
+			cap.BackgroundTransparency = 1
+			cap.Text = def.text
+			cap.TextColor3 = tab.TextColor3
+			cap.TextTransparency = tab.TextTransparency
+			cap.ZIndex = tab.ZIndex + UITheme.Z.Content
+			cap.Parent = tab
+			themeLabel(cap, 19)
+			local capStroke = cap:FindFirstChildOfClass("UIStroke")
+			if capStroke then capStroke.Transparency = cap.TextTransparency end
+			tab.Text = ""
 			tab.MouseButton1Click:Connect(function()
 				if def.target == panel then return end
 				toggleOnly(def.target)
@@ -8159,6 +8210,27 @@ end
 		sub.Text = (dailyReady and seasonReady > 0)
 			and "Two things are waiting for you."
 			or "You have something waiting."
+
+		-- ===== AND THE CARD IS AS TALL AS WHAT IS ACTUALLY WAITING (16.5) =====
+		--
+		-- Authored at two rows, because two is the most it can ever hold and `registerPanel` reads
+		-- its responsive fit off the AUTHORED size. But one row is the common case by a distance --
+		-- the Season Pass has something to claim only after a level or a quest turns over -- and one
+		-- row in a two-row card is 100 px of empty shell under the daily reward, which reads as a
+		-- card that failed to finish loading rather than as a card with one thing on it.
+		--
+		-- SHRINKING IS THE SAFE DIRECTION and that is why this is allowed to run after
+		-- `registerPanel`: the UIScale it fitted is computed for 580x294, so a panel that ends up
+		-- SMALLER than that still fits every viewport it fitted before. Growing is what would be
+		-- scaling off a stale number, and nothing here ever grows past the authored height.
+		local liveRows = (dailyRow.Visible and 1 or 0) + (seasonRow.Visible and 1 or 0)
+		if liveRows > 0 then
+			local rowsH = liveRows * ROW_H + (liveRows - 1) * ROW_GAP
+			rowHost.Size = UDim2.new(1, -32, 0, rowsH)
+			-- 14 top + 64 header + 12 gap + rows + 16 bottom margin: the same arithmetic the
+			-- authored 294 comes from, with the row count no longer assumed to be two.
+			panel.Size = UDim2.new(0, 580, 0, 14 + 64 + 12 + rowsH + 16)
+		end
 
 		task.spawn(function()
 			-- WAIT FOR THE LOADING SCREEN TO GO, and wait for the object rather than for a delay.

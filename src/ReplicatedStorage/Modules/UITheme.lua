@@ -1589,41 +1589,84 @@ end
 -- ============================================================================
 -- PUBLIC: SetColor / SetText
 -- ============================================================================
+-- ===== THE COLOUR IS NOT ON THE FRAME YOU WERE GIVEN (16.3, found live 2026-08-16) =====
+--
+-- `applyShell` above stopped painting its host at 15.28: the host goes fully transparent and the
+-- fill, its gradient and the moulded bottom lip move into `InnerBody` and `ShadowBody` children.
+-- Every helper that repaints by writing `BackgroundColor3` on the host therefore writes a colour
+-- nothing draws, and returns quietly -- there is no error and no warning, and the surface simply
+-- keeps the hue it was built with.
+--
+-- Measured on the running HUD: **631 shells on screen**, and a `SetColor` to magenta moved the
+-- host's invisible colour while the drawn fill, its gradient and the lip all stayed put. That is
+-- roughly 25 state recolours across the client -- the Robux tabs, the mute toggle, the Auras
+-- `Wear` buttons, the shard button, the potion rows, every Locked/Green claim button, `SplicerUI`'s
+-- roll button, `ZoneTransition`'s name card -- all of them dead, and all of them told apart by
+-- their UIStroke alone, which is why so many states here read as "nearly the same button".
+--
+-- `paintable` is the whole fix: ask the surface where its colour lives. A shell answers
+-- `InnerBody`; a plain frame -- a `ProgressBar` fill, which is what `CombatClient` recolours for
+-- the boss bar -- answers itself, and behaves exactly as it did before.
+-- Public, because `registerPanel` in MainUI has the same question about the same surfaces: the
+-- panel rim it sets is a UIStroke that is no longer a child of the panel either (16.4).
+function UITheme.FaceOf(inst)
+	if not inst then
+		return nil
+	end
+	local body = inst:FindFirstChild("InnerBody")
+	if body and body:IsA("GuiObject") then
+		return body
+	end
+	return inst
+end
+local paintable = UITheme.FaceOf
+
 function UITheme.SetColor(inst, color)
 	if not inst or not color then
 		return
 	end
 	-- An IconTile is two shells of the SAME colour (see IconTile: the outer one is the button, the
 	-- inner one is the face). Both have to move together, or a recoloured tile shows the old hue in
-	-- the one pixel of corner where the two roundings do not exactly coincide.
+	-- the one pixel of corner where the two roundings do not exactly coincide. Both are `applyShell`
+	-- surfaces, so both are painted through `paintable`.
 	local isTileBody = false
 	local tileBody = inst:FindFirstChild("Body")
 	if tileBody and tileBody:IsA("Frame") and tileBody:GetAttribute("BaseColor") then
 		local shell = inst
 		inst = tileBody
 		isTileBody = true
-		shell.BackgroundColor3 = color
+		local shellFace = paintable(shell)
+		shellFace.BackgroundColor3 = color
 		shell:SetAttribute("BaseColor", color)
-		local shellGrad = shell:FindFirstChild("Gradient")
+		local shellGrad = shellFace:FindFirstChild("Gradient")
 		if shellGrad and shellGrad:IsA("UIGradient") then
 			shellGrad.Color = pastelGradientFor(color)
 		end
+		local shellLip = shell:FindFirstChild("ShadowBody")
+		if shellLip and shellLip:IsA("GuiObject") then
+			shellLip.BackgroundColor3 = shade(color, -0.4)
+		end
 	end
-	inst.BackgroundColor3 = color
-	local grad = inst:FindFirstChild("Gradient")
+	local face = paintable(inst)
+	face.BackgroundColor3 = color
+	local grad = face:FindFirstChild("Gradient")
 	if not grad or not grad:IsA("UIGradient") then
-		grad = inst:FindFirstChildOfClass("UIGradient")
+		grad = face:FindFirstChildOfClass("UIGradient")
 	end
 	if grad then
 		grad.Color = isTileBody and pastelGradientFor(color) or gradientFor(color)
 	end
-	-- A recolour of the bottom lip used to live here. There is no lip any more (see addShadow), and
-	-- the guard is kept only because a surface built before this change can still be on screen in a
-	-- session that hot-reloaded UITheme -- recolouring it keeps that one consistent instead of
-	-- leaving a bar in the old colour. New surfaces never have the child, so this never runs.
-	local lip = inst:FindFirstChild("Shadow")
-	if lip and lip:IsA("Frame") and lip:GetAttribute("IsLip") then
-		lip.BackgroundColor3 = shade(color, -0.30)
+	-- The lip, at the same -0.4 `applyShell` built it with, or the recoloured face sits on a
+	-- moulded edge in the previous colour -- which is more visible than no lip at all.
+	local lip = inst:FindFirstChild("ShadowBody")
+	if lip and lip:IsA("GuiObject") then
+		lip.BackgroundColor3 = shade(color, -0.4)
+	end
+	-- The pre-15.28 lip. Kept only because a surface built before that change can still be on screen
+	-- in a session that hot-reloaded UITheme; new surfaces never have the child, so this never runs.
+	local oldLip = inst:FindFirstChild("Shadow")
+	if oldLip and oldLip:IsA("Frame") and oldLip:GetAttribute("IsLip") then
+		oldLip.BackgroundColor3 = shade(color, -0.30)
 	end
 	inst:SetAttribute("BaseColor", color)
 end
