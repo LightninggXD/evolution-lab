@@ -789,7 +789,19 @@ local REGALIA_GOLD = Color3.fromRGB(255, 198, 74)
 -- The head piece is chosen by the ENTRY, never by the rarity. All six of these are Legendary, so
 -- rarity carries no information here at all -- and a laurel on a gladiator is the whole difference
 -- between four champions and four palette swaps of one.
+--
+-- ABSENT IS A REAL ANSWER, AND IT USED TO FALL THROUGH TO A CROWN. 17.11 dropped the `regalia`
+-- field from all nine VIP entries on the reasoning that the field being absent would be enough --
+-- 17.10 had just re-cut them as real catalog bundles with their own horns, helmets and antlers, and
+-- a flat gold band on top of a Bull Demon King's horns is the one piece of hardware that fights the
+-- silhouette instead of crowning it. That reasoning was right and the change did nothing, because
+-- the `else` below drew a crown for every entry that did not name a piece: measured on a live
+-- character wearing `vip_gold`, StageCrownBand 1 + StageCrownSpike 5, exactly as before the row.
+-- The guard the row assumed is `offLadder`, one level up in `regalia()`, which every VIP entry
+-- still (correctly) carries -- it is what keeps the plinth. So `nil` means NO head piece here, and
+-- an entry that wants the band asks for it by name.
 local function headPiece(ctx, kind, metal)
+	if not kind then return end
 	local h, hs = ctx.head, ctx.headSize
 	if kind == "wreath" then
 		-- A laurel runs down BOTH SIDES and meets at neither end: leaves at the back are behind the
@@ -807,9 +819,12 @@ local function headPiece(ctx, kind, metal)
 		-- Three shards turning over the head, for a skin whose whole idea is light rather than metal
 		beadRing(ctx, h, "RegaliaShard", 3, hs.X * 0.60, hs.X * 0.34, metal,
 			{ seconds = ctx.static and nil or 5, tr = 0.08 }, CFrame.new(0, hs.Y * 0.88, 0))
-	else
+	elseif kind == "crown" then
 		crown(ctx, metal, 5, 0.5)
 	end
+	-- No fallback. An unrecognised name draws nothing rather than quietly drawing a crown, which is
+	-- the same failure the nil case was: a piece nobody asked for is impossible to trace back to a
+	-- config line, because there is no config line.
 end
 
 local function regalia(ctx, entry)
