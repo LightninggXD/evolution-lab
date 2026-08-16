@@ -54,11 +54,37 @@ end
 -- a white smear the world is barely visible through, at 1/0.35 it is a purple swirl you can read
 -- the village through.
 --
--- 1.0 is the highest brightness that cannot clip a fully-saturated tint, and 0.35 keeps the glow
--- (a particle at 0 is lit like a brick and goes grey in shadow) without washing the hue out. Both
--- are ceilings, never assignments: `Windspin3` is authored at 0.3 and stays there.
+-- 1.0 is the highest brightness that cannot clip a fully-saturated tint. It is a ceiling, never an
+-- assignment: `Windspin3` is authored at 0.3 and stays there.
+--
+-- ===== AND LIGHT EMISSION IS NOT THE SAME LEVER (17.18) ======================
+--
+-- 17.1 capped LightEmission to 0.35 in the same breath, on the reasoning that it "keeps the glow
+-- without washing the hue out". That was wrong, and it cost a second bug report a session later --
+-- a long white-and-dark streak trailing the player the length of the street.
+--
+-- The two properties do different jobs and only ONE of them clips a tint:
+--
+--   * Brightness multiplies the colour. That is the whole of 17.1's finding and the cap above is
+--     the whole of its fix.
+--   * LightEmission decides how ADDITIVELY the sprite is blended. These pack textures are drawn on
+--     a BLACK background and rely on being added onto the scene to make that background vanish.
+--     Lower it and the black stops being free: it is composited as actual black.
+--
+-- So capping it turned every floor sprite in the mutation aura into an opaque dark quad. Measured
+-- live on a max-stage body: four `MutationAura` emitters at sizes up to **24.7 studs** with a
+-- minimum Transparency of **0.00**, i.e. a fully opaque slab several times the character's width
+-- lying flat on the grass. Photographed from above it is a black diamond on green; from a low
+-- camera the same flat quad projects edge-on as a long tapering streak across the frame, which is
+-- what her screenshot is.
+--
+-- Verified by moving nothing but this one property on the live body: at LightEmission 1 with
+-- Brightness still capped at 1, the black quad is gone from the capture entirely and the aura is
+-- still red rather than white -- so the tint is safe without it and 17.1's result survives.
+--
+-- The ceiling is therefore only on Brightness. An effect's authored LightEmission is left alone,
+-- because it is a property of how the TEXTURE was drawn and not a decision the tint gets to make.
 local TINT_MAX_BRIGHTNESS = 1
-local TINT_MAX_LIGHT_EMISSION = 0.35
 
 -- Takes a ParticleEmitter or a Beam -- both carry Color, Brightness and LightEmission, and both
 -- clip a tint the same way.
@@ -67,9 +93,8 @@ local function applyTint(inst, color)
 	if inst.Brightness > TINT_MAX_BRIGHTNESS then
 		inst.Brightness = TINT_MAX_BRIGHTNESS
 	end
-	if inst.LightEmission > TINT_MAX_LIGHT_EMISSION then
-		inst.LightEmission = TINT_MAX_LIGHT_EMISSION
-	end
+	-- LightEmission is deliberately not touched -- see the block above. It is what makes the pack's
+	-- black sprite backgrounds disappear, so lowering it draws them.
 end
 
 -- ===== density ===============================================================
@@ -173,8 +198,8 @@ end
 --                      only -- `Place` keeps its own carrier and has never needed it.
 --   targetRate number  combined particles/second for the whole effect; preferred over `rate`
 --   rate    number    raw multiplier on Rate, for when the source density is already right
---   color   Color3    flat tint, see tintOf -- and note it also caps Brightness/LightEmission, see
---                     applyTint: asking for a colour is asking for it to be drawn
+--   color   Color3    flat tint, see tintOf -- and note it also caps Brightness, see applyTint:
+--                     asking for a colour is asking for it to be drawn
 --   only    {string}  emitter names to keep (default: all)
 --   skip    {string}  emitter names to drop
 function VFXLibrary.Attach(target, path, opts)
@@ -259,8 +284,8 @@ function VFXLibrary.Place(parent, path, cframe, opts)
 				applyTint(d, opts.color)
 			end
 		elseif d:IsA("Beam") and opts.color then
-			-- A Beam carries the same two properties (checked on a fresh one: Brightness 1,
-			-- LightEmission 0) and clips the same way, so it takes the same ceiling.
+			-- A Beam carries Brightness too (checked on a fresh one: Brightness 1) and clips a
+			-- tint the same way, so it takes the same ceiling.
 			applyTint(d, opts.color)
 		end
 	end
