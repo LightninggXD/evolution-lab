@@ -73,12 +73,52 @@ local function outfitOf(bundleId: number): number?
 	return fallback
 end
 
+-- ===== AN ACCESSORY IS NOT WHERE IT LOOKS LIKE IT IS =====
+--
+-- A hat sits on a head because the Humanoid matched an Attachment inside its Handle to the
+-- identically named Attachment on a limb, every frame, at runtime. In a baked model there is no
+-- Humanoid -- SkinMesh.Apply welds the parts of this model straight onto the player's limbs at
+-- whatever offsets they were saved with -- so an Accessory whose Handle was never snapped stays at
+-- whatever the asset happened to load at. Measured on Korblox Deathspeaker: its head accessory sat
+-- a couple of studs to the SIDE of the body, which on the character reads as a floating purple mask
+-- beside a blank white head.
+--
+-- So the snap is done here, once, permanently, by the same arithmetic the Humanoid uses: put the
+-- Handle where its own attachment lands on the limb's attachment of the same name. Accessories with
+-- no matching pair are left alone rather than guessed at -- they fall through to SkinMesh's
+-- position-based host rule, which is what the generated skins already rely on.
+local function snapAccessories(model: Model)
+	local attachmentOn = {}
+	for _, part in ipairs(model:GetChildren()) do
+		if part:IsA("BasePart") then
+			for _, a in ipairs(part:GetChildren()) do
+				if a:IsA("Attachment") then attachmentOn[a.Name] = a end
+			end
+		end
+	end
+	for _, accessory in ipairs(model:GetChildren()) do
+		if accessory:IsA("Accessory") then
+			local handle = accessory:FindFirstChild("Handle")
+			if handle and handle:IsA("BasePart") then
+				for _, a in ipairs(handle:GetChildren()) do
+					local host = a:IsA("Attachment") and attachmentOn[a.Name]
+					if host then
+						handle.CFrame = host.WorldCFrame * a.CFrame:Inverse()
+						break
+					end
+				end
+			end
+		end
+	end
+end
+
 local function bake(key: string, bundleId: number): string
 	local outfitId = outfitOf(bundleId)
 	if not outfitId then return ("%s: bundle %d has no outfit"):format(key, bundleId) end
 
 	local description = Players:GetHumanoidDescriptionFromOutfitId(outfitId)
 	local model = Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
+	snapAccessories(model)
 
 	for _, d in ipairs(model:GetDescendants()) do
 		if d:IsA("Humanoid") or d:IsA("LuaSourceContainer") or d:IsA("Sound")

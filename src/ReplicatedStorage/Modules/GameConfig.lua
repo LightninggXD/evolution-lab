@@ -4358,65 +4358,92 @@ end
 GameConfig.VipCharacters = {
 	{
 		key = "vip_gold",
-		name = "Golden Patron",
-		emoji = "👑",
+		-- NAMED FOR THE BODY IT WEARS AND NOT FOR ITS KEY. `vip_gold` is the one key in this table a
+		-- live save already holds, so it cannot be renamed; the skin it names has been a gold-tinted
+		-- primitive costume, then a generated mesh, and is now Sunstar. A key is an identity, a name
+		-- is a description, and only one of the two is allowed to be wrong.
+		name = "Sunstar Patron",
+		emoji = "\u{2600}\u{FE0F}",
 		rarity = "Legendary",
-		color = Color3.fromRGB(255, 205, 74),
+		-- ===== EVERY DISC COLOUR IN THIS TABLE IS READ OFF THE BODY =====
+		-- The rim of a Journal disc is what tells two skins apart at a glance, so it is the bundle's
+		-- own dominant colour rather than a hue picked for the row: Sunstar is crimson and gold, the
+		-- Shogun is gold and white, the Demon King is orange. They are also checked against EACH
+		-- OTHER -- the nine sit in one row two lines deep, and two discs that read the same are two
+		-- skins a player cannot choose between without clicking both.
+		color = Color3.fromRGB(236, 84, 76),
 		vip = true,
 		-- See the note over GameConfig.EventCharacters: `offLadder` is what the rank arithmetic reads,
 		-- `vip` is what the pass sync and the Journal's section title read. They were one field until
 		-- there was a second kind of skin that is not on the ladder.
 		offLadder = true,
-		-- `regalia` is StageCostume's head piece for a skin off the ladder -- "crown", "wreath" or
-		-- "shards". It is read from the entry and NOT from the rarity because every skin outside the
-		-- ladder is Legendary, so rarity separates none of them from each other.
-		regalia = "crown",
-		-- Sunstar, a 756-Robux solar knight, and NOT the Golden Suit of Bling Squared it reads like it
-		-- should be. That bundle is a classic R6 package: converted to R15 it is a yellow suit with
-		-- the head buried inside the torso, i.e. a headless man in a yellow jacket, which is a worse
-		-- first impression than the primitive costume this whole wardrobe replaced. The entry rung of
-		-- a paid row cannot be the ugliest thing in it. See tools/build_vip_skins.lua.
+		-- ===== NO `regalia`, AND THAT IS THE POINT =====
+		--
+		-- 16.10 gave every off-ladder skin a head piece -- a crown, a laurel or turning shards -- so
+		-- that a paid skin would read as paid against a ladder Legendary it otherwise only differed
+		-- from by colour. That reason expired the moment these nine became real catalog bundles: a
+		-- Bull Demon King and a Korblox Deathspeaker do not need a hat to look bought. What was left
+		-- was a flat yellow crown floating over characters that already had horns, helmets and
+		-- antlers of their own -- *"ove krunice bolje napravi sta ce im to, likovi su vec dobri"*
+		-- (Kristina, 2026-08-16, with a screenshot of one).
+		--
+		-- The field is simply absent rather than set to a "none" string: StageCostume.Regalia already
+		-- does nothing when the entry has none, so this needs no code change, and the EVENT skins
+		-- keep theirs -- they are still costumes rather than bundles, and the argument that put the
+		-- hardware there in the first place is still true of them.
+		-- Sunstar, a 756-Robux solar knight, and NOT the Golden Suit of Bling Squared this key reads
+		-- like it should be. That bundle is a classic R6 package: converted to R15 it is a yellow
+		-- suit with the head buried inside the torso -- a headless man in a jacket, a worse first
+		-- impression than the primitive costume this whole wardrobe replaced. The entry rung of a
+		-- paid row cannot be the ugliest thing in it.
+		--
+		-- THE RULE THAT COST TWO CAPTURES TO FIND, and it is not "expensive is better": a bundle
+		-- whose `BundledItems` numbers about SIX is a classic R6 package and will convert badly,
+		-- because R6 has one torso where R15 has five parts and the conversion buries the head. The
+		-- Rthro-era bundles carry 16-20 items -- five limbs' worth of parts, seven Rthro animations,
+		-- two outfits -- and those are the ones that come out looking like the catalog picture.
+		-- Golden Suit of Bling Squared is 7 items at 3,150 Robux; Cyborg Shogun is 18 at 158.
 		vipDamageMult = 3.00, vipIncomeMult = 1.10, bundleId = 344,
 	},
 	{
 		key = "vip_shogun", name = "Cyber Shogun", emoji = "\u{1F916}", rarity = "Legendary",
-		color = Color3.fromRGB(60, 200, 140), vip = true, offLadder = true, regalia = "shards",
-		vipDamageMult = 4.50, vipIncomeMult = 1.15, bundleId = 790,
+		color = Color3.fromRGB(255, 208, 96), vip = true, offLadder = true,
+		vipDamageMult = 4.50, vipIncomeMult = 1.15, bundleId = 790, robuxPrice = 149,
 	},
 	{
 		key = "vip_valkyrie", name = "Skyfall Valkyrie", emoji = "\u{1FA7D}", rarity = "Legendary",
-		color = Color3.fromRGB(236, 240, 250), vip = true, offLadder = true, regalia = "wreath",
-		vipDamageMult = 6.00, vipIncomeMult = 1.20, bundleId = 452,
+		color = Color3.fromRGB(130, 176, 255), vip = true, offLadder = true,
+		vipDamageMult = 6.00, vipIncomeMult = 1.20, bundleId = 452, robuxPrice = 199,
 	},
 	{
 		key = "vip_demon", name = "Bull Demon King", emoji = "\u{1F479}", rarity = "Legendary",
-		color = Color3.fromRGB(226, 62, 68), vip = true, offLadder = true, regalia = "crown",
-		vipDamageMult = 7.50, vipIncomeMult = 1.25, bundleId = 604,
+		color = Color3.fromRGB(246, 138, 44), vip = true, offLadder = true,
+		vipDamageMult = 7.50, vipIncomeMult = 1.25, bundleId = 604, robuxPrice = 249,
 	},
 	{
 		key = "vip_dragon", name = "Skeletal Dragon", emoji = "\u{1F409}", rarity = "Legendary",
-		color = Color3.fromRGB(186, 236, 120), vip = true, offLadder = true, regalia = "shards",
-		vipDamageMult = 9.00, vipIncomeMult = 1.30, bundleId = 577,
+		color = Color3.fromRGB(228, 220, 176), vip = true, offLadder = true,
+		vipDamageMult = 9.00, vipIncomeMult = 1.30, bundleId = 577, robuxPrice = 299,
 	},
 	{
-		key = "vip_overseer", name = "The Overseer", emoji = "\u{1F441}\u{FE0F}", rarity = "Legendary",
-		color = Color3.fromRGB(206, 74, 192), vip = true, offLadder = true, regalia = "shards",
-		vipDamageMult = 10.50, vipIncomeMult = 1.35, bundleId = 243,
+		key = "vip_overseer", name = "Overseer Overlord", emoji = "\u{1F441}\u{FE0F}", rarity = "Legendary",
+		color = Color3.fromRGB(96, 226, 120), vip = true, offLadder = true,
+		vipDamageMult = 10.50, vipIncomeMult = 1.35, bundleId = 385, robuxPrice = 349,
 	},
 	{
-		key = "vip_dragonlord", name = "Dragon Lord", emoji = "\u{1F525}", rarity = "Legendary",
-		color = Color3.fromRGB(246, 132, 40), vip = true, offLadder = true, regalia = "crown",
-		vipDamageMult = 12.00, vipIncomeMult = 1.40, bundleId = 51,
+		key = "vip_wyrm", name = "Abyssal Wyrm", emoji = "\u{1F432}", rarity = "Legendary",
+		color = Color3.fromRGB(62, 168, 200), vip = true, offLadder = true,
+		vipDamageMult = 12.00, vipIncomeMult = 1.40, bundleId = 673, robuxPrice = 399,
 	},
 	{
-		key = "vip_doom", name = "The Doombringer", emoji = "\u{2620}\u{FE0F}", rarity = "Legendary",
-		color = Color3.fromRGB(150, 50, 90), vip = true, offLadder = true, regalia = "wreath",
-		vipDamageMult = 13.50, vipIncomeMult = 1.45, bundleId = 233,
+		key = "vip_cythrex", name = "Cythrex", emoji = "\u{2699}\u{FE0F}", rarity = "Legendary",
+		color = Color3.fromRGB(130, 110, 220), vip = true, offLadder = true,
+		vipDamageMult = 13.50, vipIncomeMult = 1.45, bundleId = 590, robuxPrice = 449,
 	},
 	{
-		key = "vip_korblox", name = "Korblox Deathspeaker", emoji = "\u{1F480}", rarity = "Legendary",
-		color = Color3.fromRGB(92, 150, 255), vip = true, offLadder = true, regalia = "crown",
-		vipDamageMult = 15.00, vipIncomeMult = 1.50, bundleId = 192,
+		key = "vip_tenko", name = "Tenko the Nine-Tailed", emoji = "\u{1F98A}", rarity = "Legendary",
+		color = Color3.fromRGB(255, 120, 150), vip = true, offLadder = true,
+		vipDamageMult = 15.00, vipIncomeMult = 1.50, bundleId = 451, robuxPrice = 499,
 	},
 }
 
@@ -4434,9 +4461,16 @@ GameConfig.VipCharacters = {
 -- unsaved Studio session -- so in practice this list will find nothing in a real save. It exists
 -- because the next time the row is re-cut it will not be free, and the sweep should already be
 -- there when that happens.
+-- The first seven are the free-bundle row this wardrobe replaced. The last three are from the
+-- re-cut itself and were never published either: Dragon Lord, The Doombringer and Korblox
+-- Deathspeaker are all CLASSIC R6 packages, and the rule written over `vip_gold` is why they had to
+-- go -- baked to R15 each one came out with a blank white default head and its real head floating
+-- beside the body as a loose accessory. Korblox is the most recognisable expensive avatar Roblox
+-- sells and it still could not stay: a 17,000-Robux name on a headless body sells nothing.
 GameConfig.RetiredVipKeys = {
 	"vip_junkbot", "vip_vampire", "vip_paladin", "vip_samurai",
 	"vip_mech", "vip_reaper", "vip_golden",
+	"vip_dragonlord", "vip_doom", "vip_korblox",
 }
 
 -- The entry-level skin, and the alias every reader that predates the wardrobe still uses. Kept
