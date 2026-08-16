@@ -4430,15 +4430,24 @@ GameConfig.VipCharacters = {
 		color = Color3.fromRGB(96, 226, 120), vip = true, offLadder = true,
 		vipDamageMult = 10.50, vipIncomeMult = 1.35, bundleId = 385, robuxPrice = 349,
 	},
+	-- ===== THE TWO THAT ONLY A CAPTURE COULD REJECT =====
+	--
+	-- These rungs held Sea Serpent (673) and Cythrex (590) first. Both are Rthro-era, both baked
+	-- without error, both passed every count this file can take -- and photographed side by side
+	-- with the other seven they were the two nobody would buy: Cythrex's head is an untextured dark
+	-- cylinder with no face on it, and the Serpent's is a pale rounded blob over bare arms. Nothing
+	-- in the metadata says so. The item-count rule over `vip_gold` filters out the R6 packages that
+	-- bake headless; there is no rule that filters out a head that is simply featureless, and there
+	-- will not be one -- the check is a screenshot.
 	{
-		key = "vip_wyrm", name = "Abyssal Wyrm", emoji = "\u{1F432}", rarity = "Legendary",
-		color = Color3.fromRGB(62, 168, 200), vip = true, offLadder = true,
-		vipDamageMult = 12.00, vipIncomeMult = 1.40, bundleId = 673, robuxPrice = 399,
+		key = "vip_lion", name = "Guardian Lion", emoji = "\u{1F981}", rarity = "Legendary",
+		color = Color3.fromRGB(86, 200, 196), vip = true, offLadder = true,
+		vipDamageMult = 12.00, vipIncomeMult = 1.40, bundleId = 599, robuxPrice = 399,
 	},
 	{
-		key = "vip_cythrex", name = "Cythrex", emoji = "\u{2699}\u{FE0F}", rarity = "Legendary",
-		color = Color3.fromRGB(130, 110, 220), vip = true, offLadder = true,
-		vipDamageMult = 13.50, vipIncomeMult = 1.45, bundleId = 590, robuxPrice = 449,
+		key = "vip_crystal", name = "Crystello", emoji = "\u{1F48E}", rarity = "Legendary",
+		color = Color3.fromRGB(150, 110, 235), vip = true, offLadder = true,
+		vipDamageMult = 13.50, vipIncomeMult = 1.45, bundleId = 468, robuxPrice = 449,
 	},
 	{
 		key = "vip_tenko", name = "Tenko the Nine-Tailed", emoji = "\u{1F98A}", rarity = "Legendary",
@@ -4471,6 +4480,7 @@ GameConfig.RetiredVipKeys = {
 	"vip_junkbot", "vip_vampire", "vip_paladin", "vip_samurai",
 	"vip_mech", "vip_reaper", "vip_golden",
 	"vip_dragonlord", "vip_doom", "vip_korblox",
+	"vip_wyrm", "vip_cythrex",
 }
 
 -- The entry-level skin, and the alias every reader that predates the wardrobe still uses. Kept
