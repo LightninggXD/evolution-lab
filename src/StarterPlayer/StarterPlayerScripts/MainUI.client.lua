@@ -142,8 +142,15 @@ local function themeLabel(label, maxSize, color)
 		-- ALWAYS false: the engine's default is a different float from the one Color3.fromRGB
 		-- computes for the same 27,42,53, so the branch never ran and the bug was never actually
 		-- fixed. Luminance is the honest test, and every colour this UI sets on purpose is bright.
-		local c = label.TextColor3
-		if 0.299 * c.R + 0.587 * c.G + 0.114 * c.B < 0.35 then
+		--
+		-- AND IT READS UITheme's CUT NOW, NOT ITS OWN 0.35 (17.x). The branch above already learned
+		-- that lesson in 15.15 and this one did not, so the two halves of the same function disagreed
+		-- by 0.10 -- and the gap was not harmless. A label whose colour was set somewhere else at
+		-- luminance 0.35..0.45 fell between them: too light to be whitened here, and `darkInk` stays
+		-- FALSE in this branch, so it was handed the full 4 px Color.Outline halo. Dark ink inside a
+		-- dark halo is exactly the blob 15.1 was written to kill, wearing the fix's own clothes.
+		-- One palette, one number, and now genuinely one number.
+		if UITheme.IsDarkInk(label.TextColor3) then
 			label.TextColor3 = UITheme.Color.White
 		end
 	end
@@ -261,7 +268,12 @@ local function styleCard(inst, baseColor, radius, thickness)
 	shadowBody.Name = "ShadowBody"
 	shadowBody.Size = UDim2.new(1, 0, 1, 0)
 	shadowBody.Position = UDim2.new(0, 0, 0, lipDepth)
-	shadowBody.BackgroundColor3 = shade(baseColor, -0.4)
+	-- THE FOOT HAS TO KNOW HOW LIGHT ITS OWN SURFACE IS (17.x). A flat -0.4 under a WHITE card is
+	-- rgb(153) -- a mid grey slab, not a shadow -- while UITheme's own shells now step the lip to
+	-- -0.22 on light fills and land at rgb(199). This file builds most of the HUD through
+	-- styleCard, so leaving the literal here is what makes half the panels look like they came
+	-- from a different kit. LipShade is the shared decision; the chromatic case is unchanged.
+	shadowBody.BackgroundColor3 = UITheme.LipShade(baseColor)
 	shadowBody.BackgroundTransparency = 0
 	shadowBody.BorderSizePixel = 0
 	shadowBody.ZIndex = inst.ZIndex + UITheme.Z.Shell
@@ -452,7 +464,7 @@ local function setButtonColor(btn, baseColor)
 	-- the same -0.4 styleCard built the lip with, so a recoloured card keeps its moulded edge
 	local lip = btn:FindFirstChild("ShadowBody")
 	if lip then
-		lip.BackgroundColor3 = shade(baseColor, -0.4)
+		lip.BackgroundColor3 = UITheme.LipShade(baseColor)
 	end
 end
 
@@ -569,10 +581,28 @@ evolveButton:GetPropertyChangedSignal("Text"):Connect(function()
 end)
 evolveButton.Text = "EVOLVE (0 / 50 DNA)"
 
--- ===== Bottom-left: currency stack (no panel, just big outlined numbers) =====
+-- ===== Bottom-left: currency stack =====
+-- THE THREE NUMBERS THE PLAYER LOOKS AT MOST WERE THE ONLY UNSTYLED THING ON THE SCREEN (16.x).
+-- Photographed in Play on 2026-08-16: `UITheme.Pill` built a frame at BackgroundTransparency = 1
+-- with no InnerBody and no UIStroke, so DNA / Diamonds / Shards rendered as bare outlined text
+-- lying directly on the 3D world, while every other HUD element is a chunky outlined capsule. It
+-- read as debug text somebody forgot to remove.
+--
+-- ONE DARK CAPSULE FOR ALL THREE, not one per currency hue. Two reasons, and the second is the
+-- one that decides it: a wallet is a single readout and three different bright fills would split
+-- it into three unrelated widgets; and the HUD's tiles already own every saturated colour on the
+-- screen, so a dark shell is what separates a thing you READ from a thing you PRESS. The emoji
+-- carries the per-currency identity, which is what it is there for.
+--
+-- 52,44,82 rather than Color.Outline (26,18,36): the outline is drawn ON this fill at 5px, and a
+-- fill equal to its own stroke is a solid black lozenge with no rim. Dark enough for white ink,
+-- light enough that the rim still draws the shape.
 local currencyStack = Instance.new("Frame")
 currencyStack.Name = "CurrencyStack"
-currencyStack.Size = UDim2.new(0, 250, 0, 140)
+-- 160, not 140: the gap below went 2 -> 10 (a 5px stroke is drawn OUTSIDE each capsule, so at 2
+-- the three would have overlapped rims and read as one welded bar) and 46+40+40+2*10 = 146 plus
+-- the strokes needs the room, or the top capsule lays out above its own frame.
+currencyStack.Size = UDim2.new(0, 250, 0, 160)
 currencyStack.Position = UDim2.new(0, 20, 1, -22)
 currencyStack.AnchorPoint = Vector2.new(0, 1)
 currencyStack.BackgroundTransparency = 1
@@ -583,20 +613,42 @@ local currencyLayout = Instance.new("UIListLayout")
 currencyLayout.SortOrder = Enum.SortOrder.LayoutOrder
 currencyLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
 currencyLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-currencyLayout.Padding = UDim.new(0, 2)
+currencyLayout.Padding = UDim.new(0, 10)
 currencyLayout.Parent = currencyStack
 
+-- ===== PASTEL, NOT THE DARK CAPSULE THIS SHIPPED AS THIS MORNING =====
+--
+-- The first pass gave all three the same near-black indigo, on the argument that a wallet is one
+-- readout and a dark shell is what separates a thing you READ from a thing you PRESS. She looked at
+-- it and asked for the opposite -- "nemoj te crne vec bright pastel i beli theme" -- and she is
+-- right about this game: everything else on the screen is candy, so a black bar is the one element
+-- that looks like it came from a different application.
+--
+-- The unity argument is answered by TREATMENT rather than by hue. All three are the same capsule,
+-- the same lightness, the same dark ink, the same 5 px rim -- so they still read as one stack --
+-- while the hue makes the three currencies tellable apart at a glance, which the single dark shell
+-- actively prevented. Mint / Aqua / Lavender are the kit's existing pastel set, already used by the
+-- HUD tiles, so this introduces no new colour to the screen.
+--
+-- INK: rgb(46,34,66) at luminance 0.16 against fills at 0.66 / 0.71 / 0.64. Dark ink is not a taste
+-- call here, it is forced -- white on a 0.66 pastel is about 2.3:1. And because `isDarkInk` cuts at
+-- 0.45, UITheme.Pill's own branch sees dark ink on a LIGHT shell and drops the halo, which is the
+-- half of this that has silently broken twice before: a dark glyph inside a dark outline is a blob
+-- that reads correct in every property. Do not hand any of these a stroke back.
 local dnaPill = UITheme.Pill(currencyStack, {
 	name = "DNAPill", icon = "🧬", text = "0", layoutOrder = 1,
 	size = UDim2.new(1, 0, 0, 46), maxTextSize = 34,
+	shellColor = UITheme.Color.Mint, color = Color3.fromRGB(46, 34, 66),
 })
 local diamondPill = UITheme.Pill(currencyStack, {
 	name = "DiamondPill", icon = "💎", text = "0", layoutOrder = 2,
 	size = UDim2.new(1, 0, 0, 40), maxTextSize = 30,
+	shellColor = UITheme.Color.Aqua, color = Color3.fromRGB(46, 34, 66),
 })
 local shardPill = UITheme.Pill(currencyStack, {
 	name = "ShardPill", icon = "🌟", text = "0", layoutOrder = 3,
 	size = UDim2.new(1, 0, 0, 40), maxTextSize = 30,
+	shellColor = UITheme.Color.Lavender, color = Color3.fromRGB(46, 34, 66),
 })
 -- (the three pills' .Value labels used to be cached here and were never read again -- see the note
 -- on the Season XP bar: this chunk is at Luau's 200-register limit and every unused local counts)
@@ -771,7 +823,20 @@ for i, key in ipairs(upgradeOrder) do
 	-- Z.Badge, so it clears the gloss the shell draws over its own children
 	levelBadge.ZIndex = btn.ZIndex + UITheme.Z.Badge
 	levelBadge.Parent = btn
-	styleCard(levelBadge, UITheme.Shade(UITheme.Color.Outline, 0.22), UDim.new(1, 0), 2.5)
+	-- ===== THE CHIPS ARE WHITE NOW, NOT NEAR-BLACK (17.x) =====
+	--
+	-- `Shade(Color.Outline, 0.22)` is a 22%-of-near-black fill -- the darkest surface the kit can
+	-- produce -- and it was the idiom for every price chip and level badge on the board. On a
+	-- Gold or SkyBlue tile in a game made of candy, that reads as a hole punched through the
+	-- button. Cream at luminance 0.97 with dark ink is the same chip doing the same job: it still
+	-- separates the price from the tile it sits on, by being LIGHTER than its host instead of
+	-- darker.
+	--
+	-- THE INK HAS TO FLIP IN THE SAME EDIT. These labels were Cream/White on near-black; left
+	-- alone on a cream chip they would be invisible, and `themeLabel`'s luminance branch drops
+	-- the near-black halo for dark ink -- which is what keeps a dark glyph from sitting inside a
+	-- dark outline and rendering as a blob. Ink and stroke are one decision; never move one.
+	styleCard(levelBadge, UITheme.Color.Cream, UDim.new(1, 0), 2.5)
 
 	local levelLabel = Instance.new("TextLabel")
 	levelLabel.Name = "LevelLabel"
@@ -782,7 +847,7 @@ for i, key in ipairs(upgradeOrder) do
 	levelLabel.Text = "Lv 0"
 	levelLabel.ZIndex = levelBadge.ZIndex + UITheme.Z.Content
 	levelLabel.Parent = levelBadge
-	themeLabel(levelLabel, 18, Color3.fromRGB(255, 255, 255))
+	themeLabel(levelLabel, 18, Color3.fromRGB(46, 34, 66))
 
 	local costPill = Instance.new("Frame")
 	costPill.Name = "CostPill"
@@ -791,7 +856,7 @@ for i, key in ipairs(upgradeOrder) do
 	costPill.AnchorPoint = Vector2.new(0.5, 1)
 	costPill.ZIndex = btn.ZIndex + UITheme.Z.Badge
 	costPill.Parent = btn
-	styleCard(costPill, UITheme.Shade(UITheme.Color.Outline, 0.22), UDim.new(1, 0), 2.5)
+	styleCard(costPill, UITheme.Color.Cream, UDim.new(1, 0), 2.5)
 
 	local costLabel = Instance.new("TextLabel")
 	costLabel.Name = "CostLabel"
@@ -802,7 +867,7 @@ for i, key in ipairs(upgradeOrder) do
 	costLabel.Text = "\u{1F9EC} " .. def.baseCost
 	costLabel.ZIndex = costPill.ZIndex + UITheme.Z.Content
 	costLabel.Parent = costPill
-	themeLabel(costLabel, 22, UITheme.Color.Cream)
+	themeLabel(costLabel, 22, Color3.fromRGB(46, 34, 66))
 
 	btn.MouseButton1Click:Connect(function()
 		Remotes.BuyUpgrade:FireServer(key)
@@ -822,7 +887,11 @@ diamondRow.Parent = shopFrame
 
 local diamondLayout = Instance.new("UIListLayout")
 diamondLayout.FillDirection = Enum.FillDirection.Horizontal
-diamondLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+-- LEFT, NOT CENTRE -- this is the whole of "the two rows do not line up". The DNA row is four 200 px
+-- tiles and fills its 836 exactly, so Center and Left are the same thing for it; this row is three
+-- and centring insets it 106 px on each side. Three tiles under four, sharing column 1, is a grid
+-- with an empty fourth cell. Three tiles floating between four is two unrelated rows.
+diamondLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
 diamondLayout.Padding = UDim.new(0, 12)
 diamondLayout.SortOrder = Enum.SortOrder.LayoutOrder
 diamondLayout.Parent = diamondRow
@@ -859,21 +928,48 @@ for i, key in ipairs(diamondUpgradeOrder) do
 
 	local levelLabel = Instance.new("TextLabel")
 	levelLabel.Name = "LevelLabel"
-	levelLabel.Size = UDim2.new(1, -12, 0, 24)
-	levelLabel.Position = UDim2.new(0, 6, 1, -56)
+	-- ===== THREE THINGS SHARE 130 PX AND THE MIDDLE ONE IS TWO LINES =====
+	--
+	-- Measured on the running tile: the description box is y = 34..68 (it WRAPS -- "+10% permanent
+	-- income per level" is two lines and genuinely needs all 34), and the cost capsule owns 90..122.
+	-- That leaves exactly 68..90 for the level, and nothing else.
+	--
+	-- This line has now been wrong twice in one session in opposite directions. At -56 it sat at
+	-- 74..98 and ran through the new cost capsule; the fix moved it to -70, i.e. 60..84, which ran
+	-- through the DESCRIPTION instead -- photographed, "Level 2" printed on top of the second line of
+	-- its own explanation. -62 with a 22 px box is the only placement the three of them fit in, and
+	-- there is no slack left: anything that makes the description three lines needs a taller tile.
+	levelLabel.Size = UDim2.new(1, -12, 0, 22)
+	levelLabel.Position = UDim2.new(0, 6, 1, -62)
 	levelLabel.BackgroundTransparency = 1
 	levelLabel.Text = "Level 0"
 	levelLabel.Parent = btn
 	themeLabel(levelLabel, 19, Color3.fromRGB(255, 255, 255))
 
+	-- THE SAME CHIP THE DNA ROW ABOVE DRAWS, and for the reason given there: the cost is the thing
+	-- the player actually decides on, so it gets its own dark capsule instead of being a fourth line
+	-- of centred text. Two rows on one board that price themselves two different ways is most of why
+	-- the bottom row reads as a different, lesser kind of tile. Same Shade(Outline, 0.22), same 2.5
+	-- stroke, same Z.Badge so it clears the shell's gloss -- and the same 8 px off the bottom edge.
+	local costPill = Instance.new("Frame")
+	costPill.Name = "CostPill"
+	costPill.Size = UDim2.new(1, -20, 0, 32)
+	costPill.Position = UDim2.new(0.5, 0, 1, -8)
+	costPill.AnchorPoint = Vector2.new(0.5, 1)
+	costPill.ZIndex = btn.ZIndex + UITheme.Z.Badge
+	costPill.Parent = btn
+	styleCard(costPill, UITheme.Color.Cream, UDim.new(1, 0), 2.5)
+
 	local costLabel = Instance.new("TextLabel")
 	costLabel.Name = "CostLabel"
-	costLabel.Size = UDim2.new(1, -12, 0, 30)
-	costLabel.Position = UDim2.new(0, 6, 1, -38)
+	costLabel.Size = UDim2.new(1, -10, 1, -6)
+	costLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+	costLabel.AnchorPoint = Vector2.new(0.5, 0.5)
 	costLabel.BackgroundTransparency = 1
 	costLabel.Text = "💎 " .. def.baseCost
-	costLabel.Parent = btn
-	themeLabel(costLabel, 24, UITheme.Color.Cream)
+	costLabel.ZIndex = costPill.ZIndex + UITheme.Z.Content
+	costLabel.Parent = costPill
+	themeLabel(costLabel, 22, Color3.fromRGB(46, 34, 66))
 
 	btn.MouseButton1Click:Connect(function()
 		Remotes.BuyDiamondUpgrade:FireServer(key)
@@ -1327,19 +1423,24 @@ styleCard(zonesPanel, PANEL_SHELL, UDim.new(0, 22), 5)
 registerPanel(zonesPanel)
 panelClose(zonesPanel)
 
-local zonesPanelTitle = Instance.new("TextLabel")
-zonesPanelTitle.Size = UDim2.new(1, -80, 0, 40)
-zonesPanelTitle.Position = UDim2.new(0, 18, 0, 10)
-zonesPanelTitle.BackgroundTransparency = 1
-zonesPanelTitle.TextXAlignment = Enum.TextXAlignment.Left
-zonesPanelTitle.Text = "🗺️ Zones"
-zonesPanelTitle.Parent = zonesPanel
-themeLabel(zonesPanelTitle, 32)
+-- Converted to the shared accent band (17.x). It was a bare 32 px label at (18, 10) with the list
+-- starting at 58 and a 14 px margin -- one of nine panels still doing that, each with its own
+-- content top (56 to 106) and its own margin (14 / 18 / 20 / 22). The band is what makes them read
+-- as one application; see the geometry note in UITheme.PanelHeader. Aqua matches the Zones tile in
+-- the HUD, which is the button that opens this -- a panel whose accent disagrees with the tile that
+-- opened it reads as a different screen.
+UITheme.PanelHeader(zonesPanel, {
+	title = "🗺️ Zones",
+	subtitle = "Later zones pay more income",
+	accent = UITheme.Color.Aqua,
+})
 
 local zonesScroll = Instance.new("ScrollingFrame")
 zonesScroll.Name = "ZonesScroll"
-zonesScroll.Size = UDim2.new(1, -28, 1, -70)
-zonesScroll.Position = UDim2.new(0, 14, 0, 58)
+-- 94 is the band's bottom edge (top 14 + height 68 + gap 12), written out rather than captured --
+-- this file is at Luau's 200-local cap. -110 is that 94 plus a matching 16 px bottom margin.
+zonesScroll.Size = UDim2.new(1, -32, 1, -110)
+zonesScroll.Position = UDim2.new(0, 16, 0, 94)
 zonesScroll.BackgroundTransparency = 1
 zonesScroll.BorderSizePixel = 0
 zonesScroll.ScrollBarThickness = 6
@@ -1359,7 +1460,18 @@ for i, zone in ipairs(GameConfig.Zones) do
 	row.LayoutOrder = i
 	row.Size = UDim2.new(1, 0, 0, 68)
 	row.Parent = zonesScroll
-	styleCard(row, zone.accentColor, UDim.new(0, 14), 4)
+	-- ===== PASTEL THE ZONE, DO NOT PAINT IT RAW (17.x) =====
+	--
+	-- `zone.accentColor` is the zone's WORLD colour -- it paints terrain, and terrain is allowed to
+	-- be near-black (Forest is a deep pine, Ocean a midnight navy, Moon a dead grey). Handed
+	-- straight to a UI row it made a list of twenty near-black bars on a white panel, which is the
+	-- thing this pass exists to remove.
+	--
+	-- Blended 62% toward white, the hue survives -- Forest still reads green, Volcano still reads
+	-- red, and the twenty are still tellable apart -- while every row lands in the same light band
+	-- as the panel it sits on. This is a UI decision made in the UI; GameConfig keeps the true
+	-- colour for the world, which is the only place it is correct.
+	styleCard(row, zone.accentColor:Lerp(UITheme.Color.White, 0.62), UDim.new(0, 14), 4)
 
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Size = UDim2.new(0.62, 0, 0, 30)
@@ -1368,7 +1480,7 @@ for i, zone in ipairs(GameConfig.Zones) do
 	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
 	nameLabel.Text = zone.emoji .. " " .. zone.name
 	nameLabel.Parent = row
-	themeLabel(nameLabel, 24)
+	themeLabel(nameLabel, 24, Color3.fromRGB(46, 34, 66))
 	-- DRAW THE ZONE, DO NOT SPELL IT (10.20). All twenty zones have art now, and this row was the
 	-- single biggest place still rendering a platform emoji -- twenty of them, stacked, in one
 	-- scrolling list, which is exactly where four different emoji fonts are most obvious.
@@ -1384,7 +1496,9 @@ for i, zone in ipairs(GameConfig.Zones) do
 	statusLabel.TextXAlignment = Enum.TextXAlignment.Left
 	statusLabel.Text = "Locked"
 	statusLabel.Parent = row
-	themeLabel(statusLabel, 17, UITheme.Color.Cream)
+	-- dark ink, because the row under it is pastel now -- and themeLabel drops the near-black halo
+	-- on that branch, which is the half that must never be left behind
+	themeLabel(statusLabel, 17, Color3.fromRGB(88, 78, 112))
 
 	local goButton = Instance.new("TextButton")
 	goButton.Name = "GoButton"
@@ -1607,7 +1721,7 @@ end
 local petsPanel = Instance.new("Frame")
 petsPanel.Name = "PetsPanel"
 -- landscape, like the reference -- a grid of cards needs width, and the old 490 fitted two
-petsPanel.Size = UDim2.new(0, 772, 0, 524)
+petsPanel.Size = UDim2.new(0, 772, 0, 588)
 petsPanel.Position = PANEL_ANCHOR
 petsPanel.ZIndex = 20
 petsPanel.Visible = false
@@ -1621,21 +1735,24 @@ for _, s in ipairs(petsPanel:GetChildren()) do
 	if s:IsA("UIStroke") then s.Color = Color3.fromRGB(64, 196, 255) end
 end
 
--- The title sits ON the top-left corner, half outside the board, the way the reference does it.
--- Nothing clips here, so a negative Y simply draws over the world behind the panel.
-local petsPanelTitle = Instance.new("TextLabel")
-petsPanelTitle.Name = "TitleLabel"
-petsPanelTitle.Size = UDim2.new(0, 420, 0, 54)
-petsPanelTitle.Position = UDim2.new(0, 16, 0, -30)
-petsPanelTitle.BackgroundTransparency = 1
-petsPanelTitle.TextXAlignment = Enum.TextXAlignment.Left
-petsPanelTitle.ZIndex = petsPanel.ZIndex + UITheme.Z.Badge
-petsPanelTitle.Text = "🐾 Pets!"
-petsPanelTitle.Parent = petsPanel
-themeLabel(petsPanelTitle, 44)
--- 9.9: the leading glyph becomes a drawing at the title's left edge, or stays a glyph if
--- there is no art for it. One line, and it moves nothing else on the panel.
-UITheme.IconifyLabel(petsPanelTitle)
+-- ===== THE TITLE IS INSIDE THE BOARD NOW (17.x) =====
+--
+-- It sat at y = -30 -- half outside, ON the world -- and that was a real decision copied from the
+-- reference art, defended in the comment that used to be here. Its pair, the Pets/Potions tab strip,
+-- sat outside with it at -34. The Potions half of that pair converted to the shared accent band this
+-- session, and a tab strip whose two halves disagree about which side of the card they live on is
+-- worse than either choice made consistently. So Pets follows.
+--
+-- The action row at the BOTTOM edge stays half in and half out: that one is anchored to the bottom
+-- (scale 1) and reads as a bar clipped to the board, not as a label floating on scenery.
+--
+-- Bubblegum, matching the Pets tile. Scroll moved 80 -> 144 (band 94 + the 38 px tab row + 12) and
+-- the board grew by the same 64, so the bottom bar keeps its gap.
+UITheme.PanelHeader(petsPanel, {
+	title = "🐾 Pets!",
+	subtitle = "Your equipped pets boost every drop",
+	accent = UITheme.Color.Bubblegum,
+})
 
 -- Bulk actions. A collection this size is not managed one row at a time: by the time a player is
 -- three zones in they own dozens of pets, and "which three are my best" is a question the game
@@ -1769,7 +1886,7 @@ local hudRefs = {}
 		track.Name = "Track"
 		track.Size = UDim2.new(1, -52, 0, 5)
 		track.Position = UDim2.new(0, 40, 1, -11)
-		track.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
+		track.BackgroundColor3 = UITheme.Color.Cloud
 		track.BorderSizePixel = 0
 		track.ZIndex = card.ZIndex + 1
 		track.Parent = card
@@ -1892,9 +2009,16 @@ local hudRefs = {}
 	-- clock is centred and two are centred as a pair -- nothing slides sideways when an event starts.
 	local eventBar = Instance.new("Frame")
 	eventBar.Name = "WorldEventBar"
-	eventBar.Size = UDim2.new(0, 0, 0, 26)
+	-- 32, not 24 (17.x). The floor of this bar is not taste, it is the tile cluster: the responsive
+	-- pass reserves BOTTOM_CLEAR = 46 for the right-hand column, so `clearance + height` has to stay
+	-- at or under 46 or the bar slides under the tiles on a phone viewport. 12 + 32 = 44. The width
+	-- stays 168 for the same reason in X: two chips plus their gap is 344, and on an 848-wide phone
+	-- that leaves 16 px before the cluster starts. BOTTOM_CLEAR lives inside the responsive block
+	-- at the bottom of this file and cannot be shared without a top-level register, so if it ever
+	-- moves, THIS BAR HAS TO BE RE-CHECKED BY HAND -- the relationship is a comment, not code.
+	eventBar.Size = UDim2.new(0, 0, 0, 32)
 	eventBar.AutomaticSize = Enum.AutomaticSize.X
-	eventBar.Position = UDim2.new(0.5, 0, 1, -5)
+	eventBar.Position = UDim2.new(0.5, 0, 1, -12)
 	eventBar.AnchorPoint = Vector2.new(0.5, 1)
 	eventBar.BackgroundTransparency = 1
 	eventBar.ZIndex = UITheme.Z.Content
@@ -1912,7 +2036,7 @@ local hudRefs = {}
 	arenaCard.Name = "ArenaBoss"
 	-- 168 x 24, down from 216 x 38. At this size the pill is a glance, not a card: an 18px emoji
 	-- disc, the name at 12, the clock at 12, and nothing else fits -- which is the point.
-	arenaCard.Size = UDim2.new(0, 168, 0, 24)
+	arenaCard.Size = UDim2.new(0, 168, 0, 32)
 	arenaCard.LayoutOrder = 1                 -- boss first, event second, reading left to right
 	arenaCard.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
 	arenaCard.Visible = false
@@ -1924,14 +2048,14 @@ local hudRefs = {}
 	arenaBadge.Name = "Badge"
 	-- 18 on a 24px row, so the disc shares the capsule's own left centre (12, 12) and cannot clip
 	-- against the rounding -- the same rule the 28-on-38 discs on the potion strip follow.
-	arenaBadge.Size = UDim2.new(0, 18, 0, 18)
-	arenaBadge.Position = UDim2.new(0, 3, 0, 3)
+	arenaBadge.Size = UDim2.new(0, 22, 0, 22)
+	arenaBadge.Position = UDim2.new(0, 5, 0, 5)
 	arenaBadge.BackgroundColor3 = UITheme.Color.Red
 	arenaBadge.Text = GameConfig.EventBoss.emoji
 	arenaBadge.ZIndex = arenaCard.ZIndex + 1
 	arenaBadge.Parent = arenaCard
 	corner(arenaBadge, UDim.new(0.5, 0))
-	themeLabel(arenaBadge, 11)
+	themeLabel(arenaBadge, 14)
 
 	-- Both labels are centred on the row (`0.5, -10` against a height of 20) rather than pinned to
 	-- a top margin: on a single-line pill there is no second line to leave room for, and a
@@ -1941,24 +2065,42 @@ local hudRefs = {}
 	-- -80 = 25 of left inset past the disc + 47 of clock and its right margin. Truncated rather than
 	-- shrunk: themeLabel floors text at 14 and this label is authored at 12, so a long boss name has
 	-- no shrink left to give and would wrap onto a second line the 24px pill has no room for.
-	arenaName.Size = UDim2.new(1, -80, 0, 16)
-	arenaName.Position = UDim2.new(0, 25, 0.5, -8)
+	arenaName.Size = UDim2.new(1, -78, 0, 20)
+	arenaName.Position = UDim2.new(0, 28, 0.5, -10)
 	arenaName.BackgroundTransparency = 1
 	arenaName.TextXAlignment = Enum.TextXAlignment.Left
 	arenaName.TextTruncate = Enum.TextTruncate.AtEnd
 	arenaName.ZIndex = arenaCard.ZIndex + 1
 	arenaName.Parent = arenaCard
+	-- 12, NOT the 14 the rest of this chip uses, and this is the binding constraint of the whole
+	-- bar. Measured with GetTextBoundsAsync in FredokaOne: "Colosseum Clash" needs 100 px at 14,
+	-- 97 at 13 and 87 at 12, and the widest band this 168 px card can give a name is 90. The
+	-- original 12 px was not laziness -- it was tuned to exactly this string, and raising it to 14
+	-- silently truncated the longest event in the game to "Colosseum...".
+	--
+	-- THE CAPTURE IS WHAT SETTLED IT. TextBounds read 76 x 14 in an 86 x 20 box -- fits by every
+	-- number -- because TextBounds reports what was RENDERED, i.e. the already-truncated string,
+	-- not what the text needed. TextFits was the only property telling the truth and it was the
+	-- one that looked wrong. Measure the STRING, never the label, when asking if it will fit.
 	themeLabel(arenaName, 12)
+	-- AFTER themeLabel, NEVER BEFORE: `TextScaled = true` silently turns `TextWrapped` ON, so a
+	-- "do not wrap" written above the helper that scales is reversed by it and reads correct in
+	-- the source forever. Measured live: the band is 86 px and the string needs 76, so it fits on
+	-- one line -- but wrapped, it broke into two lines that do not fit 20 px of height, and the
+	-- engine reported TextFits = false while every other property looked right. These are one-line
+	-- chips by construction; a second line is clipped by the card either way.
+	arenaName.TextWrapped = false
 
 	local arenaClock = Instance.new("TextLabel")
 	arenaClock.Name = "Clock"
-	arenaClock.Size = UDim2.new(0, 48, 0, 16)
-	arenaClock.Position = UDim2.new(1, -54, 0.5, -8)
+	arenaClock.Size = UDim2.new(0, 46, 0, 20)
+	arenaClock.Position = UDim2.new(1, -50, 0.5, -10)
 	arenaClock.BackgroundTransparency = 1
 	arenaClock.TextXAlignment = Enum.TextXAlignment.Right
 	arenaClock.ZIndex = arenaCard.ZIndex + 1
 	arenaClock.Parent = arenaCard
-	themeLabel(arenaClock, 12)
+	themeLabel(arenaClock, 14)
+	arenaClock.TextWrapped = false
 
 	-- ONE LINE, NOT A CARD (16.1). The effects line -- "x2 DNA   x2 Giant Loot   x2 XP" -- was the
 	-- widest string anywhere on the HUD and it said the same three things for a whole weekend
@@ -1971,7 +2113,7 @@ local hudRefs = {}
 	-- label's 14 px floor and the slot is 108. The headliner is drawn; the co-runner is not named.
 	local eventCard = Instance.new("Frame")
 	eventCard.Name = "EventBoost"
-	eventCard.Size = UDim2.new(0, 168, 0, 24)
+	eventCard.Size = UDim2.new(0, 168, 0, 32)
 	eventCard.LayoutOrder = 2                 -- to the right of the arena pill (1)
 	eventCard.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
 	eventCard.Visible = false
@@ -1981,35 +2123,37 @@ local hudRefs = {}
 
 	local eventBadge = Instance.new("TextLabel")
 	eventBadge.Name = "Badge"
-	eventBadge.Size = UDim2.new(0, 18, 0, 18)
-	eventBadge.Position = UDim2.new(0, 3, 0, 3)
+	eventBadge.Size = UDim2.new(0, 22, 0, 22)
+	eventBadge.Position = UDim2.new(0, 5, 0, 5)
 	eventBadge.BackgroundColor3 = UITheme.Color.Coral
 	eventBadge.Text = "\u{1F525}"
 	eventBadge.ZIndex = eventCard.ZIndex + 1
 	eventBadge.Parent = eventCard
 	corner(eventBadge, UDim.new(0.5, 0))
-	themeLabel(eventBadge, 11)
+	themeLabel(eventBadge, 14)
 
 	local eventName = Instance.new("TextLabel")
 	eventName.Name = "EventName"
-	eventName.Size = UDim2.new(1, -80, 0, 16)
-	eventName.Position = UDim2.new(0, 25, 0.5, -8)
+	eventName.Size = UDim2.new(1, -78, 0, 20)
+	eventName.Position = UDim2.new(0, 28, 0.5, -10)
 	eventName.BackgroundTransparency = 1
 	eventName.TextXAlignment = Enum.TextXAlignment.Left
 	eventName.TextTruncate = Enum.TextTruncate.AtEnd
 	eventName.ZIndex = eventCard.ZIndex + 1
 	eventName.Parent = eventCard
 	themeLabel(eventName, 12)
+	eventName.TextWrapped = false
 
 	local eventClock = Instance.new("TextLabel")
 	eventClock.Name = "Clock"
-	eventClock.Size = UDim2.new(0, 48, 0, 16)
-	eventClock.Position = UDim2.new(1, -54, 0.5, -8)
+	eventClock.Size = UDim2.new(0, 46, 0, 20)
+	eventClock.Position = UDim2.new(1, -50, 0.5, -10)
 	eventClock.BackgroundTransparency = 1
 	eventClock.TextXAlignment = Enum.TextXAlignment.Right
 	eventClock.ZIndex = eventCard.ZIndex + 1
 	eventClock.Parent = eventCard
-	themeLabel(eventClock, 12)
+	themeLabel(eventClock, 14)
+	eventClock.TextWrapped = false
 
 	-- ============================================================================
 	-- THE MUTATION YOU ARE WEARING IS A DOT ON THE AURAS TILE (16.1)
@@ -2493,8 +2637,8 @@ petsScroll.Name = "PetsScroll"
 -- clear of the title above and the action bar sitting on the bottom edge
 -- 26 px lower than it was, and 26 shorter: 13.4's odds strip sits in the gap. The action bar on the
 -- bottom edge is unmoved, so only the top of the scroll changed.
-petsScroll.Size = UDim2.new(1, -44, 1, -154)
-petsScroll.Position = UDim2.new(0, 22, 0, 80)
+petsScroll.Size = UDim2.new(1, -44, 1, -218)
+petsScroll.Position = UDim2.new(0, 22, 0, 144)
 petsScroll.BackgroundTransparency = 1
 petsScroll.BorderSizePixel = 0
 petsScroll.ScrollBarThickness = 6
@@ -2561,8 +2705,18 @@ end
 do
 	local odds = Instance.new("TextLabel")
 	odds.Name = "EnchantOdds"
-	odds.Size = UDim2.new(1, -44, 0, 22)
-	odds.Position = UDim2.new(0, 22, 0, 54)
+	-- ===== IT SHARES THE TAB ROW NOW (17.x) =====
+	--
+	-- y = 54 put it INSIDE the accent band the moment this panel got one -- photographed printing
+	-- straight through the subtitle, two sentences in the same 22 px. The tab strip is right-aligned
+	-- in the 94..132 row and only 262 px of the panel's 772, so the whole left half of that row was
+	-- empty and this is exactly the kind of quiet, always-true line that belongs in it.
+	--
+	-- 102 rather than 94 centres the 22 px line on the 38 px tabs beside it (94 + (38-22)/2 = 102).
+	-- The width stops 300 px short of the right edge: 262 of tab plus a 16 gap plus the margin, so a
+	-- long odds string truncates against the tabs instead of running under them.
+	odds.Size = UDim2.new(1, -300, 0, 22)
+	odds.Position = UDim2.new(0, 22, 0, 102)
 	odds.BackgroundTransparency = 1
 	odds.RichText = true
 	odds.TextXAlignment = Enum.TextXAlignment.Left
@@ -2610,7 +2764,12 @@ local function refreshPetsPanel()
 	-- and the +3 Pet Slots pass. A player who had bought slots saw "5/3", a fraction that says their
 	-- save is broken. The slot capsule directly below already prints the same pair through
 	-- `GetMaxEquippedPets(data)`, which counts both, so the title had nothing left to add.
-	petsPanelTitle.Text = "Pets"
+	--
+	-- AND SINCE 17.x IT REWRITES NOTHING AT ALL. The title is the accent band's, built once with the
+	-- words it will always have; `petsPanelTitle` no longer exists and this line referenced a name
+	-- that was out of scope -- which Luau compiles happily and `luascope.py` is the only check that
+	-- catches. Left as a comment rather than deleted, because the two paragraphs above are the record
+	-- of why the title says exactly "Pets!" and nothing about counts.
 
 	-- Clear old cells. Matched on NAME alone: a cell is a TextButton now (the whole card is the
 	-- equip button), and the old `IsA("Frame")` test silently stopped clearing anything -- every
@@ -3650,7 +3809,7 @@ local function refreshZonesPanel()
 					refs.statusLabel.Text = "Requires: " .. (reqStage and reqStage.name or "?")
 				end
 				UITheme.ShowIconOrText(refs.goButton, true, "\u{1F512}")
-				setButtonColor(refs.goButton, Color3.fromRGB(80, 80, 90))
+				setButtonColor(refs.goButton, UITheme.Color.Locked)
 			end
 		end
 	end
@@ -3660,7 +3819,7 @@ end
 local rebirthPanel = Instance.new("Frame")
 rebirthPanel.Name = "RebirthPanel"
 -- 392 -> 416: the 20 px ladder bar plus its gaps, added below the info card (11.16)
-rebirthPanel.Size = UDim2.new(0, 430, 0, 416)
+rebirthPanel.Size = UDim2.new(0, 430, 0, 454)
 rebirthPanel.Position = PANEL_ANCHOR
 rebirthPanel.ZIndex = 20
 rebirthPanel.Visible = false
@@ -3669,25 +3828,22 @@ styleCard(rebirthPanel, PANEL_SHELL, UDim.new(0, 22), 5)
 registerPanel(rebirthPanel)
 panelClose(rebirthPanel)
 
-local rebirthTitle = Instance.new("TextLabel")
-rebirthTitle.Name = "TitleLabel"
-rebirthTitle.Size = UDim2.new(1, -80, 0, 38)
-rebirthTitle.Position = UDim2.new(0, 18, 0, 10)
-rebirthTitle.BackgroundTransparency = 1
-rebirthTitle.TextXAlignment = Enum.TextXAlignment.Left
-rebirthTitle.Text = "♻️ Rebirth"
-rebirthTitle.Parent = rebirthPanel
-themeLabel(rebirthTitle, 28)
--- 9.9: the leading glyph becomes a drawing at the title's left edge, or stays a glyph if
--- there is no art for it. One line, and it moves nothing else on the panel.
-UITheme.IconifyLabel(rebirthTitle)
+-- Converted to the shared accent band (17.x). Every child below moved down 38 -- the band's 94 less
+-- the 56 the info card used to start at -- and the panel grew by the same 38 so the bottom-anchored
+-- action button keeps its gap. Lavender is the pastel of the Rebirth tile's purple; the panel and
+-- the button that opens it have to agree.
+UITheme.PanelHeader(rebirthPanel, {
+	title = "♻️ Rebirth",
+	subtitle = "Reset progress for a permanent multiplier",
+	accent = UITheme.Color.Lavender,
+})
 
 -- the two readouts get real cards rather than bare text on the shell, so the panel has the
 -- same stacked-card rhythm as Zones/Pets instead of reading as a dialog box
 local rebirthInfoCard = Instance.new("Frame")
 rebirthInfoCard.Name = "InfoCard"
-rebirthInfoCard.Size = UDim2.new(1, -28, 0, 64)
-rebirthInfoCard.Position = UDim2.new(0, 14, 0, 56)
+rebirthInfoCard.Size = UDim2.new(1, -32, 0, 64)
+rebirthInfoCard.Position = UDim2.new(0, 16, 0, 94)
 rebirthInfoCard.Parent = rebirthPanel
 styleCard(rebirthInfoCard, UITheme.Color.Purple, UDim.new(0, 14), 4)
 
@@ -3720,8 +3876,8 @@ themeLabel(rebirthInfoLabel, 19, UITheme.Color.Cream)
 -- Luau's 200-register cap.
 local rebirthLadderBar = UITheme.ProgressBar(rebirthPanel, {
 	name = "LadderBar",
-	size = UDim2.new(1, -28, 0, 20),
-	position = UDim2.new(0, 14, 0, 126),
+	size = UDim2.new(1, -32, 0, 20),
+	position = UDim2.new(0, 16, 0, 164),
 	color = UITheme.Color.Purple,
 	radius = UDim.new(1, 0),
 	thickness = 3,
@@ -3732,10 +3888,10 @@ local rebirthLadderBar = UITheme.ProgressBar(rebirthPanel, {
 
 local rebirthReqCard = Instance.new("Frame")
 rebirthReqCard.Name = "ReqCard"
-rebirthReqCard.Size = UDim2.new(1, -28, 0, 176)
+rebirthReqCard.Size = UDim2.new(1, -32, 0, 176)
 -- 132 -> 154, clearing the ladder bar above it. The panel grew by the same 24 (see its Size), so
 -- nothing below this moved relative to the bottom edge.
-rebirthReqCard.Position = UDim2.new(0, 14, 0, 154)
+rebirthReqCard.Position = UDim2.new(0, 16, 0, 192)
 rebirthReqCard.Parent = rebirthPanel
 styleCard(rebirthReqCard, UITheme.Color.Gold, UDim.new(0, 14), 4)
 
@@ -3753,8 +3909,8 @@ themeLabel(rebirthReqLabel, 18)
 
 local rebirthActionButton = Instance.new("TextButton")
 rebirthActionButton.Name = "ActionButton"
-rebirthActionButton.Size = UDim2.new(1, -28, 0, 58)
-rebirthActionButton.Position = UDim2.new(0, 14, 1, -72)
+rebirthActionButton.Size = UDim2.new(1, -32, 0, 58)
+rebirthActionButton.Position = UDim2.new(0, 16, 1, -74)
 rebirthActionButton.Text = "REBIRTH"
 rebirthActionButton.Parent = rebirthPanel
 styleButton(rebirthActionButton, UITheme.Color.Locked, UDim.new(1, 0))
@@ -4024,7 +4180,7 @@ rewardPanel.Name = "RewardPanel"
 -- (anchored at 1,-14, 44 tall), which left ten pixels between them -- so the code bar (5.1) is paid
 -- for with panel height rather than by moving anything that was already here. Still smaller than
 -- the Journal at 968x548, so the responsive fit in registerPanel has nothing new to solve.
-rewardPanel.Size = UDim2.new(0, 700, 0, 536)
+rewardPanel.Size = UDim2.new(0, 700, 0, 578)
 rewardPanel.Position = PANEL_ANCHOR
 rewardPanel.ZIndex = 20
 rewardPanel.Visible = false
@@ -4062,37 +4218,22 @@ rewardPanel:GetPropertyChangedSignal("Visible"):Connect(function()
 	end
 end)
 
-local rewardTitle = Instance.new("TextLabel")
-rewardTitle.Name = "TitleLabel"
-rewardTitle.Size = UDim2.new(1, -90, 0, 44)
-rewardTitle.Position = UDim2.new(0, 22, 0, 12)
-rewardTitle.BackgroundTransparency = 1
-rewardTitle.TextXAlignment = Enum.TextXAlignment.Left
-rewardTitle.Text = "📅 Daily Rewards!"
-rewardTitle.Parent = rewardPanel
-themeLabel(rewardTitle, 36)
--- 9.9: the leading glyph becomes a drawing at the title's left edge, or stays a glyph if
--- there is no art for it. One line, and it moves nothing else on the panel.
-UITheme.IconifyLabel(rewardTitle)
+-- Converted to the shared accent band (17.x). The streak line was a card at y = 58 saying the same
+-- kind of thing a subtitle says -- "what is true for you right now" -- so it IS the subtitle, and
+-- the card goes. That is one register back and 36 px of panel that the grid did not have to pay
+-- for. Sunny because Day 7 is the gold hero column this board streaks towards.
+local rewardStreakLine = select(4, UITheme.PanelHeader(rewardPanel, {
+	title = "📅 Daily Rewards!",
+	subtitle = "Streak: 1 day",
+	accent = UITheme.Color.Sunny,
+}))
 
-local rewardStreakCard = Instance.new("Frame")
-rewardStreakCard.Name = "StreakCard"
-rewardStreakCard.Size = UDim2.new(0, 240, 0, 34)
-rewardStreakCard.Position = UDim2.new(0, 22, 0, 58)
-rewardStreakCard.Parent = rewardPanel
-styleCard(rewardStreakCard, UITheme.Color.Orange, UDim.new(1, 0), 3)
+-- The streak card that used to live here at y = 58 is the header's subtitle now -- see the note on
+-- the band above. It was a 240 x 34 orange capsule holding one sentence about the player's current
+-- state, which is exactly what a subtitle is for, and at y = 58 it would now sit underneath the
+-- band. Two top-level registers back (card + label) against the one handle the subtitle costs.
 
-local rewardStreakLabel = Instance.new("TextLabel")
-rewardStreakLabel.Name = "StreakLabel"
-rewardStreakLabel.Size = UDim2.new(1, -28, 0, 24)
-rewardStreakLabel.Position = UDim2.new(0, 14, 0, 3)
-rewardStreakLabel.BackgroundTransparency = 1
-rewardStreakLabel.TextXAlignment = Enum.TextXAlignment.Left
-rewardStreakLabel.Text = "🔥 Streak: 0 days"
-rewardStreakLabel.Parent = rewardStreakCard
-themeLabel(rewardStreakLabel, 22)
-
-local GRID_X, GRID_Y = 25, 100
+local GRID_X, GRID_Y = 25, 142
 local CELL_W, CELL_H, CELL_GAP = 140, 152, 8
 local DAY7_W = 200
 
@@ -4379,7 +4520,9 @@ end
 ;(function()
 	local button = UITheme.Button(rewardPanel, {
 		name = "FreeSpin", text = "\u{1F3A1} FREE SPIN", color = UITheme.Color.Gold,
-		size = UDim2.new(0, 220, 0, 42), position = UDim2.new(1, -22, 0, 54),
+		-- 54 -> 90: at 54 this pair sat INSIDE the accent band, printing over the streak subtitle.
+		-- 90 puts them in their own row between the band (ends 82) and the day grid (starts 142).
+		size = UDim2.new(0, 220, 0, 42), position = UDim2.new(1, -22, 0, 90),
 		anchorPoint = Vector2.new(1, 0), radius = 14,
 		zIndex = rewardPanel.ZIndex + 1, maxTextSize = 22,
 	})
@@ -4392,7 +4535,7 @@ end
 	-- nothing already measured on this panel moves.
 	local shardButton = UITheme.Button(rewardPanel, {
 		name = "ShardSpin", text = "\u{1F3A1} SPIN 25\u{1F31F}", color = UITheme.Color.Locked,
-		size = UDim2.new(0, 170, 0, 42), position = UDim2.new(1, -250, 0, 54),
+		size = UDim2.new(0, 170, 0, 42), position = UDim2.new(1, -250, 0, 90),
 		anchorPoint = Vector2.new(1, 0), radius = 14,
 		zIndex = rewardPanel.ZIndex + 1, maxTextSize = 22,
 	})
@@ -4507,7 +4650,7 @@ local function refreshRewardPanel()
 	local canClaim = today > lastDay
 	local streak = data.RewardStreak or 0
 
-	rewardStreakLabel.Text = "🔥 Streak: " .. streak .. " day" .. (streak == 1 and "" or "s")
+	rewardStreakLine.Text = "🔥 Streak: " .. streak .. " day" .. (streak == 1 and "" or "s")
 
 	local upcomingStreak = streak
 	if canClaim then
@@ -4590,20 +4733,28 @@ end
 registerPanel(inventoryPanel)
 panelClose(inventoryPanel)
 
--- The title sits ABOVE the card, not inside it. Inside, it costs 48px of the panel's own height
--- and competes with the first section heading; above, it is a label on a box, which is what it is.
-local inventoryTitle = Instance.new("TextLabel")
-inventoryTitle.Name = "TitleLabel"
-inventoryTitle.Size = UDim2.new(0, 420, 0, 48)
-inventoryTitle.Position = UDim2.new(0, 6, 0, -54)
-inventoryTitle.BackgroundTransparency = 1
-inventoryTitle.TextXAlignment = Enum.TextXAlignment.Left
-inventoryTitle.Text = "\u{1F392} Items!"
-inventoryTitle.Parent = inventoryPanel
-themeLabel(inventoryTitle, 40)
--- 9.9: the leading glyph becomes a drawing at the title's left edge, or stays a glyph if
--- there is no art for it. One line, and it moves nothing else on the panel.
-UITheme.IconifyLabel(inventoryTitle)
+-- ===== THE TITLE IS INSIDE THE CARD NOW (17.x) =====
+--
+-- It used to sit at y = -54, i.e. ON THE 3D WORLD above the panel, with the tab strip at -34 beside
+-- it. That was a real decision and it is written up below at `buildTabs` -- the panel's interior was
+-- already full, so the title went where there was room. 11.13 spent that argument: every shop-side
+-- panel opens with the same accent band, and one panel whose title floats over the scenery reads as
+-- a rendering fault rather than as a style. Photographed 2026-08-16 and that is exactly how it read.
+--
+-- What paid for the 114 px this costs is the BoostStrip that used to own y = 16..106 -- ninety
+-- pixels reserved for three timers that are almost never running. That readout is this header's
+-- SUBTITLE now, which is where a "what is happening right now" line belongs anyway, and it is the
+-- only handle kept: `refreshInventoryPanel` writes it once a second.
+--
+-- Aqua because that is the Potions tab's own colour in the strip below -- the same rule the Journal
+-- follows with Lavender: a panel whose accent disagrees with the button that opened it reads as a
+-- different screen. `IconifyLabel` is called by PanelHeader itself, so the 🎒 still becomes a drawing.
+local inventoryBoostLine = select(4, UITheme.PanelHeader(inventoryPanel, {
+	title = "\u{1F392} Items!",
+	subtitle = "No potion running",
+	accent = UITheme.Color.Aqua,
+	maxTextSize = 34,
+}))
 
 -- ===== SECTION HEADINGS =====
 -- Centred grey word with a rule running out of both sides. Two of them, written out rather than
@@ -4612,11 +4763,13 @@ UITheme.IconifyLabel(inventoryTitle)
 -- colour was given at all, so an explicit dark one survives, which is the whole point here.
 local INK_ON_WHITE = Color3.fromRGB(108, 116, 140)
 -- One heading now, not two: "Resources" titled a section that no longer exists (10.16).
-for _, sec in ipairs({ { "Potions", 112 } }) do
+-- 112 -> 144: header band 14 + 68 + 12 = 94, then the 34 px tab row and a 16 gap. Margin 18 -> 16,
+-- which is the one every converted panel uses.
+for _, sec in ipairs({ { "Potions", 144 } }) do
 	local head = Instance.new("TextLabel")
 	head.Name = "Section_" .. sec[1]
-	head.Size = UDim2.new(1, -36, 0, 30)
-	head.Position = UDim2.new(0, 18, 0, sec[2])
+	head.Size = UDim2.new(1, -32, 0, 30)
+	head.Position = UDim2.new(0, 16, 0, sec[2])
 	head.BackgroundTransparency = 1
 	head.Text = sec[1]
 	head.Parent = inventoryPanel
@@ -4660,41 +4813,22 @@ end
 --
 -- All nine rows are built ONCE here and only their text, colour and button state are written on
 -- refresh. Rebuilding rows on every DataUpdate is what made the pet list flicker.
-local BOOST_STRIP_H = 30
-
-local boostStrip = Instance.new("Frame")
-boostStrip.Name = "BoostStrip"
--- the live-boost readout sits ABOVE the first heading, because it is status rather than content:
--- what is running right now belongs at the top of the screen it belongs to
-boostStrip.Size = UDim2.new(1, -96, 0, BOOST_STRIP_H * 3)
-boostStrip.Position = UDim2.new(0, 18, 0, 16)
-boostStrip.BackgroundTransparency = 1
-boostStrip.Parent = inventoryPanel
-
-local boostRows = {}
-for i, kind in ipairs(GameConfig.PotionKinds) do
-	local row = Instance.new("TextLabel")
-	row.Name = "Boost_" .. kind.key
-	row.Size = UDim2.new(1, 0, 0, BOOST_STRIP_H)
-	row.Position = UDim2.new(0, 0, 0, (i - 1) * BOOST_STRIP_H)
-	row.BackgroundTransparency = 1
-	row.TextXAlignment = Enum.TextXAlignment.Left
-	row.Visible = false
-	row.Text = ""
-	row.Parent = boostStrip
-	themeLabel(row, 20, kind.color)
-	boostRows[kind.key] = row
-end
-
--- shown in place of the strip when nothing at all is running, so the space is never just blank
-local noBoostLabel = Instance.new("TextLabel")
-noBoostLabel.Name = "NoBoost"
-noBoostLabel.Size = UDim2.new(1, 0, 0, BOOST_STRIP_H)
-noBoostLabel.BackgroundTransparency = 1
-noBoostLabel.TextXAlignment = Enum.TextXAlignment.Left
-noBoostLabel.Text = "No potion running"
-noBoostLabel.Parent = boostStrip
-themeLabel(noBoostLabel, 20, UITheme.Color.Cream)
+-- ===== THE BOOST STRIP IS GONE, AND ITS READOUT IS THE HEADER'S SUBTITLE (17.x) =====
+--
+-- It reserved BOOST_STRIP_H * 3 = 90 px at the top of the card for three timers, and the rows were
+-- positioned by INDEX and merely toggled Visible -- so one running boost of the third kind drew
+-- itself sixty pixels down an otherwise empty white band. Measured on the capture: one 30 px line
+-- of dark text ("No potion running") in ninety pixels of nothing, directly under a title that was
+-- floating outside the panel.
+--
+-- One line in the accent band says the same thing in the place a status line belongs, and the 90 px
+-- pays for the band and the tab row that moved inside with it. Four top-level registers went with
+-- the strip (BOOST_STRIP_H, boostStrip, boostRows, noBoostLabel) against the one the subtitle
+-- handle costs -- this file is at Luau's 200-local ceiling and that is a net three back.
+--
+-- WHAT IT COSTS: the per-kind colour. Each row used to be tinted `kind.color`; one shared label
+-- cannot be three colours, so the kind's EMOJI carries the identity instead. That is the same
+-- trade the world-event bar made when its two cards became two pills.
 
 -- ===== THE SHELF ENDS WHERE THE PANEL DOES, NOT 178 PX SHORT OF IT (16.7) =====
 --
@@ -4708,8 +4842,10 @@ themeLabel(noBoostLabel, 20, UITheme.Color.Cream)
 -- panel is ever resized again. `PotionEmpty` covers the same rectangle and moves with it.
 local potionScroll = Instance.new("ScrollingFrame")
 potionScroll.Name = "PotionScroll"
-potionScroll.Size = UDim2.new(1, -36, 1, -164)
-potionScroll.Position = UDim2.new(0, 18, 0, 146)
+-- 146 -> 186 and 18 -> 16: header 94 + tab row 34 + gap 16 = 144 for the "Potions" rule, + 30 + 12.
+-- 202 is that 186 plus the 16 of bottom margin, so all four margins agree (16.7's rule, new numbers).
+potionScroll.Size = UDim2.new(1, -32, 1, -202)
+potionScroll.Position = UDim2.new(0, 16, 0, 186)
 potionScroll.BackgroundTransparency = 1
 potionScroll.BorderSizePixel = 0
 potionScroll.ScrollBarThickness = 6
@@ -4727,8 +4863,8 @@ potionListLayout.Parent = potionScroll
 -- anything. One grey line over the whole shelf is the honest answer, and the rows go with it.
 local potionEmptyLabel = Instance.new("TextLabel")
 potionEmptyLabel.Name = "PotionEmpty"
-potionEmptyLabel.Size = UDim2.new(1, -36, 1, -164) -- the shelf's rectangle exactly; see 16.7 above
-potionEmptyLabel.Position = UDim2.new(0, 18, 0, 146)
+potionEmptyLabel.Size = UDim2.new(1, -32, 1, -202) -- the shelf's rectangle exactly; see 16.7 above
+potionEmptyLabel.Position = UDim2.new(0, 16, 0, 186)
 potionEmptyLabel.BackgroundTransparency = 1
 potionEmptyLabel.Visible = false
 potionEmptyLabel.Text = "You don't have any Potions!"
@@ -4833,21 +4969,24 @@ local function refreshInventoryPanel()
 		UITheme.SetColor(refs.row, count > 0 and potion.color or UITheme.Color.Locked)
 	end
 
-	local anyRunning = false
+	-- ONE LINE IN THE HEADER BAND, not three rows in ninety pixels of white -- see the note where the
+	-- BoostStrip used to be. Two strings are composed because the subtitle is 22 px tall with a 12 px
+	-- floor and TextScaled WRAPS rather than truncates: a second line is clipped by the band and
+	-- simply disappears. One boost gets its full name; two or three drop the name and keep the emoji,
+	-- which is the difference between ~52 characters and ~36 in a 412 px label.
+	local running, brief = {}, {}
 	for _, kind in ipairs(GameConfig.PotionKinds) do
 		local boost = GameConfig.GetPotionBoost(currentData, kind.key)
-		local row = boostRows[kind.key]
 		if boost then
-			anyRunning = true
 			local remaining = math.max((boost.untilTs or 0) - os.time(), 0)
 			local effect = boost.mult and ("x" .. boost.mult) or ("+" .. (boost.luckAdd or 0) .. "%")
-			row.Text = ("%s %s %s  \u{2022}  %dm %02ds left"):format(kind.emoji, effect, kind.name, remaining // 60, remaining % 60)
-			row.Visible = true
-		else
-			row.Visible = false
+			table.insert(running, ("%s %s %s  \u{2022}  %dm %02ds left"):format(kind.emoji, effect, kind.name, remaining // 60, remaining % 60))
+			table.insert(brief, ("%s %s %dm%02ds"):format(kind.emoji, effect, remaining // 60, remaining % 60))
 		end
 	end
-	noBoostLabel.Visible = not anyRunning
+	inventoryBoostLine.Text = (#running == 0) and "No potion running"
+		or (#running == 1) and running[1]
+		or table.concat(brief, "   \u{2022}   ")
 end
 
 -- keep the boost countdowns ticking live while the panel is open
@@ -4870,14 +5009,20 @@ end)
 -- ceiling and one more top-level local silently deletes the entire HUD. See the Fusion and Season
 -- Pass panels, which are wrapped for the same reason.
 ;(function()
-	local function buildTabs(panel, activeIndex)
+	-- `topY` is where the strip's own top edge goes. Absent means the old behaviour -- ABOVE the card,
+	-- at -34 -- which is still right for the Pets panel: its title is up there too (y = -30), so the
+	-- pair reads as one label group sitting on the corner of the board. The Potions panel converted to
+	-- a PanelHeader band, so its strip belongs INSIDE, under the band.
+	local function buildTabs(panel, activeIndex, topY)
 		local row = Instance.new("Frame")
 		row.Name = "InventoryTabs"
 		row.Size = UDim2.new(0, 262, 0, 38)
 		-- above the card, not inside it: both panels fill their own interior with content that was
 		-- laid out before this existed, and squeezing a row in at the top would have meant moving
 		-- every scroll frame in both of them
-		row.Position = UDim2.new(1, -18, 0, -34)
+		-- -18 stays -18 while the strip is outside: the Pets panel is untouched by this and its
+		-- margin is not the converted panels' 16.
+		row.Position = UDim2.new(1, topY and -16 or -18, 0, topY or -34)
 		row.AnchorPoint = Vector2.new(1, 0)
 		row.BackgroundTransparency = 1
 		row.ZIndex = panel.ZIndex + UITheme.Z.Badge
@@ -4953,8 +5098,11 @@ end)
 		end
 	end
 
-	buildTabs(petsPanel, 1)
-	buildTabs(inventoryPanel, 2)
+	buildTabs(petsPanel, 1, 94)
+	-- 94 is the band's own bottom edge: top 14 + height 68 + gap 12, written out rather than read
+	-- off PanelHeader's second return value, which would cost a top-level register this file has not
+	-- got. The row is 38 tall carrying 34 px tabs, so it ends at 132 and the rule below clears it.
+	buildTabs(inventoryPanel, 2, 94)
 end)()
 
 
@@ -5448,7 +5596,7 @@ end)
 -- ===== Playtime Gifts panel =====
 local playtimePanel = Instance.new("Frame")
 playtimePanel.Name = "PlaytimePanel"
-playtimePanel.Size = UDim2.new(0, 790, 0, 292)
+playtimePanel.Size = UDim2.new(0, 790, 0, 294)
 playtimePanel.Position = PANEL_ANCHOR
 playtimePanel.ZIndex = 20
 playtimePanel.Visible = false
@@ -5457,28 +5605,16 @@ styleCard(playtimePanel, PANEL_SHELL, UDim.new(0, 22), 5)
 registerPanel(playtimePanel)
 panelClose(playtimePanel)
 
-local playtimeTitle = Instance.new("TextLabel")
-playtimeTitle.Name = "TitleLabel"
-playtimeTitle.Size = UDim2.new(1, -90, 0, 40)
-playtimeTitle.Position = UDim2.new(0, 20, 0, 10)
-playtimeTitle.BackgroundTransparency = 1
-playtimeTitle.TextXAlignment = Enum.TextXAlignment.Left
-playtimeTitle.Text = "⏰ Playtime Gifts"
-playtimeTitle.Parent = playtimePanel
-themeLabel(playtimeTitle, 32)
--- 9.9: the leading glyph becomes a drawing at the title's left edge, or stays a glyph if
--- there is no art for it. One line, and it moves nothing else on the panel.
-UITheme.IconifyLabel(playtimeTitle)
-
-local playtimeSubLabel = Instance.new("TextLabel")
-playtimeSubLabel.Name = "SubLabel"
-playtimeSubLabel.Size = UDim2.new(1, -44, 0, 24)
-playtimeSubLabel.Position = UDim2.new(0, 22, 0, 54)
-playtimeSubLabel.BackgroundTransparency = 1
-playtimeSubLabel.TextXAlignment = Enum.TextXAlignment.Left
-playtimeSubLabel.Text = "The longer you stay in this session, the better the gift!"
-playtimeSubLabel.Parent = playtimePanel
-themeLabel(playtimeSubLabel, 20, UITheme.Color.Cream)
+-- Converted to the shared accent band (17.x). This panel had ALREADY grown its own title-plus-
+-- subtitle pair by hand -- a 32 px label at y = 10 and a sentence at y = 54 -- which is the shape
+-- PanelHeader standardises, so the conversion is a straight swap and costs two registers less than
+-- it saves. The cells were at y = 92 and the band ends at 94, so they move 2 px and nothing else on
+-- this panel has to be touched. Peach, warm, for a timer that pays you for staying.
+UITheme.PanelHeader(playtimePanel, {
+	title = "⏰ Playtime Gifts",
+	subtitle = "The longer this session runs, the better the gift",
+	accent = UITheme.Color.Peach,
+})
 
 local PLAYTIME_CELL_W = 142
 local playtimeCells = {} -- [index] = { frame, statusLabel, checkmark, strokeInst }
@@ -5487,7 +5623,7 @@ for i, milestone in ipairs(GameConfig.PlaytimeGifts) do
 	local frame = Instance.new("Frame")
 	frame.Name = "Gift" .. i
 	frame.Size = UDim2.new(0, PLAYTIME_CELL_W, 0, 182)
-	frame.Position = UDim2.new(0, 16 + (i - 1) * (PLAYTIME_CELL_W + 12), 0, 92)
+	frame.Position = UDim2.new(0, 16 + (i - 1) * (PLAYTIME_CELL_W + 12), 0, 94)
 	frame.Parent = playtimePanel
 	local strokeInst = styleCard(frame, UITheme.Color.Orange, UDim.new(0, 16), 4)
 
@@ -6745,11 +6881,11 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 	local SEASON = GameConfig.Season
 	local CELL = 92          -- one reward cell, square
 	local PITCH = 104        -- ...plus the gap to the next column
-	local PAGE_TOP = 106
+	local PAGE_TOP = 148
 
 	local panel = Instance.new("Frame")
 	panel.Name = "SeasonPanel"
-	panel.Size = UDim2.new(0, 880, 0, 480)
+	panel.Size = UDim2.new(0, 880, 0, 522)
 	panel.Position = PANEL_ANCHOR
 	panel.ZIndex = 20
 	panel.Visible = false
@@ -6758,20 +6894,20 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 	registerPanel(panel)
 	panelClose(panel)
 
-	local title = Instance.new("TextLabel")
-	title.Size = UDim2.new(0, 330, 0, 40)
-	title.Position = UDim2.new(0, 18, 0, 10)
-	title.BackgroundTransparency = 1
-	title.TextXAlignment = Enum.TextXAlignment.Left
-	-- The live season, not the authored one: 7.3 made the id and the name functions of the date, so
-	-- a title written once at build time would name last month's season for the whole of this one.
-	-- `refresh` re-reads it below, which also covers a session that spans the turnover.
-	do
-		local season = GameConfig.GetCurrentSeason()
-		title.Text = season.emoji .. " " .. season.name
-	end
-	title.Parent = panel
-	themeLabel(title, 30)
+	-- Converted to the shared accent band (17.x), the last of the nine. The band spans the full
+	-- width, so the two tabs could no longer share the title's row -- they drop to their own row
+	-- under it (y = 94) and start at the panel margin instead of at x = 360, where they used to sit
+	-- beside the title. PAGE_TOP follows them down: 94 + the 42 px tab + 12 = 148.
+	--
+	-- The TITLE handle is kept because `refresh` rewrites it -- 7.3 made the season id and name
+	-- functions of the DATE, so a title written once at build time names last month's season for the
+	-- whole of this one, and a session can span the turnover. That is what PanelHeader's third
+	-- return value is for.
+	local title = select(3, UITheme.PanelHeader(panel, {
+		title = GameConfig.GetCurrentSeason().emoji .. " " .. GameConfig.GetCurrentSeason().name,
+		subtitle = "Earn season XP to unlock every reward",
+		accent = UITheme.Color.Coral,
+	}))
 
 	-- ---- the two remotes this panel talks over. Newer than the authored Remotes folder, so they
 	-- are waited for by name rather than indexed -- SeasonPassService creates whichever is missing.
@@ -6815,7 +6951,7 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 		local btn = Instance.new("TextButton")
 		btn.Name = "Tab_" .. spec.key
 		btn.Size = UDim2.new(0, 190, 0, 42)
-		btn.Position = UDim2.new(0, 360 + (i - 1) * 200, 0, 12)
+		btn.Position = UDim2.new(0, 16 + (i - 1) * 200, 0, 94)
 		btn.Text = spec.text
 		btn.ZIndex = panel.ZIndex + UITheme.Z.Content
 		btn.Parent = panel
@@ -7229,8 +7365,18 @@ hudRefs.refreshCharacterPanel = refreshCharacterPanel
 		if not currentData then return end
 		-- the season can turn over mid-session (7.3), so the header is re-read rather than assumed
 		do
-			local current = GameConfig.GetCurrentSeason()
-			title.Text = current.emoji .. " " .. current.name
+			-- NO LEADING EMOJI HERE ANY MORE (17.x). The title is PanelHeader's now, and PanelHeader
+			-- runs IconifyLabel on it -- the leading glyph is stripped and drawn as a `TitleIcon`
+			-- picture beside the words. This line re-added the glyph on the very first refresh, so
+			-- the band rendered a drawn ticket AND the ticket emoji next to it. Photographed; it is
+			-- the exact trap the Pets panel's refresh already carries a warning about.
+			--
+			-- The drawn icon is fixed at build time, which is very slightly wrong only for a session
+			-- that spans a season turnover: the NAME updates and the picture would not. Accepted
+			-- rather than solved, because UITheme.SetIcon looks for a child called `Icon`/`Label` and
+			-- the band's is `TitleIcon`, so pointing it here would need a kit change for a case that
+			-- lasts until the next rejoin.
+			title.Text = GameConfig.GetCurrentSeason().name
 		end
 		local season = currentData.Season or {}
 		local xp = season.xp or 0
@@ -8066,8 +8212,10 @@ local function refreshUI()
 			end
 		end
 		if refs.button then
-			setButtonColor(refs.button, (not maxed and data.DNA >= cost)
-				and UITheme.Color.Green or UITheme.Color.Locked)
+			-- Maxed is genuinely Locked -- there is nothing left to buy. Merely short of DNA is not,
+			-- and it used to draw the same grey. See the token's own note in UITheme.
+			setButtonColor(refs.button, maxed and UITheme.Color.Locked
+				or (data.DNA >= cost) and UITheme.Color.Green or UITheme.Color.Unaffordable)
 		end
 	end
 
@@ -8078,8 +8226,8 @@ local function refreshUI()
 		refs.levelLabel.Text = "Level " .. level .. (def.maxLevel and (" / " .. def.maxLevel) or "")
 		refs.costLabel.Text = (cost == math.huge) and "MAXED" or ("💎 " .. formatNumber(cost))
 		if refs.button then
-			setButtonColor(refs.button, (cost ~= math.huge and (data.Diamonds or 0) >= cost)
-				and UITheme.Color.SkyBlue or UITheme.Color.Locked)
+			setButtonColor(refs.button, (cost == math.huge) and UITheme.Color.Locked
+				or ((data.Diamonds or 0) >= cost) and UITheme.Color.SkyBlue or UITheme.Color.Unaffordable)
 		end
 	end
 end
@@ -8609,7 +8757,10 @@ end)
 do
 	local PUNCH_UP = TweenInfo.new(0.11, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 	local PUNCH_DOWN = TweenInfo.new(0.17, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	local BADGE_REST = UITheme.Shade(UITheme.Color.Outline, 0.22)
+	-- Cream, not the old 22%-of-near-black: this is what a level badge settles BACK to after its
+	-- purchase flash, and the badge it settles into is Cream now. The two must agree or every
+	-- upgrade you buy turns its own badge black a second later.
+	local BADGE_REST = UITheme.Color.Cream
 
 	function hudRefs.punchUpgrade(key)
 		local refs = upgradeButtons[key]
@@ -8884,7 +9035,7 @@ end)
 
 	local panel = Instance.new("Frame")
 	panel.Name = "AudioPanel"
-	panel.Size = UDim2.new(0, 430, 0, 372)
+	panel.Size = UDim2.new(0, 430, 0, 408)
 	panel.Position = PANEL_ANCHOR
 	panel.ZIndex = 20
 	panel.Visible = false
@@ -8893,10 +9044,12 @@ end)
 	registerPanel(panel)
 	panelClose(panel)
 
-	UITheme.Label(panel, {
-		name = "Title", text = "\u{1F50A} Audio",
-		size = UDim2.new(1, -80, 0, 40), position = UDim2.new(0, 18, 0, 10),
-		xAlign = "Left", maxTextSize = 34, zIndex = 22,
+	-- Converted to the shared accent band (17.x). Rows moved 64 -> 100 and the panel grew by the same
+	-- 36, so the bottom-anchored mute button keeps its gap. Aqua matches the Audio tile that opens it.
+	UITheme.PanelHeader(panel, {
+		title = "\u{1F50A} Audio",
+		subtitle = "Master fades the other three",
+		accent = UITheme.Color.Aqua,
 	})
 
 	-- `Master` is a fader over the other three rather than a fourth channel, which is why it leads and
@@ -8927,7 +9080,7 @@ end)
 	end
 
 	for i, row in ipairs(ROWS) do
-		local y = 64 + (i - 1) * 58
+		local y = 100 + (i - 1) * 58
 
 		UITheme.Label(panel, {
 			name = row.key .. "Name", text = row.label,
@@ -9125,7 +9278,7 @@ local shopPanels = {
 
 	local panel = Instance.new("Frame")
 	panel.Name = "EggPanel"
-	panel.Size = UDim2.new(0, 470, 0, 520)
+	panel.Size = UDim2.new(0, 470, 0, 556)
 	panel.Position = PANEL_ANCHOR
 	panel.ZIndex = 20
 	panel.Visible = false
@@ -9134,11 +9287,16 @@ local shopPanels = {
 	registerPanel(panel)
 	panelClose(panel)
 
-	local title = UITheme.Label(panel, {
-		name = "Title", text = "\u{1F95A} Eggs",
-		size = UDim2.new(1, -80, 0, 40), position = UDim2.new(0, 18, 0, 10),
-		xAlign = "Left", maxTextSize = 34, zIndex = 22,
-	})
+	-- Converted to the shared accent band (17.x). Every child below moved down 36 and the panel grew
+	-- by the same 36. The TITLE handle is kept because `refreshEggPanel` rewrites it per stall
+	-- ("Forest Eggs"), which is exactly the case PanelHeader's third return value exists for --
+	-- anything that TICKS belongs in the subtitle, but a name that changes with the place you are
+	-- standing is still a name. Sunny because an egg stall is the gold-rush corner of the game.
+	local title = select(3, UITheme.PanelHeader(panel, {
+		title = "\u{1F95A} Eggs",
+		subtitle = "Odds are per hatch",
+		accent = UITheme.Color.Sunny,
+	}))
 
 	-- WHICH STALL THE PLAYER IS STANDING AT, or nil. Read off the same ProximityPrompts PetService
 	-- wired -- their `EggKey` attribute is already the authority on which egg a podium sells, so
@@ -9178,7 +9336,7 @@ local shopPanels = {
 	local tierRow = Instance.new("Frame")
 	tierRow.Name = "TierRow"
 	tierRow.Size = UDim2.new(1, -36, 0, 54)
-	tierRow.Position = UDim2.new(0, 18, 0, 58)
+	tierRow.Position = UDim2.new(0, 18, 0, 94)
 	tierRow.BackgroundTransparency = 1
 	tierRow.ZIndex = panel.ZIndex + UITheme.Z.Content
 	tierRow.Parent = panel
@@ -9199,18 +9357,18 @@ local shopPanels = {
 	local costLabel = Instance.new("TextLabel")
 	costLabel.Name = "Cost"
 	costLabel.Size = UDim2.new(1, -36, 0, 26)
-	costLabel.Position = UDim2.new(0, 18, 0, 118)
+	costLabel.Position = UDim2.new(0, 18, 0, 154)
 	costLabel.BackgroundTransparency = 1
 	costLabel.TextXAlignment = Enum.TextXAlignment.Left
 	costLabel.Text = ""
 	costLabel.ZIndex = panel.ZIndex + UITheme.Z.Content
 	costLabel.Parent = panel
-	themeLabel(costLabel, 22, UITheme.Color.Cream)
+	themeLabel(costLabel, 22, Color3.fromRGB(46, 34, 66))
 
 	local oddsScroll = Instance.new("ScrollingFrame")
 	oddsScroll.Name = "OddsScroll"
 	oddsScroll.Size = UDim2.new(1, -36, 0, 232)
-	oddsScroll.Position = UDim2.new(0, 18, 0, 150)
+	oddsScroll.Position = UDim2.new(0, 18, 0, 186)
 	oddsScroll.BackgroundTransparency = 1
 	oddsScroll.BorderSizePixel = 0
 	oddsScroll.ScrollBarThickness = 6
@@ -9243,7 +9401,7 @@ local shopPanels = {
 	-- row (`1, 0` on Y), so the row owns their height and `styleButton`'s shrink -- which only ever
 	-- rewrites an OFFSET height -- correctly does not touch them.
 	actionRow.Size = UDim2.new(1, -36, 0, 44)
-	actionRow.Position = UDim2.new(0, 18, 0, 396)
+	actionRow.Position = UDim2.new(0, 18, 0, 432)
 	actionRow.BackgroundTransparency = 1
 	actionRow.ZIndex = panel.ZIndex + UITheme.Z.Content
 	actionRow.Parent = panel
@@ -9284,7 +9442,7 @@ local shopPanels = {
 	local autoButton = Instance.new("TextButton")
 	autoButton.Name = "AutoHatch"
 	autoButton.Size = UDim2.new(1, -36, 0, 46)
-	autoButton.Position = UDim2.new(0, 18, 0, 456)
+	autoButton.Position = UDim2.new(0, 18, 0, 492)
 	autoButton.Text = "AUTO HATCH"
 	autoButton.ZIndex = panel.ZIndex + UITheme.Z.Content
 	autoButton.Parent = panel
@@ -10835,3 +10993,126 @@ end)()
 	end)
 end)()
 
+
+-- ============================================================================
+-- SCROLL AFFORDANCE PASS  (16.x)
+-- ============================================================================
+-- Photographed 2026-08-16 on the Zones, Inventory and Journal panels: a list scrolled anywhere but
+-- the end has its last visible row sliced dead flat by the panel edge, with nothing to say more
+-- exists below it. A structural probe over all 15 ScrollingFrames found why, and it is three
+-- separate omissions rather than one:
+--
+--   * 13 of 15 have NO bottom padding, so the final row ends exactly on the clip line.
+--   * 9 of 15 carry ScrollBarImageColor3 = white -- and every panel shell is white, so the only
+--     affordance the engine gives for free is invisible. That is not a subtle defect; those
+--     panels render with no scrollbar at all.
+--   * Nothing fades the cut, so a half-row reads as a rendering fault rather than as content.
+--
+-- This runs once, generically, over whatever ScrollingFrames exist. It deliberately does NOT know
+-- any panel by name -- a panel added later is covered by the same pass, which is the whole reason
+-- it is written as a sweep instead of 15 edits.
+--
+-- Register cost: zero. Everything lives inside this block.
+;(function()
+	local FADE_H = 30      -- tall enough to swallow a sliced row, short enough not to dim a full one
+	local TAIL = 14        -- trailing space under the last row, so it never touches the clip line
+
+	-- The fade has to sit ABOVE the scroll's own children. ZIndexBehavior is Sibling here (checked
+	-- live), so a sibling one rung up covers the whole subtree and the children's own ZIndex does
+	-- not enter into it.
+	local function attachFade(scroll)
+		local panel = scroll.Parent
+		if not panel or not panel:IsA("GuiObject") then return end
+		if panel:FindFirstChild(scroll.Name .. "Fade") then return end
+
+		-- The panel does not paint its own background any more -- applyShell moved the fill into an
+		-- InnerBody child and left only the BaseColor attribute behind. Reading BackgroundColor3
+		-- here would return Roblox's default frame grey and paint a grey smear over a white panel.
+		local base = panel:GetAttribute("BaseColor")
+		if typeof(base) ~= "Color3" then base = PANEL_SHELL end
+
+		local fade = Instance.new("Frame")
+		fade.Name = scroll.Name .. "Fade"
+		fade.BackgroundColor3 = base
+		fade.BorderSizePixel = 0
+		fade.ZIndex = scroll.ZIndex + 1
+		-- A Frame that is not Active does not eat the wheel or a touch drag, so the bottom strip of
+		-- the list stays scrollable through it.
+		fade.Active = false
+		fade.Visible = false
+
+		-- Pin to the scroll's bottom edge in the scroll's own units, so this survives every resize
+		-- and the panel-open UIScale without any absolute-pixel maths. Written to respect a
+		-- non-zero AnchorPoint because TrackScroll has one (0, 0.5).
+		fade.AnchorPoint = Vector2.new(scroll.AnchorPoint.X, 1)
+		fade.Size = UDim2.new(scroll.Size.X.Scale, scroll.Size.X.Offset, 0, FADE_H)
+		fade.Position = UDim2.new(
+			scroll.Position.X.Scale,
+			scroll.Position.X.Offset,
+			scroll.Position.Y.Scale + scroll.Size.Y.Scale * (1 - scroll.AnchorPoint.Y),
+			scroll.Position.Y.Offset + scroll.Size.Y.Offset * (1 - scroll.AnchorPoint.Y)
+		)
+
+		local grad = Instance.new("UIGradient")
+		grad.Rotation = 90   -- default 0 runs left-to-right; the cut is horizontal
+		grad.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.45, 0.55),
+			NumberSequenceKeypoint.new(1, 0.05),
+		})
+		grad.Parent = fade
+		fade.Parent = panel
+
+		-- Show it only when something is actually below the fold, or a short list wears a permanent
+		-- smudge along its bottom edge for no reason.
+		local function refresh()
+			local below = scroll.AbsoluteCanvasSize.Y - (scroll.CanvasPosition.Y + scroll.AbsoluteWindowSize.Y)
+			fade.Visible = below > 4
+		end
+		scroll:GetPropertyChangedSignal("CanvasPosition"):Connect(refresh)
+		scroll:GetPropertyChangedSignal("AbsoluteCanvasSize"):Connect(refresh)
+		scroll:GetPropertyChangedSignal("AbsoluteWindowSize"):Connect(refresh)
+		panel:GetPropertyChangedSignal("Visible"):Connect(function()
+			if panel.Visible then task.defer(refresh) end
+		end)
+		task.defer(refresh)
+	end
+
+	local function polish(scroll)
+		-- A visible bar on a white shell. Outline is the kit's near-black; at 0.35 it reads as a
+		-- grip rather than a black stripe.
+		scroll.ScrollBarImageColor3 = UITheme.Color.Outline
+		scroll.ScrollBarImageTransparency = 0.35
+		if scroll.ScrollBarThickness < 10 then scroll.ScrollBarThickness = 10 end
+
+		-- Trailing space has to be bought differently depending on who owns the canvas. Padding on
+		-- an AutomaticCanvasSize scroll grows the canvas with it; on a fixed canvas it would only
+		-- push the content up and clip the last row harder, so that case buys the space on the
+		-- canvas directly.
+		if scroll.AutomaticCanvasSize == Enum.AutomaticSize.Y then
+			local pad = scroll:FindFirstChildOfClass("UIPadding")
+			if not pad then
+				pad = Instance.new("UIPadding")
+				pad.Parent = scroll
+			end
+			if pad.PaddingBottom.Offset < TAIL then
+				pad.PaddingBottom = UDim.new(0, TAIL)
+			end
+		elseif scroll.CanvasSize.Y.Offset > 0 then
+			scroll.CanvasSize = UDim2.new(
+				scroll.CanvasSize.X.Scale, scroll.CanvasSize.X.Offset,
+				scroll.CanvasSize.Y.Scale, scroll.CanvasSize.Y.Offset + TAIL
+			)
+		end
+
+		attachFade(scroll)
+	end
+
+	for _, d in ipairs(screenGui:GetDescendants()) do
+		if d:IsA("ScrollingFrame") then polish(d) end
+	end
+	-- Panels whose scroll is built lazily on first open would otherwise never be reached.
+	screenGui.DescendantAdded:Connect(function(d)
+		if d:IsA("ScrollingFrame") then task.defer(polish, d) end
+	end)
+end)()

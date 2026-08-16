@@ -7,7 +7,17 @@
 	HARD INVARIANT (this is the bug that started the redesign):
 		Gloss BackgroundTransparency >= 0.72 AND every text/content child renders at a
 		strictly HIGHER ZIndex than the gloss.
-		Layering: Shadow(-1) < Shell(0) < Gloss(+1) < Content(+3) < Badge(+5)
+		Layering, as the `Z` table below actually defines it -- this line used to read
+		"Shell(0) < Gloss(+1) < Content(+3) < Badge(+5)", which has not been true since the
+		`Body` level was inserted, and `Z` is the authority:
+			Shadow(-1) < Shell(0) < Body(1) < Gloss(2) < Content(4) < Badge(6) < Overlay(8)
+
+	THEME: bright pastel and white surfaces inside a near-black outline (17.18). The outline
+	(`Color.Outline`) is the signature of the style and is never a fill; the pastel pass replaced
+	the dark chrome that call sites had been building out of `Shade(Color.Outline, n)`. Three
+	things follow from a near-white fill and all three are handled off one constant -- see
+	`LIGHT_SURFACE`: the ink flips dark (and drops its halo in the same branch), the body gradient
+	runs downward instead of upward, and the shadow lip softens.
 ]]
 
 local RunService = game:GetService("RunService")
@@ -23,8 +33,140 @@ local UITheme = {}
 local HOVER_TWEEN_INFO = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local LEAVE_TWEEN_INFO = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local PRESS_DOWN_INFO  = TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local PRESS_UP_INFO    = TweenInfo.new(0.20, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+-- 0.12, DOWN FROM 0.20 (18.1, research §2.3). The press is two different events wearing one number
+-- in `readme.md` ("~120-200 ms"), and only the RELEASE wants the slow half of that range: a press
+-- that takes a fifth of a second to come back up is still visibly travelling when the finger has
+-- already moved on. §2.3's split is 0.06 s down / 0.12 s back, and 0.06 was already what
+-- PRESS_DOWN_INFO shipped with, so this is the one half that was wrong.
+local PRESS_UP_INFO    = TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local PULSE_TWEEN_INFO = TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+-- ============================================================================
+-- ACCESSIBILITY: THE MOTION KILL-SWITCH (18.1, research §2.6)
+-- ============================================================================
+--
+-- `GuiService.ReducedMotionEnabled` is a player setting, not a device capability, and Roblox's own
+-- remedy for it is one sentence: "set the `TweenInfo.Time` parameter of a `TweenInfo` to `0`".
+-- (https://create.roblox.com/docs/production/publishing/accessibility)
+--
+-- So this is the one place a duration is allowed to be decided, and every tween in the kit -- and
+-- every tween in `MainUI` that routes through `UITheme.Tween` -- is covered by the two functions
+-- below rather than by 60 call sites remembering.
+--
+-- ===== WHY "TIME = 0" IS NOT ALWAYS ENOUGH, AND THE RULE THAT FALLS OUT OF IT =====
+--
+-- A tween at time 0 lands on its TARGET instantly. That is exactly right for a transition -- a panel
+-- opening to `FitScale`, a progress bar moving to 62%, a press dropping to 0.94 -- because arriving
+-- is the correct end state and all the player loses is the travel.
+--
+-- It is exactly WRONG for a tween whose target is not a resting state: an idle attention pulse
+-- targets 1.05 and relies on `reverses` to come back, so a zero-time version leaves the tile
+-- permanently 5% too big, and a `repeatCount = -1` at time 0 is an infinite loop of instant
+-- completions. Those two facts are why this exposes a READABLE FLAG as well as a rewriter:
+--
+--   * a tween that ENDS where it should rest       -> just play it through `UITheme.Tween`
+--   * a tween that only looks right while moving   -> ask `UITheme.ReducedMotion()` and skip it
+--
+-- `Celebrate` and `Attention` below are the two that ask; everything else plays.
+--
+-- Read through pcall and cached, for two reasons. The property is engine-version dependent (it did
+-- not exist before 2023 and this module is required by three SERVER scripts, where GuiService is
+-- inert), and reading it per tween would be a property read on every button press for a value that
+-- changes about once a session. The subscription keeps the cache honest without polling.
+local GuiService do
+	local ok, svc = pcall(function()
+		return game:GetService("GuiService")
+	end)
+	GuiService = ok and svc or nil
+end
+
+local reducedMotion = false
+local preferredTransparency = 1
+
+local function readAccessibility()
+	if not GuiService then
+		return
+	end
+	pcall(function()
+		reducedMotion = GuiService.ReducedMotionEnabled == true
+	end)
+	pcall(function()
+		local v = GuiService.PreferredTransparency
+		if type(v) == "number" then
+			preferredTransparency = math.clamp(v, 0, 1)
+		end
+	end)
+end
+
+if RunService:IsClient() and GuiService then
+	readAccessibility()
+	pcall(function()
+		GuiService:GetPropertyChangedSignal("ReducedMotionEnabled"):Connect(readAccessibility)
+	end)
+	pcall(function()
+		GuiService:GetPropertyChangedSignal("PreferredTransparency"):Connect(readAccessibility)
+	end)
+end
+
+-- TRUE when the player has asked for less motion. Ask this before starting anything that is only
+-- correct while it is moving -- see the rule above.
+function UITheme.ReducedMotion()
+	return reducedMotion
+end
+
+-- Same argument list as `TweenInfo.new`, so it is a drop-in: `UITheme.Motion(0.22,
+-- Enum.EasingStyle.Back, Enum.EasingDirection.Out)`. Under reduced motion it returns the same curve
+-- with the TIME, the REPEAT and the DELAY all taken out -- a repeat of -1 at zero time would spin
+-- the scheduler forever, so it cannot simply zero the duration and keep the rest.
+function UITheme.Motion(time, style, direction, repeatCount, reverses, delayTime)
+	if reducedMotion then
+		return TweenInfo.new(0, style or Enum.EasingStyle.Quad, direction or Enum.EasingDirection.Out, 0, false, 0)
+	end
+	return TweenInfo.new(
+		time or 1,
+		style or Enum.EasingStyle.Quad,
+		direction or Enum.EasingDirection.Out,
+		repeatCount or 0,
+		reverses or false,
+		delayTime or 0
+	)
+end
+
+-- The other door in, for the ~60 places that already hold a TweenInfo built at file scope (this
+-- module's own five constants, `MainUI`'s OPEN/SHUT pair). Rewrites the info at PLAY time rather
+-- than at build time, which is the only correct moment: a constant built when the module loaded
+-- cannot know about a setting the player flips ten minutes later.
+--
+-- Returns the Tween so a caller that has to `:Cancel()` it -- `PanelMotion`, `CountTo` -- still can.
+function UITheme.Tween(inst, info, goal)
+	if not inst or not info or not goal then
+		return nil
+	end
+	local use = info
+	if reducedMotion then
+		use = TweenInfo.new(0, info.EasingStyle, info.EasingDirection, 0, false, 0)
+	end
+	local tween = TweenService:Create(inst, use, goal)
+	tween:Play()
+	return tween
+end
+
+-- ===== THE SCRIM, WHICH IS THE ONE THING THIS HUD ACTIVELY FIGHTS (research §5.2) =====
+--
+-- `GuiService.PreferredTransparency`: "A value of 1 indicates the player prefers the default
+-- background transparency, while a value of 0 indicates the player prefers fully opaque." So a
+-- player who has asked for opaque backgrounds should get a SOLID scrim behind a modal, not a 45%
+-- one -- and the formula is a multiply rather than a branch so every value in between works too.
+--
+-- Takes the alpha you would have used and returns the one to use. `UITheme.ScrimTransparency(0.45)`
+-- is 0.45 at the default setting and 0 at the fully-opaque end.
+function UITheme.ScrimTransparency(base)
+	return math.clamp((base or 0.45) * preferredTransparency, 0, 1)
+end
+
+function UITheme.PreferredTransparency()
+	return preferredTransparency
+end
 
 
 -- THE CLICK, IN THE ONE PLACE EVERY BUTTON ALREADY GOES THROUGH.
@@ -64,6 +206,58 @@ local Color = {
 	Pink        = Color3.fromRGB(255, 105, 195),
 	Grey        = Color3.fromRGB(150, 150, 165),
 	Locked      = Color3.fromRGB(163, 161, 180),
+
+	-- ===== THE BRIGHT PASTEL / WHITE CHROME (17.18) =====
+	--
+	-- Asked for in as many words: "nemoj te crne vec bright pastel i beli theme". The complaint is
+	-- about SURFACES, not about the outline -- `Color.Outline` above is the signature of the whole art
+	-- style and every one of these tokens is drawn inside it.
+	--
+	-- The kit could produce exactly four dark surfaces before this and three of them were built by
+	-- CALL SITES out of `Shade(Color.Outline, 0.22)` -- rgb(76,70,84), a near-black capsule -- because
+	-- there was no light chip token to reach for. These four are that token, plus the ink that has to
+	-- come with it: a light fill under a white glyph is the one combination this kit CANNOT draw,
+	-- since `outlineText` always haloes in `Color.Outline` and a white word on a near-white plate is
+	-- then read entirely off its halo.
+	--
+	--   Ink      the dark glyph for a light surface. Same hue family as Outline (both a warm
+	--            violet-black) but 22 points lighter, so a word set in it beside a shell outlined in
+	--            Outline reads as ink rather than as more border. lum 0.17.
+	--   InkSoft  secondary text on a light surface -- subtitles, units, "of 100". lum 0.37, still
+	--            under the `isDarkInk` cut, so it drops its halo like any other dark ink.
+	--   Frost    THE CHIP FILL. What a price capsule, a level badge and a currency capsule are made
+	--            of now. A hair off pure white (a cool 240/243/252) so a chip sitting ON a white
+	--            panel still has an edge of its own beyond the outline. lum 0.95.
+	--   Cloud    one step deeper: an inset rather than a raised chip -- progress-bar tracks, wells,
+	--            list backings. lum 0.89, still comfortably a light surface.
+	Ink         = Color3.fromRGB(48, 38, 66),
+	InkSoft     = Color3.fromRGB(104, 96, 132),
+	Frost       = Color3.fromRGB(240, 243, 252),
+	Cloud       = Color3.fromRGB(222, 228, 244),
+	-- "you cannot afford this YET" -- NOT the same state as Locked, and it had been drawn with the
+	-- same swatch since the shop was written. Locked means the row is unavailable: zone-gated, maxed,
+	-- nothing selected. This means the button works, the price is real, and you are short. A dead
+	-- neutral grey says "do not press me"; this keeps the hue and the value so the tile still reads as
+	-- a live button whose price is out of reach. Used by BOTH upgrade rows on ShopFrame -- the DNA row
+	-- did it too and was only ever photographed green because those four were affordable.
+	--
+	-- LIGHTENED 108,122,156 -> 132,148,200 for the pastel pass (17.18), and NOT merged into `Locked`.
+	-- At lum 0.48 it was the darkest fill the kit could produce on purpose and it read as slate
+	-- against a screen of candy. The two still have to be told apart at a glance and value alone
+	-- cannot do it any more (Locked is 0.64, this is 0.59), so the separation moved to CHROMA: Locked
+	-- is a neutral lilac grey (max channel minus min = 19), this is unmistakably blue (68). "Grey and
+	-- dead" vs "blue and live, just out of reach" survives the lightening; a single merged token
+	-- would have lost the distinction the swatch was added for.
+	-- Lightened twice. rgb(108,122,156) at luminance 0.48 was the darkest deliberate fill in the kit;
+	-- 132,148,200 took it to 0.58, and photographed against three green tiles it still read as a
+	-- navy block -- the one dark rectangle left on the screen, which is the thing this pass exists
+	-- to remove. 178,190,230 is luminance 0.73: unmistakably a periwinkle, unmistakably quieter than
+	-- the Green it sits under, and no longer dark.
+	--
+	-- White ink with its 4 px halo is still correct at 0.73 and does NOT want the dark-ink flip: in
+	-- this HUD the outline is what carries the contrast, and the InkOn cut sits at 0.86 precisely so
+	-- that chromatic fills like this one keep the chunky white-on-colour look.
+	Unaffordable = Color3.fromRGB(178, 190, 230),
 
 	-- Bright pastel set -- used by the HUD tiles so the columns read as candy
 	-- buttons rather than the darker panel chrome.
@@ -135,6 +329,72 @@ end
 UITheme.Shade = shade
 
 -- ============================================================================
+-- LIGHT SURFACES: ONE NUMBER, THREE DECISIONS (17.18)
+-- ============================================================================
+--
+-- The pastel/white pass makes near-white a normal fill for the first time, and three separate things
+-- in this file break silently on one:
+--
+--   1. the LABEL. `outlineText` always haloes in `Color.Outline`, so white-on-white is a word you
+--      read entirely off its outline -- fine at 30pt, mush at the 13pt HUD caption floor.
+--   2. the GRADIENT. `gradientFor` lightens the top by 0.4, and 0.4 of the way from rgb(240) to
+--      white is rgb(246): a white card's three stops land within six values of each other and the
+--      moulding disappears. See the light curve below.
+--   3. the LIP. `applyShell` drops the ShadowBody 40%, which under a white card is rgb(153) -- a
+--      grey slab, i.e. exactly the dark chrome this pass exists to remove.
+--
+-- All three ask the same question, so they ask it once, of one constant.
+--
+-- ===== WHY 0.86, FOR THIS PALETTE =====
+--
+-- Measured, not copied -- a cut carried over from another kit is what twice put white ink on
+-- mid-tone fills at ~2.8:1. This palette has two clearly separated populations and the cut goes in
+-- the gap between them:
+--
+--   CHROMATIC FILLS, every saturated and pastel token: Red 0.48, Purple 0.55, Blue 0.56, Coral 0.57,
+--   Green 0.57, PanelBlue 0.59, Grey 0.60, Lavender 0.64, Locked 0.64, Orange 0.65, Mint 0.66,
+--   Pink 0.63, Bubblegum 0.69, SkyBlue/Aqua 0.71, Peach 0.71, Gold 0.78, **Sunny 0.82** (the top).
+--   Every one of these is a white-ink surface today and stays one -- white plus a 4px near-black
+--   halo IS the chunky sticker look, and flipping the HUD tiles to dark ink would trade the whole
+--   aesthetic for a contrast score.
+--
+--   LIGHT NEUTRALS: Cloud 0.89, Frost 0.95, Cream 0.97, PanelWhite/White 1.00. These are the ones
+--   a white glyph vanishes into.
+--
+-- The band between 0.82 and 0.89 is empty, so any cut inside it behaves identically on everything
+-- that exists; 0.86 is its middle, which is the most room on both sides for a token added later.
+-- The one value that lands near the line by construction is `shade(Sunny, 0.4)` = 0.88, the TOP STOP
+-- of Sunny's own gradient -- and a caller who hands that in as a base fill genuinely does want dark
+-- ink on it, so the answer there is right rather than merely tolerated.
+local function luminance(c)
+	return 0.299 * c.R + 0.587 * c.G + 0.114 * c.B
+end
+UITheme.Luminance = luminance
+
+local LIGHT_SURFACE = 0.86
+
+local function isLightSurface(c)
+	return c ~= nil and luminance(c) >= LIGHT_SURFACE
+end
+UITheme.IsLightSurface = isLightSurface
+
+-- THE INK RULE, and the reason it is a function rather than a habit. Six constructors in this file
+-- hardcoded `Color.White` for their label because every surface they could be given was chromatic.
+-- Each of them knows the fill it is printing on, so each of them can ask -- and a seventh added next
+-- year inherits the answer instead of inheriting the habit.
+--
+-- Returns the INK ONLY. The halo is the caller's second half of the same decision and must be made
+-- in the same branch (see `outlineText`): dark ink inside a `Color.Outline` stroke is a solid blob
+-- that reads correct in every property and fails only in a capture.
+local function inkOn(fill)
+	if isLightSurface(fill) then
+		return Color.Ink
+	end
+	return Color.White
+end
+UITheme.InkOn = inkOn
+
+-- ============================================================================
 -- THE BUTTON GRADIENT -- ONE CURVE, EVERY SURFACE IN THE GAME
 -- ============================================================================
 -- This function is the single lever for the whole UI's look: UITheme's own applyShell, the
@@ -154,7 +414,35 @@ UITheme.Shade = shade
 -- The stops are also weighted toward the top (0.42 rather than 0.55) so the light half is slightly
 -- larger than the dark half. Even split reads as a two-tone stripe; uneven reads as a curved
 -- surface.
+--
+-- ===== A NEAR-WHITE FILL NEEDS THE CURVE RUN THE OTHER WAY (17.18) =====
+--
+-- The stops above are all expressed as a LIGHTENING (+0.4, +0.05) with one small darkening at the
+-- foot (-0.1), which is the right shape for a chromatic fill: there is somewhere to go in both
+-- directions. On a near-white fill there is nowhere to go up. rgb(240,243,252) lightened by 0.4 is
+-- rgb(246,248,253) and by 0.05 is rgb(241,244,252) -- the top two thirds of the card are the same
+-- six values, and the whole moulding is a single -0.1 nudge at the very bottom. That is a flat white
+-- rectangle with a slightly grubby foot, which is what "a white card reads flat" means.
+--
+-- So the light curve spends its whole range downward: pure white at the crown, the fill itself just
+-- above the middle, and a real -0.20 at the foot. rgb(240,243,252) then runs 255 -> 240 -> 192,
+-- which is a lit dome rather than a wash, and it is the SAME optical story the chromatic curve tells
+-- (bright top, base colour just above centre, deeper version of itself at the bottom) drawn with the
+-- only headroom a light fill has.
+--
+-- CHOSEN BY THE FILL, NEVER BY THE CALLER. `gradientFor` is read by `applyShell`, `SetColor`,
+-- `ProgressBar`, `IconTile` and MainUI's own `styleCard`; a `light = true` option would be five call
+-- sites that have to remember, and the one that forgets is a flat card nobody notices for a month.
+-- 0.38 rather than 0.35 for the middle stop, so the light half stays the larger one -- same reason
+-- the chromatic curve is weighted toward the top.
 local function gradientFor(c)
+	if isLightSurface(c) then
+		return ColorSequence.new({
+			ColorSequenceKeypoint.new(0.00, Color.White),
+			ColorSequenceKeypoint.new(0.38, c),
+			ColorSequenceKeypoint.new(1.00, shade(c, -0.20)),
+		})
+	end
 	return ColorSequence.new({
 		ColorSequenceKeypoint.new(0.00, shade(c, 0.4)),
 		ColorSequenceKeypoint.new(0.35, shade(c, 0.05)),
@@ -167,6 +455,27 @@ end
 -- different button looks in one screen -- which is exactly what "every button identical" rules
 -- out. Kept as a name so the four call sites that ask for it still read as intentional.
 local pastelGradientFor = gradientFor
+
+-- ============================================================================
+-- THE LIP, AND WHY IT HAD TO LEARN ABOUT LIGHT FILLS TOO (17.18)
+-- ============================================================================
+-- `ShadowBody` is the shell's own rectangle shifted down 6 px and painted darker; all you ever see
+-- of it is a 6 px band along the bottom edge, and that band is what makes a card read as a thing
+-- with thickness rather than a decal.
+--
+-- It was a flat `shade(c, -0.4)`, i.e. 60% of the fill, which is correct on a chromatic surface --
+-- Mint's foot is a deep green and still recognisably Mint. Under a WHITE card 60% is rgb(153): a mid
+-- grey slab, on a screen whose whole complaint is dark chrome. -0.22 puts a white card's foot at
+-- rgb(199) instead, which still steps clearly away from the -0.20 the light gradient ends on and is
+-- still drawn inside the same near-black outline, so nothing about the sticker silhouette changes.
+--
+-- Public because MainUI's `styleCard` builds the identical lip on the identical geometry and the two
+-- must not drift -- that pair has already been the cause of two separate "half the HUD looks
+-- different" reports.
+local function lipShade(c)
+	return shade(c, isLightSurface(c) and -0.22 or -0.4)
+end
+UITheme.LipShade = lipShade
 
 -- ============================================================================
 -- THE SHAPE SCALE (10.18)
@@ -275,7 +584,27 @@ local function applyShell(inst, color, radius, thickness)
 	local oldStroke = inst:FindFirstChild("UIStroke")
 	if oldStroke then oldStroke:Destroy() end
 
-	local strokeT = snapStroke(thickness or UITheme.Stroke.Heavy)
+	-- ===== A SMALL LIGHT CHIP IN A 5 px RIM IS MOSTLY RIM (17.18) =====
+	--
+	-- The outline stays -- it is the single most recognisable thing about this style and none of the
+	-- pastel pass touches it. What changes is only the DEFAULT weight, and only where the geometry
+	-- makes Heavy self-defeating: a 26 px price capsule with 5 px of near-black on every side has
+	-- 16 px of fill left down the middle, so the chip reads as a black lozenge with a pale seam
+	-- rather than as a white chip with a border. On a chromatic chip that is survivable because the
+	-- fill is loud; on a Frost one the rim outweighs the surface it is framing.
+	--
+	-- Down the existing ladder (`STROKE_STEPS` = {3,4,5}) rather than to an invented width, and only
+	-- when ALL THREE hold: the caller passed no thickness at all, the surface is light, and it was
+	-- authored short in pixels. Nothing in the kit today satisfies all three -- every short surface
+	-- is currently dark chrome, which is the thing being replaced -- so this changes nothing until a
+	-- chip is actually made light, and then it is already right.
+	local strokeT = thickness
+	if strokeT == nil then
+		local h = inst.Size.Y
+		local shortChip = (h.Scale == 0 and h.Offset > 0 and h.Offset <= 34)
+		strokeT = (shortChip and isLightSurface(color)) and UITheme.Stroke.Fine or UITheme.Stroke.Heavy
+	end
+	strokeT = snapStroke(strokeT)
 
 	-- A PILL HAS NO ROOM FOR A LIP, AND THAT IS WHAT THE BLACK BEHIND THE HEALTH BAR WAS.
 	-- The lip is the body's own rectangle, shifted down LIP_DEPTH and painted dark. On a card that
@@ -295,7 +624,7 @@ local function applyShell(inst, color, radius, thickness)
 	shadowBody.Name = "ShadowBody"
 	shadowBody.Size = UDim2.new(1, 0, 1, 0)
 	shadowBody.Position = UDim2.new(0, 0, 0, lipDepth)
-	shadowBody.BackgroundColor3 = shade(color, -0.4)
+	shadowBody.BackgroundColor3 = lipShade(color)
 	shadowBody.BackgroundTransparency = 0
 	shadowBody.BorderSizePixel = 0
 	shadowBody.ZIndex = inst.ZIndex + Z.Shell
@@ -461,16 +790,46 @@ end
 -- 4px stroke at 0.09 -- is what that cost. The threshold belongs to a PALETTE rather than to a
 -- file, so it is published here and both constructors read it instead of each carrying a copy.
 --
--- 0.45 because this palette's dark ink sits at 0.077 and its greys at 0.48-0.60.
+-- ===== TWO CUTS, AND THEY ANSWER DIFFERENT QUESTIONS (17.18) =====
+--
+-- This one is about the GLYPH: "is the ink I was handed dark enough that a near-black halo round it
+-- would be a blob". `LIGHT_SURFACE` (0.86, up the file) is about the FILL: "is the plate so pale
+-- that a white glyph disappears into it". They are not the same number and neither is derivable from
+-- the other -- a Sunny tile at 0.82 takes white ink, and ink at 0.82 would be absurd.
+--
+-- 0.45 SURVIVES THE PASTEL PASS UNCHANGED, and that was checked rather than assumed. The new tokens
+-- put three deliberate dark inks in the palette -- Outline 0.08, Ink 0.17, InkSoft 0.37 -- and the
+-- lightest thing this UI ever sets as ink on purpose is Locked at 0.64, with White at 1.00 above it.
+-- Between 0.37 and 0.64 the palette holds nothing that is used as ink at all, so every cut in
+-- [0.40, 0.60] behaves identically on every call site in the game and 0.45 is already inside it.
+-- Moving it would be churn with a regression surface and no effect.
+--
+-- The thing that changed is what it is asked ABOUT. Until now the answer came from a colour a caller
+-- had chosen by hand; six constructors below now derive their ink from the fill via `inkOn` and then
+-- ask this, so the two halves of "dark ink drops its stroke" are made in one branch by construction
+-- rather than by each author remembering.
 local function isDarkInk(color)
-	return (0.299 * color.R + 0.587 * color.G + 0.114 * color.B) < 0.45
+	return luminance(color) < 0.45
 end
 
 local function outlineText(label, thickness)
+	local t = thickness or 4
 	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = thickness or 4
+	stroke.Thickness = t
 	stroke.Color = Color.Outline
-	stroke.Transparency = 0
+	-- ===== A DROPPED HALO IS DROPPED TWICE, AND THAT IS NOT BELT-AND-BRACES (17.18) =====
+	--
+	-- Every site that suppresses the halo does it by passing thickness 0 -- `UITheme.Label`, `Pill`,
+	-- MainUI's `themeLabel`, and now four more constructors below. Thickness is the one property a
+	-- later pass is likely to write BACK: a responsive tier, a "make the outlines chunkier" sweep, or
+	-- anything that walks `GetDescendants()` looking for UIStrokes and normalises them to the ladder.
+	-- Any of those silently re-arms a near-black halo around dark ink -- the blob that reads correct
+	-- in every property and is only visible in a capture.
+	--
+	-- Transparency is the property nothing else in this codebase writes on a text stroke, so setting
+	-- both means the suppression survives a caller that only knows about width. Set HERE rather than
+	-- at the seven call sites, so a site added later cannot forget the second half.
+	stroke.Transparency = (t <= 0) and 1 or 0
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 	stroke.LineJoinMode = Enum.LineJoinMode.Round
 	stroke.Parent = label
@@ -820,15 +1179,362 @@ local function buildLabelChild(inst, opts, base, text, maxText)
 	label.Position = UDim2.new(0.5, 0, 0.5, 0)
 	label.AnchorPoint = Vector2.new(0.5, 0.5)
 	label.Font = DisplayFont
-	label.TextColor3 = Color.White
+	-- ===== THE INK COMES OFF THE SURFACE, NOT OFF A HABIT (17.18) =====
+	--
+	-- `BaseColor` rather than `opts.color`, and that is the whole reason this can be done here at
+	-- all: `buildSurface` has already run `applyShell`, which stamps the fill it actually painted
+	-- onto the host as an attribute (see invariant 3 -- `inst.BackgroundColor3` is Roblox's default
+	-- grey on a shell and reading it here would have inked every button as if it were mid-grey).
+	-- `opts.textColor` still wins, for the caller who means a specific colour.
+	--
+	-- BOTH HALVES IN ONE BRANCH. A dark ink chosen here and haloed two lines down in `Color.Outline`
+	-- is the blob that reads correct in every property and only fails in a capture, so the halo is
+	-- decided from the same value in the same statement, never inferred later.
+	local ink = opts.textColor or inkOn(inst:GetAttribute("BaseColor") or opts.color)
+	label.TextColor3 = ink
 	label.Text = text
 	label.TextWrapped = opts.wrapped == true
 	label.ZIndex = base + Z.Content -- strictly above the gloss
-	outlineText(label)
+	outlineText(label, isDarkInk(ink) and 0 or nil)
 	autoSize(label, opts.minTextSize or 14, opts.maxTextSize or opts.textSize or maxText or 26)
 	label.Parent = inst
 	return label
 end
+
+-- ============================================================================
+-- ONE UISCALE PER SURFACE, AND THE FOUR PLACES THAT HAD THEIR OWN COPY OF THAT RULE
+-- ============================================================================
+-- `pressMotion`, `Pulse`, `Attention` and `PanelMotion` all want "the UIScale on this thing", and
+-- three of them had written the same eight lines. That is not a tidiness complaint: a second UIScale
+-- added under an existing one is the documented cause of a surface settling at a random size, since
+-- Roblox honours ONE UIScale per GuiObject and which one it honours is not a promise. Named `Scale`
+-- because that is the name `pressMotion` shipped with and the name `Pulse` looks for; found by class
+-- as a fallback because `registerPanel` in MainUI creates an unnamed one.
+local function scaleOf(inst)
+	local scale = inst:FindFirstChild("Scale")
+	if not (scale and scale:IsA("UIScale")) then
+		scale = inst:FindFirstChildOfClass("UIScale")
+	end
+	if not scale then
+		scale = Instance.new("UIScale")
+		scale.Name = "Scale"
+		scale.Scale = 1
+		scale.Parent = inst
+	end
+	return scale
+end
+
+-- ============================================================================
+-- PUBLIC: Attention - the idle "there is something here" pulse (18.1, research §2.5)
+-- ============================================================================
+--
+-- ===== NO RunService LOOP, AND THAT IS THE WHOLE MECHANISM =====
+--
+-- `TweenInfo.new(time, style, direction, repeatCount, reverses, delayTime)` already is an idle
+-- pulser: `repeatCount = -1` "repeats indefinitely", `reverses = true` returns it to the start
+-- value, and `delayTime` is the gap between beats. One tween, zero per-frame Lua, and the engine
+-- stops it when the instance dies. The common mistake §2.5 names is writing a Heartbeat for this.
+--
+-- ===== THE CADENCE, AND WHY IT DOES NOT BECOME WALLPAPER =====
+--
+-- The failure mode of an attention-getter is that it stops being one. Three numbers, and each is
+-- picked against something rather than chosen for feel:
+--
+--   PEAK 1.05.  Below §2.5's 1.06 ceiling, and deliberately below the 1.08 the currency readout
+--               pulses at for a REAL event (§1.5 / NumberSpinnerV2's shipped `BounceScale`). An idle
+--               nudge must never out-shout something that actually happened; if the two ever read as
+--               the same size, the player learns to ignore both.
+--   BEAT 0.35 s per half-swing, so 0.70 s of movement per cycle -- §2.5's figure.
+--   GAP  3.2 s. §2.5 gives 2.5-4 s and this sits in the middle of it, which makes the duty cycle
+--               0.70 / 3.90 = 18%: the tile is STILL for 82% of the time a player is looking at it.
+--               That is the number that decides wallpaper-or-not, not the peak. Under ~2.5 s the gap
+--               closes up and it reads as a looping animation (a thing the UI does) rather than a
+--               nudge (a thing the UI is telling you); over ~4 s the player has looked elsewhere and
+--               will never see one.
+--
+-- ===== AT MOST ONE, ENFORCED HERE RATHER THAN ASKED OF CALLERS =====
+--
+-- §2.5's last rule is "at most one pulsing tile on screen at a time", and a rule like that survives
+-- exactly as long as nobody adds a thirteenth tile. So the kit holds ONE slot: starting a pulse
+-- stops whatever was pulsing. `priority` is the tie-break -- a Daily Rewards tile with an unclaimed
+-- day (priority 2) is not displaced by a shop tile with a sale on (priority 0), because the last
+-- caller to run is an accident of build order rather than a statement about importance.
+--
+-- ===== IT SHARES `Scale` WITH THE PRESS, AND THAT IS A REAL COLLISION =====
+--
+-- Every HUD tile is a `pressMotion` surface, so hovering a pulsing tile would put the hover tween
+-- and an infinite reversing tween on the SAME UIScale in the same frame -- two tweens writing one
+-- property, which is the bug this codebase has already paid for elsewhere. A second UIScale is not
+-- an escape (Roblox honours one). So the press SUSPENDS the pulse instead: `pressMotion` calls the
+-- two hooks below, the pulse is cancelled and the scale handed back at 1.0, and it restarts when the
+-- pointer leaves. The suspend is the reason this block sits above `pressMotion` in the file.
+local ATTENTION_PEAK = 1.05
+local ATTENTION_BEAT = 0.35
+local ATTENTION_GAP = 3.2
+
+local activeAttention = nil -- { inst, scale, tween, peak, beat, gap, priority, suspended }
+
+local function attentionPlay(entry)
+	if entry.tween then
+		entry.tween:Cancel()
+		entry.tween = nil
+	end
+	entry.scale.Scale = 1
+	entry.tween = UITheme.Tween(entry.scale, TweenInfo.new(
+		entry.beat, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, -1, true, entry.gap
+	), { Scale = entry.peak })
+end
+
+-- Cancelling an infinite REVERSING tween lands it wherever the swing happened to be, so the rest
+-- value has to be written back by hand. Without this line a tile stopped mid-beat keeps 2% of a
+-- pulse forever and nothing on screen says why it is the wrong size.
+local function attentionStop()
+	local entry = activeAttention
+	if not entry then
+		return
+	end
+	activeAttention = nil
+	if entry.tween then
+		entry.tween:Cancel()
+	end
+	if entry.scale and entry.scale.Parent then
+		entry.scale.Scale = 1
+	end
+end
+
+local function attentionSuspend(inst)
+	local entry = activeAttention
+	if entry and entry.inst == inst and not entry.suspended then
+		entry.suspended = true
+		if entry.tween then
+			entry.tween:Cancel()
+			entry.tween = nil
+		end
+		entry.scale.Scale = 1
+	end
+end
+
+local function attentionResume(inst)
+	local entry = activeAttention
+	if entry and entry.inst == inst and entry.suspended then
+		entry.suspended = false
+		attentionPlay(entry)
+	end
+end
+
+-- `UITheme.Attention(tile, true, { priority = 2 })` to start, `UITheme.Attention(tile, false)` to
+-- stop, `UITheme.Attention(nil, false)` to stop whatever is pulsing. Returns true when the tile is
+-- the one now pulsing.
+--
+-- TURNING IT OFF IS THE HALF THAT MATTERS. §2.5: "kill the tween the moment the state clears, don't
+-- just hide the badge" -- a tile still asking to be pressed after you pressed it is worse than one
+-- that never asked. So the off path is a single call with the same name, it is safe to call on a
+-- tile that was never pulsing, and it is safe to call every refresh.
+function UITheme.Attention(inst, on, opts)
+	opts = opts or {}
+	if not on then
+		if inst == nil or (activeAttention and activeAttention.inst == inst) then
+			attentionStop()
+		end
+		return false
+	end
+	if not inst or not inst:IsA("GuiObject") or not RunService:IsClient() then
+		return false
+	end
+	-- An attention-getter is motion and nothing else: there is no static end state that carries the
+	-- meaning, so under ReducedMotionEnabled it simply does not run. See the rule in the
+	-- accessibility block -- this is one of the two functions that asks rather than plays.
+	if reducedMotion then
+		return false
+	end
+
+	local priority = opts.priority or 0
+	if activeAttention then
+		if activeAttention.inst == inst then
+			activeAttention.priority = priority
+			return true
+		end
+		-- a quieter request never takes the slot off a louder one that is still valid
+		if priority < activeAttention.priority then
+			return false
+		end
+		attentionStop()
+	end
+
+	local entry = {
+		inst = inst,
+		scale = scaleOf(inst),
+		peak = opts.peak or ATTENTION_PEAK,
+		beat = opts.beat or ATTENTION_BEAT,
+		gap = opts.gap or ATTENTION_GAP,
+		priority = priority,
+		suspended = false,
+	}
+	activeAttention = entry
+	-- the slot must not survive the tile: a destroyed host leaves `activeAttention` pointing at a
+	-- dead instance, and the next real request would be refused by a pulse nobody can see
+	inst.Destroying:Connect(function()
+		if activeAttention == entry then
+			activeAttention = nil
+		end
+	end)
+	attentionPlay(entry)
+	return true
+end
+
+-- ============================================================================
+-- PUBLIC: PressMotion - the press, taken out of the two constructors that had it
+-- ============================================================================
+--
+-- IT WAS NOT MISSING, IT WAS UNREACHABLE. `Button` and `IconTile` each carried their own copy of
+-- the same forty lines -- a UIScale, a `pressed`/`hovered` pair, four closures and four
+-- connections -- differing only in three numbers (2 vs 3 px of travel, 0.94 vs 0.92 squash, 1.04 vs
+-- 1.06 hover). Anything built any other way (a Pill, a Card promoted to a button, a hand-rolled
+-- TextButton in a panel) had no way to ask for it short of copying the block a third time. This is
+-- that block, once, with the three numbers as options.
+--
+-- THE HOUSE MOTION, from this repo's own `readme.md` -> "Visual foundations" and
+-- `tokens/effects.css` (`--transition-fast: .12s ease-out`): the surface translates DOWN a couple
+-- of pixels and the hard shadow COMPRESSES by the same amount, over ~120 ms, with no bounce on the
+-- way down. Both halves matter -- a body that moves down while its shadow moves with it is a button
+-- sliding across the screen; a body that moves down onto a shadow that stayed put is a button being
+-- pushed into the page.
+--
+-- The shadow here is the `ShadowBody` lip `applyShell` builds, and it is a CHILD of the surface --
+-- so it travels with the press for free, which is the wrong thing. Compressing it means moving it
+-- UP inside the parent by exactly what the parent moved down, which leaves it on the same screen
+-- pixel while the gap between the body's bottom edge and it closes. Clamped at 0: past that the lip
+-- would climb out of the top of the shell. A capsule has no lip at all (`applyShell` sets
+-- `lipDepth = 0` on a round shell -- see the note there about the black crescents) so this is a
+-- no-op there rather than a special case.
+--
+-- HOVER IS A PRESS PREVIEW, NOT AN EFFECT. This is a touch/console-first game, so the hover state
+-- exists mostly for the Studio session it is being tuned in; the default is 1.03. `Button` and
+-- `IconTile` pass the 1.04 and 1.06 they shipped with rather than being quietly restyled by this
+-- refactor -- moving twelve HUD tiles is a decision, not a side effect of moving some code.
+--
+-- IT CANNOT FIGHT THE PANEL-OPEN ANIMATION, for two reasons and both are needed: it only ever
+-- drives a UIScale named `Scale` that it REUSES if one is already there (so it can never add a
+-- second multiplier under an existing one), and panel-open animates `ModalScale` on the panel,
+-- which is an ancestor of any button rather than the same instance.
+--
+-- NOTHING LEAKS. Every connection is to an event ON `inst` itself and every upvalue is `inst` or one
+-- of its children, so destroying the surface releases all of them; there is no external signal, no
+-- Heartbeat and no registry to unsubscribe from.
+local function pressMotion(inst, opts)
+	opts = opts or {}
+	local drop = opts.drop or 2
+	local pressScale = opts.pressScale or 0.94
+	local hoverScale = opts.hoverScale or 1.03
+
+	local scale = scaleOf(inst)
+
+	-- TWO LIPS ON A TILE, AND THE ONE YOU FIND FIRST IS THE ONE YOU CANNOT SEE. An IconTile is two
+	-- `applyShell` surfaces of the same colour stacked exactly on top of each other (the outer one is
+	-- the TextButton, the inner `Body` is the face -- see IconTile), so it has two `ShadowBody`
+	-- children at the same 6 px offset and the INNER one draws over the outer. Compressing only the
+	-- one that `FindFirstChild` hands back would be a press with no visible shadow response at all.
+	-- The same pair `UITheme.SetColor` has to repaint together, for the same reason.
+	local lips = {}
+	local function collectLip(host)
+		if not host then
+			return
+		end
+		local lip = host:FindFirstChild("ShadowBody")
+		if lip and lip:IsA("GuiObject") then
+			table.insert(lips, { lip = lip, rest = lip.Position })
+		end
+	end
+	collectLip(inst)
+	collectLip(inst:FindFirstChild("Body"))
+
+	local pressed = false
+	local hovered = false
+	local restPos = inst.Position
+
+	local function down()
+		if pressed then
+			return
+		end
+		pressed = true
+		-- the idle pulse and the press drive the SAME UIScale, so one has to give way -- see the
+		-- collision note in the Attention block. The press wins: it is a thing the player did.
+		attentionSuspend(inst)
+		-- re-read rather than trusting the value captured at build time: a responsive pass or a
+		-- layout can have moved the surface since, and restoring to a stale position on release is
+		-- how a pressed button walks up the screen.
+		restPos = inst.Position
+		inst.Position = restPos + UDim2.new(0, 0, 0, drop)
+		for _, entry in ipairs(lips) do
+			local rest = entry.rest
+			entry.lip.Position = UDim2.new(
+				rest.X.Scale, rest.X.Offset,
+				rest.Y.Scale, math.max(rest.Y.Offset - drop, 0)
+			)
+		end
+		if RunService:IsClient() then
+			UITheme.Tween(scale, PRESS_DOWN_INFO, { Scale = pressScale })
+		end
+		-- on DOWN, with the sink, not on the click release: the sound is feedback for the press and
+		-- has to land on the same frame the button visibly moves
+		if opts.sound ~= false then
+			clickSound()
+		end
+	end
+
+	local function up()
+		if not pressed then
+			return
+		end
+		pressed = false
+		inst.Position = restPos
+		for _, entry in ipairs(lips) do
+			entry.lip.Position = entry.rest
+		end
+		if RunService:IsClient() then
+			TweenService:Create(scale, PRESS_UP_INFO, { Scale = hovered and hoverScale or 1.0 }):Play()
+		end
+	end
+
+	local function enter()
+		hovered = true
+		if not pressed and RunService:IsClient() and inst.Active and inst.Selectable ~= false then
+			TweenService:Create(scale, HOVER_TWEEN_INFO, { Scale = hoverScale }):Play()
+		end
+	end
+
+	local function leave()
+		hovered = false
+		-- THE TORN STATE, and the only place it can be repaired. A pointer that leaves mid-press
+		-- never sends the Up, so without this the surface keeps the 2 px offset and the squashed
+		-- scale forever -- a button that looks held down by nobody.
+		if pressed then
+			up()
+		end
+		if RunService:IsClient() then
+			TweenService:Create(scale, LEAVE_TWEEN_INFO, { Scale = 1.0 }):Play()
+		end
+	end
+
+	if opts.connect ~= false then
+		if inst:IsA("GuiButton") then
+			inst.MouseButton1Down:Connect(down)
+			inst.MouseButton1Up:Connect(up)
+		end
+		inst.MouseEnter:Connect(enter)
+		inst.MouseLeave:Connect(leave)
+		-- A FINGER LIFTED OFF THE EDGE SENDS NEITHER Up NOR MouseLeave on some devices, which is the
+		-- other half of the torn state and the half a mouse never shows you.
+		inst.InputEnded:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.Touch then
+				up()
+			end
+		end)
+	end
+
+	return down, up
+end
+UITheme.PressMotion = pressMotion
 
 -- ============================================================================
 -- PUBLIC: Button
@@ -841,7 +1547,7 @@ function UITheme.Button(parent, opts)
 	button.Text = "" -- visible text lives in the child Label (own stroke, above gloss)
 	button.TextTransparency = 1
 
-	local color, base, press = buildSurface(button, parent, opts, UDim.new(0, 16))
+	local _, base = buildSurface(button, parent, opts, UDim.new(0, 16))
 
 	-- ===== THE SAME SIX PIXELS MainUI's `styleButton` TAKES OFF (11.3) =====
 	--
@@ -928,61 +1634,8 @@ function UITheme.Button(parent, opts)
 		fit()
 	end
 
-	local scale = Instance.new("UIScale")
-	scale.Name = "Scale"
-	scale.Scale = 1
-	scale.Parent = button
-
-	-- press and hover feedback
-	local pressed = false
-	local hovered = false
-	local restPos = button.Position
-	local function down()
-		if pressed then
-			return
-		end
-		pressed = true
-		restPos = button.Position
-		button.Position = restPos + UDim2.new(0, 0, 0, 2)
-		press(true)
-		if RunService:IsClient() then
-			TweenService:Create(scale, PRESS_DOWN_INFO, { Scale = 0.94 }):Play()
-		end
-		-- on DOWN, with the sink, not on the click release: the sound is feedback for the press and
-		-- has to land on the same frame the button visibly moves
-		clickSound()
-	end
-	local function up()
-		if not pressed then
-			return
-		end
-		pressed = false
-		button.Position = restPos
-		press(false)
-		if RunService:IsClient() then
-			local targetScale = hovered and 1.04 or 1.0
-			TweenService:Create(scale, PRESS_UP_INFO, { Scale = targetScale }):Play()
-		end
-	end
-	local function enter()
-		hovered = true
-		if not pressed and RunService:IsClient() and button.Active and button.Selectable ~= false then
-			TweenService:Create(scale, HOVER_TWEEN_INFO, { Scale = 1.04 }):Play()
-		end
-	end
-	local function leave()
-		hovered = false
-		if pressed then
-			up()
-		end
-		if RunService:IsClient() then
-			TweenService:Create(scale, LEAVE_TWEEN_INFO, { Scale = 1.0 }):Play()
-		end
-	end
-	button.MouseButton1Down:Connect(down)
-	button.MouseButton1Up:Connect(up)
-	button.MouseEnter:Connect(enter)
-	button.MouseLeave:Connect(leave)
+	-- press and hover feedback -- the shared motion, with the two numbers this surface shipped with
+	pressMotion(button, { drop = 2, pressScale = 0.94, hoverScale = 1.04 })
 
 	if opts.badge then
 		UITheme.Badge(button, opts.badge, opts.badgeColor)
@@ -1068,7 +1721,7 @@ function UITheme.IconTile(parent, opts)
 	tileOpts.radius = radius
 	tileOpts.gloss = false -- the gloss belongs to the body, which is what is actually visible
 
-	local _, base, press = buildSurface(tile, parent, tileOpts, UDim.new(0, 18))
+	local _, base = buildSurface(tile, parent, tileOpts, UDim.new(0, 18))
 	tile.ClipsDescendants = false -- the badge still hangs outside the tile
 
 	local ringGrad = tile:FindFirstChild("Gradient")
@@ -1148,12 +1801,19 @@ function UITheme.IconTile(parent, opts)
 		caption.Position = UDim2.new(0.5, 0, 1, -4)
 		caption.AnchorPoint = Vector2.new(0.5, 1)
 		caption.Font = DisplayFont
-		caption.TextColor3 = Color.White
+		-- Off the tile's own fill. Every HUD tile today is a chromatic pastel (Mint 0.66 up to Sunny
+		-- 0.82, all below the 0.86 cut) so this returns White for all twelve of them and the strip is
+		-- unchanged -- it exists for the Frost/white tile the pastel pass makes possible, where the
+		-- caption is the SMALLEST text in the kit (13 pt floor) and therefore the first thing a
+		-- white-on-near-white read destroys.
+		local capInk = inkOn(color)
+		caption.TextColor3 = capInk
 		caption.Text = opts.caption
 		caption.ZIndex = body.ZIndex + Z.Content
 		-- 3.5, up from 2.5. These sit on saturated pastel tiles and the caption is the one label in
 		-- the kit small enough for a thin outline to stop separating it from what is behind it.
-		outlineText(caption, 3.5)
+		-- ...and 0 when the ink went dark, in this same statement -- see `inkOn`.
+		outlineText(caption, isDarkInk(capInk) and 0 or 3.5)
 		autoSize(caption, 13, 22)
 		caption.Parent = body
 	end
@@ -1162,58 +1822,9 @@ function UITheme.IconTile(parent, opts)
 		UITheme.Badge(tile, opts.badge, opts.badgeColor)
 	end
 
-	local scale = Instance.new("UIScale")
-	scale.Name = "Scale"
-	scale.Scale = 1
-	scale.Parent = tile
-
-	local pressed = false
-	local hovered = false
-	local restPos = tile.Position
-	local function down()
-		if pressed then
-			return
-		end
-		pressed = true
-		restPos = tile.Position
-		tile.Position = restPos + UDim2.new(0, 0, 0, 3)
-		press(true)
-		if RunService:IsClient() then
-			TweenService:Create(scale, PRESS_DOWN_INFO, { Scale = 0.92 }):Play()
-		end
-		clickSound()
-	end
-	local function up()
-		if not pressed then
-			return
-		end
-		pressed = false
-		tile.Position = restPos
-		press(false)
-		if RunService:IsClient() then
-			local targetScale = hovered and 1.06 or 1.0
-			TweenService:Create(scale, PRESS_UP_INFO, { Scale = targetScale }):Play()
-		end
-	end
-	local function enter()
-		hovered = true
-		if not pressed and RunService:IsClient() and tile.Active and tile.Selectable ~= false then
-			TweenService:Create(scale, HOVER_TWEEN_INFO, { Scale = 1.06 }):Play()
-		end
-	end
-	local function leave()
-		hovered = false
-		if pressed then
-			up()
-		end
-		if RunService:IsClient() then
-			TweenService:Create(scale, LEAVE_TWEEN_INFO, { Scale = 1.0 }):Play()
-		end
-	end
-	tile.MouseButton1Down:Connect(down)
-	tile.MouseButton1Up:Connect(up)
-	tile.MouseEnter:Connect(enter)
-	tile.MouseLeave:Connect(leave)
+	-- 3 px and 0.92/1.06 rather than the Button's 2 and 0.94/1.04: a tile is twice the area, and the
+	-- same travel on a bigger surface reads as less movement. These are the numbers it shipped with.
+	pressMotion(tile, { drop = 3, pressScale = 0.92, hoverScale = 1.06 })
 
 	return tile
 end
@@ -1229,7 +1840,17 @@ function UITheme.Label(parent, opts)
 	label.BorderSizePixel = 0
 	label.Size = opts.size or UDim2.new(1, 0, 0, 28)
 	label.Font = DisplayFont
-	label.TextColor3 = opts.color or Color.White
+	-- ===== `on`: THE SURFACE THIS LABEL IS PRINTED ON (17.18) =====
+	--
+	-- A bare TextLabel is the one constructor here that genuinely cannot look its own fill up -- it is
+	-- parented onto somebody else's frame and `opts.color` is the only thing it has ever been told.
+	-- The default therefore stays White, so none of the 23 existing call sites moves.
+	--
+	-- `on` is how a caller hands it the missing fact instead of hand-computing the ink, which is the
+	-- pattern that has already put a dark word inside a dark halo twice (15.1 in MainUI's themeLabel,
+	-- 15.15 in this constructor). Note the precedence: an EXPLICIT `color` still wins over `on` --
+	-- `on` answers "what should this be", not "what must this be".
+	label.TextColor3 = opts.color or (opts.on and inkOn(opts.on)) or Color.White
 	label.Text = opts.text or ""
 	label.ZIndex = opts.zIndex or Z.Content
 	if opts.position then
@@ -1273,29 +1894,100 @@ function UITheme.Label(parent, opts)
 end
 
 -- ============================================================================
--- PUBLIC: Pill - currency readout, NO panel behind it
+-- PUBLIC: Pill - currency readout, with or without a capsule behind it
 -- ============================================================================
+--
+-- ===== `shellColor` (17.13), AND WHY IT COULD NOT SIMPLY BE `applyShell(frame, ...)` =====
+--
+-- This constructor draws the three most-looked-at numbers in the game -- DNA, Diamonds and
+-- Evolution Shards, bottom-left, on screen at all times -- and until now it drew NO BODY AT ALL: a
+-- transparent frame, an icon and an outlined number floating directly on the 3D world, in a HUD
+-- where every other element is a chunky outlined capsule. Photographed live 2026-08-16; it is the
+-- largest single visual defect on the screen.
+--
+-- `shellColor` is opt-in and nothing else about the pill changes when it is nil -- same instance,
+-- same children, same names, same transparency -- because a Pill is still the right shape for a
+-- readout that sits ON something already (a panel row, a card) and would only gain a second
+-- outline from a capsule.
+--
+-- THE CAPSULE IS A PARENT, NOT THE FRAME ITSELF, and that is forced by the UIListLayout this pill
+-- has always been built out of. `applyShell` works by adding two full-size children -- `ShadowBody`
+-- and `InnerBody` -- to whatever it is handed. A UIListLayout gives EVERY GuiObject child a cell,
+-- so shelling the frame directly would hand the lip and the body two full-width cells at the head
+-- of a horizontal row and shove the icon and the number off the end of it. That is the exact trap
+-- `iconSlot` documents for its own drop shadow one screen up, and the reason it declines to draw
+-- one inside a laid-out parent.
+--
+-- So the capsule is a shelled frame that OWNS the layout frame: it takes the size, position and
+-- layout order the caller asked for, and the returned pill becomes a transparent full-size child of
+-- it at `Z.Content`. Everything a caller reaches for is untouched by that -- `pill.Value.Text`,
+-- `pill.Icon`, `pill:SetAttribute("PrevVal", ...)`, `UITheme.Pulse(pill)` and
+-- `plusButton.Parent = pill` all still mean what they meant, because they are all about the
+-- returned frame and the returned frame still has exactly the children it had.
+--
+-- Z: the content frame sits at `base + Z.Content`, above `InnerBody` at `base + Z.Body`. Getting
+-- that backwards is what shipped two blank Inventory tabs -- `InnerBody` is opaque and paints over
+-- anything at or below its own level.
 function UITheme.Pill(parent, opts)
 	opts = opts or {}
+	local shellColor = opts.shellColor
+	local base = opts.zIndex or Z.Content
+
+	local shell
+	if shellColor then
+		shell = Instance.new("Frame")
+		-- The returned frame keeps `opts.name`, so a caller that looks its pill up by name finds the
+		-- same object it always did; the capsule is named off it rather than taking it.
+		shell.Name = (opts.name or "Pill") .. "Shell"
+		shell.Size = opts.size or UDim2.new(0, 210, 0, 42)
+		shell.ZIndex = base
+		if opts.position then
+			shell.Position = opts.position
+		end
+		if opts.anchorPoint then
+			shell.AnchorPoint = opts.anchorPoint
+		end
+		if opts.layoutOrder then
+			shell.LayoutOrder = opts.layoutOrder
+		end
+		if opts.visible ~= nil then
+			shell.Visible = opts.visible
+		end
+		-- Radius.Pill is UDim.new(1, 0) -- a true capsule, ends fully rounded at half the height,
+		-- which is what the shape ladder means by "anything read as a single value". It also puts
+		-- `applyShell` on its round path: no 6 px lip, so none of the dark crescents that the health
+		-- bar grew at both ends before that case existed.
+		applyShell(shell, shellColor, UITheme.Radius.Pill, opts.thickness)
+		shell.Parent = parent
+		if opts.gloss ~= false then
+			addGloss(shell, UITheme.Radius.Pill)
+		end
+	end
+
 	local frame = Instance.new("Frame")
 	frame.Name = opts.name or "Pill"
 	frame.BackgroundTransparency = 1
 	frame.BorderSizePixel = 0
-	frame.Size = opts.size or UDim2.new(0, 210, 0, 42)
-	frame.ZIndex = opts.zIndex or Z.Content
-	if opts.position then
-		frame.Position = opts.position
+	if shell then
+		frame.Size = UDim2.new(1, 0, 1, 0)
+		frame.ZIndex = base + Z.Content
+	else
+		frame.Size = opts.size or UDim2.new(0, 210, 0, 42)
+		frame.ZIndex = base
+		if opts.position then
+			frame.Position = opts.position
+		end
+		if opts.anchorPoint then
+			frame.AnchorPoint = opts.anchorPoint
+		end
+		if opts.layoutOrder then
+			frame.LayoutOrder = opts.layoutOrder
+		end
+		if opts.visible ~= nil then
+			frame.Visible = opts.visible
+		end
 	end
-	if opts.anchorPoint then
-		frame.AnchorPoint = opts.anchorPoint
-	end
-	if opts.layoutOrder then
-		frame.LayoutOrder = opts.layoutOrder
-	end
-	if opts.visible ~= nil then
-		frame.Visible = opts.visible
-	end
-	frame.Parent = parent
+	frame.Parent = shell or parent
 
 	local layout = Instance.new("UIListLayout")
 	layout.FillDirection = Enum.FillDirection.Horizontal
@@ -1304,6 +1996,28 @@ function UITheme.Pill(parent, opts)
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Left
 	layout.Padding = UDim.new(0, 6)
 	layout.Parent = frame
+
+	if shell then
+		-- A capsule's ends curve away from its bounding box, so a 40 px icon starting at x = 0 would
+		-- be drawn half inside the rim. UIPadding rather than an offset on the icon: it is not a
+		-- GuiObject, so it cannot pick up a layout cell of its own, and it shrinks the region every
+		-- `Scale` size in the row is measured against -- which is what keeps `Value`'s `1, -46`
+		-- (and the `1, -84` MainUI rewrites it to when it hangs a `+` on the end) exact.
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft = UDim.new(0, 12)
+		pad.PaddingRight = UDim.new(0, 12)
+		pad.PaddingTop = UDim.new(0, 4)
+		pad.PaddingBottom = UDim.new(0, 4)
+		pad.Parent = frame
+
+		-- ...and the pointer back out, so `UITheme.Pulse(pill)` jumps the capsule rather than the two
+		-- children rattling around inside a capsule that never moved. See the note in `Pulse`.
+		-- An ObjectValue is not a GuiObject, so the layout above cannot hand it a cell.
+		local pulseHost = Instance.new("ObjectValue")
+		pulseHost.Name = "PulseHost"
+		pulseHost.Value = shell
+		pulseHost.Parent = frame
+	end
 
 	-- The pill is a UIListLayout, so the slot only has to declare its size and order -- the layout
 	-- puts the value beside it either way, and a drawn icon and an emoji occupy the same 40px box.
@@ -1317,13 +2031,31 @@ function UITheme.Pill(parent, opts)
 	value.Size = UDim2.new(1, -46, 1, 0)
 	value.LayoutOrder = 2
 	value.Font = DisplayFont
-	value.TextColor3 = opts.color or Color.White
+	-- ===== THE NUMBER FOLLOWS THE CAPSULE (17.18) =====
+	--
+	-- A pill with NO capsule is printed on the 3D world, and nothing can be inferred about that -- it
+	-- stays White plus a halo, which is the only thing that survives an arbitrary backdrop. A pill
+	-- WITH one is printed on a colour we chose, so the ink comes off it. That is what lets the three
+	-- currency capsules become Frost without the three most-looked-at numbers in the game turning
+	-- into white-on-white outlines.
+	value.TextColor3 = opts.color or (shellColor and inkOn(shellColor)) or Color.White
 	value.TextXAlignment = Enum.TextXAlignment.Left
 	value.Text = opts.text or "0"
 	value.ZIndex = frame.ZIndex
-	-- same rule as UITheme.Label: a Pill takes its colour from the caller, so a dark one would
-	-- otherwise be a currency readout inside a halo of its own darkness
-	outlineText(value, isDarkInk(value.TextColor3) and 0 or nil)
+	-- ===== THE INK AND ITS HALO ARE ONE DECISION, AND THE SURFACE UNDER THEM JUST CHANGED =====
+	--
+	-- Same rule as UITheme.Label: dark ink drops its stroke, because `outlineText` always draws in
+	-- `Color.Outline` and a dark glyph inside a dark halo is a blob that reads correct in every
+	-- property and only fails in a capture.
+	--
+	-- What `shellColor` adds is the second half of it. Without a capsule the backdrop is the 3D
+	-- world, so dark ink is simply unreadable and losing the halo costs nothing. WITH a capsule the
+	-- ink is sitting on a known colour, and dark ink on a DARK capsule is the one case where the
+	-- halo is the only thing separating the number from the surface it is printed on -- so it stays.
+	-- One branch, both decisions, reading the colour the ink is actually on.
+	local darkInk = isDarkInk(value.TextColor3)
+	local dropHalo = darkInk and not (shellColor ~= nil and isDarkInk(shellColor))
+	outlineText(value, dropHalo and 0 or nil)
 	autoSize(value, 16, opts.maxTextSize or 34)
 	value.Parent = frame
 
@@ -1461,13 +2193,14 @@ function UITheme.PanelHeader(panel, opts)
 	local subtitle = opts.subtitle
 	local height = opts.height or (subtitle and 68 or 52)
 	local closeGap = opts.closeGap or 62
+	local accent = opts.accent or Color.PanelBlue
 
 	local header = Instance.new("Frame")
 	header.Name = "Header"
 	header.Size = UDim2.new(1, -(margin * 2), 0, height)
 	header.Position = UDim2.new(0, margin, 0, top)
 	header.ZIndex = base + Z.Content
-	applyShell(header, opts.accent or Color.PanelBlue, UDim.new(0, 16), 4)
+	applyShell(header, accent, UDim.new(0, 16), 4)
 	header.Parent = panel
 
 	local gloss = addGloss(header, UDim.new(0, 16))
@@ -1481,6 +2214,9 @@ function UITheme.PanelHeader(panel, opts)
 		xAlign = "Left",
 		maxTextSize = opts.maxTextSize or 30,
 		zIndex = header.ZIndex + Z.Content,
+		-- the band's own fill, so a panel given a Frost or Cream accent gets an inked title instead
+		-- of a white one dissolving into it. PanelBlue is 0.59, so every existing header is untouched.
+		on = accent,
 	})
 	-- 9.9's pipeline, unchanged: a mapped leading emoji becomes a drawing at the label's left edge
 	-- and everything else stays a glyph. Called on the header's own title so a panel converted to
@@ -1497,7 +2233,11 @@ function UITheme.PanelHeader(panel, opts)
 			xAlign = "Left",
 			maxTextSize = 18,
 			minTextSize = 12,
-			color = Color.Cream,
+			-- Cream is a 0.97 ink and it was the right answer on a blue band and only on a blue band:
+			-- on a light accent it is invisible AND it keeps its near-black halo, so the subtitle
+			-- would render as a hollow outline. `InkSoft` is the light-surface partner -- one tier
+			-- quieter than `Ink`, which is what a subtitle is for.
+			color = isLightSurface(accent) and Color.InkSoft or Color.Cream,
 			zIndex = header.ZIndex + Z.Content,
 		})
 	end
@@ -1529,7 +2269,14 @@ function UITheme.ProgressBar(parent, opts)
 	if opts.visible ~= nil then
 		bar.Visible = opts.visible
 	end
-	applyShell(bar, Color.PanelWhite, radius, opts.thickness or 4)
+	-- ===== THE TRACK IS AN INSET, NOT A SECOND WHITE PANEL (17.18) =====
+	--
+	-- It was `PanelWhite`. Every panel shell in this game is also white, so an XP or health bar at 5%
+	-- was a white capsule on a white card with a sliver of colour at one end -- the empty part of the
+	-- bar and the surface behind it were literally the same value, and the only thing saying where
+	-- the bar ended was its outline. `Cloud` is one step down the light neutrals (lum 0.89, still a
+	-- light surface by every rule in this file) and reads as a groove the fill sits IN.
+	applyShell(bar, opts.trackColor or Color.Cloud, radius, opts.thickness or 4)
 	bar.ClipsDescendants = true
 	bar.Parent = parent
 
@@ -1570,6 +2317,13 @@ function UITheme.ProgressBar(parent, opts)
 	label.TextColor3 = Color.White
 	label.Text = opts.text or ""
 	label.ZIndex = base + Z.Content
+	-- ===== THE ONE LABEL IN THE KIT THAT MUST NOT ASK `inkOn` (17.18) =====
+	--
+	-- It is centred across the WHOLE bar, so at 40% progress its left half is printed on `opts.color`
+	-- and its right half on the track -- two fills, one word, and no single answer. White with the
+	-- full halo is the only ink that survives both, which is why this constructor keeps the hardcode
+	-- every other one just gave up. Deliberate, and it belongs here because this is the only place
+	-- that knows a progress label straddles two surfaces (rule 7).
 	outlineText(label)
 	autoSize(label, opts.minTextSize or 14, opts.maxTextSize or 22)
 	label.Parent = bar
@@ -1582,13 +2336,14 @@ end
 -- ============================================================================
 function UITheme.Badge(parent, text, color)
 	local base = (parent and parent:IsA("GuiObject") and parent.ZIndex) or Z.Shell
+	local badgeColor = color or Color.Red
 	local badge = Instance.new("Frame")
 	badge.Name = "Badge"
 	badge.Size = UDim2.new(0, 46, 0, 22)
 	badge.AnchorPoint = Vector2.new(1, 0)
 	badge.Position = UDim2.new(1, 6, 0, -8)
 	badge.ZIndex = base + Z.Badge
-	applyShell(badge, color or Color.Red, UDim.new(0, 8), 3)
+	applyShell(badge, badgeColor, UDim.new(0, 8), 3)
 	badge.Parent = parent
 
 	local label = Instance.new("TextLabel")
@@ -1598,10 +2353,14 @@ function UITheme.Badge(parent, text, color)
 	label.Position = UDim2.new(0.5, 0, 0.5, 0)
 	label.AnchorPoint = Vector2.new(0.5, 0.5)
 	label.Font = DisplayFont
-	label.TextColor3 = Color.White
+	-- 10-15 pt inside a 22 px capsule: the smallest text the kit draws, so a Frost badge with white
+	-- ink would be legible only as a black outline of a number. Same one-branch rule as everywhere
+	-- else -- ink and halo decided from the same value.
+	local badgeInk = inkOn(badgeColor)
+	label.TextColor3 = badgeInk
 	label.Text = text or ""
 	label.ZIndex = badge.ZIndex + Z.Content
-	outlineText(label, 2)
+	outlineText(label, isDarkInk(badgeInk) and 0 or 2)
 	autoSize(label, 10, 15)
 	label.Parent = badge
 
@@ -1666,7 +2425,7 @@ function UITheme.SetColor(inst, color)
 		end
 		local shellLip = shell:FindFirstChild("ShadowBody")
 		if shellLip and shellLip:IsA("GuiObject") then
-			shellLip.BackgroundColor3 = shade(color, -0.4)
+			shellLip.BackgroundColor3 = lipShade(color)
 		end
 	end
 	local face = paintable(inst)
@@ -1678,11 +2437,13 @@ function UITheme.SetColor(inst, color)
 	if grad then
 		grad.Color = isTileBody and pastelGradientFor(color) or gradientFor(color)
 	end
-	-- The lip, at the same -0.4 `applyShell` built it with, or the recoloured face sits on a
-	-- moulded edge in the previous colour -- which is more visible than no lip at all.
+	-- The lip, through the same `lipShade` `applyShell` built it with -- including its light-fill
+	-- branch, or a surface recoloured TO white keeps the -0.4 grey foot of the colour it used to be.
+	-- Without this the recoloured face sits on a moulded edge in the previous colour, which is more
+	-- visible than no lip at all.
 	local lip = inst:FindFirstChild("ShadowBody")
 	if lip and lip:IsA("GuiObject") then
-		lip.BackgroundColor3 = shade(color, -0.4)
+		lip.BackgroundColor3 = lipShade(color)
 	end
 	-- The pre-15.28 lip. Kept only because a surface built before that change can still be on screen
 	-- in a session that hot-reloaded UITheme; new surfaces never have the child, so this never runs.
@@ -1789,6 +2550,22 @@ end
 function UITheme.Pulse(inst, maxScale)
 	if not inst or not RunService:IsClient() then
 		return
+	end
+	-- ===== A SHELLED SURFACE IS TWO INSTANCES AND THE CALLER HOLDS THE INNER ONE (17.13) =====
+	--
+	-- `UITheme.Pill(..., { shellColor = ... })` returns the transparent content frame and hangs the
+	-- capsule around it as a parent, because `applyShell`'s two body children cannot live inside a
+	-- UIListLayout (see the note there). Every caller still says `UITheme.Pulse(pill)` and means
+	-- "make the thing I can see jump" -- so a pulse landing on the inner frame would scale the number
+	-- and the icon out of a capsule that stayed perfectly still.
+	--
+	-- An ObjectValue rather than an attribute, because attributes cannot hold an Instance, and rather
+	-- than walking up to `inst.Parent`, because a Pill with no shell has a parent that is somebody
+	-- else's layout frame and pulsing THAT would jump the whole currency stack. The constructor that
+	-- knows about the pairing is the one that records it; nothing else in the codebase uses the name.
+	local host = inst:FindFirstChild("PulseHost")
+	if host and host:IsA("ObjectValue") and host.Value and host.Value:IsA("GuiObject") then
+		inst = host.Value
 	end
 	local scale = inst:FindFirstChild("Scale")
 	if not scale or not scale:IsA("UIScale") then

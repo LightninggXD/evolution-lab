@@ -30,6 +30,20 @@ local function scaleRange(range, factor)
 	return NumberRange.new(range.Min * factor, range.Max * factor)
 end
 
+-- Raises the FLOOR of a Transparency sequence without changing its shape: v becomes
+-- `floor + v * (1 - floor)`, so a keypoint already at 1 (faded out) stays at exactly 1 and only the
+-- opaque end of the curve moves. Envelopes shrink with the range they sit inside, which keeps
+-- `value ± envelope` inside [0, 1] -- the engine rejects a keypoint that leaves it.
+local function raiseTransparency(seq, floor)
+	if not floor or floor <= 0 then return seq end
+	local span = 1 - floor
+	local keys = {}
+	for i, kp in ipairs(seq.Keypoints) do
+		keys[i] = NumberSequenceKeypoint.new(kp.Time, floor + kp.Value * span, kp.Envelope * span)
+	end
+	return NumberSequence.new(keys)
+end
+
 -- Flat tint. Deliberately destroys the source gradient: it is only used on the generic
 -- white/grey effects (sparkles, charge, stars) that have to read as a zone's colour.
 local function tintOf(color)
@@ -84,6 +98,34 @@ end
 --
 -- The ceiling is therefore only on Brightness. An effect's authored LightEmission is left alone,
 -- because it is a property of how the TEXTURE was drawn and not a decision the tint gets to make.
+--
+-- ===== AND THERE IS A THIRD LEVER, WHICH IS THE ONE THAT DECIDES WHAT YOU CAN SEE THROUGH (17.19)
+--
+-- Twice now a white-out has been treated as a Brightness/LightEmission question, and twice the
+-- answer has been "no". The property that decides how much of the world survives BEHIND a sprite is
+-- neither of them -- it is the sprite's own alpha:
+--
+--     additive draw (LightEmission 1):  dst + src * (1 - Transparency)
+--
+-- so Transparency is the ONLY term that scales what a layer adds without touching what colour it
+-- adds. Brightness changes the colour (and clips it); LightEmission changes whether the texture's
+-- black background is drawn (and paints slabs when lowered); Transparency changes only the amount.
+--
+-- It matters because additive layers STACK. The mutation aura's red is rgb(255, 80, 80) = (1.0,
+-- 0.31, 0.31) per layer at full alpha: one layer is red, two is (1.0, 0.63, 0.63) = pink, three is
+-- (1.0, 0.94, 0.94) = white. The pack ships these emitters at a minimum Transparency of **0.00**,
+-- and the aura hangs three or four of them on one attachment on a body the camera is standing
+-- inside -- so the middle of the frame is four layers deep and the rim is one. That is exactly the
+-- reported picture: a featureless white body with a red fringe around the outside.
+--
+-- `minTransparency` (Attach only) lifts the opaque end of the curve, halving what each layer adds
+-- while leaving its hue, its motion and its density alone. It CANNOT reproduce 17.18's black slab:
+-- an additive layer only ever adds, so drawing less of it moves the result toward the world behind
+-- it, never toward black.
+--
+-- It is opt-in rather than a ceiling like the one above, because the thing that makes it necessary
+-- is not the tint -- it is being WORN ON A BODY somebody has to be able to see. A waterfall or a
+-- zone mist is allowed to be opaque; it is not standing in front of the player's own creature.
 local TINT_MAX_BRIGHTNESS = 1
 
 -- Takes a ParticleEmitter or a Beam -- both carry Color, Brightness and LightEmission, and both
@@ -200,6 +242,9 @@ end
 --   rate    number    raw multiplier on Rate, for when the source density is already right
 --   color   Color3    flat tint, see tintOf -- and note it also caps Brightness, see applyTint:
 --                     asking for a colour is asking for it to be drawn
+--   minTransparency number  floor under the emitter's Transparency curve, 0-1. Use it for anything
+--                     hung on a body that has to stay visible through the effect -- see the third
+--                     lever note above. Shape-preserving: a fade-out still reaches 1.
 --   only    {string}  emitter names to keep (default: all)
 --   skip    {string}  emitter names to drop
 function VFXLibrary.Attach(target, path, opts)
@@ -237,6 +282,9 @@ function VFXLibrary.Attach(target, path, opts)
 			emitter.Size = scaleSequence(emitter.Size, scale)
 			emitter.Speed = scaleRange(emitter.Speed, scale)
 			emitter.Rate = emitter.Rate * rate
+			if opts.minTransparency then
+				emitter.Transparency = raiseTransparency(emitter.Transparency, opts.minTransparency)
+			end
 			if opts.color then
 				applyTint(emitter, opts.color)
 			end

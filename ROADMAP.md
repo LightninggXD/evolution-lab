@@ -794,6 +794,56 @@ Gathered 2026-08-07/08 while writing this plan.
 
 ## Changelog
 
+- **2026-08-16 (forty-fourth session)** — **UI POLISH PASS, DRIVEN BY CAPTURES RATHER THAN BY THE
+  CODE.** Four parallel agents, split on the file seam. Two things shipped that the whole HUD had
+  been missing, and both were found by photographing it rather than reading it:
+  **(1) The three currency readouts had no body at all.** `UITheme.Pill` built a frame at
+  `BackgroundTransparency = 1` with no `InnerBody` and no stroke, so DNA / Diamonds / Shards were
+  bare outlined text lying on the 3D world while every other element was a chunky capsule. `Pill`
+  takes an opt-in `shellColor` now (routed through `applyShell`, so the capsule inherits gradient,
+  gloss, outline and lip wholesale; `nil` is byte-identical to the old behaviour). One dark indigo
+  for all three — a wallet is one readout, and the HUD tiles already own every saturated colour.
+  **(2) A generic scroll-affordance sweep over all 15 `ScrollingFrame`s.** 13 of 15 had no bottom
+  padding, so the last row was sliced flat by the panel edge; **9 of 15 had a white scrollbar on a
+  white panel** and were therefore invisible. The pass adds a visible 10 px bar, 14 px of tail, and
+  a bottom fade that only shows when content is genuinely below the fold. It knows no panel by name,
+  so a panel added later is covered too. Verified: 15/15 correct, 1,617 labels, 0 clipped.
+  Also: **InventoryPanel converted to `UITheme.PanelHeader`** — its title and tab strip had been
+  drawn at negative Y, i.e. *outside* the card on the scenery, and the `BoostStrip` reserved 90 px
+  of white for three timers that are almost never running (rows positioned by index, so one running
+  boost drew itself 60 px down an empty band). The boost readout is the header's subtitle now; net
+  **−3 top-level registers**, so MainUI went 178 → 175 of 200. **`Color.Unaffordable` added** —
+  "you are short" and "this is locked" had been the same grey in **both** upgrade rows, not just the
+  diamond one. Diamond row moved onto the DNA row's grid (`Center` → `Left`) and given the same dark
+  price chip. World-event chips 24 → 32 px tall with 12 px of bottom clearance (`clearance + height`
+  must stay ≤ `BOTTOM_CLEAR` = 46 or the bar slides under the tile cluster on a phone).
+  **And the max-stage aura stopped erasing the creature** — *"ne vidim lika koliko svetli"*. Three
+  independent causes, none of them the two properties this bug family had already been fixed
+  through twice: a `PointLight` at **Brightness 8.0** at stage 20 (unclamped `1 + i * 0.35`, written
+  when a player was a 1x avatar), additive particle layers shipped at **Transparency 0.00** that
+  stack to white four deep in the middle of the frame and one deep at the rim (hence the red
+  fringe), and **ground sprites hung at the HumanoidRootPart**, 23.6 studs above the feet with the
+  camera standing inside the ring. Fixed as a brightness ceiling (2.5), a new shape-preserving
+  `minTransparency` floor in `VFXLibrary.Attach`, and a caller-supplied drop halfway to the feet —
+  the drop is passed **in** because the pet rigs share this function with a `scale` in different
+  units and a shared formula would bury their auras underground. Stage 20's colour is also
+  `rgb(255,255,255)`, so the light now takes the **worn character's** colour, not the stage's.
+  **Two claims I made from a probe and had to withdraw:** the grey diamond row was not a bug (76 /
+  122 / 468 💎 against a balance of 10 — the grey was true), and my "64 px of clearance" reading of
+  the event bar was a Studio-coordinate artefact; the code's 5 px was right. **And one regression I
+  caused and the capture caught:** raising the chip name to 14 px truncated "Colosseum Clash" to
+  "Colosseum...". `TextBounds` read 76 × 14 in an 86 × 20 box — fits by every number — because it
+  reports what was *rendered*, i.e. the already-truncated string. `TextFits` was the only property
+  telling the truth and it was the one that looked wrong. Measured with `GetTextBoundsAsync`: that
+  string needs 100 px at 14, 87 at 12. The original 12 px was tuned to exactly it.
+  `guidelines/ui-research-2026.md` written (genre reference: currency anatomy, motion specs, HUD
+  density, panel anatomy, legibility over a bright world). **Not committed** — Kristina has not
+  asked for a commit.
+  Still open: **9 of 19 panels do not use `PanelHeader`** (Zones, Rebirth, Season, Audio, Egg,
+  Reward, Playtime, Pets, and Inventory's sibling), with content starting anywhere from 56 to 106
+  and margins of 14 / 18 / 20 / 22; and `UITheme.PressMotion` exists now but the shadow-compression
+  half of it has not been photographed.
+
 - **2026-08-16 (forty-third session, second half)** — **THE WHITE STREAK FOLLOWING HER WAS 17.1'S
   OWN FIX, ONE PROPERTY TOO FAR.** One screenshot and four words — *"sta je ovo sto prati"* — and the
   answer was not a `Beam`, a `Trail` or a stray part: swept live, there is no beam or trail within 60

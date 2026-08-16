@@ -19,16 +19,52 @@ local function getOrCreate(parent, className, name)
 	return inst
 end
 
+-- ===== THE STAGE LIGHT IS AN INTENSITY, NOT A SIZE (17.19) ===================
+--
+-- `1 + stageIndex * 0.35` reaches **8.0** at stage 20 -- with `Range` 30 and `Shadows = false`, i.e.
+-- a lamp three times brighter than the brightest thing ZoneBuilder puts in the world (4), shining
+-- straight THROUGH the body it is parented inside and lighting all 39 studs of it from the middle
+-- out. Every surface saturates, so the creature loses its shading and reads as one flat blob before
+-- a single particle is drawn. This line has never been touched since the place was first extracted:
+-- it was written when a player was a 1x Roblox avatar, and PLAYER_SCALE_BOOST plus twenty stages
+-- have happened to it since.
+--
+-- The ladder is kept, the ceiling is new, and WHICH property carries the growth is the actual point:
+--   * `Range` still climbs with the stage (6 -> 30) and should -- a bigger creature needs a bigger
+--     pool of light around it, and at stage 20 the range only just reaches the feet (23.6 studs
+--     below the root).
+--   * `Brightness` does NOT, past 2.5. It is how hard a surface one stud away is lit; a surface does
+--     not need to be lit harder because the creature carrying the lamp got taller. 2.5 sits above
+--     VipFlair's own body light (1.6) and below ZoneBuilder's brightest scenery lamp (4), so the
+--     max-stage flourish is still the brightest thing worn on a player in this game.
+-- Stages 1-4 are untouched by the clamp (they were already under it); this only bites where the
+-- report is.
+local AURA_LIGHT_MAX_BRIGHTNESS = 2.5
+
+-- One formula, three call sites. It used to be written out three times -- here and twice inside
+-- playEvolveBurst, which tweens UP from it and then back DOWN to it -- so changing it in one place
+-- would have left an evolve permanently parking the light at the old value.
+local function auraBrightness(stageIndex)
+	return math.min(1 + stageIndex * 0.35, AURA_LIGHT_MAX_BRIGHTNESS)
+end
+
 -- Builds (or fetches) the persistent aura attached to a character's HumanoidRootPart:
--- a soft glow light + a slow-rising particle trail, both tinted to the stage color.
-local function setupAura(character, stage, stageIndex)
+-- a soft glow light + a slow-rising particle trail.
+--
+-- `color` is the WORN CHARACTER's colour, with the stage's own as the fallback -- the same
+-- `entry.color or stage.color` expression StageCostume.Apply uses to paint the body, and it has to
+-- stay the same one or the light and the costume disagree about what the player is. They did:
+-- `GameConfig.Stages[20].color` is rgb(255, 255, 255), so the last stage in the game lit every skin
+-- with a pure-white lamp regardless of which of its five characters was being worn.
+local function setupAura(character, stage, stageIndex, color)
 	local root = character:FindFirstChild("HumanoidRootPart")
 	if not root then return end
+	color = color or stage.color
 
 	local light = getOrCreate(root, "PointLight", "EvolutionAuraLight")
-	light.Color = stage.color
+	light.Color = color
 	light.Range = 6 + stageIndex * 1.2
-	light.Brightness = 1 + stageIndex * 0.35
+	light.Brightness = auraBrightness(stageIndex)
 	light.Shadows = false
 
 	local attachment = getOrCreate(root, "Attachment", "EvolutionAuraAttachment")
@@ -40,7 +76,7 @@ local function setupAura(character, stage, stageIndex)
 		particle.Texture = "rbxasset://textures/particles/sparkles_main.dds"
 		particle.Parent = attachment
 	end
-	particle.Color = ColorSequence.new(stage.color)
+	particle.Color = ColorSequence.new(color)
 	particle.Lifetime = NumberRange.new(0.6, 1.1)
 	particle.Rate = 4 + stageIndex * 2
 	particle.Speed = NumberRange.new(1, 2 + stageIndex * 0.3)
@@ -108,6 +144,54 @@ local MUTATION_VFX = {
 -- 29-stud body -- the bug the `span` note above already describes.
 local AURA_SCALE_EXP = 0.6
 
+-- ===== YOU HAVE TO BE ABLE TO SEE THE CREATURE THROUGH IT (17.19) ============
+--
+-- "ne vidim lika koliko svetli" -- the max-stage body photographs as a solid white silhouette with a
+-- red fringe around the outside and a halo several studs past it.
+--
+-- The fringe is the whole diagnosis. The pack ships these emitters at a minimum Transparency of
+-- **0.00** and they draw additively (LightEmission 1, which 17.18 established has to stay there), so
+-- layers ADD: Mythic's rgb(255, 80, 80) is (1.00, 0.31, 0.31) once, pink twice, white by three. The
+-- middle of the frame is three or four sprites deep and the rim is one -- white body, red edge.
+-- Neither of the two properties this bug family has already been fixed through can help. Brightness
+-- is what the layer's colour is (17.1, capped at 1 and correct), LightEmission is whether the
+-- texture's black background gets drawn (17.18, must stay at the authored value). Transparency is
+-- the only one that scales HOW MUCH a layer contributes, and nobody had touched it.
+--
+-- 0.5 halves what every layer adds, which doubles the depth of stacking the aura tolerates before it
+-- clips: three layers now land at (1.00, 0.47, 0.47), still visibly red. It is a floor under the
+-- curve, not an assignment -- the fade-out still reaches full transparency -- and it cannot bring
+-- 17.18's black slab back, because an additive layer drawn less hard moves toward the world behind
+-- it rather than toward black.
+local AURA_MIN_TRANSPARENCY = 0.5
+
+-- ...AND THE SPRITES ARE FLOOR SPRITES HUNG AT EYE LEVEL. The pack names them `Floor1/2/3`: they are
+-- a ground ring, and `Attach` puts them at the HumanoidRootPart, which on a 5x body is 23.6 studs
+-- above the feet with the camera 15.9 studs away -- i.e. INSIDE the ring. A 24.7-stud quad drawn
+-- between the camera and the creature is not an aura around the character, it is a filter over the
+-- lens, and that is most of why there is no detail left in the body.
+--
+-- So the effect is dropped toward the feet. HALFWAY, not all the way: 17.2 tried the feet and
+-- measured the cost -- the view clears completely and the wearer can then no longer see the aura at
+-- all at the default zoom, which is the thing they paid for. Half clears the camera plane (12 studs
+-- of separation at max stage, against a ring radius of 12) while leaving the aura inside a frame the
+-- camera is standing in the middle of.
+--
+-- MEASURED IN THE BODY, NOT IN THE AURA. 17.2 read the feet at 23.64 studs below the root on a 5x
+-- body, i.e. ~4.73 studs of body per unit of stage scale, and that is the constant below. It is
+-- deliberately NOT derived from the aura's own span (the span is sublinear in scale, so it would
+-- drift), and deliberately NOT read off `root.Size.Y` -- the body settles several frames after this
+-- runs, so live geometry here is the [[evolution-lab-body-settles-late]] trap and would size the
+-- drop to a default 2-stud avatar on every spawn.
+--
+-- It is also why the drop is passed IN rather than computed here: the pet rigs come through this
+-- same function with a `scale` in completely different units (petScale 2.45 beside a max-stage
+-- player, on a rig about six studs tall), so a shared formula would bury their auras underground.
+-- They pass nothing and keep today's placement, which nobody has complained about and where no
+-- camera ever sits.
+local ROOT_TO_FEET = 4.73
+local AURA_DROP = 0.5
+
 local MUTATION_AURA_NAME = "MutationAura"
 
 -- Hangs (or removes) the worn mutation's aura on a root part.
@@ -124,7 +208,11 @@ local MUTATION_AURA_NAME = "MutationAura"
 --
 -- Takes the PART rather than the character, because the equipped pet rigs need exactly the same
 -- thing hung on their own roots and a second copy of this table is how the two drift apart.
-function EvolutionVisuals.AttachMutationAura(root, mutationName, scale)
+--
+-- `drop` is how many studs below the root the effect hangs, and it is the CALLER's number because
+-- only the caller knows how tall the thing wearing it is -- see AURA_DROP. Omitted means 0, i.e.
+-- on the root, which is where every wearer had it before.
+function EvolutionVisuals.AttachMutationAura(root, mutationName, scale, drop)
 	if not (root and root:IsA("BasePart")) then return nil end
 
 	-- THE SCALE IS PART OF THE IDENTITY, not just the name. An evolve keeps the mutation and triples
@@ -141,6 +229,10 @@ function EvolutionVisuals.AttachMutationAura(root, mutationName, scale)
 	local spec = mutationName and MUTATION_VFX[mutationName]
 	if not spec or not VFXLibrary.Exists(spec.path) then return nil end
 
+	-- sized against the BODY, not against the pack -- see the note on `span`, and sublinear in the
+	-- body's own scale -- see AURA_SCALE_EXP
+	local span = spec.span * math.pow(math.max(scale or 1, 0.01), AURA_SCALE_EXP)
+
 	local att = VFXLibrary.Attach(root, spec.path, {
 		name = MUTATION_AURA_NAME,
 		-- Normalised, not multiplied: this table spans Smoke-01 at 5 particles/second to
@@ -148,9 +240,11 @@ function EvolutionVisuals.AttachMutationAura(root, mutationName, scale)
 		-- wall. Well under the boss aura's 55 -- a boss is one thing you walk up to, a player aura is
 		-- on every player on the server at once.
 		targetRate = spec.rate,
-		-- sized against the BODY, not against the pack -- see the note on `span`, and sublinear in the
-		-- body's own scale -- see AURA_SCALE_EXP
-		targetSize = spec.span * math.pow(math.max(scale or 1, 0.01), AURA_SCALE_EXP),
+		targetSize = span,
+		-- down off the camera plane, because these are ground sprites -- see AURA_DROP
+		offset = Vector3.new(0, -(drop or 0), 0),
+		-- and see-through, because the creature is behind them -- see AURA_MIN_TRANSPARENCY
+		minTransparency = AURA_MIN_TRANSPARENCY,
 		color = spec.color,
 	})
 	if att then
@@ -178,10 +272,13 @@ function EvolutionVisuals.ApplyMutationAura(player)
 	-- `BodyScale` is the stage's TARGET scale, stamped by ApplyStage -- deliberately not the
 	-- Humanoid's live BodyHeightScale, which is mid-tween for 0.6s after an evolve and would size
 	-- the aura to a body the player is only passing through. See [[evolution-lab-body-settles-late]].
+	local scale = character:GetAttribute("BodyScale") or 1
 	return EvolutionVisuals.AttachMutationAura(
 		character:FindFirstChild("HumanoidRootPart"),
 		EvolutionVisuals.WornMutation(player),
-		character:GetAttribute("BodyScale") or 1)
+		scale,
+		-- halfway to this body's own feet -- the same stamped scale, for the same reason
+		ROOT_TO_FEET * scale * AURA_DROP)
 end
 
 -- One-shot burst of particles + light flash played at the moment of evolving.
@@ -206,13 +303,16 @@ local function playEvolveBurst(character, stage, stageIndex)
 
 	local light = character.HumanoidRootPart:FindFirstChild("EvolutionAuraLight")
 	if light then
+		-- x4 of the CLAMPED resting value, so the evolve flash tops out at 10 for half a second
+		-- instead of the 32 the unclamped formula reached at stage 20 -- and it returns to exactly
+		-- what setupAura set, because both ends now read the same function.
 		local flash = TweenService:Create(light, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-			Brightness = (1 + stageIndex * 0.35) * 4,
+			Brightness = auraBrightness(stageIndex) * 4,
 		})
 		flash:Play()
 		task.delay(0.5, function()
 			if light and light.Parent then
-				TweenService:Create(light, TweenInfo.new(0.6), { Brightness = 1 + stageIndex * 0.35 }):Play()
+				TweenService:Create(light, TweenInfo.new(0.6), { Brightness = auraBrightness(stageIndex) }):Play()
 			end
 		end)
 	end
@@ -531,7 +631,6 @@ function EvolutionVisuals.ApplyStage(player, stageIndex, opts)
 	-- Read back by applyMastery (pace scales with the body) and by the client's floating health bar,
 	-- which has to hang above a head that is anywhere from 1 to 9 times its default height.
 	character:SetAttribute("BodyScale", stage.scale)
-	setupAura(character, stage, stageIndex)
 
 	local data = PlayerDataService.Get(player)
 	local bonus = data and GameConfig.GetStageMasteryBonus(data)
@@ -549,6 +648,11 @@ function EvolutionVisuals.ApplyStage(player, stageIndex, opts)
 	-- keyed by tostring(stageIndex): a sparse numeric-keyed table does not survive a RemoteEvent,
 	-- so the save uses string keys throughout -- see DNAService.RollCharacter
 	local entry = GameConfig.GetWornCharacter(data)
+
+	-- After `entry`, and that is the whole reason it moved down here from beside the BodyScale stamp:
+	-- the stage light has to be the colour of the character being WORN, not of the stage. Nothing
+	-- between the two positions touches the root part's light or attachment.
+	setupAura(character, stage, stageIndex, entry and entry.color)
 
 	-- THE LOOK COMES FROM THE SKIN, THE SIZE COMES FROM THE STAGE.
 	--
