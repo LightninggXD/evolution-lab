@@ -177,6 +177,12 @@ local function defaultData()
 		-- which is why this is a field of its own and not an inference. RebirthService resets a named
 		-- list and this is deliberately not on it.
 		TutorialDone = false,
+		-- Has this save ever stood on the plaza's photo pad (17.3)? One diamond gift, once, ever --
+		-- so `false` is the correct default for every save already written, and this needs none of
+		-- the repair TutorialDone above does: nobody has taken a photo, because until 17.3 the pad
+		-- had no code behind it at all. Not on RebirthService's reset list on purpose; a first photo
+		-- is a first photo.
+		PhotoTaken = false,
 		-- Game pass ownership, as a set of pass keys. RUNTIME ONLY: PassService writes it from the
 		-- Roblox ownership API on join, and Load below clears it unconditionally, so whatever ends up
 		-- in the DataStore is never read back. Declared here only so nothing ever indexes a nil.

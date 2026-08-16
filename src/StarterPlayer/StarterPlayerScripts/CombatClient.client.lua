@@ -1166,6 +1166,11 @@ if not CombatFx then
 	return
 end
 
+-- When something last drew a number near this player. Declared up here rather than beside its one
+-- reader at the bottom of the file, because the writer is the handler below and a local declared
+-- after its writer is a different variable (a global, in Luau's reading of it).
+local lastFxAt = 0
+
 -- ============================================================================
 -- THE BOSS BAR
 -- ============================================================================
@@ -1384,6 +1389,11 @@ CombatFx.OnClientEvent:Connect(function(fx)
 	local kill = fx.k == "kill"
 	local mine = fx.a == player.UserId
 
+	-- Stamped for the idle-income pop at the bottom of this file, which stands down while a fight
+	-- is on. Every hit near the player counts, not only their own: somebody else's Elite dying two
+	-- studs away is still a screen with numbers on it.
+	lastFxAt = os.clock()
+
 	-- our own swing already played off the mouse button; this is what makes everyone else's
 	-- characters swing on our screen
 	if not mine and fx.a then
@@ -1526,8 +1536,9 @@ task.spawn(function()
 	end
 end)
 
--- The one thing this file needs off the save. Cached from the payload the economy is already
--- pushing rather than asked for on its own, and the repaint above notices on its next pass.
+-- The two things this file needs off the save. Cached from the payload the economy is already
+-- pushing rather than asked for on their own, and the repaint above notices on its next pass.
+local myAutoPerSec = 0
 do
 	local dataRemote = RS:WaitForChild("Remotes", 30)
 	dataRemote = dataRemote and dataRemote:WaitForChild("DataUpdate", 30)
@@ -1535,7 +1546,57 @@ do
 		dataRemote.OnClientEvent:Connect(function(data)
 			if type(data) == "table" then
 				myRebirths = data.Rebirths or 0
+				myAutoPerSec = data.__autoPerSec or 0
 			end
 		end)
 	end
 end
+
+-- ===== AUTO COLLECT HAS BEEN PAYING INTO A COUNTER THAT CANNOT MOVE (17.4) =====
+--
+-- The report was *"auto collect nista ne radi"* and the upgrade was working the whole time. Measured
+-- on the live save that filed it: `Upgrades.AutoCollect` **67**, and `DNAService`'s loop stamping
+-- `__autoPerSec = 5.86e12` DNA every second -- against a balance of **5.09e19**, which the HUD
+-- formats to four significant digits as `50.88Qi`. At that rate the last of those digits moves
+-- **once every ~28 minutes**. The only place the payout was ever stated is the shop tile's effect
+-- line (15.22), and a player has to open a panel to read it. An income you cannot see is
+-- indistinguishable from one that is not being paid, and the player is right to call that broken.
+--
+-- So it is drawn WHERE IT HAPPENS, over the player, in the same voice as every other number this
+-- game pays -- see [[evolution-lab-feedback-placement]]. It goes through `popNumber` for exactly
+-- the reason that function's own comment gives: a second copy of the look is a second look, and
+-- these two numbers -- what a kill pays and what idling pays -- are the ones most likely to be on
+-- screen together.
+--
+-- EVERY FOUR SECONDS, NOT EVERY ONE. The server pays once a second, and one pop a second over your
+-- own head for the whole session is not feedback, it is weather. Four seconds of it accumulated
+-- into one figure says the same thing, reads as deliberate, and leaves the screen quiet enough that
+-- a kill still stands out. It is also the honest number: what is drawn is what has actually been
+-- paid since the last draw, never a rate dressed up as a payment.
+--
+-- MUTED WHILE THE PLAYER IS FIGHTING. `lastFxAt` is stamped by the CombatFx handler, so a pop is
+-- skipped whenever a hit landed in the last two seconds: the DNA from a kill is the number that
+-- matters at that moment and idle income must not be competing with it in the same square of
+-- screen. Standing still is exactly when this has something to say.
+local IDLE_POP_EVERY = 4
+local IDLE_POP_MUTE_AFTER_FX = 2
+task.spawn(function()
+	while true do
+		task.wait(IDLE_POP_EVERY)
+		local amount = myAutoPerSec * IDLE_POP_EVERY
+		if amount > 0 and os.clock() - lastFxAt > IDLE_POP_MUTE_AFTER_FX then
+			local character = player.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			if root then
+				-- Above the HEAD rather than above the root: the body runs 1x to 5x across the
+				-- stages and the root is the middle of it, so a fixed offset that clears a Cell is
+				-- inside the chest of an Absolute. The head's own top is the only offset that is
+				-- right at both ends.
+				local head = character:FindFirstChild("Head")
+				local top = head and (head.Position.Y + head.Size.Y * 0.5) or (root.Position.Y + root.Size.Y * 0.5)
+				popNumber(Vector3.new(root.Position.X, top + 4, root.Position.Z),
+					"+" .. shortNumber(amount) .. " \u{1F9EC}", UITheme.Color.Mint, false)
+			end
+		end
+	end
+end)

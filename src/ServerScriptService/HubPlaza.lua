@@ -61,13 +61,22 @@ local RS = game:GetService("ReplicatedStorage")
 
 local UITheme = require(RS.Modules.UITheme)
 local GameConfig = require(RS.Modules.GameConfig)
+-- Only for the photo reward at the bottom of this file; the plaza itself touches no save.
+local PlayerDataService = require(script.Parent.PlayerDataService)
 
 local HubPlaza = {}
 
 -- Bumping this rebuilds the plaza on the next server start, the same shape as LeaderboardService's
 -- BOARD_VERSION, EventService's SIGN_VERSION and ZoneBuilder's BUILD_VERSION. Editing anything
 -- below WITHOUT moving this number is a silent no-op on a world that already has a plaza in it.
-local PLAZA_VERSION = 2
+-- 3: the photo spot gained the prompt it had been missing since it was built (17.3).
+local PLAZA_VERSION = 3
+
+-- What the first photo pays, once per save, ever. Diamonds rather than DNA because DNA is
+-- stage-scaled and a fixed figure means nothing across twenty zones -- the same reasoning the
+-- Robux products and the codes table already use. 25 is one diamond upgrade's base price, i.e.
+-- enough to be worth walking onto the pad for and nowhere near enough to be a reason to.
+local PHOTO_REWARD_DIAMONDS = 25
 
 -- ============================================================================
 -- GEOMETRY
@@ -529,7 +538,34 @@ local function buildPhotoSpot(model, pos, side)
 	pave(model, "PhotoRim", pos.X, pos.Z, 38, 38, 1.28, OUTLINE)
 	-- Lighter than the deck, not the same as it: a pad you are meant to stand on has to be findable
 	-- from across the plaza, and it is the one place here that wants to be brighter than its floor.
-	pave(model, "PhotoPad", pos.X, pos.Z, 32, 32, 1.42, UITheme.Color.Cream)
+	local pad = pave(model, "PhotoPad", pos.X, pos.Z, 32, 32, 1.42, UITheme.Color.Cream)
+
+	-- ===== 17.3: THE PAD NOW HAS SOMETHING BEHIND IT =====
+	--
+	-- The report was *"photo spot nista ne radi"* and it was exactly right: this function laid a
+	-- rim, a pad, an eye, two posts, a beam, a sheet, a crest and a sign reading PHOTO SPOT, and a
+	-- sweep of the whole source tree found no prompt, no `Touched`, no `ClickDetector` and no client
+	-- listener for any of them. A sign that names a feature the game does not have is worse than no
+	-- sign, because the player goes looking for the thing that does not exist.
+	--
+	-- A PROMPT RATHER THAN A `Touched`: the pad is 32 studs across and every player crosses this
+	-- plaza on the way to the gate, so a touch trigger would fire the camera at people walking past.
+	-- The prompt also gives the standard E affordance the rest of this game already uses (the egg
+	-- podiums, the potion stalls, the Splicer), which is the answer to "how would anyone know".
+	--
+	-- `RequiresLineOfSight = false` because the frame's own sheet stands between the pad and most of
+	-- the plaza, and the whole camera path lives on the client -- see `PhotoSpot.client`.
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "PhotoPrompt"
+	prompt.ActionText = "Take a photo"
+	prompt.ObjectText = "Photo Spot"
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.HoldDuration = 0
+	prompt.RequiresLineOfSight = false
+	-- Half the pad plus the height of a last-stage body: a 39-stud character standing in the middle
+	-- of a 32-stud pad has its root well over 20 studs from the pad's centre.
+	prompt.MaxActivationDistance = 46
+	prompt.Parent = pad
 	pave(model, "PhotoPadEye", pos.X, pos.Z, 14, 14, 1.52, ACCENT2)
 
 	local fx = pos.X + side * 15
@@ -737,8 +773,63 @@ local function build()
 	return model
 end
 
+-- ============================================================================
+-- THE PHOTO ITSELF (17.3)
+-- ============================================================================
+-- The camera work is entirely on the client -- posing a camera, hiding the HUD and drawing a frame
+-- are all local, and a server that took part in any of it would only be adding a round trip to
+-- something that has to feel instant. What the server owns is the one thing a client may never be
+-- trusted with: the payout.
+--
+-- ONE REWARD, ONCE, FOREVER. `data.PhotoTaken` is a new save field whose default is `false`, which
+-- `Load`'s generic backfill hands to every existing save -- and unlike 6.3's `TutorialDone` this one
+-- needs no repair beside it, because "has not happened yet" is true for everybody: nobody has ever
+-- been able to take a photo. A rebirth does not clear it either; it is a first-time-ever gift, not
+-- a per-run one.
+--
+-- STAMPED BEFORE THE GRANT, WITH NO YIELD BETWEEN, exactly as CodesService and the free spin do.
+-- The prompt is a client-fired remote, so two Es half a frame apart are two calls into this
+-- function, and the gap between "read the flag" and "write the flag" is the whole exploit.
+local function grantPhotoReward(player)
+	local data = PlayerDataService.Get(player)
+	if not data then return end
+	if data.PhotoTaken then return end
+
+	data.PhotoTaken = true
+
+	data.Diamonds = (data.Diamonds or 0) + PHOTO_REWARD_DIAMONDS
+	PlayerDataService.UpdateLeaderstats(player)
+	PlayerDataService.PushToClient(player)
+	RS.Remotes.Notify:FireClient(player, {
+		kind = "reward",
+		message = ("\u{1F4F8} Say cheese!\n+%d \u{1F48E} for your first photo"):format(PHOTO_REWARD_DIAMONDS),
+		color = GameConfig.GetRarity("Epic").color,
+	})
+end
+
 function HubPlaza.Init()
 	build()
+
+	-- Find-or-create, the shape every service here uses: ServerMain's boot order is not something
+	-- this file should depend on for a remote it owns.
+	local remotes = RS:FindFirstChild("Remotes")
+	if not remotes then
+		remotes = Instance.new("Folder")
+		remotes.Name = "Remotes"
+		remotes.Parent = RS
+	end
+	local taken = remotes:FindFirstChild("PhotoTaken")
+	if not taken then
+		taken = Instance.new("RemoteEvent")
+		taken.Name = "PhotoTaken"
+		taken.Parent = remotes
+	end
+	-- No payload is read at all. The client is saying "I finished a photo", nothing more -- there is
+	-- no number, no position and no id here that a crafted call could bend, and the flag on the save
+	-- is what stops it being worth firing twice.
+	taken.OnServerEvent:Connect(function(player)
+		grantPhotoReward(player)
+	end)
 end
 
 -- Exposed for probes: the plaza's own numbers, so a check does not have to re-derive them.
