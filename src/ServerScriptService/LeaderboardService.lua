@@ -448,6 +448,27 @@ local plateLabels = {}     -- [slot] = TextLabel
 -- and three simultaneous avatar fetches is three web calls in one frame for a piece of scenery.
 local statueWorking = false
 
+-- ===== A USERID THIS SERVER CANNOT TURN INTO A FIGURE, SO THE PODIUM STOPS ASKING (2026-08-15) ==
+--
+-- `buildStatue` returns false on a failed fetch WITHOUT writing `statueUserIds`, so the next
+-- refresh sees "the person on this plinth changed" all over again and re-queues the identical
+-- failing web call. Nothing ever converges: a Studio playtest printed
+--     could not fetch avatar for -2: Players:CreateHumanoidFromUserId() got invalid userId
+-- on every single refresh for the whole session, and on a live server a deleted account in the top
+-- three would do the same thing forever, one web call at a time.
+--
+-- STUDIO TEST PLAYERS HAVE A NEGATIVE USERID and no web call will ever resolve one, so those are
+-- not even attempted -- there is nothing to warn about and nothing to retry. A real id that fails
+-- is warned about ONCE and then joins them.
+--
+-- The degraded state is deliberate and is not an empty plinth: the plate still carries the name and
+-- the DNA figure, so the board stays truthful and only the carved figure is missing.
+local statueUnavailable = {}   -- [userId] = true
+
+local function canFetchAvatar(userId)
+	return type(userId) == "number" and userId > 0 and not statueUnavailable[userId]
+end
+
 local function stoneify(model, tone)
 	for _, d in ipairs(model:GetDescendants()) do
 		if d:IsA("BasePart") then
@@ -511,6 +532,8 @@ local function buildStatue(slotIndex, userId, name, value)
 		return Players:CreateHumanoidModelFromUserId(userId)
 	end)
 	if not ok or not model then
+		-- once, and never again for this player -- see canFetchAvatar
+		statueUnavailable[userId] = true
 		warn("[LeaderboardService] could not fetch avatar for " .. tostring(userId) .. ": " .. tostring(model))
 		return false
 	end
@@ -679,7 +702,16 @@ local function refreshStatues()
 		if not row or not row.userId then
 			if statueUserIds[i] then clearStatue(i) end
 		elseif row.userId ~= statueUserIds[i] then
-			table.insert(jobs, { i, row.userId, row.name, row.value })
+			if canFetchAvatar(row.userId) then
+				table.insert(jobs, { i, row.userId, row.name, row.value })
+			else
+				-- Plate only. Recording the id here is the whole point: it is what makes this slot
+				-- settled rather than permanently dirty.
+				if statueUserIds[i] then clearStatue(i) end
+				statueUserIds[i] = row.userId
+				statueValues[i] = row.value
+				drawPlate(i, row.name, row.value)
+			end
 		elseif row.value ~= statueValues[i] then
 			statueValues[i] = row.value
 			drawPlate(i, row.name, row.value)

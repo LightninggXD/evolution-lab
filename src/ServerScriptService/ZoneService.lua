@@ -269,7 +269,11 @@ function ZoneService.SendToZoneSpawn(player, zoneKey)
 end
 
 function ZoneService.Init()
-	ZoneBuilder.Build()
+	-- NO ZoneBuilder.Build() HERE. `ServerMain` builds the world before it inits any service --
+	-- it has to, because CreatureService, BossService, LeaderboardService and HubPlaza all place
+	-- things relative to geometry that must already exist. This call was a second, redundant pass
+	-- that built nothing and only cost a 105,000-part sweep plus a false SOLID_PROPS audit warning
+	-- every server start; see the note over ZoneBuilder.Build.
 
 	Remotes.TeleportToZone.OnServerEvent:Connect(function(player, zoneKey)
 		if typeof(zoneKey) == "string" then

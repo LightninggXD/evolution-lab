@@ -511,7 +511,10 @@ end)
 local evolveFrame = Instance.new("Frame")
 evolveFrame.Name = "EvolveFrame"
 evolveFrame.Size = UDim2.new(0, 470, 0, 136)
-evolveFrame.Position = UDim2.new(0.5, 0, 1, -22)
+-- -36, up from -22 (16.2): the world-event bar is pinned to the bottom edge at -5 and is 26 tall,
+-- so its top edge sits at -31. Leaving this at -22 would have put the evolve card's own stroke
+-- through the boss pill. Five pixels of daylight between the two.
+evolveFrame.Position = UDim2.new(0.5, 0, 1, -36)
 evolveFrame.AnchorPoint = Vector2.new(0.5, 1)
 evolveFrame.BackgroundTransparency = 1
 evolveFrame.Parent = screenGui
@@ -1126,7 +1129,17 @@ local function columnTile(side, order, emoji, caption, color, badge, badgeColor)
 		badgeColor = badgeColor,
 	}
 	if side == "L" then
-		opts.position = UDim2.new(0, 20, 0, TILE_START_Y + (order - 1) * TILE_PITCH)
+		-- TWO WIDE (16.2). This column was a single file of five tiles; it is a 2x2 grid of four now.
+		-- Trade came off it entirely (see the note under this function), and four buttons in a block
+		-- are half the height of four in a ladder -- which is what lets them hold their authored 82px
+		-- on a short viewport instead of being shrunk toward the 40px floor by the layout pass.
+		--
+		-- The 2 is written literally rather than hoisted into a constant beside RIGHT_COLS on purpose:
+		-- this file's top level is at Luau's 200-register ceiling and one more top-level local silently
+		-- deletes the entire HUD. The layout pass at the bottom of the file carries the same 2 in WIDTH.
+		local lcol = (order - 1) % 2
+		local lrow = math.floor((order - 1) / 2)
+		opts.position = UDim2.new(0, 20 + lcol * TILE_PITCH, 0, TILE_START_Y + lrow * TILE_PITCH)
 		opts.anchorPoint = Vector2.new(0, 0)
 	else
 		-- The authored position, for the one frame before the layout pass at the bottom of the file
@@ -1166,19 +1179,25 @@ local shopToggleButton = columnTile("L", 1, "🛒", "Shop", UITheme.Color.Sunny)
 -- existed became the two TABS of this one: it opens Pets, and Potions is one click away.
 local inventoryButton  = columnTile("L", 2, "\u{1F392}", "Inventory", UITheme.Color.Bubblegum)
 local rebirthButton    = columnTile("L", 3, "♻️", "Rebirth", UITheme.Color.Lavender)
--- THE TRADE TILE IS BUILT HERE AND HELD BY NOBODY, and both halves of that are deliberate.
+-- THE TRADE TILE IS GONE (16.2), and the feature is not.
 --
+-- Trading is never something you browse INTO -- it is something you do TO one specific person -- so
+-- the door moved onto the person: click any other player in the world and a small card opens over
+-- them with their headshot, their name, how far away they are and a Trade button (see the trade
+-- block at the bottom of this file). A permanent tile spent a fifth of the left edge on a feature
+-- that means nothing at all until somebody else is standing next to you, and it asked the player to
+-- pick a name off a list when they were already looking straight at the person they meant.
+--
+-- Four tiles left, and they are a 2x2 block now rather than a ladder -- see the L branch of
+-- columnTile above and WIDTH in the layout pass at the bottom of this file.
+--
+-- The Auras tile (15.27) IS BUILT HERE AND HELD BY NOBODY, and both halves of that are deliberate.
 -- Here, because the responsive column pass at the bottom of this file collects its tiles ONCE, by
--- walking screenGui's children when it runs -- a tile created after it (the trading UI is ~8000
--- lines below) is never laid out at all and keeps its authored pixel position on every viewport.
--- Held by nobody, because this file is at Luau's 200-local ceiling and one more top-level local
--- silently deletes the whole HUD; the trade block finds it back as `screenGui.TradeButton`, which
--- is the name columnTile stamps on it (caption .. "Button").
-columnTile("L", 4, "\u{1F91D}", "Trade", UITheme.Color.Aqua)
--- ...and the Auras tile (15.27) for the same two reasons, found back as `screenGui.AurasButton`.
--- Five in the left column against eight in the right: the layout pass measures each column from the
--- tiles it finds, so this needed no other change.
-columnTile("L", 5, "\u{1F9EC}", "Auras", UITheme.Color.Purple)
+-- walking screenGui's children when it runs -- a tile created after it is never laid out at all and
+-- keeps its authored pixel position on every viewport. Held by nobody, because this file is at
+-- Luau's 200-local ceiling and one more top-level local silently deletes the whole HUD; the code
+-- that needs it finds it back as `screenGui.AurasButton`, the name columnTile stamps on it.
+columnTile("L", 4, "\u{1F9EC}", "Auras", UITheme.Color.Purple)
 
 -- RIGHT CLUSTER (right-aligned), two tiles wide and filling upward from the bottom-right corner --
 -- see RIGHT_COUNT and the layout pass at the end of the file. Order runs left-to-right then up:
@@ -1823,49 +1842,95 @@ local hudRefs = {}
 	-- clock only has to answer WHO and WHEN, so the name and the countdown share one 38 px capsule
 	-- and the subtitle is gone. The health it used to show is on the boss's own bar the moment the
 	-- fight starts, which is the only time it means anything.
+	-- ========================================================================
+	-- ...AND THEY ARE NOT ON THIS STRIP ANY MORE (16.2)
+	-- ========================================================================
+	-- The boss clock and the live-event clock came off the bottom-left strip and onto their own bar
+	-- pinned to the very bottom edge of the screen, centred, at well under half the area they had.
+	--
+	-- WHY THEY DO NOT BELONG ON THE POTION STRIP: everything else on that strip is something the
+	-- PLAYER is carrying -- a boost they drank, that is draining, that only they can see. These two
+	-- are facts about the SERVER: the same words are on every screen in the game at the same moment.
+	-- Mixing the two meant a boss timer nobody asked for could push a potion that is about to expire
+	-- off the bottom of the budget, and it put a permanent red banner in the corner the player's eye
+	-- goes to for their own numbers.
+	--
+	-- WHY THE BOTTOM EDGE: it is the only band of a Roblox screen that is genuinely idle -- the
+	-- currencies are top-left, the tiles are down both sides, and the evolve card sits above this bar
+	-- (moved up 14px to clear it). A world clock is ambient: findable without ever being in the way,
+	-- and never the brightest thing on screen.
+	--
+	-- The bar auto-sizes on X around whichever pills are visible and stays centre-anchored, so one
+	-- clock is centred and two are centred as a pair -- nothing slides sideways when an event starts.
+	local eventBar = Instance.new("Frame")
+	eventBar.Name = "WorldEventBar"
+	eventBar.Size = UDim2.new(0, 0, 0, 26)
+	eventBar.AutomaticSize = Enum.AutomaticSize.X
+	eventBar.Position = UDim2.new(0.5, 0, 1, -5)
+	eventBar.AnchorPoint = Vector2.new(0.5, 1)
+	eventBar.BackgroundTransparency = 1
+	eventBar.ZIndex = UITheme.Z.Content
+	eventBar.Parent = screenGui
+
+	local eventBarLayout = Instance.new("UIListLayout")
+	eventBarLayout.FillDirection = Enum.FillDirection.Horizontal
+	eventBarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	eventBarLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	eventBarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	eventBarLayout.Padding = UDim.new(0, 8)
+	eventBarLayout.Parent = eventBar
+
 	local arenaCard = Instance.new("Frame")
 	arenaCard.Name = "ArenaBoss"
-	arenaCard.Size = UDim2.new(0, 216, 0, 38)
-	arenaCard.LayoutOrder = -2                -- above the event pill (-1); the potion rows are 1..4
+	-- 168 x 24, down from 216 x 38. At this size the pill is a glance, not a card: an 18px emoji
+	-- disc, the name at 12, the clock at 12, and nothing else fits -- which is the point.
+	arenaCard.Size = UDim2.new(0, 168, 0, 24)
+	arenaCard.LayoutOrder = 1                 -- boss first, event second, reading left to right
 	arenaCard.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
 	arenaCard.Visible = false
 	arenaCard.ZIndex = UITheme.Z.Content + 1
-	arenaCard.Parent = stack
+	arenaCard.Parent = eventBar
 	styleCard(arenaCard, UITheme.Color.Red, UDim.new(1, 0), 3)
 
 	local arenaBadge = Instance.new("TextLabel")
 	arenaBadge.Name = "Badge"
-	arenaBadge.Size = UDim2.new(0, 28, 0, 28)
-	arenaBadge.Position = UDim2.new(0, 5, 0, 5)
+	-- 18 on a 24px row, so the disc shares the capsule's own left centre (12, 12) and cannot clip
+	-- against the rounding -- the same rule the 28-on-38 discs on the potion strip follow.
+	arenaBadge.Size = UDim2.new(0, 18, 0, 18)
+	arenaBadge.Position = UDim2.new(0, 3, 0, 3)
 	arenaBadge.BackgroundColor3 = UITheme.Color.Red
 	arenaBadge.Text = GameConfig.EventBoss.emoji
 	arenaBadge.ZIndex = arenaCard.ZIndex + 1
 	arenaBadge.Parent = arenaCard
 	corner(arenaBadge, UDim.new(0.5, 0))
-	themeLabel(arenaBadge, 16)
+	themeLabel(arenaBadge, 11)
 
 	-- Both labels are centred on the row (`0.5, -10` against a height of 20) rather than pinned to
 	-- a top margin: on a single-line pill there is no second line to leave room for, and a
 	-- top-pinned label on a 38 px capsule reads as if it has slipped.
 	local arenaName = Instance.new("TextLabel")
 	arenaName.Name = "ArenaName"
-	arenaName.Size = UDim2.new(1, -108, 0, 20)
-	arenaName.Position = UDim2.new(0, 40, 0.5, -10)
+	-- -80 = 25 of left inset past the disc + 47 of clock and its right margin. Truncated rather than
+	-- shrunk: themeLabel floors text at 14 and this label is authored at 12, so a long boss name has
+	-- no shrink left to give and would wrap onto a second line the 24px pill has no room for.
+	arenaName.Size = UDim2.new(1, -80, 0, 16)
+	arenaName.Position = UDim2.new(0, 25, 0.5, -8)
 	arenaName.BackgroundTransparency = 1
 	arenaName.TextXAlignment = Enum.TextXAlignment.Left
+	arenaName.TextTruncate = Enum.TextTruncate.AtEnd
 	arenaName.ZIndex = arenaCard.ZIndex + 1
 	arenaName.Parent = arenaCard
-	themeLabel(arenaName, 15)
+	themeLabel(arenaName, 12)
 
 	local arenaClock = Instance.new("TextLabel")
 	arenaClock.Name = "Clock"
-	arenaClock.Size = UDim2.new(0, 62, 0, 20)
-	arenaClock.Position = UDim2.new(1, -68, 0.5, -10)
+	arenaClock.Size = UDim2.new(0, 48, 0, 16)
+	arenaClock.Position = UDim2.new(1, -54, 0.5, -8)
 	arenaClock.BackgroundTransparency = 1
 	arenaClock.TextXAlignment = Enum.TextXAlignment.Right
 	arenaClock.ZIndex = arenaCard.ZIndex + 1
 	arenaClock.Parent = arenaCard
-	themeLabel(arenaClock, 15)
+	themeLabel(arenaClock, 12)
 
 	-- ONE LINE, NOT A CARD (16.1). The effects line -- "x2 DNA   x2 Giant Loot   x2 XP" -- was the
 	-- widest string anywhere on the HUD and it said the same three things for a whole weekend
@@ -1878,44 +1943,45 @@ local hudRefs = {}
 	-- label's 14 px floor and the slot is 108. The headliner is drawn; the co-runner is not named.
 	local eventCard = Instance.new("Frame")
 	eventCard.Name = "EventBoost"
-	eventCard.Size = UDim2.new(0, 216, 0, 38)
-	eventCard.LayoutOrder = -1                -- directly under the arena pill (-2)
+	eventCard.Size = UDim2.new(0, 168, 0, 24)
+	eventCard.LayoutOrder = 2                 -- to the right of the arena pill (1)
 	eventCard.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
 	eventCard.Visible = false
 	eventCard.ZIndex = UITheme.Z.Content + 1
-	eventCard.Parent = stack
+	eventCard.Parent = eventBar
 	styleCard(eventCard, UITheme.Color.Coral, UDim.new(1, 0), 3)
 
 	local eventBadge = Instance.new("TextLabel")
 	eventBadge.Name = "Badge"
-	eventBadge.Size = UDim2.new(0, 28, 0, 28)
-	eventBadge.Position = UDim2.new(0, 5, 0, 5)
+	eventBadge.Size = UDim2.new(0, 18, 0, 18)
+	eventBadge.Position = UDim2.new(0, 3, 0, 3)
 	eventBadge.BackgroundColor3 = UITheme.Color.Coral
 	eventBadge.Text = "\u{1F525}"
 	eventBadge.ZIndex = eventCard.ZIndex + 1
 	eventBadge.Parent = eventCard
 	corner(eventBadge, UDim.new(0.5, 0))
-	themeLabel(eventBadge, 16)
+	themeLabel(eventBadge, 11)
 
 	local eventName = Instance.new("TextLabel")
 	eventName.Name = "EventName"
-	eventName.Size = UDim2.new(1, -108, 0, 20)
-	eventName.Position = UDim2.new(0, 40, 0.5, -10)
+	eventName.Size = UDim2.new(1, -80, 0, 16)
+	eventName.Position = UDim2.new(0, 25, 0.5, -8)
 	eventName.BackgroundTransparency = 1
 	eventName.TextXAlignment = Enum.TextXAlignment.Left
+	eventName.TextTruncate = Enum.TextTruncate.AtEnd
 	eventName.ZIndex = eventCard.ZIndex + 1
 	eventName.Parent = eventCard
-	themeLabel(eventName, 15)
+	themeLabel(eventName, 12)
 
 	local eventClock = Instance.new("TextLabel")
 	eventClock.Name = "Clock"
-	eventClock.Size = UDim2.new(0, 62, 0, 20)
-	eventClock.Position = UDim2.new(1, -68, 0.5, -10)
+	eventClock.Size = UDim2.new(0, 48, 0, 16)
+	eventClock.Position = UDim2.new(1, -54, 0.5, -8)
 	eventClock.BackgroundTransparency = 1
 	eventClock.TextXAlignment = Enum.TextXAlignment.Right
 	eventClock.ZIndex = eventCard.ZIndex + 1
 	eventClock.Parent = eventCard
-	themeLabel(eventClock, 15)
+	themeLabel(eventClock, 12)
 
 	-- ============================================================================
 	-- THE MUTATION YOU ARE WEARING IS A DOT ON THE AURAS TILE (16.1)
@@ -2121,10 +2187,12 @@ local hudRefs = {}
 			-- remaining first, so what survives to the last row is always the boost about to expire.
 			-- At 793 the budget is 492 against 297 of content, so nothing is ever dropped on a
 			-- desktop; a 420 px phone viewport gets 119 and keeps the two most urgent potions.
-			local tileW = rebirthButton.AbsoluteSize.X
-			if tileW > 0 then
-				stack.Position = UDim2.new(0, 20 + tileW + 14, 1, -170)
-			end
+			-- BACK AGAINST THE LEFT EDGE (16.2). The sideways offset that used to be computed here
+			-- existed because the left column was five tiles tall and reached down into this strip's
+			-- lane. As a 2x2 block it ends around y = 311 on any viewport -- hundreds of pixels above
+			-- where this strip starts -- so the strip owns the bottom-left corner outright and no longer
+			-- has to be pushed out from under buttons that are not there any more.
+			stack.Position = UDim2.new(0, 20, 1, -170)
 			-- Read fresh every tick rather than captured once: `CurrentCamera` is nil for the first
 			-- frames of a join, and the viewport changes when the window is resized.
 			local viewportY = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.Y or 720
@@ -2151,11 +2219,11 @@ local hudRefs = {}
 			end
 			if not fits() then
 				-- longest remaining last, so the first potion dropped is the one with most time left.
-				-- Only two non-potion rows are left after 16.1 -- the pass tray and the worn-mutation
-				-- card are gone -- and the arena still goes before the event for 11.20's reason: the
-				-- boss returns every half hour and is announced on its own board over the arena, while
-				-- a live event runs once a week and has nowhere else on screen to say so.
-				local order = { arenaCard, eventCard }
+				-- NOTHING BUT POTIONS IS LEFT TO DROP (16.2). The arena and event pills used to lead this
+				-- list; they are on their own bar along the bottom edge now and are not this strip's
+				-- problem -- which also means a short viewport can no longer answer "the screen is tight"
+				-- by hiding a world clock, and a boss timer can no longer crowd out an expiring potion.
+				local order = {}
 				local byTime = {}
 				for _, kind in ipairs(KINDS) do
 					local b = boosts and boosts[kind]
@@ -6495,7 +6563,6 @@ local function refreshCharacterPanel()
 		-- and a BaseColor attribute nothing in the repo reads. The visible colour of a disc is
 		-- entirely `strokeInst.Color` below. Anyone chasing "why does changing the disc colour do
 		-- nothing" should start there and not here.
-		--
 		-- THAT NOTE IS NO LONGER TRUE AND THE ARGUMENT IS PASSED ACCORDINGLY (2026-08-16). 15.28
 		-- gave `setButtonColor` a body -- it paints `InnerBody`, its gradient and `ShadowBody` -- and
 		-- 15.28 also moved the disc's fill INTO InnerBody, so this call is now the thing that decides
@@ -9359,9 +9426,11 @@ end)()
 	-- promises and what the old fixed gap never actually did. At 31 a four-row cluster needs 93px of
 	-- pure spacing, and on a short viewport that pushed the tiles under their 40px floor and
 	-- overflowed the screen. Spacing is the first thing a cramped screen can afford to lose.
-	-- how many tiles wide each side is. The left column stays single-file: it has three tiles and
-	-- sits against the edge the player's eye starts from.
-	local WIDTH = { L = 1, R = RIGHT_COLS }
+	-- how many tiles wide each side is. BOTH sides are two wide as of 16.2: the left column lost its
+	-- Trade tile and the four that remain read as a 2x2 block rather than a four-tall ladder down the
+	-- edge. Half the height means the tiles keep their authored 82px on viewports where the ladder was
+	-- being shrunk to fit, and it hands the whole bottom-left quarter of the screen back.
+	local WIDTH = { L = 2, R = RIGHT_COLS }
 
 	local function layout()
 		local avail = math.max(cam.ViewportSize.Y - TOP_CLEAR - BOTTOM_CLEAR, 140)
@@ -10342,13 +10411,274 @@ end)()
 		repaintDistances()
 	end
 
-	local tradeTile = screenGui:FindFirstChild("TradeButton")
-	if tradeTile then
-		tradeTile.MouseButton1Click:Connect(function()
-			refreshPicker()
-			toggleOnly(pickerPanel)
-		end)
+	-- ========================================================================
+	-- 5. THE DOOR IS THE OTHER PLAYER (16.2)
+	-- ========================================================================
+	-- The HUD tile that used to open the picker is gone. Trading is the one feature in this game
+	-- that is ABOUT a specific person, and a permanent button on the screen edge asked the player to
+	-- go and find that person's name in a list while they were already looking straight at them.
+	--
+	-- So: click anybody in the world and a small card opens over the click with their headshot, their
+	-- display name, how far away they are, and one green Trade button. The picker panel is still here
+	-- and still correct -- it is the answer to "who else is even in this server" and it survives a
+	-- crowd better than aiming at a moving avatar on a phone -- so the card carries a second, quieter
+	-- button into it. Both markets do it one way each (Adopt Me clicks the player, Pet Simulator 99
+	-- uses a list); this ships both, with the click as the front door.
+	--
+	-- CLIENT RAYCAST, NOT A ClickDetector PER CHARACTER. A ClickDetector means one instance per
+	-- player, added on every CharacterAdded, and a server round trip just to draw a card that only
+	-- one client will ever see. The raycast costs nothing and is not a security question: the client
+	-- decides what to DRAW, and the server re-checks identity, distance, rate limit and trade state
+	-- when TradeRequest actually arrives (TradeService.Request) exactly as it did before.
+	local UIS = game:GetService("UserInputService")
+
+	local card = Instance.new("Frame")
+	card.Name = "PlayerCard"
+	card.Size = UDim2.new(0, 250, 0, 184)
+	-- Bottom-centre anchored, so the card grows UPWARD out of the point that was clicked and its
+	-- lower edge stays pinned just above the avatar rather than covering them.
+	card.AnchorPoint = Vector2.new(0.5, 1)
+	card.Position = UDim2.new(0, 0, 0, 0)
+	card.Visible = false
+	-- Over every panel: this opens from a click in the WORLD, so it must not be able to appear
+	-- underneath a menu that happened to be open when the player clicked past it.
+	card.ZIndex = 60
+	card.Parent = screenGui
+	styleCard(card, PANEL_SHELL, UDim.new(0, 18), 5)
+
+	-- Its own UIScale rather than registerPanel's: registerPanel exists to FIT panels bigger than a
+	-- phone screen, and this one is 250 wide -- it fits everywhere. All that is wanted here is the pop.
+	local cardScale = Instance.new("UIScale")
+	cardScale.Parent = card
+
+	local cardTarget = nil
+
+	-- The headshot, and the fallback that is not an accident. `GetUserThumbnailAsync` cannot resolve
+	-- a NEGATIVE userId, and every Studio test player has one (Player1 is -1) -- the same trap that
+	-- cost LeaderboardService a permanently re-queued fetch. So the emoji is drawn FIRST and the
+	-- image is layered over it only once a real URL comes back; a failure leaves a deliberate-looking
+	-- avatar disc instead of an empty hole, in Studio and for a deleted account alike.
+	local face = Instance.new("TextLabel")
+	face.Name = "Face"
+	face.Size = UDim2.new(0, 56, 0, 56)
+	face.Position = UDim2.new(0, 14, 0, 14)
+	face.BackgroundColor3 = UITheme.Color.PanelBlue
+	face.Text = "\u{1F464}"
+	face.ZIndex = card.ZIndex + UITheme.Z.Content
+	face.Parent = card
+	corner(face, UDim.new(0.5, 0))
+	stroke(face, 3, UITheme.Color.Outline)
+	themeLabel(face, 28)
+
+	local faceImage = Instance.new("ImageLabel")
+	faceImage.Name = "FaceImage"
+	faceImage.Size = UDim2.new(1, 0, 1, 0)
+	faceImage.BackgroundTransparency = 1
+	faceImage.Image = ""
+	faceImage.Visible = false
+	faceImage.ZIndex = face.ZIndex + 1
+	faceImage.Parent = face
+	corner(faceImage, UDim.new(0.5, 0))
+
+	local cardName = Instance.new("TextLabel")
+	cardName.Name = "CardName"
+	cardName.Size = UDim2.new(1, -92, 0, 26)
+	cardName.Position = UDim2.new(0, 80, 0, 16)
+	cardName.BackgroundTransparency = 1
+	cardName.TextXAlignment = Enum.TextXAlignment.Left
+	cardName.TextTruncate = Enum.TextTruncate.AtEnd
+	cardName.Text = ""
+	cardName.ZIndex = card.ZIndex + UITheme.Z.Content
+	cardName.Parent = card
+	themeLabel(cardName, 21, UITheme.Color.Outline)
+
+	local cardDist = Instance.new("TextLabel")
+	cardDist.Name = "CardDistance"
+	cardDist.Size = UDim2.new(1, -92, 0, 20)
+	cardDist.Position = UDim2.new(0, 80, 0, 44)
+	cardDist.BackgroundTransparency = 1
+	cardDist.TextXAlignment = Enum.TextXAlignment.Left
+	cardDist.Text = ""
+	cardDist.ZIndex = card.ZIndex + UITheme.Z.Content
+	cardDist.Parent = card
+	-- authored Grey so themeLabel gives it the chunky dark outline; only the FILL is repainted below,
+	-- and Green/Coral sit the same side of themeLabel's luminance cut, so that decision stays right
+	themeLabel(cardDist, 15, UITheme.Color.Grey)
+
+	local cardTradeBtn = UITheme.Button(card, {
+		name = "CardTrade",
+		text = "\u{1F91D} Trade",
+		size = UDim2.new(1, -28, 0, 44),
+		position = UDim2.new(0, 14, 0, 84),
+		color = UITheme.Color.Green,
+		radius = 14,
+		maxTextSize = 22,
+		zIndex = card.ZIndex + UITheme.Z.Content,
+	})
+
+	local cardListBtn = UITheme.Button(card, {
+		name = "CardList",
+		text = "\u{1F4CB} Everyone in server",
+		size = UDim2.new(1, -28, 0, 32),
+		position = UDim2.new(0, 14, 0, 136),
+		color = UITheme.Color.PanelBlue,
+		radius = 12,
+		maxTextSize = 16,
+		zIndex = card.ZIndex + UITheme.Z.Content,
+	})
+
+	local function hideCard()
+		cardTarget = nil
+		card.Visible = false
 	end
+
+	-- Repaints the one line that changes while the card is open. Same three states and the same
+	-- wording as the picker's rows, deliberately: a player who has seen one should not have to learn
+	-- the other.
+	local function repaintCard()
+		if not cardTarget then return end
+		local d = studsTo(cardTarget)
+		if not d then
+			cardDist.Text = "waiting for them to spawn\u{2026}"
+			cardDist.TextColor3 = UITheme.Color.Grey
+		elseif d <= GameConfig.TradeProximityStuds then
+			cardDist.Text = ("%d studs away \u{2014} in range"):format(math.floor(d))
+			cardDist.TextColor3 = UITheme.Color.Green
+		else
+			cardDist.Text = ("%d studs away \u{2014} walk closer"):format(math.floor(d))
+			cardDist.TextColor3 = UITheme.Color.Coral
+		end
+	end
+
+	local function showCard(other, px, py)
+		cardTarget = other
+		cardName.Text = other.DisplayName
+		repaintCard()
+
+		faceImage.Visible = false
+		faceImage.Image = ""
+		-- Spawned and pcall'd: this yields on a web request, and a card that waited for it would open
+		-- a beat after the click on a good connection and not at all on a bad one. `cardTarget` is
+		-- re-checked on the way back so a slow fetch cannot paint player A's face onto player B's card.
+		task.spawn(function()
+			local ok, url = pcall(function()
+				return Players:GetUserThumbnailAsync(other.UserId,
+					Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100)
+			end)
+			if ok and url and cardTarget == other then
+				faceImage.Image = url
+				faceImage.Visible = true
+			end
+		end)
+
+		-- CLAMPED INTO THE VIEWPORT, both axes. Clicking somebody standing at the edge of the screen
+		-- is the normal case, not the corner case, and half a card hanging off the side is the sort of
+		-- thing that reads as broken rather than as tight.
+		--
+		-- The GUI inset is subtracted because input positions are measured from the top of the WINDOW
+		-- while this ScreenGui's offsets are measured from under Roblox's topbar. Mixing the two is
+		-- how an element lands exactly one inset out of place -- see the note on the potion strip.
+		local inset = game:GetService("GuiService"):GetGuiInset()
+		local v = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+		local x = math.clamp(px, 135, math.max(v.X - 135, 135))
+		local y = math.clamp(py - inset.Y - 14, 194, math.max(v.Y - inset.Y - 10, 194))
+		card.Position = UDim2.new(0, x, 0, y)
+
+		card.Visible = true
+		cardScale.Scale = 0.82
+		TweenService:Create(cardScale,
+			TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	end
+
+	local function playerUnder(pos)
+		local cam = workspace.CurrentCamera
+		if not cam then return nil end
+		local ray = cam:ViewportPointToRay(pos.X, pos.Y)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		-- your own body only. Everything else stays in, INCLUDING the world: a click that lands on a
+		-- wall in front of somebody must not reach through it and open their card.
+		params.FilterDescendantsInstances = { player.Character }
+		local hit = workspace:Raycast(ray.Origin, ray.Direction * 800, params)
+		if not hit or not hit.Instance then return nil end
+		-- Walk UP through ancestors rather than testing the hit part's immediate parent: accessories,
+		-- tools and the costume models StageCostume dresses a character in are all extra Model layers
+		-- between a hat and the character, and a player wearing one would otherwise be unclickable.
+		local model = hit.Instance:FindFirstAncestorOfClass("Model")
+		while model do
+			local other = Players:GetPlayerFromCharacter(model)
+			if other and other ~= player then return other end
+			model = model:FindFirstAncestorOfClass("Model")
+		end
+		return nil
+	end
+
+	UIS.InputBegan:Connect(function(input, gameProcessed)
+		-- `gameProcessed` is what keeps this from firing behind the card's own buttons, behind every
+		-- panel in the game, and behind the chat bar. It is not defensive padding: without it, clicking
+		-- the Trade button would immediately re-run this handler, find no player under the cursor, and
+		-- close the card underneath the press.
+		if gameProcessed then return end
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1
+			and input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		local other = playerUnder(input.Position)
+		if other then
+			showCard(other, input.Position.X, input.Position.Y)
+		elseif card.Visible then
+			-- a click anywhere in the world that is not a player is the close gesture; there is no X in
+			-- the corner because on a phone "tap away" is the one dismissal everybody already knows
+			hideCard()
+		end
+	end)
+
+	cardTradeBtn.MouseButton1Click:Connect(function()
+		local other = cardTarget
+		hideCard()
+		if not other then return end
+		local reqRemote = Remotes:FindFirstChild("TradeRequest")
+		if not reqRemote then
+			showNotification("\u{274C} Trading is not available here", Color3.fromRGB(200, 60, 60), 2)
+			return
+		end
+		-- Fired even when the line above says "walk closer", for the reason spelled out on the picker's
+		-- Ask button: the server owns that rule and answers a refusal with a real message, where a
+		-- button greyed out by the client's own guess at the distance would refuse silently.
+		reqRemote:FireServer(other.UserId)
+	end)
+
+	cardListBtn.MouseButton1Click:Connect(function()
+		hideCard()
+		refreshPicker()
+		toggleOnly(pickerPanel)
+	end)
+
+	-- The card is about somebody who is standing there. Three ways that stops being true, and all
+	-- three close it rather than leaving a card describing a player who has walked off or left.
+	Players.PlayerRemoving:Connect(function(leaving)
+		if cardTarget == leaving then hideCard() end
+	end)
+
+	task.spawn(function()
+		while true do
+			task.wait(0.35)
+			if card.Visible and cardTarget then
+				if cardTarget.Parent ~= Players then
+					hideCard()
+				else
+					local d = studsTo(cardTarget)
+					-- 120 studs: far enough that it never closes on somebody you are walking toward,
+					-- close enough that a card cannot survive a zone teleport
+					if d and d > 120 then
+						hideCard()
+					else
+						repaintCard()
+					end
+				end
+			end
+		end
+	end)
 
 	Players.PlayerAdded:Connect(function()
 		if pickerPanel.Visible then refreshPicker() end

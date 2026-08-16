@@ -38,30 +38,22 @@ local TradeService = require(ServerScriptService.TradeService)
 -- 1150 platforms, and at 64 studs of guaranteed detail a player standing still can watch the far
 -- half of their own zone leave.
 --
--- These may be read-only outside Studio's Properties panel depending on the client version, which
--- is why this is guarded and noisy rather than assumed: if the warning below ever fires, set them
--- by hand on Workspace (StreamingMinRadius 512, StreamingTargetRadius 3000, StreamingIntegrity
--- Mode PauseOutsideLoadedArea) and this block goes quiet on its own.
-do
-	local wanted = {
-		StreamingMinRadius = 512,
-		StreamingTargetRadius = 3000,
-	}
-	for prop, value in pairs(wanted) do
-		local ok = pcall(function()
-			workspace[prop] = value
-		end)
-		if not ok then
-			warn(("[Streaming] could not set workspace.%s = %d from a script -- set it in the Properties panel")
-				:format(prop, value))
-		end
-	end
-	-- Stops the character being simulated into a region the client has not got yet, which is the
-	-- other half of "I fell through the world after a teleport".
-	pcall(function()
-		workspace.StreamingIntegrityMode = Enum.StreamingIntegrityMode.PauseOutsideLoadedArea
-	end)
-end
+-- ===== THESE ARE PLACE SETTINGS, NOT SCRIPT SETTINGS. DO NOT PUT THE CODE BACK (2026-08-15) =====
+--
+-- There used to be a guarded `workspace.StreamingMinRadius = 512` block here that warned when it
+-- failed. It failed EVERY server start, twice, because these three properties are not scriptable at
+-- all -- not read-only, not scriptable: asking for `workspace.StreamingMinRadius` from a script or
+-- from a plugin answers `StreamingMinRadius is not a valid member of Workspace`, so there is no
+-- version of that code that can ever succeed and no value it can even read back to check. It was
+-- two lines of noise per boot advising a fix it could not tell you had already been applied.
+--
+-- Set them BY HAND, once, and they are saved in the place file:
+--     Explorer -> Workspace -> Properties -> Behavior
+--     StreamingMinRadius      512    (Roblox default 64 -- far too small for this strip)
+--     StreamingTargetRadius   3000   (Roblox default 1024)
+--     StreamingIntegrityMode  PauseOutsideLoadedArea
+-- The last one stops the character being simulated into a region the client has not got yet, which
+-- is the other half of "I fell through the world after a teleport".
 
 -- World geometry first, and before anyone can join: CreatureService and BossService place their
 -- spawns relative to the zone platforms, and EnsureSpawn has to move the SpawnLocation off the

@@ -63,7 +63,7 @@ local ZoneBuilder = {}
 -- Roblox's default grey -- in every village in the game since the palette was introduced. The
 -- declaration moved above `addZoneProps`; colour is baked into the part at build time, so the
 -- fix is invisible without this bump.
-local BUILD_VERSION = 133
+local BUILD_VERSION = 134
 
 -- The Colosseum carries its own stamp. Bumping BUILD_VERSION drops all 21 zones and rebuilds
 -- ~60,000 parts, which takes long enough that Studio regularly loses the connection partway (see
@@ -243,8 +243,8 @@ local ACTIVE_ZONE_KEY = nil
 -- eye at ground level -- the fence, the lamp posts and the zone sign all plant properly -- and the
 -- wide shot is unchanged, because Roblox stops drawing shadows past its own distance limit long
 -- before the far wall.
-local SHADOW_MIN_LONG = 3.5
-local SHADOW_MIN_SHORT = 0.5
+local SHADOW_MIN_LONG = 1.5
+local SHADOW_MIN_SHORT = 0.2
 local SHADOW_MAX_VOL = 200000
 
 -- ===== WHAT IS SOLID, AND WHY THIS LIST IS SHORT =====
@@ -8766,6 +8766,26 @@ local function applyDistanceFog()
 	grade.Brightness = 0
 	grade.Enabled = true
 
+	-- ANY OTHER GRADE IS CLEARED, and for a harder version of the reason the Sky block below
+	-- gives. Two Sky objects are merely undefined -- one of them wins. Two ColorCorrectionEffects
+	-- do not compete at all: they STACK, both applying in full, and nothing anywhere reports it.
+	-- The place shipped with a second, hand-made one simply called "ColorCorrection" (contrast
+	-- 0.15, saturation 0.25) sitting on top of this one. Combined that is contrast 0.41 and
+	-- saturation 0.63 against the 0.26 / 0.38 measured above, and it blew every lit surface out to
+	-- flat white -- grass, stone and skin all clipping to the same colour, which reads as a broken
+	-- render rather than as a strong grade. It was invisible to inspection precisely because BOTH
+	-- effects read back exactly the values they were set to; only a capture shows it.
+	--
+	-- The paragraph at the top of this block says the look is code now so it cannot be lost by a
+	-- bad save. The same argument applies the other way round: a look the code did not author must
+	-- not be able to survive one. Found 2026-08-16.
+	for _, other in ipairs(Lighting:GetChildren()) do
+		if other:IsA("ColorCorrectionEffect") and other ~= grade then
+			warn(("[ZoneBuilder] removing a second colour grade %q -- grades stack, they do not replace"):format(other.Name))
+			other:Destroy()
+		end
+	end
+
 	-- Same create-if-missing shape as the grade. Any OTHER Sky is cleared first: a stray one left
 	-- behind by hand in Studio would otherwise sit next to this one, and which of two Sky objects
 	-- Lighting actually renders is not defined -- so the look would depend on child order.
@@ -8795,7 +8815,26 @@ local function applyDistanceFog()
 	end
 end
 
+-- ===== BUILD() IS ONCE PER SERVER, AND THE SECOND CALL WAS NOT FREE OR SILENT (2026-08-15) =====
+--
+-- `ServerMain` calls Build() at boot, and `ZoneService.Init` -- which ServerMain calls ten lines
+-- later -- called it a SECOND time. By then every zone carried `Complete`, so the second pass built
+-- nothing: it swept 105,000 descendants looking for unanchored parts, re-pinned 2,073 shell parts,
+-- and ran `auditSolidProps()` against a SOLID_SEEN that `table.clear` had just emptied and nothing
+-- had refilled. That is the whole of the
+--     "SOLID_PROPS has 52 name(s) nothing in this build ever created"
+-- warning that has been printing every playtest: all 52 names HAD just been created, by the first
+-- pass, and the audit was reading the second one. The list is not rot -- measured on the live world,
+-- GroundRock, MoonRock, LavaRock, Shell, BenchSeat, FallenLog and MushroomCap all exist in it.
+--
+-- The duplicate call is gone from ZoneService, and this flag is what stops it coming back: an audit
+-- is only worth reading for a pass that actually made something.
+local built = false
+
 function ZoneBuilder.Build()
+	if built then return end
+	built = true
+
 	applyDistanceFog()
 	table.clear(SOLID_SEEN)
 

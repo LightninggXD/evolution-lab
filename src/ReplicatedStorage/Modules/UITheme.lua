@@ -83,10 +83,11 @@ UITheme.Color = Color
 local Z = {
 	Shadow  = -1,
 	Shell   = 0,
-	Gloss   = 1,
-	Content = 3,
-	Badge   = 5,
-	Overlay = 7,
+	Body    = 1,
+	Gloss   = 2,
+	Content = 4,
+	Badge   = 6,
+	Overlay = 8,
 }
 UITheme.Z = Z
 
@@ -155,9 +156,9 @@ UITheme.Shade = shade
 -- surface.
 local function gradientFor(c)
 	return ColorSequence.new({
-		ColorSequenceKeypoint.new(0.00, shade(c, 0.62)),
-		ColorSequenceKeypoint.new(0.42, shade(c, 0.10)),
-		ColorSequenceKeypoint.new(1.00, shade(c, -0.28)),
+		ColorSequenceKeypoint.new(0.00, shade(c, 0.4)),
+		ColorSequenceKeypoint.new(0.35, shade(c, 0.05)),
+		ColorSequenceKeypoint.new(1.00, shade(c, -0.1)),
 	})
 end
 
@@ -255,42 +256,79 @@ local function toUDim(radius, default)
 	return default or UITheme.Radius.Card
 end
 
+local LIP_DEPTH = 6
+
 -- Thick dark outline + rounded corners + moulded vertical gradient.
 local function applyShell(inst, color, radius, thickness)
-	inst.BackgroundColor3 = color
-	inst.BackgroundTransparency = 0
+	local cornerRadius = toUDim(radius)
+	
+	inst.BackgroundTransparency = 1
 	inst.BorderSizePixel = 0
 
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = toUDim(radius)
-	corner.Parent = inst
+	local oldCorner = inst:FindFirstChild("UICorner")
+	if oldCorner then oldCorner:Destroy() end
+	local oldStroke = inst:FindFirstChild("UIStroke")
+	if oldStroke then oldStroke:Destroy() end
 
-	-- 5, not 4. The border is the loudest thing about the reference style -- it is what makes a
-	-- button read as a sticker laid on the screen rather than as a coloured rectangle -- and at 4px
-	-- against these brighter gradients it had started to look like an accident.
-	--
-	-- AND ALWAYS `Color.Outline`. A branch here that gave `Color.PanelWhite` the 6px cyan panel rim
-	-- instead was a test that ANY white surface passes -- and half the kit is white: the progress
-	-- bar's track (`UITheme.ProgressBar` fills this exact colour), every white card, the Daily
-	-- board's little "Day X" pills. A 24px pill in a 6px border is nearly all border. The rim
-	-- belongs to a PANEL, and only the two places that know what a panel is may ask for it
-	-- (`UITheme.Modal` below, `registerPanel` in MainUI).
-	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = snapStroke(thickness or UITheme.Stroke.Heavy)
-	stroke.Color = Color.Outline
-	stroke.Transparency = 0
-	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	stroke.LineJoinMode = Enum.LineJoinMode.Round
-	stroke.Parent = inst
+	local strokeT = snapStroke(thickness or UITheme.Stroke.Heavy)
 
-	local grad = Instance.new("UIGradient")
+	local shadowBody = inst:FindFirstChild("ShadowBody") or Instance.new("Frame")
+	shadowBody.Name = "ShadowBody"
+	shadowBody.Size = UDim2.new(1, 0, 1, 0)
+	shadowBody.Position = UDim2.new(0, 0, 0, LIP_DEPTH)
+	shadowBody.BackgroundColor3 = shade(color, -0.4)
+	shadowBody.BackgroundTransparency = 0
+	shadowBody.BorderSizePixel = 0
+	shadowBody.ZIndex = inst.ZIndex + Z.Shell
+	
+	local shadowCorner = shadowBody:FindFirstChild("UICorner") or Instance.new("UICorner")
+	shadowCorner.Name = "UICorner"
+	shadowCorner.CornerRadius = cornerRadius
+	shadowCorner.Parent = shadowBody
+
+	local shadowStroke = shadowBody:FindFirstChild("UIStroke") or Instance.new("UIStroke")
+	shadowStroke.Name = "UIStroke"
+	shadowStroke.Thickness = strokeT
+	shadowStroke.Color = Color.Outline
+	shadowStroke.Transparency = 0
+	shadowStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	shadowStroke.LineJoinMode = Enum.LineJoinMode.Round
+	shadowStroke.Parent = shadowBody
+	shadowBody.Parent = inst
+
+	local body = inst:FindFirstChild("InnerBody") or Instance.new("Frame")
+	body.Name = "InnerBody"
+	body.Size = UDim2.new(1, 0, 1, 0)
+	body.Position = UDim2.new(0, 0, 0, 0)
+	body.BackgroundColor3 = color
+	body.BackgroundTransparency = 0
+	body.BorderSizePixel = 0
+	body.ClipsDescendants = true
+	body.ZIndex = inst.ZIndex + Z.Body
+	
+	local bodyCorner = body:FindFirstChild("UICorner") or Instance.new("UICorner")
+	bodyCorner.Name = "UICorner"
+	bodyCorner.CornerRadius = cornerRadius
+	bodyCorner.Parent = body
+
+	local bodyStroke = body:FindFirstChild("UIStroke") or Instance.new("UIStroke")
+	bodyStroke.Name = "UIStroke"
+	bodyStroke.Thickness = strokeT
+	bodyStroke.Color = Color.Outline
+	bodyStroke.Transparency = 0
+	bodyStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	bodyStroke.LineJoinMode = Enum.LineJoinMode.Round
+	bodyStroke.Parent = body
+	body.Parent = inst
+
+	local grad = body:FindFirstChild("Gradient") or Instance.new("UIGradient")
 	grad.Name = "Gradient"
 	grad.Rotation = 90
 	grad.Color = gradientFor(color)
-	grad.Parent = inst
+	grad.Parent = body
 
 	inst:SetAttribute("BaseColor", color)
-	return corner, stroke, grad
+	return bodyCorner, bodyStroke, grad
 end
 
 --[[
@@ -353,38 +391,38 @@ local function addGloss(inst, radius)
 	local cornerRadius = toUDim(radius)
 	local round = cornerRadius.Scale >= 0.5
 
-	local gloss = Instance.new("Frame")
+	local body = inst:FindFirstChild("InnerBody")
+	
+	local gloss = inst:FindFirstChild("Gloss") or Instance.new("Frame")
 	gloss.Name = "Gloss"
 	gloss.BackgroundColor3 = Color.White
-	gloss.BackgroundTransparency = 0.78 -- invariant: >= 0.72
+	gloss.BackgroundTransparency = 0.72 -- invariant: >= 0.72
 	gloss.BorderSizePixel = 0
 	gloss.ZIndex = inst.ZIndex + Z.Gloss
 
-	local corner = Instance.new("UICorner")
-	if round then
-		gloss.AnchorPoint = Vector2.new(0.5, 0)
-		gloss.Size = UDim2.new(0.56, 0, 0.26, 0)
-		gloss.Position = UDim2.new(0.5, 0, 0.10, 0)
-		corner.CornerRadius = UDim.new(1, 0)
-	else
-		local pad = cornerRadius.Offset + 4
-		gloss.AnchorPoint = Vector2.new(0.5, 0)
-		gloss.Size = UDim2.new(1, -pad * 2, 0.34, 0)
-		gloss.Position = UDim2.new(0.5, 0, 0, 5)
-		corner.CornerRadius = UDim.new(0, math.max(cornerRadius.Offset - 3, 4))
-	end
-	corner.Parent = gloss
+	local corner = gloss:FindFirstChild("UICorner")
+	if corner then corner:Destroy() end
 
-	local grad = Instance.new("UIGradient")
+	gloss.AnchorPoint = Vector2.new(0, 0)
+	gloss.Position = UDim2.new(0, 0, 0, 0)
+	
+	if round then
+		gloss.Size = UDim2.new(1, 0, 0.40, 0)
+	else
+		gloss.Size = UDim2.new(1, 0, 0.35, 0)
+	end
+
+	local grad = gloss:FindFirstChild("UIGradient") or Instance.new("UIGradient")
+	grad.Name = "UIGradient"
 	grad.Rotation = 90
 	grad.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.62),
-		NumberSequenceKeypoint.new(0.7, 0.94),
+		NumberSequenceKeypoint.new(0, 0.45),
+		NumberSequenceKeypoint.new(0.7, 0.85),
 		NumberSequenceKeypoint.new(1, 1),
 	})
 	grad.Parent = gloss
 
-	gloss.Parent = inst
+	gloss.Parent = body or inst
 	return gloss
 end
 
