@@ -120,9 +120,31 @@ local function bake(key: string, bundleId: number): string
 	local model = Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
 	snapAccessories(model)
 
+	-- ===== THE RIG HARDWARE HAS TO COME OFF, AND THIS IS THE BUG THAT PROVED IT =====
+	--
+	-- A bundle body arrives as a working R15 rig: 15 AnimationConstraints, 14 BallSocketConstraints,
+	-- 19 NoCollisionConstraints, 52 Attachments, 15 WrapTargets, a FaceControls and a BodyColors --
+	-- 99 instances on the entry skin alone. Every one of them is dead weight once SkinMesh welds the
+	-- parts onto the player's own limbs, and together they break the one call the whole pipeline
+	-- rests on: **`Model:PivotTo` moves ONLY the root part of a constrained, unanchored rig.**
+	--
+	-- Measured on a real PreviewRig through the shipped module: `SkinMesh.Apply` returned true, the
+	-- SkinMesh folder held all 16 parts, and **15 of the 16 were still at the world origin** while
+	-- UpperTorso alone stood on the character. On a player that is a floating torso and no head,
+	-- arms or legs -- which is exactly what the owner reported seeing. Strip the hardware and the
+	-- same call puts all 16 on the body: `stuck=0`, measured immediately after.
+	--
+	-- It also explains why 200 generated skins never hit this: they are plain bags of MeshParts with
+	-- no constraints at all. Stripping makes a bundle structurally identical to one of them, which is
+	-- the property the rest of the pipeline was written against.
+	--
+	-- ORDER MATTERS: this runs AFTER snapAccessories, because the snap reads the Attachments it
+	-- destroys.
 	for _, d in ipairs(model:GetDescendants()) do
 		if d:IsA("Humanoid") or d:IsA("LuaSourceContainer") or d:IsA("Sound")
-			or d:IsA("Camera") or d.Name == "HumanoidRootPart" then
+			or d:IsA("Camera") or d.Name == "HumanoidRootPart"
+			or d:IsA("Constraint") or d:IsA("JointInstance") or d:IsA("WrapTarget")
+			or d:IsA("FaceControls") or d:IsA("BodyColors") or d:IsA("Attachment") then
 			d:Destroy()
 		end
 	end
@@ -164,10 +186,25 @@ for _, key in ipairs(GameConfig.RetiredVipKeys or {}) do
 	end
 end
 
+-- RETRIED, BECAUSE THE CATALOG FAILS TRANSIENTLY AND A FAILED BAKE IS SILENT AFTERWARDS.
+-- `GetHumanoidDescriptionFromOutfitId` returned an HTTP 500 for one of the nine on a run where the
+-- other eight succeeded; the old model survives that (it is only destroyed once the new one is
+-- built), so the folder still holds nine and nothing downstream complains -- the place just keeps
+-- one skin at the previous build's state, which is precisely the kind of drift that gets blamed on
+-- the next change instead of on this one. Three attempts with a pause, and the report says plainly
+-- which attempt won.
 for index, entry in ipairs(GameConfig.VipCharacters) do
 	if index >= FIRST and index <= LAST and entry.bundleId then
-		local ok, result = pcall(bake, entry.key, entry.bundleId)
-		table.insert(report, ok and result or ("%s: ERROR %s"):format(entry.key, tostring(result)))
+		local ok, result
+		for attempt = 1, 3 do
+			ok, result = pcall(bake, entry.key, entry.bundleId)
+			if ok then
+				if attempt > 1 then result = result .. (" (attempt %d)"):format(attempt) end
+				break
+			end
+			task.wait(2)
+		end
+		table.insert(report, ok and result or ("%s: ERROR after 3 attempts %s"):format(entry.key, tostring(result)))
 	end
 end
 

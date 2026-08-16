@@ -261,10 +261,16 @@ function SkinMesh.Apply(character, key, opts)
 	-- hostFor reads a part's offset along X and Y, which only means "left/right" and "high/low"
 	-- while the model is still axis-aligned. Assign first, move second -- reading it after the yaw
 	-- below would swap a creature's arms whenever it happened to be facing east.
-	local hostOf = {}
+	local hostOf, matchedByName = {}, {}
 	for _, part in ipairs(clone:GetDescendants()) do
 		if part:IsA("BasePart") then
-			hostOf[part] = directHost(part, character) or namedHost(part, clone) or hostFor(part, meshCF.Position, size)
+			local direct = directHost(part, character)
+			hostOf[part] = direct or namedHost(part, clone) or hostFor(part, meshCF.Position, size)
+			-- The one record of which parts came off a real R15 rig rather than a generated blob.
+			-- Nothing downstream reads it today -- see the block below the yaw for the fix that was
+			-- built on it, measured, and thrown away -- and it is kept because deriving it later
+			-- means re-deriving it AFTER the parts have moved, which no longer gives the same answer.
+			if direct then matchedByName[part] = true end
 		end
 	end
 
@@ -299,6 +305,24 @@ function SkinMesh.Apply(character, key, opts)
 	end
 	local localPivot = CFrame.new(meshCF.Position):Inverse() * clone:GetPivot()
 	clone:PivotTo(CFrame.new(charCF.Position) * CFrame.Angles(0, yaw, 0) * localPivot)
+
+	-- ===== A BUNDLE'S OWN LAYOUT IS KEPT, AND SNAPPING EACH LIMB TO ITS HOST IS THE TRAP =====
+	--
+	-- The obvious-looking fix for "this bundle's head sits low" is to move every name-matched part
+	-- onto the limb of the same name, so the AVATAR decides the proportions and the mesh decides only
+	-- the shape. It was written, run and photographed: it takes the skin apart. A bundle mesh is not
+	-- centred on the joint it belongs to -- a hand mesh's centre is not the rig hand's centre, a
+	-- forearm's is not the forearm's -- so centre-to-centre snapping scatters the arms a stud or two
+	-- out from the body and the character comes apart into floating pieces. The template's own
+	-- relative layout is the thing holding it together; scaling it as one piece is what respects it.
+	--
+	-- So a bundle wears its own proportions on purpose, and the ones whose proportions do not survive
+	-- that are rejected at the roster instead -- see the note over GameConfig.VipCharacters. This
+	-- comment is here so the next reader does not spend the afternoon rediscovering it.
+	--
+	-- `matchedByName` is still computed above because it costs nothing and it is the one place that
+	-- records WHICH parts came from a real R15 rig; the moment something else needs to know, it is
+	-- already there.
 
 	local placed = 0
 	for _, part in ipairs(clone:GetDescendants()) do

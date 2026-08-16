@@ -4416,9 +4416,15 @@ GameConfig.VipCharacters = {
 		vipDamageMult = 6.00, vipIncomeMult = 1.20, bundleId = 452, robuxPrice = 199,
 	},
 	{
-		key = "vip_demon", name = "Bull Demon King", emoji = "\u{1F479}", rarity = "Legendary",
-		color = Color3.fromRGB(246, 138, 44), vip = true, offLadder = true,
-		vipDamageMult = 7.50, vipIncomeMult = 1.25, bundleId = 604, robuxPrice = 249,
+		-- Bull Demon King (604) held this rung and had to go for a third reason the other two do not
+		-- cover: its collar is taller than its head. The bundle is drawn with an enormous black
+		-- shoulder piece and a small gold bull face, and because a skin keeps the template's own
+		-- proportions (see the block in SkinMesh above `placed`), from the front the collar swallows
+		-- the face and the character reads as headless armour. Nothing is broken about the bake --
+		-- it is simply a silhouette that does not survive being someone's avatar.
+		key = "vip_demon", name = "Borock the Conqueror", emoji = "\u{1FA93}", rarity = "Legendary",
+		color = Color3.fromRGB(126, 200, 86), vip = true, offLadder = true,
+		vipDamageMult = 7.50, vipIncomeMult = 1.25, bundleId = 497, robuxPrice = 249,
 	},
 	{
 		key = "vip_dragon", name = "Skeletal Dragon", emoji = "\u{1F409}", rarity = "Legendary",
