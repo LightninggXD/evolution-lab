@@ -832,6 +832,34 @@ Gathered 2026-08-07/08 while writing this plan.
 
 ## Changelog
 
+- **2026-08-17 (forty-sixth session)** — **THE GOD SCRIPTS ARE BEING TAKEN APART, AND THE FIRST
+  THING BUILT WAS THE MAP.** The owner's second agent counted the codebase and put numbers on
+  what everyone already felt: `MainUI` at 11,743 lines and 260-odd functions, `ZoneBuilder` at
+  9,281, `GameConfig` at 5,205. Reading `MainUI` whole costs ~149k tokens, which is most of a
+  context window spent to change one label.
+  **`docs/CODEMAP.md` is the answer to the token half, and it cost no runtime risk at all.**
+  `tools/codemap.py` writes a per-file page listing every function and every section heading with
+  exact `Read(offset, limit)` coordinates — 110 lines for a file of 10,300. It is generated, so it
+  cannot go stale the way a hand-written architecture doc does; `--check` exits 1 when it needs
+  re-running. Finding the third comment dialect mattered: a banner (`-- ====` / `-- NAME` /
+  `-- ====`) was hiding a **1,450-line blind span** containing the whole trading UI.
+  **The physical split has a seam nobody had to design.** `MainUI` sits on Luau's 200-register
+  ceiling, so for years anything substantial went inside `;(function() ... end)()` — and a closure
+  that escapes nothing *is* a module. Twenty-three of them exist, 6,331 lines, each with a
+  knowable captured set; `tools/splitplan.py` reads them and their contracts back out of the file.
+  Two are out and verified live: **`Modules.UIKit`** (589 lines — the drawing kit, which depends
+  on nothing in MainUI) and **`Modules.HUD.TradePanel`** (1,012 — moved byte for byte). `MainUI`
+  is **11,743 → 10,302**. All lint clean, 55/55 files byte-identical to Studio, HUD photographed
+  with all 42 children present and the trade picker drawn, console clean.
+  **Two things worth carrying forward.** (1) The context table is filled **one line under each
+  helper as it is defined**, not in a block at the end — the first cut did the latter, which hands
+  `nil` to any module extracted above line 7,900 where `showNotification` is written. (2) The
+  corollary is the one that will bite: a module may only *destructure* what is already filled at
+  its call site; anything filled later must be read off `hud` at **use** time, because the table
+  is shared by reference but a local copied at build time is frozen at nil, silently, forever.
+  The contract is `docs/SPLIT.md`. **22 blocks and ~5,360 lines still to go** in `MainUI`, then
+  `GameConfig` (pure data, safest), then `ZoneBuilder`.
+
 - **2026-08-16 (forty-fifth session)** — **PHASE 18 OPENED AND CLOSED IN ONE SITTING: FOUR
   SCREENSHOTS, FIVE ROWS, ALL FIVE VERIFIED LIVE.** She sent them mid-sweep with no preamble —
   the currency stack, the Daily Rewards panel, the Rebirth panel at 4/4, and a boss health bar —

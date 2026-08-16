@@ -59,6 +59,16 @@ Breaking any of these causes damage that is expensive or impossible to undo.
   before touching anything. Do not re-derive its analysis; it exists so you do not have to.
 - **`src/` is a full mirror of the live Studio place** and is the thing you edit. Read code off
   disk, not out of Studio.
+- **`docs/CODEMAP.md` says where every line lives — read it INSTEAD of opening a big file.** Each
+  file has a page listing its functions and section headings with exact `Read(offset, limit)`
+  coordinates; `MainUI`'s page is ~110 lines against the 10,300-line file. Never read `MainUI`,
+  `ZoneBuilder`, `GameConfig` or `CreatureService` whole — that is 100k+ tokens each and it is
+  what this register exists to stop. Regenerate with `py tools/codemap.py` after a structural
+  edit (`--check` reports staleness without writing).
+- **`docs/SPLIT.md` is the contract for breaking those files up**, which is work in progress.
+  Read it before adding a new panel or moving one: new UI belongs in a
+  `ReplicatedStorage.Modules.HUD` module taking the `hud` context table, not in another
+  `;(function() ... end)()` block in `MainUI`.
 - Language: write **all** code, comments, commit messages and roadmap text in **English**. The
   owner (Kristina) writes in Bosnian/Croatian and wants spoken replies in **Serbian**.
 
