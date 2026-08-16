@@ -4686,9 +4686,19 @@ noBoostLabel.Text = "No potion running"
 noBoostLabel.Parent = boostStrip
 themeLabel(noBoostLabel, 20, UITheme.Color.Cream)
 
+-- ===== THE SHELF ENDS WHERE THE PANEL DOES, NOT 178 PX SHORT OF IT (16.7) =====
+--
+-- Authored at a fixed 204 in a 528-tall panel whose content starts at 146, so the list stopped at
+-- y = 350 and the bottom third of the card was empty white. Measured: canvas 810 against 204 of
+-- window -- **three of twelve rows visible**, in a panel with room for six, and the space that
+-- would have shown the other three sitting blank underneath.
+--
+-- Relative height rather than a second magic number: 164 is the 146 this starts at plus the 18 of
+-- bottom margin the panel is built with everywhere else, so the shelf follows the panel if the
+-- panel is ever resized again. `PotionEmpty` covers the same rectangle and moves with it.
 local potionScroll = Instance.new("ScrollingFrame")
 potionScroll.Name = "PotionScroll"
-potionScroll.Size = UDim2.new(1, -36, 0, 204)
+potionScroll.Size = UDim2.new(1, -36, 1, -164)
 potionScroll.Position = UDim2.new(0, 18, 0, 146)
 potionScroll.BackgroundTransparency = 1
 potionScroll.BorderSizePixel = 0
@@ -4707,7 +4717,7 @@ potionListLayout.Parent = potionScroll
 -- anything. One grey line over the whole shelf is the honest answer, and the rows go with it.
 local potionEmptyLabel = Instance.new("TextLabel")
 potionEmptyLabel.Name = "PotionEmpty"
-potionEmptyLabel.Size = UDim2.new(1, -36, 0, 204)
+potionEmptyLabel.Size = UDim2.new(1, -36, 1, -164) -- the shelf's rectangle exactly; see 16.7 above
 potionEmptyLabel.Position = UDim2.new(0, 18, 0, 146)
 potionEmptyLabel.BackgroundTransparency = 1
 potionEmptyLabel.Visible = false
@@ -4939,9 +4949,25 @@ end)()
 
 
 -- ===== Robux Shop panel =====
+-- ===== THREE COLUMNS, BECAUSE THIS IS THE SCREEN THAT TAKES THE MONEY (16.8) =====
+--
+-- 448 x 500 gave the grid 416 of width, which is two 192 cells and no room for a third, and 338 of
+-- height, which is 1.9 rows of 180. Measured live: canvas 1,726 against a 338 window -- **the shop
+-- showed a fifth of itself**, and the twenty products below the fold were reached by scrolling a
+-- list whose first screen looks complete. Every other panel in this file is sized to its content;
+-- this one was sized to the smallest thing it could get away with.
+--
+-- 640 x 640 is arithmetic, not taste: the grid then has 608 of width and three cells plus their two
+-- 10 px gaps is 596, so a column fits with 12 px of slack rather than the 0 an exact 628 would have
+-- left (a grid that wraps on a rounding drops to two columns and nothing reports it). Height 640
+-- puts 478 in the window, 2.5 rows, and turns 9 rows of 2 into 6 rows of 3.
+--
+-- Nothing inside had to move. Both scrolls and the tab row are sized `(1, -32)` off the panel, so
+-- they follow it, and `registerPanel` fits the whole thing to the viewport from the AUTHORED size --
+-- on a 848 x 420 phone that is a scale of 0.59, which is exactly what that machinery is for.
 local robuxPanel = Instance.new("Frame")
 robuxPanel.Name = "RobuxPanel"
-robuxPanel.Size = UDim2.new(0, 448, 0, 500)
+robuxPanel.Size = UDim2.new(0, 640, 0, 640)
 robuxPanel.Position = PANEL_ANCHOR
 robuxPanel.ZIndex = 20
 robuxPanel.Visible = false
