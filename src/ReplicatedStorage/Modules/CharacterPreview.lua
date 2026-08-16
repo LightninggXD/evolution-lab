@@ -114,6 +114,12 @@ function CharacterPreview.Build(parent, stageIndex, entry, opts)
 	-- the origin. StageCostume gets away without this only because it happens to place every piece
 	-- with an explicit CFrame before welding it.
 	local meshed = entry and SkinMesh.Apply(rig, entry.key, { anchored = true })
+	if meshed then
+		-- A skin off the ladder wears its regalia over the mesh in the world, and a Journal card
+		-- that showed the mesh without it would be advertising the wrong item. `static` because a
+		-- ViewportFrame renders neither the turning welds nor the particles.
+		StageCostume.Regalia(rig, entry, { static = true })
+	end
 	if not meshed then
 		local ok, err = pcall(StageCostume.Apply, rig, stageIndex, stage, entry)
 		if not ok then

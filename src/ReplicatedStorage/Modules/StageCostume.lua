@@ -767,6 +767,192 @@ local function skinMarks(ctx, entry)
 	end
 end
 
+-- ===== REGALIA: WHAT A SKIN OFF THE LADDER WEARS ==============================
+--
+-- The report this exists for was one sentence -- "the VIP characters look worse than the ordinary
+-- ones" -- and it was right for a reason that is structural rather than a matter of taste. All two
+-- hundred ladder skins have a generated model in ReplicatedStorage.Assets.SkinMeshes and wear it.
+-- The six skins OUTSIDE the ladder (the VIP pass skin and the five event skins) have none, so
+-- SkinMesh.Has falls through and they are the last characters in the game still built out of
+-- blocks: the item you PAY for was the cheapest-looking thing on the screen.
+--
+-- Generating those six meshes closes that gap and is a separate job. This closes the one a mesh
+-- cannot: with a model, an off-ladder skin would still differ from a ladder Legendary only by its
+-- colour, and "premium" has to be readable as premium from across the street. So a skin flagged
+-- `offLadder` wears HARDWARE no ladder skin can have -- a head piece, shoulder plates and a ring of
+-- light at its feet -- over whichever body it ended up with.
+--
+-- That is why it runs from both paths and why it is public. Apply's mesh branch returns before any
+-- of the twenty builders, and CharacterPreview does not call Apply at all for a meshed character.
+local REGALIA_GOLD = Color3.fromRGB(255, 198, 74)
+
+-- The head piece is chosen by the ENTRY, never by the rarity. All six of these are Legendary, so
+-- rarity carries no information here at all -- and a laurel on a gladiator is the whole difference
+-- between four champions and four palette swaps of one.
+local function headPiece(ctx, kind, metal)
+	local h, hs = ctx.head, ctx.headSize
+	if kind == "wreath" then
+		-- A laurel runs down BOTH SIDES and meets at neither end: leaves at the back are behind the
+		-- skull and are never seen, which is the same reason `crown` only fills the front arc.
+		for _, side in ipairs({ -1, 1 }) do
+			for i = 1, 4 do
+				local a = side * math.rad(16 + (i - 1) * 27)
+				P(ctx, h, "RegaliaLeaf", Vector3.new(hs.X * 0.09, hs.Y * 0.30, hs.Z * 0.11),
+					CFrame.new(0, hs.Y * 0.44, 0) * CFrame.Angles(0, a, 0) * CFrame.new(0, 0, -hs.Z * 0.52)
+						* CFrame.Angles(math.rad(-13), 0, side * math.rad(36)),
+					metal)
+			end
+		end
+	elseif kind == "shards" then
+		-- Three shards turning over the head, for a skin whose whole idea is light rather than metal
+		beadRing(ctx, h, "RegaliaShard", 3, hs.X * 0.60, hs.X * 0.34, metal,
+			{ seconds = ctx.static and nil or 5, tr = 0.08 }, CFrame.new(0, hs.Y * 0.88, 0))
+	else
+		crown(ctx, metal, 5, 0.5)
+	end
+end
+
+local function regalia(ctx, entry)
+	if not (entry and entry.offLadder) then return end
+	local metal = entry.regaliaColor or REGALIA_GOLD
+	headPiece(ctx, entry.regalia, metal)
+
+	-- SHOULDER PLATES, welded to the ARMS and not to the torso. A pauldron that stays put while the
+	-- arm swings past it reads as a bug rather than as armour, and the arm is where the animation
+	-- engine is already moving something for free.
+	--
+	-- ONLY ON THE BUILDER PATH, and `ctx.armLSize` is the test because it is set exactly there.
+	-- This is the rule two captures paid for: a generated mesh does NOT put its arms where the
+	-- avatar's arms are. It is scaled to the body's HEIGHT and is free to be a barrel with two stubs
+	-- low on its front, while the R15 LeftUpperArm stays out at the bare avatar's shoulder -- so a
+	-- plate hung there floats beside the character as a gold bar attached to nothing. Measured on
+	-- the VIP mesh: arms at +-1.83 from centre against a drawn body 5.35 wide, and both captures
+	-- show the plates outside it. A costume's shells ARE built around those limbs, so on that path
+	-- the same weld is exactly right. The head piece and the plinth carry the mesh path instead:
+	-- one is welded to the head (which a height-matched mesh does line up with) and the other is
+	-- measured off the drawn body itself.
+	-- Iterated over the FIELD NAMES, not over `{ ctx.armL, ctx.armR }`: a character missing its left
+	-- arm puts a nil in the first slot, `ipairs` stops there, and the right pauldron is dropped with
+	-- nothing said.
+	for _, field in ipairs({ "armL", "armR" }) do
+		local side = ctx.armLSize and ctx[field]
+		if side then
+			local as = ctx.armLSize
+			P(ctx, side, "RegaliaPauldron", Vector3.new(as.X * 1.3, as.Y * 0.50, as.Z * 1.3),
+				CFrame.new(0, as.Y * 0.30, 0), metal, { mat = Enum.Material.Metal })
+			P(ctx, side, "RegaliaPauldronTrim", Vector3.new(as.X * 1.38, as.Y * 0.14, as.Z * 1.38),
+				CFrame.new(0, as.Y * 0.02, 0), darken(metal, 0.42), { mat = Enum.Material.Metal })
+		end
+	end
+
+	-- THE PLINTH: a slowly turning ring of light on the ground under the player.
+	--
+	-- DROPPED TO THE LOWEST BARE LIMB, which is a measurement rather than a proxy. The obvious
+	-- number is the Humanoid's `HipHeight` -- it already scales with a body that runs 1x at Cell and
+	-- 9x at the last stage, where any constant is buried in the floor at one end and floating at
+	-- knee height at the other. But `PreviewRig` is a rig with no HipHeight set at all, and the
+	-- fallback put the ring **1.07 studs above the feet** on the very rig every Journal card uses.
+	-- The bare limbs are the body on both paths (a mesh is scaled to their height, a costume is
+	-- built around them) and they are what SkinMesh measures for the same reason.
+	local ts = ctx.torsoSize
+	local floorY
+	for _, p in ipairs(ctx.character:GetChildren()) do
+		if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
+			local bottom = p.Position.Y - p.Size.Y * 0.5
+			floorY = floorY and math.min(floorY, bottom) or bottom
+		end
+	end
+	local drop = (floorY or (ctx.root.Position.Y - ctx.root.Size.Y)) - ctx.root.Position.Y + 0.15
+
+	-- WIDER THAN THE TORSO, because the torso is not the silhouette. Measured on the live rig: the
+	-- ring came out at radius 2.29 inside a body 4.88 wide across the arms and a mesh 5.35 wide, so
+	-- it sat *under* the character instead of around it and was invisible from anywhere but above.
+	local span = math.max(ts.X, ts.Z)
+	beadRing(ctx, ctx.root, "RegaliaPlinth", 16, span * 1.35, span * 0.17, metal,
+		{ seconds = ctx.static and nil or 9, tr = 0.25 }, CFrame.new(0, drop, 0))
+	if not ctx.static then
+		emitter(ctx.root, metal, span * 0.45, 8, 1.1, 1.6)
+	end
+end
+
+-- How wide the head piece has to be to belong to the body that is actually on screen. Falls back to
+-- the bare head whenever there is no generated skin to measure, which is what the builder path
+-- always wants -- it passes its own ctx and never reaches this.
+local function drawnHeadCube(character, head)
+	local drawn = character:FindFirstChild("SkinMesh")
+	if not drawn then return head.Size end
+	local minX, maxX
+	for _, d in ipairs(drawn:GetDescendants()) do
+		if d:IsA("BasePart") then
+			local a, b = d.Position.X - d.Size.X * 0.5, d.Position.X + d.Size.X * 0.5
+			minX = minX and math.min(minX, a) or a
+			maxX = maxX and math.max(maxX, b) or b
+		end
+	end
+	if not minX or maxX <= minX then return head.Size end
+	-- 0.42 of the body's width is a head on a body built as wide as it is tall, which is what every
+	-- one of these is generated to be. Clamped to the bare head at the bottom so this can only ever
+	-- grow the piece, and to 2.4x at the top so one runaway segment cannot crown the whole zone.
+	local cube = math.clamp((maxX - minX) * 0.42, head.Size.X, head.Size.X * 2.4)
+	return Vector3.new(cube, head.Size.Y, cube)
+end
+
+-- Hangs the regalia on a body dressed from OUTSIDE this file's builder path -- the mesh branch of
+-- Apply below, and CharacterPreview, neither of which ever builds a ctx. A no-op for a ladder skin,
+-- so no caller has to know which kind it is holding.
+--   opts.static - no turning pieces and no particles, which is what a ViewportFrame can show
+function StageCostume.Regalia(character, entry, opts)
+	opts = opts or {}
+	if not (character and character.Parent and entry and entry.offLadder) then return end
+	local root = character:FindFirstChild("HumanoidRootPart")
+	local head = character:FindFirstChild("Head")
+	local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso") or root
+	if not (root and head and torso) then
+		warn(("[StageCostume] no regalia for '%s': root=%s head=%s -- the body is not an R15 or R6 rig")
+			:format(tostring(entry.key), tostring(root ~= nil), tostring(head ~= nil)))
+		return
+	end
+
+	-- THE SAME FOLDER NAME the costume uses, reused if one is already there. Clear then takes the
+	-- regalia away with the rest of the wardrobe and there is no second teardown path to forget.
+	local folder = character:FindFirstChild(FOLDER_NAME)
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = FOLDER_NAME
+		folder.Parent = character
+	end
+
+	local color = entry.color or Color3.fromRGB(190, 190, 210)
+	local ctx = {
+		character = character,
+		folder = folder,
+		root = root,
+		head = head,
+		torso = torso,
+		lower = character:FindFirstChild("LowerTorso") or torso,
+		armL = character:FindFirstChild("LeftUpperArm") or character:FindFirstChild("Left Arm"),
+		armR = character:FindFirstChild("RightUpperArm") or character:FindFirstChild("Right Arm"),
+		color = color,
+		glow = vivid(color),
+		static = opts.static == true,
+		-- A HEAD PIECE IS SIZED TO THE BODY THAT IS DRAWN, never to the limb it is welded to.
+		--
+		-- On the builder path those are the same thing, and the ctx handed in there already carries
+		-- the OUTER sizes of the shells for exactly that reason -- a crown sized to the bare head
+		-- inside a stage-19 cranium sits in the middle of the skull. On this path the drawn body is
+		-- a generated mesh, height-matched to the avatar and free to be far wider than it: measured
+		-- on the VIP, a 1.74-wide crown on a body drawn 5.35 across, which reads as a party hat.
+		-- The width comes off the mesh, clamped so a wild bounding box cannot produce a crown wider
+		-- than the character.
+		headSize = drawnHeadCube(character, head),
+		torsoSize = torso.Size,
+	}
+	local ok, err = pcall(regalia, ctx, entry)
+	if not ok then
+		warn(("[StageCostume] regalia for '%s' failed: %s"):format(tostring(entry.key), tostring(err)))
+	end
+end
+
 -- ===== THE TWENTY STAGES =====================================================
 -- Read down the list and the arc is the point: the first five are animals and get bodies, the
 -- middle five are built things and get hardware, and the last ten stop being bodies at all and
@@ -1300,6 +1486,10 @@ function StageCostume.Apply(character, stageIndex, stage, entry)
 	-- a character with a mesh wears it, a character without one falls straight through to the twenty
 	-- builders below and looks exactly as it did. The game is playable at every point in between.
 	if entry and SkinMesh.Apply(character, entry.key) then
+		-- A generated body is where an ORDINARY skin ends. A skin off the ladder is the thing that
+		-- was paid for, so its regalia goes on over the mesh -- into the same folder Clear already
+		-- knows about. No-op for the two hundred ladder skins.
+		StageCostume.Regalia(character, entry)
 		return
 	end
 
@@ -1385,6 +1575,9 @@ function StageCostume.Apply(character, stageIndex, stage, entry)
 		-- mark takes the costume down the same visible way a bad builder does instead of leaving a
 		-- half-dressed player.
 		skinMarks(ctx, entry)
+		-- ... and after THAT, the hardware only a skin off the ladder wears. Last because it is
+		-- meant to sit over everything else, and inside the same pcall for the reason above.
+		regalia(ctx, entry)
 	end)
 	if not ok then
 		warn(("[StageCostume] stage %d failed: %s"):format(stageIndex, tostring(err)))

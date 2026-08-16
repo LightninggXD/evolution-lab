@@ -4316,6 +4316,10 @@ GameConfig.VipCharacter = {
 	-- `vip` is what the pass sync and the Journal's section title read. They were one field until
 	-- there was a second kind of skin that is not on the ladder.
 	offLadder = true,
+	-- `regalia` is StageCostume's head piece for a skin off the ladder -- "crown", "wreath" or
+	-- "shards". It is read from the entry and NOT from the rarity because every skin outside the
+	-- ladder is Legendary, so rarity separates none of them from each other.
+	regalia = "crown",
 }
 CHARACTER_BY_KEY[GameConfig.VipCharacter.key] = GameConfig.VipCharacter
 
@@ -4349,6 +4353,10 @@ GameConfig.EventCharacters = {
 		color = Color3.fromRGB(158, 120, 255),
 		event = "PrismFest",
 		offLadder = true,
+		-- Not a crown: this one is light rather than metal, so it carries three turning shards over
+		-- the head instead. See the note on GameConfig.VipCharacter.regalia.
+		regalia = "shards",
+		regaliaColor = Color3.fromRGB(206, 178, 255),
 	},
 	-- ===== THE FOUR COLOSSEUM CHAMPIONS (12.13) =====
 	--
@@ -4363,6 +4371,11 @@ GameConfig.EventCharacters = {
 	-- blue, green and slate -- there is no mesh for any of them, so the whole of a champion IS its
 	-- colour on the player's own stage costume, and two that read the same from across the plaza are
 	-- two weekends that felt like one.
+	--
+	-- ALL FOUR SHARE ONE HEAD PIECE, and deliberately: the gold laurel is what says "champion", the
+	-- colour is what says WHICH champion. Giving each of them its own would have made four unrelated
+	-- items where the point is a set. The VIP skin takes a crown so a pass is never mistaken for an
+	-- arena prize.
 	{
 		key = "event_clash_ember",
 		name = "Ember Gladiator",
@@ -4371,6 +4384,7 @@ GameConfig.EventCharacters = {
 		color = Color3.fromRGB(238, 96, 54),
 		event = "ColosseumClash",
 		offLadder = true,
+		regalia = "wreath",
 	},
 	{
 		key = "event_clash_frost",
@@ -4380,6 +4394,7 @@ GameConfig.EventCharacters = {
 		color = Color3.fromRGB(118, 208, 255),
 		event = "ColosseumClash",
 		offLadder = true,
+		regalia = "wreath",
 	},
 	{
 		key = "event_clash_verdant",
@@ -4389,6 +4404,7 @@ GameConfig.EventCharacters = {
 		color = Color3.fromRGB(96, 200, 118),
 		event = "ColosseumClash",
 		offLadder = true,
+		regalia = "wreath",
 	},
 	{
 		key = "event_clash_onyx",
@@ -4398,6 +4414,7 @@ GameConfig.EventCharacters = {
 		color = Color3.fromRGB(96, 90, 124),
 		event = "ColosseumClash",
 		offLadder = true,
+		regalia = "wreath",
 	},
 }
 for _, c in ipairs(GameConfig.EventCharacters) do

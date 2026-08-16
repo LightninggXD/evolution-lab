@@ -1,0 +1,302 @@
+[
+{
+"path": "src/ReplicatedFirst/LoadingScreen.client.lua",
+"hash": 1802295294,
+"bytes": 19115,
+"lines": 533
+},
+{
+"path": "src/ReplicatedStorage/Modules/CharacterPreview.lua",
+"hash": 1048724420,
+"bytes": 12399,
+"lines": 247
+},
+{
+"path": "src/ReplicatedStorage/Modules/GameConfig.lua",
+"hash": 78188990,
+"bytes": 303111,
+"lines": 4945
+},
+{
+"path": "src/ReplicatedStorage/Modules/IconLibrary.lua",
+"hash": 2070610280,
+"bytes": 15946,
+"lines": 327
+},
+{
+"path": "src/ReplicatedStorage/Modules/PetModel.lua",
+"hash": 1218784817,
+"bytes": 11988,
+"lines": 263
+},
+{
+"path": "src/ReplicatedStorage/Modules/SkinMesh.lua",
+"hash": 1284710077,
+"bytes": 16007,
+"lines": 338
+},
+{
+"path": "src/ReplicatedStorage/Modules/SoundLibrary.lua",
+"hash": 1275747514,
+"bytes": 29053,
+"lines": 636
+},
+{
+"path": "src/ReplicatedStorage/Modules/StageCostume.lua",
+"hash": 1931829866,
+"bytes": 87874,
+"lines": 1611
+},
+{
+"path": "src/ReplicatedStorage/Modules/UITheme.lua",
+"hash": 1720216125,
+"bytes": 75382,
+"lines": 1804
+},
+{
+"path": "src/ReplicatedStorage/Modules/VFXLibrary.lua",
+"hash": 162157405,
+"bytes": 9525,
+"lines": 270
+},
+{
+"path": "src/ServerScriptService/AnnounceService.lua",
+"hash": 1581719933,
+"bytes": 15707,
+"lines": 334
+},
+{
+"path": "src/ServerScriptService/BossService.lua",
+"hash": 1411903746,
+"bytes": 164078,
+"lines": 3053
+},
+{
+"path": "src/ServerScriptService/CodesService.lua",
+"hash": 1256209319,
+"bytes": 6702,
+"lines": 174
+},
+{
+"path": "src/ServerScriptService/CreatureService.lua",
+"hash": 1604011499,
+"bytes": 207078,
+"lines": 3869
+},
+{
+"path": "src/ServerScriptService/DNAService.lua",
+"hash": 329620,
+"bytes": 33299,
+"lines": 644
+},
+{
+"path": "src/ServerScriptService/EventService.lua",
+"hash": 1487326748,
+"bytes": 24011,
+"lines": 574
+},
+{
+"path": "src/ServerScriptService/HubPlaza.lua",
+"hash": 1012608685,
+"bytes": 34535,
+"lines": 754
+},
+{
+"path": "src/ServerScriptService/LeaderboardService.lua",
+"hash": 1445415111,
+"bytes": 34931,
+"lines": 822
+},
+{
+"path": "src/ServerScriptService/OfflineService.lua",
+"hash": 535681115,
+"bytes": 5299,
+"lines": 122
+},
+{
+"path": "src/ServerScriptService/PassService.lua",
+"hash": 144164926,
+"bytes": 10679,
+"lines": 259
+},
+{
+"path": "src/ServerScriptService/PetFollowService.lua",
+"hash": 340482825,
+"bytes": 6731,
+"lines": 171
+},
+{
+"path": "src/ServerScriptService/PetService.lua",
+"hash": 1589753971,
+"bytes": 51381,
+"lines": 1121
+},
+{
+"path": "src/ServerScriptService/PlayerDataService.lua",
+"hash": 1449354567,
+"bytes": 32732,
+"lines": 649
+},
+{
+"path": "src/ServerScriptService/PlaytimeGiftService.lua",
+"hash": 78813520,
+"bytes": 3793,
+"lines": 104
+},
+{
+"path": "src/ServerScriptService/PotionService.lua",
+"hash": 868971456,
+"bytes": 9251,
+"lines": 204
+},
+{
+"path": "src/ServerScriptService/RebirthService.lua",
+"hash": 2094708062,
+"bytes": 9359,
+"lines": 180
+},
+{
+"path": "src/ServerScriptService/RebirthShrine.lua",
+"hash": 2105515487,
+"bytes": 26952,
+"lines": 564
+},
+{
+"path": "src/ServerScriptService/RewardService.lua",
+"hash": 1878036422,
+"bytes": 13508,
+"lines": 400
+},
+{
+"path": "src/ServerScriptService/RobuxShopService.lua",
+"hash": 1949641268,
+"bytes": 12480,
+"lines": 271
+},
+{
+"path": "src/ServerScriptService/SeasonPassService.lua",
+"hash": 1106525875,
+"bytes": 14730,
+"lines": 361
+},
+{
+"path": "src/ServerScriptService/ServerMain.server.lua",
+"hash": 1175492485,
+"bytes": 14444,
+"lines": 241
+},
+{
+"path": "src/ServerScriptService/SplicerService.lua",
+"hash": 1107029404,
+"bytes": 32922,
+"lines": 703
+},
+{
+"path": "src/ServerScriptService/StatsService.lua",
+"hash": 1041863219,
+"bytes": 9012,
+"lines": 228
+},
+{
+"path": "src/ServerScriptService/TradeService.lua",
+"hash": 1838019002,
+"bytes": 32970,
+"lines": 734
+},
+{
+"path": "src/ServerScriptService/ZoneBuilder.lua",
+"hash": 385364019,
+"bytes": 577713,
+"lines": 9240
+},
+{
+"path": "src/ServerScriptService/ZoneService.lua",
+"hash": 758348293,
+"bytes": 13818,
+"lines": 329
+},
+{
+"path": "src/ServerScriptService/Systems/EvolutionVisuals.lua",
+"hash": 1540190122,
+"bytes": 37281,
+"lines": 698
+},
+{
+"path": "src/ServerScriptService/Systems/VFXService.lua",
+"hash": 2336760,
+"bytes": 9332,
+"lines": 179
+},
+{
+"path": "src/StarterPlayer/StarterPlayerScripts/CombatClient.client.lua",
+"hash": 679306565,
+"bytes": 70980,
+"lines": 1542
+},
+{
+"path": "src/StarterPlayer/StarterPlayerScripts/CostumeVisibility.client.lua",
+"hash": 335671120,
+"bytes": 10617,
+"lines": 188
+},
+{
+"path": "src/StarterPlayer/StarterPlayerScripts/EvolveReveal.client.lua",
+"hash": 488812992,
+"bytes": 23158,
+"lines": 498
+},
+{
+"path": "src/StarterPlayer/StarterPlayerScripts/FirstJoin.client.lua",
+"hash": 2105820973,
+"bytes": 21883,
+"lines": 494
+},
+{
+"path": "src/StarterPlayer/StarterPlayerScripts/HatchReveal.client.lua",
+"hash": 1459682482,
+"bytes": 54486,
+"lines": 1344
+},
+{
+"path": "src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua",
+"hash": 1871616838,
+"bytes": 501420,
+"lines": 10798
+},
+{
+"path": "src/StarterPlayer/StarterPlayerScripts/PetFollowClient.client.lua",
+"hash": 677728095,
+"bytes": 14197,
+"lines": 312
+},
+{
+"path": "src/StarterPlayer/StarterPlayerScripts/RarityBeam.client.lua",
+"hash": 780931039,
+"bytes": 17768,
+"lines": 441
+},
+{
+"path": "src/StarterPlayer/StarterPlayerScripts/RebirthShrineClient.client.lua",
+"hash": 1357811481,
+"bytes": 8757,
+"lines": 200
+},
+{
+"path": "src/StarterPlayer/StarterPlayerScripts/SplicerUI.client.lua",
+"hash": 250691340,
+"bytes": 22540,
+"lines": 618
+},
+{
+"path": "src/StarterPlayer/StarterPlayerScripts/VipFlair.client.lua",
+"hash": 1866727490,
+"bytes": 5461,
+"lines": 142
+},
+{
+"path": "src/StarterPlayer/StarterPlayerScripts/ZoneTransition.client.lua",
+"hash": 1013894647,
+"bytes": 11599,
+"lines": 300
+}
+]

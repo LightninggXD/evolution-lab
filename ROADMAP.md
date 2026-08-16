@@ -707,6 +707,8 @@ writing `BackgroundColor3` on the host now writes to a surface nothing draws —
 | 16.6 | `[x]` | <!-- opened 2026-08-16 by a contrast sweep, and the sweep's answer was wrong; the capture corrected it --> **Both Pets/Potions tabs are blank pills, and the shell is painted over the caption.** A `TextButton` draws its own text at its **own** ZIndex, and `styleCard` puts the fill in an `InnerBody` child one rung **above** it (`Z.Body`) — so since 15.28 the two tabs on the Inventory and Pets panels have been a grey pill and a blue pill with no words on either. The caption moves onto its own label at `Z.Content`, the way `styleButton` mirrors every other button in this file into a proxy, with `themeLabel`'s halo and the stroke matched to the glyph's own transparency (an opaque outline under a dimmed label draws the word in outline only). **The first reading of this row was wrong in an instructive way, and it is kept here for that:** a contrast sweep said the text sat at **1.13:1 against its own fill** and the fix was recorded as "add the missing outline" — true, these were the only **4 of 942** visible text runs in the HUD with no `UIStroke`, and *not the fault*. A colour probe cannot see occlusion. The second capture, taken after the halo shipped, showed two blank pills exactly as before, which is what named the real cause. The sweep itself is still worth keeping, in its corrected form: the naive test (text vs backing) flagged **736 of 942** runs, because in this HUD the outline *is* the contrast — a run reads if it separates from its backing **or** from its own stroke | Open Inventory: two captioned tabs, the inactive one dimmer rather than blank | **fixed and photographed.** Live: `ownText=""` on all four tabs, caption on a `Label` child at ZIndex **31** against the body's 28, transparency 0.00 on the active tab and 0.25 on the inactive one with the stroke matched to each. The capture reads a dimmed **Pets** on the grey pill beside a bright **Potions** on the blue one -- where the previous capture, taken with the halo already shipped, showed two blank pills. An occlusion sweep over the whole HUD found exactly these **4 of 1,212** text runs buried before the fix and **0 of 1,818** after it (the two counts differ because the second pass had more rows drawn) |
 | 16.7 | `[x]` | <!-- 2026-08-16, measured while photographing 16.6 --> **The potion shelf stops 178 px short of the bottom of its own panel.** `PotionScroll` is authored at a fixed **204** tall inside a 528 panel whose content starts at 146, so the list ends at y = 350 and the bottom third of the Items card is empty white — the dead space visible in 16.6's capture. Measured: canvas **810 against a 204 window, three of twelve rows visible**, in a panel with room for six, and the space that would have shown the other three sitting blank underneath it. Height is relative now (`1, -164`, i.e. the 146 it starts at plus the 18 bottom margin the panel uses everywhere else), so the shelf follows the panel if the panel is ever resized again; `PotionEmpty` covers the same rectangle and moves with it | Open Items with potions owned: the list reaches the bottom rim and shows six rows | **fixed and photographed.** Live: scroll **484x364** with the gap to the panel's bottom rim measured at exactly **18**, and 45% of the canvas in the window against 25% before. The capture shows five and a half rows where three fitted, and the x0 rows now read grey against the owned ones' colour -- which is 16.3 becoming visible rather than a change here |
 | 16.8 | `[x]` | <!-- 2026-08-16, same pass --> **The Robux shop showed a fifth of itself, and it is the screen that takes the money.** 448x500 gives the grid 416 of width — two 192 cells, no room for a third — and 338 of height, 1.9 rows of 180. Measured live: **canvas 1,726 against a 338 window**, so twenty products sat below a first screen that looks complete. Every other panel here is sized to its content; this one was sized to the smallest thing it could get away with. **640x640 is arithmetic, not taste:** the grid then has 608 of width and three cells plus their two 10px gaps is 596, so a column fits with **12 px of slack** rather than the 0 an exact 628 would leave — a grid that wraps on a rounding silently drops to two columns. 9 rows of 2 become 6 rows of 3. Nothing inside had to move: both scrolls and the tab row are sized `(1, -32)` off the panel, and `registerPanel` fits the authored size to the viewport (0.59 on a 848x420 phone) | Open the shop: three columns, and the panel still fits a phone viewport | **fixed and photographed.** Live: panel **640x640**, grid 608x478, **3 columns** counted off the top row's cell positions, canvas **1,726 -> 1,150** (9 rows of 2 became 6 of 3) and 42% of it in the window against 20%. The capture reads five whole products and a sixth row starting, ribbons and the gold BEST VALUE intact. **The phone case is arithmetic, not a measurement, and is stated as such:** `fit()` is `clamp(min((v.X-32)/w, (v.Y-108)/h), 0.35, 1)` and re-runs on every ViewportSize change, so 848x420 gives **0.4875** -- a 312x312 panel, inside the viewport, above the 0.35 floor |
+| 16.9 | `[x]` | <!-- reported by Kristina 2026-08-16: "ovi VIP karakteri izgledaju losije nego obicni" --> **Every skin you can PAY for is the only kind still built out of blocks.** All 200 ladder skins have a generated model in `ReplicatedStorage.Assets.SkinMeshes` and wear it; the **six skins outside the ladder** — `vip_gold` and the five event skins — have none, so `SkinMesh.Has` returns false and `StageCostume` dresses them in primitives. Both `GameConfig` comments say so outright and call it fine ("There is no generated SkinMesh_vip_gold, and that is fine"), which was true only while the ladder was primitives too. It has not been since the 200 were generated, and the result is that the VIP pass and every event exclusive are the **worst-looking characters in the game** — the item that takes money, rendered in the one style everything else outgrew. Generate `SkinMesh_vip_gold`, `SkinMesh_event_prism` and the four `SkinMesh_event_clash_*`, file them beside the other 200, and nothing else has to change: `SkinMesh.Has` is the switch and it flips per key | Wear the VIP skin: a generated body, not a gold-tinted stage costume — and the Journal card shows the same body | **generated, filed and photographed.** Six `generate_mesh` calls fired in parallel, all six back with the six named segments and all within the existing roster's proportions (X/Y 0.89-1.00 against a 200-model mean of 0.77 and an existing widest of 1.09). **All six came back facing +Z and therefore carry `FaceFlip`** -- proved against a control in the same pass rather than assumed: `SkinMesh_bact_dust` (flag set) shows its eyes from +Z while `SkinMesh_hum_knight` (no flag) shows the back of its helmet from the same camera. Folder is **206** now, `FaceFlip` on 10. Photographed in Edit on real `PreviewRig` clones through the real modules, and confirmed on a **live character in Play**: `SkinMesh` folder present on the worn VIP skin. The Journal card was photographed too, beside a ladder skin as a control |
+| 16.10 | `[x]` | <!-- 2026-08-16, the half of 16.9's report that a mesh does not fix --> **A premium skin differed from a ladder Legendary only by its colour.** 16.9's meshes close the gap in *quality*; they do not make the paid item read as paid. Every off-ladder skin is `Legendary`, so `skinMarks`' rarity flourish gives it exactly what 40 ladder skins already have — a halo, four orbitals, an emitter — and after 16.9 it would also have a generated body exactly like the other 200. `StageCostume.Regalia` is hardware **no ladder skin can wear**: a head piece, shoulder plates welded to the arms (not the torso — a pauldron that stays put while the arm swings past reads as a bug) and a turning ring of light at the feet, dropped off the Humanoid's `HipHeight` because the body runs 1x at Cell and 9x at the last stage. Chosen by the **entry**, never by the rarity, because rarity separates none of these six from each other: a **crown** for the pass, one shared gold **laurel** for the four Colosseum champions (the wreath says *champion*, the colour says *which*), turning **shards** for the Prism Herald. Public and called from three places, because the body can be dressed by a builder, by a mesh, or by neither: the builder path runs it inside the same `pcall` after `skinMarks`, Apply's mesh branch runs it before returning, and `CharacterPreview` runs it with `static` (a ViewportFrame renders neither a tweened weld nor a particle). Into the **same folder** the costume uses, so `Clear` already takes it away | Wear the VIP skin: crown, pauldrons and a ring at the feet, at any stage — and no ladder skin gains any of the three | **built, corrected twice by capture, and photographed on both paths with a control.** Live counts: off-ladder + mesh = crown band + 5 spikes + 16 plinth beads; off-ladder + primitive = the same plus 2 pauldrons + 2 trims; **ladder skin = 0 on both paths**. On a real character in Play the ring measured **+0.15 above the feet** and the Journal card renders VIP and Ember with their regalia beside an untouched Knight. **Two numbers the first capture corrected, both worth keeping:** the plinth was dropped off `Humanoid.HipHeight` and that is wrong twice -- `PreviewRig` has none, which floated the ring **1.07 studs** on the rig every Journal card uses, and a real character measured **HipHeight 14.84**, which would have put it far below the floor. It is measured off the lowest bare limb now, which is what `SkinMesh` already does and is a measurement rather than a proxy. And the ring was authored at 0.95x the torso inside a body **4.88 wide across the arms**, so it sat under the character instead of around it |
 
 ---
 
@@ -730,6 +732,7 @@ Collect these once; each one blocks agents until it exists.
 | `[x]` | **Create a shard pack** developer product and paste the real `productId` | 11.12 — **done 2026-08-12**, and done by an agent rather than by hand: Kristina granted browser access, so the three products were created on the Creator Dashboard in-session. `25 Evolution Shards` **3707419817** / 49, `125 Evolution Shards` **3707425807** / 199, `750 Evolution Shards` **3707431292** / 999, all with Managed Pricing **Disabled** to match the other 26 |
 | `[x]` | **Match the two Catalyst prices on the dashboard** — 11.7 moved them to **49** (`TierUp_1`, id 3702254553) and **129** (`TierUp_3`, id 3702254989). The number in `GameConfig` is only what the card prints; the dashboard is what actually charges | 11.7 — **done 2026-08-12**, both verified back on the Developer Products list: Rainbow Catalyst **49**, Catalyst x3 **129**. `GameConfig` and the dashboard now agree |
 | `[ ]` | **One real rebirth** from a late zone on the published place, to close 11.1 end-to-end. It costs the runner their progress, which is why no agent has done it | 11.1 |
+| `[ ]` | **Save the place and republish — and this one now carries six new assets, not only hygiene.** 16.9's six generated skin meshes (`SkinMesh_vip_gold` and the five event skins) are **instances in the unsaved Studio session**. They are not files, so no commit and nothing in `src/` carries them: a Studio restart before a save loses all six and they have to be regenerated. Save first, then publish | 16.9 |
 | `[ ]` | **Save the place and republish, to make the `LightConfig` deletion real.** The backdoor was destroyed in the Edit session on 2026-08-15 but an MCP edit lives only in an unsaved session ([[evolution-lab-studio-work-is-volatile]]). The published copy still holds it until then — inert (a `Disabled` Script in `ServerStorage`), so this is hygiene rather than an emergency, but it should not survive the next publish | 15.10 |
 | `[x]` | Prism Festival dates in `GameConfig.Events` — a design decision, not an id, so edit freely | 7.4 — decided 2026-08-10: 4–7 September 2026, the authored window, unchanged |
 
@@ -752,6 +755,80 @@ Gathered 2026-08-07/08 while writing this plan.
 ---
 
 ## Changelog
+
+- **2026-08-16 (thirty-ninth session)** — **THE ITEM THAT TAKES MONEY WAS THE WORST-LOOKING THING
+  ON THE SCREEN.** One sentence from Kristina — *"ovi VIP karakteri izgledaju losije nego obicni"* —
+  and it is a structural fact rather than a matter of taste. All 200 ladder skins have a generated
+  model in `ReplicatedStorage.Assets.SkinMeshes` and wear it. The **six skins outside the ladder**
+  (`vip_gold` and the five event skins) have none, so `SkinMesh.Has` returns false and every one of
+  them falls through to `StageCostume`'s primitives. Both `GameConfig` comments state this and call
+  it fine — *"There is no generated SkinMesh_vip_gold, and that is fine"* — and it **was** fine, for
+  exactly as long as the ladder was primitives too. **A comment can be correct when it is written
+  and become a bug report later without a single line around it changing**, which is the general
+  lesson and the reason this went a whole phase unnoticed: nothing broke, the rest of the game
+  improved past it.
+
+  Split into two rows because the report has two halves and only one of them is a mesh. **16.9** is
+  the six generations, and it is **blocked, not untried** — Studio was not running for any of this
+  session (`list_roblox_studios` empty, only `RobloxPlayerBeta` in the process list) and
+  `generate_mesh` is a Studio MCP tool. **16.10** is the half a mesh does not fix: with a model, an
+  off-ladder skin would differ from a ladder Legendary only by its colour, and all six of them are
+  Legendary, so `skinMarks`' rarity flourish hands them exactly the halo, orbitals and emitter that
+  40 ladder skins already wear. `StageCostume.Regalia` is hardware **no ladder skin can have** — a
+  head piece, shoulder plates and a turning ring of light at the feet.
+
+  **Three decisions in it worth not re-deriving.** The head piece is chosen by the **entry and never
+  by the rarity**, because rarity separates none of these six from each other: a crown for the pass,
+  one shared gold laurel for the four Colosseum champions (the wreath says *champion*, the colour
+  says *which* — four unique ones would be four unrelated items where the point is a set), turning
+  shards for the Prism Herald. The pauldrons weld to the **arms, not the torso**, because a shoulder
+  plate that stays put while the arm swings past it reads as a bug rather than as armour. And the
+  foot ring is dropped off the Humanoid's **`HipHeight`** rather than off a constant: the body runs
+  1x at Cell and 9x at the last stage, so a drop authored at either end is buried in the floor at
+  one and floating at knee height at the other.
+
+  It is **public and called from three places**, because a body can be dressed by a builder, by a
+  mesh, or by neither — the builder path runs it inside the same `pcall` after `skinMarks`, Apply's
+  mesh branch runs it before returning (so it survives 16.9 landing), and `CharacterPreview` runs it
+  with `static`, since a ViewportFrame renders neither a tweened weld nor a particle. Everything
+  goes into the **same folder the costume uses**, so `Clear` already takes it away and there is no
+  second teardown path to forget.
+
+  **Studio was closed for the first half of the session and opened mid-way**, which is the only
+  reason both rows closed. The sweep that followed found **47 of 50 identical** and the three that
+  were not were exactly the three edited on disk, each matching `HEAD` byte for byte — so Studio
+  held nothing of its own and the push was a clean fast-forward. Six `generate_mesh` calls in
+  parallel, all six back with their named segments, **all six facing +Z and therefore flagged
+  `FaceFlip`** — and that was *proved against a control* rather than assumed: `bact_dust` (flag set)
+  shows its eyes from +Z, `hum_knight` (no flag) shows the back of its helmet from the same camera.
+  The folder is 206 now.
+
+  **Two numbers the first capture corrected, and both were invisible to every probe that had run.**
+  The plinth ring was dropped off `Humanoid.HipHeight`, which is wrong at both ends: `PreviewRig` —
+  the rig every Journal card is built from — has no HipHeight at all, so the fallback floated the
+  ring **1.07 studs above the feet**, and a real character in Play measured **HipHeight 14.84**,
+  which would have buried it far below the floor. It is measured off the lowest bare limb now, the
+  same thing `SkinMesh` measures and for the same reason: a measurement instead of a proxy. And the
+  ring was authored at 0.95x the *torso* inside a body **4.88 wide across the arms**, so it sat
+  under the character rather than around it.
+
+  **The pauldrons are the general rule this row paid for: a generated mesh does not put its limbs
+  where the avatar's limbs are.** It is scaled to the body's HEIGHT and is free to be a barrel with
+  two stubs low on its front, while the R15 `LeftUpperArm` stays out at the bare avatar's shoulder —
+  measured at ±1.83 from centre against a body drawn 5.35 wide, and both captures show the plates
+  hanging beside the character as gold bars attached to nothing. So shoulder armour is welded on the
+  **builder path only**, where the shells genuinely are built around those limbs; the head piece
+  (welded to the head, which a height-matched mesh does line up with) and the plinth (measured off
+  the drawn body) carry the mesh path instead. Same family of mistake as the crown, which was sized
+  to the bare head at 1.74 wide on a body drawn 5.35 across and read as a party hat.
+
+  Final sweep: **50 of 50 identical**, no strays left in `workspace`. 16.1 and 16.2 are still `[~]`
+  — both need a live HUD check that was not run.
+
+  ⚠️ **The six meshes exist only in the unsaved Studio session.** They are instances, not files, so
+  nothing in `src/` or in a commit carries them. The place has to be saved and republished or they
+  are gone with the next Studio restart — filed on the owner checklist beside 15.10, which wants the
+  same publish.
 
 - **2026-08-16 (thirty-eighth session)** — **PHASE 16 OPENED, AND IT WAS ALREADY RUNNING IN THE
   PLACE.** Asked to improve the game and to start from the panels. The session-start sweep found
