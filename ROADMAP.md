@@ -712,6 +712,29 @@ writing `BackgroundColor3` on the host now writes to a surface nothing draws —
 
 ---
 
+## Phase 17 — The aura was never purple · *opened 2026-08-16 by the first capture of the session*
+
+**Opened by a screenshot of nothing in particular.** The session-start sweep was clean (50 of 50
+scripts byte-identical), every open row in the file was owner-blocked, so the next thing to do was
+look at the game — and the first capture of the live HUD had a **white smear across the lower two
+thirds of the frame** that the world was barely visible through. Muting the three emitters of the
+worn mutation aura, locally, gave back the whole village. That is the phase.
+
+**The rule it found, stated once.** A `ParticleEmitter` draws `Color × Brightness`, and at
+`LightEmission = 1` that product is *added* onto the scene rather than lit by it. The free VFX pack
+is authored for a dark demo scene and leans on both, so **every tint this game asks for was being
+clipped to white**: rgb(170, 90, 255) × 5 is (850, 450, 1275), which is white in all three channels.
+The tint is not a suggestion the pack can overrule — `opts.color` is a caller saying *this must read
+as this colour*, so the ceiling belongs in `VFXLibrary` beside the tint and not in any caller's
+table.
+
+| ID | | Task | Check | Verified how |
+|---|---|---|---|---|
+| 17.1 | `[x]` | <!-- found 2026-08-16 on the first capture, root-fixed the same session --> **Every tinted effect in the game rendered white, and the worst of them is worn on your own body.** Measured live before the fix: **33 of 110** particle emitters in the workspace at `Brightness > 1.5` **and** `LightEmission > 0.5` — the player's own mutation aura at 5.0/1.00 (three floor sprites up to 21.5 studs across, at a camera 15.9 studs away, i.e. the wearer is standing inside them), **21 emitters on the equipped-pet rigs** at the same values, the Forest zone and boss effects at 10.0/1.00–2.00, and `Boss_Event` at **500**. It also explains why the aura ladder never read as a ladder: `Smoke-01` (Common) ships at Brightness 1 and `Tornado-01` (Godly) at 0.3–1, while `Stars-01` (Rare) is 10 and the three `RNG-Auras` (Epic/Legendary/Mythic) are 5 — the two ends were the colour they were asked for and the three rungs in the middle were white. New `applyTint` in `VFXLibrary` caps a tinted emitter at **Brightness 1 / LightEmission 0.35** (ceilings, never assignments — `Windspin3` stays at its authored 0.3) and every tint path goes through it: `Attach`, `Place`, and `BurstAt` through `Place`, Beams included — a Beam carries the same two properties and clips the same way | Wear an aura at the last stage: a coloured swirl you can read the village through, not a white smear — and no emitter anywhere above brightness 1.5 | **fixed and photographed, before and after, from the same camera on the same body.** Before: the capture is a white smear over the lower two thirds and the far end of the street is not visible. After, through the **real server path** (Play restarted, `EvolutionVisuals.ApplyMutationAura` → `VFXLibrary.Attach`, nothing written by hand): the three Epic emitters read `B=1.00 LE=0.35 col=170,90,255` and the capture is a purple swirl with the whole village, the boss stage and the lamp posts legible through it. Blast radius measured rather than assumed: **0 of 103** workspace emitters now sit above 1.5 brightness (was 33 of 110), the equipped-pet rigs' 21 emitters came down from 5.0 to 1.0, and `Boss_Forest`'s `Light`/`Stars` went 10.0/1.00–2.00 → 1.00/0.35 **in the zone's own green** rgb(120,220,120), while its untinted `Wind1`/`Wind2` correctly kept `LE = 1.00` — there is no tint on those to protect. The boss half is measured but not photographed; the owner was playing on the one client and the camera was handed straight back |
+| 17.2 | `[ ]` | <!-- measured 2026-08-16 in the same pass; NOT fixed, because both fixes trade one fault for another --> **At the last stage you play the game from inside your own body, and that is what puts the aura across your eyes.** Two numbers taken together on a live max-stage character: the body is **~39 studs tall and 35 wide** (`torso_geom` alone is 35×35×35) while the camera sits at Roblox's default **12.5-stud zoom**, measured 15.9 studs from the HumanoidRootPart. So the camera is *inside* the silhouette — which is also why `CostumeVisibility` has to exist at all, why the aura is at eye level, and why nobody at the endgame can see the character they spent the whole game earning. The aura half is one line: `AttachMutationAura` hangs the effect on the HumanoidRootPart with **no offset**, and the pack's emitters are named `Floor1/2/3` — a *ground* ring, sitting **23.64 studs above the feet** on a 5× body. **Both obvious fixes were tried live and both cost something.** Dropping the attachment to the measured lowest limb puts the ring exactly on the ground (world y −0.66, feet −0.66) and the view becomes completely clear — and the wearer can then no longer see the aura at all at the default zoom, which is the thing they bought. Pushing the camera out instead (`CameraMinZoomDistance = 12.5 × BodyScale`, 62.5) moved it to 64.7 studs and the capture came back **black**: at that range it is inside the village scenery. So this needs a real decision — a camera that grows with the body is a feel change across the whole late game, and 👤 **it is Kristina's to make** | Decide first, then measure: at the last stage you can see your own character, your aura, and the creature you are hitting | — |
+
+---
+
 ## 👤 Owner action checklist
 
 Collect these once; each one blocks agents until it exists.
@@ -756,6 +779,23 @@ Gathered 2026-08-07/08 while writing this plan.
 
 ## Changelog
 
+- **2026-08-16 (fortieth session)** — **PHASE 17 OPENED, AND THE AURA WAS NEVER PURPLE.** The
+  session-start sweep was the first thing and it was clean — **50 of 50** scripts byte-identical
+  between `src/` and Studio — and with every remaining row owner-blocked, the next move was to look
+  at the game rather than at the file. The first capture of the live HUD had a white smear over the
+  lower two thirds of the frame; muting three emitters gave the village back. The cause is one
+  property pair: a `ParticleEmitter` draws `Color × Brightness` and adds it to the scene at
+  `LightEmission = 1`, so the pack's demo-scene values (5, 10, and one boss at **500**) clipped
+  every tint this game asks for to white — **33 of 110** emitters in the workspace, including all
+  three of the worn aura's and **21 on the equipped pets**. `VFXLibrary.applyTint` now caps a
+  tinted emitter at 1 / 0.35 on every path, and the same aura came back through the real server
+  path as a purple swirl with the whole street legible through it (**0 of 103** emitters above 1.5
+  now). 17.1 is `[x]`, photographed both ways. 17.2 is open **and it is a decision, not a task**:
+  at the last stage the body is ~39 studs tall against a 12.5-stud camera zoom, so the camera
+  stands inside the character — the aura's *ground* ring hangs 23.64 studs above the feet at eye
+  level, dropping it to the floor hides it from the wearer, and pushing the camera out to 62.5
+  studs puts it inside the village scenery (that capture came back black). Both were tried live
+  before the row was written.
 - **2026-08-16 (thirty-ninth session)** — **THE ITEM THAT TAKES MONEY WAS THE WORST-LOOKING THING
   ON THE SCREEN.** One sentence from Kristina — *"ovi VIP karakteri izgledaju losije nego obicni"* —
   and it is a structural fact rather than a matter of taste. All 200 ladder skins have a generated

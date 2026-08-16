@@ -36,6 +36,42 @@ local function tintOf(color)
 	return ColorSequence.new(color)
 end
 
+-- ===== A TINT CANNOT SURVIVE AN ADDITIVE MULTIPLY (17.1) ======================
+--
+-- A ParticleEmitter's drawn colour is `Color * Brightness`, and with `LightEmission = 1` that
+-- product is added straight onto the scene instead of being lit by it. The pack is authored for a
+-- dark demo scene and leans on both: measured in the live place, the Epic mutation aura came out of
+-- `Auras/RNG-Aura-01` at **Brightness 5, LightEmission 1**, so its rgb(170, 90, 255) was drawn as
+-- (850, 450, 1275) and every channel clipped -- a purple aura rendering as **pure white**, on a
+-- world that is already white-bright. The whole ladder is affected and unevenly, which is why the
+-- rungs never looked like different things: Stars-01 (Rare) ships at Brightness 10, the three
+-- RNG-Auras at 5, Smoke-01 (Common) and Tornado-01 (Godly) at 1 or below. The three rungs in the
+-- middle were white; the two ends were the colour they were asked for.
+--
+-- So the cap belongs HERE and not in the callers' tables: `opts.color` is the caller saying "this
+-- effect must read as this colour", and every path that honours it has to make the colour
+-- survivable. Photographed both ways on the same body from the same camera -- at 5/1.00 the aura is
+-- a white smear the world is barely visible through, at 1/0.35 it is a purple swirl you can read
+-- the village through.
+--
+-- 1.0 is the highest brightness that cannot clip a fully-saturated tint, and 0.35 keeps the glow
+-- (a particle at 0 is lit like a brick and goes grey in shadow) without washing the hue out. Both
+-- are ceilings, never assignments: `Windspin3` is authored at 0.3 and stays there.
+local TINT_MAX_BRIGHTNESS = 1
+local TINT_MAX_LIGHT_EMISSION = 0.35
+
+-- Takes a ParticleEmitter or a Beam -- both carry Color, Brightness and LightEmission, and both
+-- clip a tint the same way.
+local function applyTint(inst, color)
+	inst.Color = tintOf(color)
+	if inst.Brightness > TINT_MAX_BRIGHTNESS then
+		inst.Brightness = TINT_MAX_BRIGHTNESS
+	end
+	if inst.LightEmission > TINT_MAX_LIGHT_EMISSION then
+		inst.LightEmission = TINT_MAX_LIGHT_EMISSION
+	end
+end
+
 -- ===== density ===============================================================
 -- The pack's effects are authored at wildly different densities -- Smoke-01 runs one emitter at
 -- 5 particles/second, Big-Crack-01 runs four totalling 530. A single `rate` multiplier therefore
@@ -137,7 +173,8 @@ end
 --                      only -- `Place` keeps its own carrier and has never needed it.
 --   targetRate number  combined particles/second for the whole effect; preferred over `rate`
 --   rate    number    raw multiplier on Rate, for when the source density is already right
---   color   Color3    flat tint, see tintOf
+--   color   Color3    flat tint, see tintOf -- and note it also caps Brightness/LightEmission, see
+--                     applyTint: asking for a colour is asking for it to be drawn
 --   only    {string}  emitter names to keep (default: all)
 --   skip    {string}  emitter names to drop
 function VFXLibrary.Attach(target, path, opts)
@@ -176,7 +213,7 @@ function VFXLibrary.Attach(target, path, opts)
 			emitter.Speed = scaleRange(emitter.Speed, scale)
 			emitter.Rate = emitter.Rate * rate
 			if opts.color then
-				emitter.Color = tintOf(opts.color)
+				applyTint(emitter, opts.color)
 			end
 			emitter.Parent = att
 			count += 1
@@ -219,10 +256,12 @@ function VFXLibrary.Place(parent, path, cframe, opts)
 			d.Speed = scaleRange(d.Speed, scale)
 			d.Rate = d.Rate * rate
 			if opts.color then
-				d.Color = tintOf(opts.color)
+				applyTint(d, opts.color)
 			end
 		elseif d:IsA("Beam") and opts.color then
-			d.Color = tintOf(opts.color)
+			-- A Beam carries the same two properties (checked on a fresh one: Brightness 1,
+			-- LightEmission 0) and clips the same way, so it takes the same ceiling.
+			applyTint(d, opts.color)
 		end
 	end
 
