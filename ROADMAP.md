@@ -750,6 +750,41 @@ table.
 
 ---
 
+## Phase 18 — "Izgleda kao da dobijam rewards u mrtvačnici" · *opened 2026-08-16 by four screenshots in one minute*
+
+**Opened by the owner, mid-sweep, with four captures and no preamble.** Phase 16 and 17 fixed the UI
+by *rule* — a dead `SetColor`, a missing rim, a lip on a stadium, a tint clipped to white — and every
+one of those rows was right. What the captures say is that the screen can pass every rule in the file
+and still be **grey, flat and joyless**, which is the one thing a game for children cannot be. Her
+words, verbatim, because they are the spec: *"izgleda kao da dobijam rewards sto radim u
+mrtvacnici"*, *"puno je sivo i monotono"*, *"celi ui mora biti prilagodjen da deci bude lepo i
+pregledno"*, *"vece ikone"*, *"da sljasti sta je bitno"*, *"da ima neku dimenziju da izgleda 3d"*,
+*"senke neke"*, *"vise nijansi boja ubaci"*.
+
+**A numbering warning, because the code lies about it.** The 44th session (2026-08-16, four parallel
+agents) shipped its work into `src/` and recorded it in the Changelog **without ever opening rows**,
+and its comments cite ids — `17.13`, `17.18`, `18.1` — that were never written into this file. Those
+citations are **not** the rows below: where a comment says "18.1" it means the idle-pulse work, not
+the health bar. This table is authoritative; a stray id in a comment from that session is a note to
+itself.
+
+**The rule this phase is about, stated once.** Grey is what a UI kit reaches for when a thing is
+*off* — claimed, locked, spent, complete. Every one of those states is the record of something the
+player **did**, and this game paints all four of them in the same dead neutral, so a screen full of
+achievement looks like a screen full of nothing. **A finished thing is not a disabled thing.** Where
+grey is genuinely right (a button that cannot be pressed), it still needs the surface under it to
+carry colour and depth.
+
+| ID | | Task | Check | Verified how |
+|---|---|---|---|---|
+| 18.1 | `[ ]` | <!-- Kristina 2026-08-16, with a screenshot of the Alpha Bear boss bar: "ovaj health bar ne treba ove tamne stvari iza nema smisla to" --> **Every progress bar still wears two near-black caps, and 17.8 fixed the wrong half of it.** 17.8 found the lip (`ShadowBody` shifted 6 px down) and removed it on round shells — correct, and it is not what she photographed today. The remaining cause is the **clip**: `UITheme.ProgressBar` sets `ClipsDescendants` on a host that has **no `UICorner` of its own**, so the clip rectangle is square while both shell bodies inside it are pills carrying a 4 px `UIStroke` drawn *outside* their curve. The four corner regions — inside the square, outside the pill — are exactly where those strokes are still visible, and at `Radius.Pill` the two at each end merge into one dark crescent capping the bar. Same fault on the creature nameplates (`CreaturePlate`, 3 px stroke) and the boss plate. **The fix is not to round the clip** — a rounded clip on a host the same size as its body would cut the outline off the whole bar — it is to stop clipping at the host and let the fill be clipped by `InnerBody`, which already clips and already carries the right radius | Bring up a boss bar at any fill level: an even outline all the way round and nothing dark at either end | — |
+| 18.2 | `[ ]` | <!-- Kristina 2026-08-16, with a screenshot of the currency stack: "ovo je lose ne vidi se nista od ovog okolo il napravi belje il lepse ne znam" --> **The wallet is three saturated blocks in the corner of a pastel world.** The 44th session gave the pills a body (they were bare outlined text) and then, on her own note — *"nemoj te crne vec bright pastel i beli theme"* — painted them Mint / Aqua / Lavender. Measured live: rgb(68,225,145), rgb(105,205,250), rgb(175,138,250) — those are **candy, not pastel**, and stacked three deep at 250 px wide they are the loudest object on a screen whose job is to show a village. She is asking for the next step down, not for the dark bar back: a near-white capsule that reads as *chrome*, with the currency's identity carried by the icon disc and the `+` button, which are the two things that should be loud | Look at the bottom-left corner: three quiet white capsules, each tellable apart at a glance, and the village behind them still readable | — |
+| 18.3 | `[ ]` | <!-- Kristina 2026-08-16, with a screenshot of the Daily Rewards panel --> **A week of rewards you already earned is drawn as six grey slabs.** Days 1–6 are claimed, and claimed is painted `rgb(~110)` flat with a small green tick — so the panel that exists to say *look what you have collected* is six-sevenths mortuary grey, with one bright tile at the end. Her three asks are all about the same thing: **bigger icons** (the reward glyph is smaller than the day chip above it), **colour** (a claimed day should keep its reward's own hue, dimmed but not drained), and **depth** (every tile is a flat rectangle; nothing on the panel casts anything). The Day 7 tile is the control that proves the rest is fixable — it is the only one anybody would call finished | Open Daily Rewards on a 6-day streak: six *collected* days, each still carrying its reward's colour, and one that plainly is not | — |
+| 18.4 | `[ ]` | <!-- Kristina 2026-08-16, with a screenshot of the Rebirth panel at 4/4: "puno je sivo i monotono" --> **The endgame's own screen is a grey button under an empty orange box.** Overlaps 17.14, which opened on the same panel and is about the *ladder* (a fourth rebirth that ends the game's biggest system with nothing after it). This row is the other half and can ship without it: the panel is one hue plus a grey, the 4/4 state fills a third of the card with an empty amber slab, and "ALL REBIRTHS COMPLETE" — the sentence that should be the proudest line in the game — is grey text on a grey button | Open Rebirth at 4/4: the completed ladder reads as an achievement, not as a disabled control | — |
+| 18.5 | `[ ]` | <!-- Kristina 2026-08-16: "da ima neku dimenziju da izgleda 3d senke neke vis nijansi boja ubaci" --> **Nothing in this UI casts a shadow, and that is a deliberate decision that has outlived its reason.** `addShadow` is a **no-op returning `nil`** — removed 2026-08-11 after she reported the old one as "an ugly line at the bottom of the button that even sticks out", and both variants deserved it: one was a square sibling behind a rounded shell, the other a full-width bar carrying the shell's whole radius. What replaced them is the shell's own gradient plus a heavy outline, which is real depth but *moulded* depth — the surface looks thick and still lies flat on the screen. A shadow that follows a rounded shell at any radius needs a **soft sprite**, not a rectangle: one 9-slice image, tinted, under the shell, offset down. Same row carries "više nijansi boja": the kit's neutral ladder is where every one of these greys comes from, and it is shorter than the work being asked of it | Any panel, tile and button: each sits *above* what is behind it, and no shadow is visible outside its own shell at any corner radius | — |
+
+---
+
 ## 👤 Owner action checklist
 
 Collect these once; each one blocks agents until it exists.

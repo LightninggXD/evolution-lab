@@ -395,6 +395,50 @@ end
 UITheme.InkOn = inkOn
 
 -- ============================================================================
+-- A FINISHED THING IS NOT A DISABLED THING (18.5)
+-- ============================================================================
+--
+-- The kit has one swatch for *off* -- `Color.Locked`, a neutral lilac grey -- and four different
+-- states reach for it: locked, unaffordable, spent, and DONE. The first three are refusals and grey
+-- is right for them. The fourth is the record of something the player achieved, and painting it in
+-- the refusal colour is what made the Daily Rewards panel read as *"kao da dobijam rewards sto radim
+-- u mrtvacnici"*: six days collected, six grey slabs, one bright tile at the end.
+--
+-- `DoneShade` is the third state the kit was missing. It keeps the hue EXACTLY -- so a claimed DNA
+-- day is still green and a claimed potion day is still purple, and the panel keeps the colour
+-- variety it earned -- and takes the chroma down to about a third while holding the value in the
+-- light-surface band. The result is a pastel of the reward's own colour: unmistakably quieter than
+-- the live tile beside it, unmistakably not the grey of a thing you cannot have.
+--
+-- The three states are then separated on three different axes, which is what keeps them tellable
+-- apart at a glance and in a screenshot:
+--
+--   claimable  full chroma, full weight -- the loudest object on the panel
+--   done       the same HUE, a third of the chroma        (this function)
+--   locked     no hue at all                              (`Color.Locked`)
+--
+-- ===== AND WHY IT FINISHES ON A MEASURED LUMINANCE RATHER THAN ON AN HSV VALUE =====
+--
+-- Desaturating in HSV alone lands the six reward hues on wildly different luminances -- measured,
+-- Green 0.77 against Gold 0.90 -- and `LIGHT_SURFACE` cuts at 0.86 right through the middle of that
+-- spread. Two claimed tiles side by side would then take DIFFERENT INK, one dark and one white,
+-- from the same function: exactly the unreadable-caption family this file has already paid for
+-- three times. So the last step lifts every result to luminance 0.90 by blending toward white,
+-- which is exact rather than iterative (`luminance` is linear in RGB, so a blend of `t` moves it to
+-- `l + (1-l)*t`) and preserves hue. Every done shade is therefore a light surface **by
+-- construction**, takes `Color.Ink`, and cannot flip.
+local function doneShade(c)
+	local h, s, v = Color3.toHSV(c)
+	local pale = Color3.fromHSV(h, s * 0.34, math.max(v, 0.85))
+	local l = luminance(pale)
+	if l < 0.90 then
+		pale = shade(pale, (0.90 - l) / (1 - l))
+	end
+	return pale
+end
+UITheme.DoneShade = doneShade
+
+-- ============================================================================
 -- THE BUTTON GRADIENT -- ONE CURVE, EVERY SURFACE IN THE GAME
 -- ============================================================================
 -- This function is the single lever for the whole UI's look: UITheme's own applyShell, the
@@ -572,6 +616,60 @@ end
 
 local LIP_DEPTH = 6
 
+-- ============================================================================
+-- THE DROP SHADOW, THIRD ATTEMPT AND THE FIRST ONE THAT IS NOT A FRAME (18.5)
+-- ============================================================================
+--
+-- Asked for in as many words on 2026-08-16: *"da ima neku dimenziju da izgleda 3d senke neke"*. The
+-- kit has had no shadow since 2026-08-11, when both Frame-based variants were removed on her own
+-- play-test report ("an ugly line at the bottom of the button that even sticks out"). Both deserved
+-- it, and the reason was never taste -- it is that **a Frame cannot be soft**. Alpha falling off
+-- over a distance is the whole of what a shadow is, and `UICorner` + `BackgroundTransparency` can
+-- express exactly one hard edge. Every offset copy of a rounded shell therefore pokes a hard dark
+-- crescent out of the corners the shell has already curved away from, which is what she saw twice.
+--
+-- So this one is a sprite: `assets/ui/shadow.png`, drawn by `tools/make_shadow.py` -- a rounded
+-- rectangle blurred at sigma 14, black, with the entire falloff in the ALPHA channel so the game
+-- can tint and fade it without fighting the art. Nine-sliced, so one 192 px image serves a 640 px
+-- panel and an 82 px tile without deforming its corners.
+--
+-- THE FOUR NUMBERS, AND WHY EACH IS WHAT IT IS
+--
+--   SLICE_SCALE 0.5   the corner slice is 78 px of art; at 0.5 it renders 39 px, of which ~15 is
+--                     the rounded shape and ~21 the blur. Corners bigger than the shell they sit
+--                     under is how a soft shadow starts reading as a halo.
+--   PAD 24            = the art's own 48 px of transparent margin at that scale. The sprite's solid
+--                     rectangle then lands EXACTLY on the shell's own rectangle -- the image is
+--                     inflated by `2*PAD` and offset by `-PAD` -- so the shadow's shape is the
+--                     shell's shape and only the falloff extends past it. This is the number that
+--                     makes it look attached rather than placed.
+--   DROP 6            the same 6 px the lip uses. One light source for the whole interface, and it
+--                     is directly above: everything in this kit is lit from the top (`gradientFor`
+--                     is a bright-top vertical, `addGloss` sits on the top edge).
+--   0.62              measured against the brightest ground in the game rather than chosen. Any
+--                     denser and a HUD tile over the pale Absolute Plane grows a visible black
+--                     puddle; any lighter and it is gone over the Forest's mid-green.
+--
+-- SCOPE, deliberately narrow on both axes:
+--   * ROUND SHELLS ARE SKIPPED -- pills, circles, capsules, every progress bar. A nine-slice keeps
+--     its corner radius in PIXELS while a pill's radius is half its own height, so under a 46 px
+--     capsule the sprite's corners are the wrong shape by construction. Those surfaces already
+--     carry their depth in the gradient and the outline, which is the same conclusion `applyShell`
+--     reached about the lip one shape earlier.
+--   * CLIENT ONLY -- `UITheme` is required on the SERVER by CreatureService and BossService, and a
+--     shadow behind a creature's billboard is a smudge on the world rather than depth on a screen.
+--     Same guard that already keeps `UITheme` from creating Sounds on the server.
+local SHADOW_ASSET       = "rbxassetid://105729101275739"
+local SHADOW_SLICE       = Rect.new(78, 78, 114, 114)
+local SHADOW_SLICE_SCALE = 0.5
+local SHADOW_PAD         = 24
+local SHADOW_DROP        = 6
+local SHADOW_ALPHA       = 0.62
+
+-- Forward declaration: `applyShell` is defined below this line and calls it, while the definition
+-- itself wants `toUDim` and the constants above. Assigned before anything can call either.
+local dropShadow
+
 -- Thick dark outline + rounded corners + moulded vertical gradient.
 local function applyShell(inst, color, radius, thickness)
 	local cornerRadius = toUDim(radius)
@@ -676,6 +774,14 @@ local function applyShell(inst, color, radius, thickness)
 	grad.Parent = body
 
 	inst:SetAttribute("BaseColor", color)
+
+	-- The shell casts. `dropShadow` decides for itself whether this shape is allowed one (18.5), and
+	-- an `inst` carrying the `NoShadow` attribute opts out -- which is how a surface that is already
+	-- inside another shell (a chip on a card) says it is not a raised object.
+	if dropShadow then
+		dropShadow(inst, cornerRadius)
+	end
+
 	return bodyCorner, bodyStroke, grad
 end
 
@@ -707,6 +813,66 @@ end
 local function addShadow(_inst, _radius)
 	return nil, function() end
 end
+
+-- The sprite shadow promised by the constants at the top of this file (18.5).
+--
+-- Idempotent: it finds its own child before making one, so a surface re-shelled by a state change
+-- (`SetColor` does not call this, but `styleCard` and `applyShell` both may run twice on the same
+-- instance) gets one shadow rather than a stack of them.
+--
+-- A child of the shell, NOT a sibling. That is the fix for the half of the 2026-08-11 complaint
+-- nobody has written down since: the old sibling variant never shrank with the press, because the
+-- squash is a `UIScale` on the button and a sibling is not inside it -- so pressing made the button
+-- smaller and left a full-size shadow poking out around it. A child scales, moves, hides and dies
+-- with the thing casting it, automatically and for every caller.
+dropShadow = function(inst, radius, opts)
+	if not RunService:IsClient() then
+		return nil
+	end
+	if inst:GetAttribute("NoShadow") then
+		return nil
+	end
+
+	local cornerRadius = toUDim(radius)
+	-- a round shell (a pill, a circle) is skipped -- see the note on the constants
+	if cornerRadius.Scale >= 0.5 then
+		local stale = inst:FindFirstChild("DropShadow")
+		if stale then
+			stale:Destroy()
+		end
+		return nil
+	end
+
+	opts = opts or {}
+	local pad = opts.pad or SHADOW_PAD
+	local drop = opts.drop or SHADOW_DROP
+
+	local shadow = inst:FindFirstChild("DropShadow")
+	if not shadow or not shadow:IsA("ImageLabel") then
+		shadow = Instance.new("ImageLabel")
+		shadow.Name = "DropShadow"
+	end
+	shadow.BackgroundTransparency = 1
+	shadow.BorderSizePixel = 0
+	shadow.Image = SHADOW_ASSET
+	shadow.ImageColor3 = opts.color or Color.Shadow
+	shadow.ImageTransparency = opts.transparency or SHADOW_ALPHA
+	shadow.ScaleType = Enum.ScaleType.Slice
+	shadow.SliceCenter = SHADOW_SLICE
+	shadow.SliceScale = opts.sliceScale or SHADOW_SLICE_SCALE
+	shadow.Size = UDim2.new(1, pad * 2, 1, pad * 2)
+	shadow.Position = UDim2.new(0, -pad, 0, -pad + drop)
+	-- Below every body this shell owns. `Z.Shadow` is -1 and has been in the contract since the kit
+	-- was written; this is the first thing that has ever used it.
+	shadow.ZIndex = inst.ZIndex + Z.Shadow
+	shadow.Active = false
+	shadow.Parent = inst
+	return shadow
+end
+
+-- Public, because `MainUI.styleCard` is a second copy of `applyShell` and builds most of the HUD.
+-- One implementation, one set of numbers, whichever builder the surface came from.
+UITheme.DropShadow = dropShadow
 
 -- Faint top sheen. NEVER opaque, NEVER above content, and since 2026-08-11 never outside the
 -- shell either.
@@ -2277,7 +2443,24 @@ function UITheme.ProgressBar(parent, opts)
 	-- the bar ended was its outline. `Cloud` is one step down the light neutrals (lum 0.89, still a
 	-- light surface by every rule in this file) and reads as a groove the fill sits IN.
 	applyShell(bar, opts.trackColor or Color.Cloud, radius, opts.thickness or 4)
-	bar.ClipsDescendants = true
+	-- ===== THE HOST MUST NOT CLIP, AND THAT IS THE OTHER HALF OF THE BLACK CAPS (18.1) =====
+	--
+	-- 17.8 found the lip and removed it on round shells. It was right and it was not the whole fault:
+	-- this line was. `ClipsDescendants` on a frame with no `UICorner` of its own clips to a SQUARE,
+	-- while both bodies `applyShell` puts inside it are pills carrying a `UIStroke` drawn OUTSIDE
+	-- their curve. The region inside the square and outside the pill is exactly the four corners --
+	-- which is where those strokes still are -- so at `Radius.Pill` the two at each end merge into
+	-- one near-black crescent capping the bar. That is the boss bar Kristina photographed on
+	-- 2026-08-16 ("ovaj health bar ne treba ove tamne stvari iza nema smisla to"), and it is why the
+	-- bar had no visible outline along its top and bottom: those parts of the stroke WERE clipped.
+	--
+	-- Rounding the clip (a `UICorner` on the host) is the obvious fix and is wrong: the host and its
+	-- `InnerBody` are the same rectangle, so a rounded clip cuts the outline off the entire bar
+	-- instead of only its ends. The fill is clipped one level down instead -- `InnerBody` already
+	-- sets `ClipsDescendants` and already carries the right radius -- and the host clips nothing, so
+	-- every stroke on it is drawn whole. Proved live before it was written: with these two lines
+	-- changed on the running boss bar, the caps disappear and the outline closes round the ends.
+	bar.ClipsDescendants = false
 	bar.Parent = parent
 
 	if opts.shadow ~= false then
@@ -2288,7 +2471,11 @@ function UITheme.ProgressBar(parent, opts)
 	fill.Name = "Fill"
 	fill.Size = UDim2.new(opts.progress or 0, 0, 1, 0)
 	fill.Position = UDim2.new(0, 0, 0, 0)
-	fill.ZIndex = base + 1
+	-- Inside `InnerBody`, not beside it (18.1). Two things follow and both are wanted: the pill's own
+	-- clip trims the fill at both curved ends -- which is what the host's square clip was there to
+	-- do, badly -- and the fill can no longer cover the outline, because the stroke is drawn outside
+	-- the body the fill now lives in. Its ZIndex is relative to that body for the same reason.
+	fill.ZIndex = (bar:FindFirstChild("InnerBody") and bar.InnerBody.ZIndex or (base + Z.Body)) + 1
 	fill.BackgroundColor3 = opts.color or Color.Green
 	fill.BorderSizePixel = 0
 	local fillCorner = Instance.new("UICorner")
@@ -2300,11 +2487,13 @@ function UITheme.ProgressBar(parent, opts)
 	fillGrad.Color = gradientFor(opts.color or Color.Green)
 	fillGrad.Parent = fill
 	fill:SetAttribute("BaseColor", opts.color or Color.Green)
-	fill.Parent = bar
+	fill.Parent = bar:FindFirstChild("InnerBody") or bar
 
 	if opts.gloss ~= false then
 		local gloss = addGloss(bar, radius)
-		gloss.ZIndex = base + 2 -- above the fill, still below the label
+		-- base + 3, not base + 2: the fill sits at the body's ZIndex + 1 now (18.1), so the old value
+		-- tied with it. A tie is not a draw order, it is whichever the engine happens to walk last.
+		gloss.ZIndex = base + 3 -- above the fill, still below the label at base + Z.Content (4)
 	end
 
 	local label = Instance.new("TextLabel")
@@ -2585,7 +2774,10 @@ function UITheme.SetProgress(bar, progress, animated)
 	if not bar then
 		return
 	end
-	local fill = bar:FindFirstChild("Fill")
+	-- Recursive since 18.1: the fill is a child of the bar's `InnerBody` now, not of the bar. A
+	-- non-recursive lookup returns nil there and this function's early `return` is silent, so every
+	-- bar in the game would simply stop moving with nothing in the console.
+	local fill = bar:FindFirstChild("Fill", true)
 	if not fill or not fill:IsA("Frame") then
 		return
 	end

@@ -340,7 +340,9 @@ local function refresh()
 		pityLabel.Text = ("Charged roll in %d"):format(togo)
 		pityLabel.TextColor3 = UITheme.Color.Outline
 	end
-	local fill = pityBar:FindFirstChild("Fill")
+	-- recursive since 18.1: `UITheme.ProgressBar` parents the fill inside the bar's `InnerBody` so
+	-- the pill's own clip trims it at both ends, and a flat lookup here would find nothing silently
+	local fill = pityBar:FindFirstChild("Fill", true)
 	if fill then
 		fill.Size = UDim2.new(into / S.pityEvery, 0, 1, 0)
 	end
