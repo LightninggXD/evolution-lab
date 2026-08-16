@@ -775,6 +775,15 @@ local function applyShell(inst, color, radius, thickness)
 
 	inst:SetAttribute("BaseColor", color)
 
+	-- ===== AND IF THIS SURFACE HAD A CAPTION, IT HAS JUST BEEN PAINTED OVER (18.6) =====
+	--
+	-- Looked up through the module table rather than called directly, because `mirrorText` is
+	-- defined 400 lines below this one and both orders have a real dependency on the other. The
+	-- lookup resolves at CALL time, by which point the module is fully built.
+	if inst:IsA("TextLabel") and inst.Text ~= "" and UITheme.MirrorText then
+		UITheme.MirrorText(inst)
+	end
+
 	-- The shell casts. `dropShadow` decides for itself whether this shape is allowed one (18.5), and
 	-- an `inst` carrying the `NoShadow` attribute opts out -- which is how a surface that is already
 	-- inside another shell (a chip on a card) says it is not a raised object.
@@ -1027,6 +1036,91 @@ UITheme.GradientFor = gradientFor
 UITheme.OutlineText = outlineText
 UITheme.AutoSize = autoSize
 UITheme.IsDarkInk = isDarkInk
+
+-- ============================================================================
+-- MIRRORTEXT: THE CAPTION A SHELL WOULD OTHERWISE BURY (18.6)
+-- ============================================================================
+--
+-- **A `TextLabel` draws its own text at its OWN ZIndex, and since 15.28 the fill a shell paints
+-- lives in an `InnerBody` child one rung ABOVE it.** So the moment a text-bearing instance is
+-- handed to `applyShell` or to `MainUI.styleCard`, its caption is painted over and the surface
+-- comes out as a blank coloured pill. Every property still reads correct -- `.Text` is right,
+-- `.TextColor3` is right, `TextFits` is **true** -- which is why this keeps shipping: only a
+-- capture shows it.
+--
+-- This is the third time. 16.6 was the Pets/Potions tabs, 15.37 was the Journal disc, and 17.13 is
+-- the pet cards' enchant chips, photographed by Kristina as "blank coloured pills". Each was fixed
+-- where it was found. This is the fix at the mechanism instead: a shell that covers a caption now
+-- lifts the caption with it, wherever it is, including in code nobody has written yet.
+--
+-- ===== WHY IT USES TextTransparency AND NOT `Text = ""` =====
+--
+-- Call sites read the host back (`chip.Text:match(...)`, a refresh comparing against its previous
+-- value). Clearing it would work visually and break those silently, which is the same shape of bug
+-- this function exists to remove. The host keeps its string, stops drawing it, and every existing
+-- `x.Text = "..."` at every call site keeps working -- and now becomes visible -- through the
+-- property-changed connection below.
+--
+-- ===== TEXTBUTTONS ARE DELIBERATELY NOT TOUCHED =====
+--
+-- `MainUI.styleButton` and `UITheme.Button` already mirror those into a `Label` proxy of their own,
+-- and `styleButton` calls `styleCard` FIRST -- so mirroring TextButtons here would build a second
+-- child called `Label` on every button in the game. One owner per case: buttons there, labels here.
+local function mirrorText(inst, opts)
+	if not inst:IsA("TextLabel") then
+		return nil
+	end
+	opts = opts or {}
+
+	local label = inst:FindFirstChild("Label")
+	if label and not label:IsA("TextLabel") then
+		label = nil
+	end
+	local fresh = false
+	if not label then
+		label = Instance.new("TextLabel")
+		label.Name = "Label"
+		fresh = true
+	end
+
+	label.BackgroundTransparency = 1
+	label.Size = opts.size or UDim2.new(1, -10, 1, -6)
+	label.Position = UDim2.new(0.5, 0, 0.5, 0)
+	label.AnchorPoint = Vector2.new(0.5, 0.5)
+	label.Font = inst.Font
+	label.Text = inst.Text
+	label.TextColor3 = inst.TextColor3
+	label.TextXAlignment = inst.TextXAlignment
+	label.TextYAlignment = inst.TextYAlignment
+	label.TextWrapped = inst.TextWrapped
+	label.RichText = inst.RichText
+	label.ZIndex = inst.ZIndex + Z.Content
+	label.Parent = inst
+
+	if fresh then
+		-- The halo comes from the SAME branch as the ink, which is rule 7 in this file and the thing
+		-- that has broken twice: a near-black outline under a dark glyph draws the word as a blob
+		-- that measures perfectly. `opts.halo == false` and a dark ink both suppress it.
+		local wantHalo = (opts.halo ~= false) and not isDarkInk(inst.TextColor3)
+		outlineText(label, wantHalo and (opts.thickness or 4) or 0)
+		autoSize(label, opts.minTextSize or 12, opts.maxTextSize or 22)
+		inst:GetPropertyChangedSignal("Text"):Connect(function()
+			label.Text = inst.Text
+		end)
+		inst:GetPropertyChangedSignal("TextColor3"):Connect(function()
+			label.TextColor3 = inst.TextColor3
+			local stroke = label:FindFirstChildOfClass("UIStroke")
+			if stroke then
+				-- ink and halo move together or not at all
+				stroke.Transparency = isDarkInk(inst.TextColor3) and 1 or 0
+			end
+		end)
+	end
+
+	inst.TextTransparency = 1
+	return label
+end
+UITheme.MirrorText = mirrorText
 
 -- Shared body used by Button and Card.
 local function buildSurface(inst, parent, opts, defaultRadius)

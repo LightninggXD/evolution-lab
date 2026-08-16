@@ -144,11 +144,16 @@ local function build()
 		maxTextSize = 30,
 	})
 
+	-- A DISC WITH A ✕, LIKE EVERY OTHER PANEL IN THE GAME (18.7). This was the one close button
+	-- built as a rounded SQUARE with a capital letter X in it -- a different shape and a different
+	-- glyph from the nineteen panels next to it, which is the kind of difference a player reads as
+	-- "this screen is from somewhere else" without being able to say why. `Radius.Pill` on a square
+	-- surface is a circle.
 	local close = UITheme.Button(panel, {
 		name = "Close",
-		text = "X",
+		text = "\u{2715}",
 		color = UITheme.Color.Red,
-		radius = 12,
+		radius = UITheme.Radius.Pill,
 		size = UDim2.new(0, 42, 0, 42),
 		position = UDim2.new(1, -10, 0, 10),
 		anchorPoint = Vector2.new(1, 0),
@@ -182,9 +187,21 @@ local function build()
 	})
 
 	-- ---- the odds, at this player's own luck
+	--
+	-- ===== THE ODDS TABLE WAS A BLUE SLAB, AND THE LADDER IS THE POINT OF IT (18.7) =====
+	--
+	-- `PanelBlue` at luminance 0.59 is a saturated mid-tone, and seven rarity colours were printed
+	-- straight onto it: Common (a light grey) and Secret (near-black) both sank into it, and the
+	-- five in between were competing with the card rather than with each other. The card is the
+	-- kit's `Frost` chip surface now (0.95, a hair off white) -- so the seven names are the only
+	-- chromatic things on it, which is what a rarity ladder is FOR -- and each row gained a
+	-- **swatch disc** in its own colour, because a colour the eye can compare beats a colour it has
+	-- to read off a word. The percentages go to `Ink`: they are data, they are the same on every
+	-- row, and printing them in cream on a light card is the white-on-white fault this kit has
+	-- already paid for three times.
 	local oddsCard = UITheme.Card(panel, {
 		name = "OddsCard",
-		color = UITheme.Color.PanelBlue,
+		color = UITheme.Color.Frost,
 		size = UDim2.new(1, -32, 0, 214),
 		position = UDim2.new(0, 16, 0, contentY + 72),
 		radius = 16,
@@ -197,25 +214,38 @@ local function build()
 		position = UDim2.new(0, 12, 0, 6),
 		xAlign = "Left",
 		maxTextSize = 17,
-		color = UITheme.Color.Cream,
+		color = UITheme.Color.InkSoft,
 		zIndex = 24,
 	})
 
 	oddsRows = {}
 	for i, m in ipairs(GameConfig.Mutations) do
+		-- 18 px, on the row's own centre line: big enough to read as a colour rather than as a dot,
+		-- small enough that seven of them stacked do not become the loudest thing on the panel.
+		UITheme.Card(oddsCard, {
+			name = "Swatch" .. m.name,
+			color = m.color,
+			size = UDim2.new(0, 18, 0, 18),
+			position = UDim2.new(0, 12, 0, 31 + (i - 1) * 26),
+			radius = UITheme.Radius.Pill,
+			thickness = 3,
+			zIndex = 23,
+		})
 		local row = UITheme.Label(oddsCard, {
 			name = "Odds" .. m.name,
+			-- 38 = the swatch's 18 plus its 3px rim on both sides plus a 12px gap
 			text = m.name,
-			size = UDim2.new(1, -24, 0, 24),
-			position = UDim2.new(0, 12, 0, 28 + (i - 1) * 26),
+			size = UDim2.new(1, -62, 0, 24),
+			position = UDim2.new(0, 38, 0, 28 + (i - 1) * 26),
 			xAlign = "Left",
 			maxTextSize = 18,
 			minTextSize = 12,
 			color = m.color,
 			zIndex = 24,
 		})
-		-- Secret is authored near-black on purpose. On the odds card it would vanish into its own
-		-- outline, so that one row gets a light outline and reads as black-with-a-halo instead.
+		-- Secret is authored near-black on purpose. On a light card that is now the ONE rarity that
+		-- reads without a halo at all, so it keeps the light outline it already had rather than
+		-- being drawn as black inside a near-black stroke.
 		if isDark(m.color) then
 			lightOutline(row)
 		end
@@ -228,7 +258,7 @@ local function build()
 			xAlign = "Right",
 			maxTextSize = 18,
 			minTextSize = 12,
-			color = UITheme.Color.Cream,
+			color = UITheme.Color.Ink,
 			zIndex = 24,
 		})
 		oddsRows[m.name] = pct
@@ -247,13 +277,19 @@ local function build()
 		zIndex = 22,
 	})
 	inkOnWhite(pityLabel)
+	-- 16 -> 24 tall and it carries its own count (18.7). A 16 px bar with the number living in a
+	-- separate label above it is two things to read for one fact; `ProgressBar` centres a label
+	-- across the whole bar and `outlineText` is what makes that legible over both halves of it.
 	pityBar = UITheme.ProgressBar(panel, {
 		name = "PityBar",
-		size = UDim2.new(1, -32, 0, 16),
-		position = UDim2.new(0, 16, 0, contentY + 318),
+		size = UDim2.new(1, -32, 0, 24),
+		position = UDim2.new(0, 16, 0, contentY + 316),
 		color = UITheme.Color.Sunny,
 		radius = UITheme.Radius.Pill,
 		thickness = 3,
+		text = "",
+		maxTextSize = 16,
+		minTextSize = 11,
 		zIndex = 22,
 	})
 
@@ -299,14 +335,29 @@ local function refresh()
 	costLabel.TextColor3 = afford and UITheme.Color.Outline or UITheme.Color.Red
 	UITheme.SetColor(rollButton, afford and UITheme.Color.Green or UITheme.Color.Locked)
 
+	-- ===== THE CARD WEARS THE MUTATION, THE WORD DOES NOT (18.7) =====
+	--
+	-- It used to print the rarity's colour as TEXT on a fixed Lavender card, which is the worst of
+	-- both: Mythic's red on lavender is a low-contrast word, and the card -- the biggest coloured
+	-- object on the panel -- said the same thing whatever you were wearing. Now the SURFACE carries
+	-- the mutation and the label asks `inkOn` what to print on it, so the answer is right for a
+	-- near-black Secret and for a pale Common by the same branch. The lavender is the "nothing
+	-- spliced yet" state, which is the only state that has no colour of its own.
 	local worn = currentData.SplicerMutation and GameConfig.GetMutationByName(currentData.SplicerMutation)
+	local wornCard = panel:FindFirstChild("WornCard")
 	if worn then
 		currentLabel.Text = ("Wearing %s -- x%.2f income, +%d%% speed")
 			:format(worn.name, worn.incomeMult, worn.speedPct or 0)
-		currentLabel.TextColor3 = worn.color
+		currentLabel.TextColor3 = UITheme.InkOn(worn.color)
+		if wornCard then
+			UITheme.SetColor(wornCard, worn.color)
+		end
 	else
 		currentLabel.Text = "No mutation yet -- splice one to begin"
-		currentLabel.TextColor3 = UITheme.Color.Cream
+		currentLabel.TextColor3 = UITheme.InkOn(UITheme.Color.Lavender)
+		if wornCard then
+			UITheme.SetColor(wornCard, UITheme.Color.Lavender)
+		end
 	end
 
 	-- The odds, computed the way the roll computes them, at this player's own luck. A charged
@@ -345,6 +396,12 @@ local function refresh()
 	local fill = pityBar:FindFirstChild("Fill", true)
 	if fill then
 		fill.Size = UDim2.new(into / S.pityEvery, 0, 1, 0)
+	end
+	-- and the bar says its own number (18.7) -- "3 / 5" is the fact; the sentence above it is the
+	-- explanation, and a bar with neither was a coloured stripe
+	local pityText = pityBar:FindFirstChild("Label")
+	if pityText then
+		pityText.Text = ("%d / %d"):format(into, S.pityEvery)
 	end
 end
 
