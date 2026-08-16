@@ -213,8 +213,18 @@ local function liftChildren(inst)
 		-- Lavender rendered as slate, Gold as bronze. UITheme's own widgets (the sidebar tiles, the
 		-- toasts) never went through this function, which is exactly why they were the only bright
 		-- things on screen and looked like they belonged to a different kit.
+		--
+		-- ===== AND `DropShadow`, WHICH WOULD OTHERWISE ARRIVE ON TOP OF THE THING IT SHADOWS (18.5) =====
+		--
+		-- `UITheme.DropShadow` authors its sprite at `inst.ZIndex + Z.Shadow`, i.e. one BELOW the
+		-- shell, and parents it as a child so it scales with the press. This function's `ChildAdded`
+		-- hook is live by then, and a child one below the shell is exactly what it exists to lift --
+		-- so without this name the soft shadow would be raised four above the shell and drawn over the
+		-- card's own face, at 62% transparency, as a grey haze on every surface in the file. Same
+		-- shape of bug as `ShadowBody` above, one row later.
 		if child.Name == "Gloss" or child.Name == "Shadow" or child.Name == "IconShadow"
-			or child.Name == "InnerBody" or child.Name == "ShadowBody" then return end
+			or child.Name == "InnerBody" or child.Name == "ShadowBody"
+			or child.Name == "DropShadow" then return end
 		local target = inst.ZIndex + UITheme.Z.Content
 		if child.ZIndex >= target then return end
 		local delta = target - child.ZIndex
@@ -343,6 +353,23 @@ local function styleCard(inst, baseColor, radius, thickness)
 		NumberSequenceKeypoint.new(1, 1),
 	})
 	gloss.Parent = body
+
+	-- ===== THE SURFACE CASTS (18.5) =====
+	--
+	-- `UITheme.applyShell` calls `UITheme.DropShadow` for the widgets the kit builds itself. This
+	-- function is the SECOND copy of applyShell and it builds most of the HUD -- every panel, every
+	-- Daily tile, every card in this file -- so without this line "nothing in this UI casts a shadow"
+	-- would still be true of everything she actually photographed. One implementation and one set of
+	-- numbers, whichever builder the surface came from.
+	--
+	-- Passed the same `cornerRadius` computed at the top rather than the raw `radius` argument, so the
+	-- sprite's own round-shell opt-out (`Scale >= 0.5` -> no shadow, see the note in UITheme) reads
+	-- the shape that was actually drawn after `SnapRadius`, not the one that was asked for.
+	--
+	-- BEFORE `liftChildren`, and it makes no difference which side it goes on: the sprite is named
+	-- `DropShadow`, which is on the skip list above for exactly this reason. Anything that is a chip
+	-- lying flat ON another card rather than a raised object sets `NoShadow` before it is styled.
+	UITheme.DropShadow(inst, cornerRadius)
 
 	liftChildren(inst)
 	return bodyStroke
@@ -616,39 +643,55 @@ currencyLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
 currencyLayout.Padding = UDim.new(0, 10)
 currencyLayout.Parent = currencyStack
 
--- ===== PASTEL, NOT THE DARK CAPSULE THIS SHIPPED AS THIS MORNING =====
+-- ===== NEAR-WHITE CHROME, NOT CANDY (18.2) =====
 --
--- The first pass gave all three the same near-black indigo, on the argument that a wallet is one
--- readout and a dark shell is what separates a thing you READ from a thing you PRESS. She looked at
--- it and asked for the opposite -- "nemoj te crne vec bright pastel i beli theme" -- and she is
--- right about this game: everything else on the screen is candy, so a black bar is the one element
--- that looks like it came from a different application.
+-- Three passes got here. Bare outlined text on the 3D world -> one near-black indigo capsule for all
+-- three -> Mint / Aqua / Lavender, painted on her own note ("nemoj te crne vec bright pastel i beli
+-- theme"). She looked at the third and asked for the next step down, not for the dark bar back:
+-- "ovo je lose ne vidi se nista od ovog okolo il napravi belje il lepse ne znam".
 --
--- The unity argument is answered by TREATMENT rather than by hue. All three are the same capsule,
--- the same lightness, the same dark ink, the same 5 px rim -- so they still read as one stack --
--- while the hue makes the three currencies tellable apart at a glance, which the single dark shell
--- actively prevented. Mint / Aqua / Lavender are the kit's existing pastel set, already used by the
--- HUD tiles, so this introduces no new colour to the screen.
+-- She is describing a measurement. In the kit's own luminance scale (0.299R + 0.587G + 0.114B, the
+-- one `isLightSurface` reads) the three pastels are rgb(68,225,145) = 0.66, rgb(105,205,250) = 0.71
+-- and rgb(175,138,250) = 0.64 -- fully saturated candy, and stacked three deep at 250 px wide they
+-- were the loudest object on a screen whose only job is to show a bright village.
 --
--- INK: rgb(46,34,66) at luminance 0.16 against fills at 0.66 / 0.71 / 0.64. Dark ink is not a taste
--- call here, it is forced -- white on a 0.66 pastel is about 2.3:1. And because `isDarkInk` cuts at
--- 0.45, UITheme.Pill's own branch sees dark ink on a LIGHT shell and drops the halo, which is the
--- half of this that has silently broken twice before: a dark glyph inside a dark outline is a blob
--- that reads correct in every property. Do not hand any of these a stroke back.
+-- WHAT REPLACES THEM IS `Frost` LERPED 16% TOWARD EACH CURRENCY'S HUE -- not three pastels, and not
+-- three identical Frosts either. Frost on its own (rgb 240,243,252, luminance 0.95) buys the quiet
+-- and gives back three capsules nobody can tell apart at a glance, which is the exact fault the
+-- single dark shell had and the one thing the pastels got right. 16% is the smallest tint that
+-- survives a screenshot: the fills come out rgb(213,240,235), rgb(218,237,252) and rgb(230,226,252)
+-- -- a mint-white, a sky-white and a lilac-white at luminance 0.91 / 0.91 / 0.90, i.e. within 0.05
+-- of Frost itself and 0.25 lighter than what they replace. Both ends of every lerp are existing kit
+-- tokens, so this puts no new colour on the screen (same move as the Journal's worn-skin rim).
+--
+-- INK: `Color.Ink` (rgb 48,38,66, luminance 0.17), and it is FORCED rather than chosen -- white on a
+-- 0.90 fill is about 1.1:1. Measured against these three the ratio is 11.8 / 11.8 / 11.2 : 1 (WCAG,
+-- linearised sRGB), up from 8.4:1 on the Mint capsule -- so the wallet got quieter and MORE legible
+-- in the same edit. `Color.Ink` rather than the hand-typed rgb(46,34,66) that stood here: it is the
+-- kit's named ink for a light surface and it is three points off what was already being drawn.
+--
+-- All three are still one wallet -- same capsule, same 5 px rim, same ink, same treatment -- and
+-- because `isDarkInk` cuts at 0.45, `UITheme.Pill`'s own branch sees dark ink on a light shell and
+-- drops the halo. Do not hand any of these a stroke back: a dark glyph inside a `Color.Outline`
+-- halo is a blob that reads correct in every property and only fails in a capture.
+--
+-- THE IDENTITY MOVES ONTO THE TWO THINGS THAT SHOULD BE LOUD, which is what the row asked for: the
+-- emoji (already coloured art) and the `+` disc hung on these pills ~4,900 lines down, which is
+-- Green on DNA and SkyBlue on Diamonds. The capsule is chrome; the thing you press is not.
 local dnaPill = UITheme.Pill(currencyStack, {
 	name = "DNAPill", icon = "🧬", text = "0", layoutOrder = 1,
 	size = UDim2.new(1, 0, 0, 46), maxTextSize = 34,
-	shellColor = UITheme.Color.Mint, color = Color3.fromRGB(46, 34, 66),
+	shellColor = UITheme.Color.Frost:Lerp(UITheme.Color.Mint, 0.16), color = UITheme.Color.Ink,
 })
 local diamondPill = UITheme.Pill(currencyStack, {
 	name = "DiamondPill", icon = "💎", text = "0", layoutOrder = 2,
 	size = UDim2.new(1, 0, 0, 40), maxTextSize = 30,
-	shellColor = UITheme.Color.Aqua, color = Color3.fromRGB(46, 34, 66),
+	shellColor = UITheme.Color.Frost:Lerp(UITheme.Color.Aqua, 0.16), color = UITheme.Color.Ink,
 })
 local shardPill = UITheme.Pill(currencyStack, {
 	name = "ShardPill", icon = "🌟", text = "0", layoutOrder = 3,
 	size = UDim2.new(1, 0, 0, 40), maxTextSize = 30,
-	shellColor = UITheme.Color.Lavender, color = Color3.fromRGB(46, 34, 66),
+	shellColor = UITheme.Color.Frost:Lerp(UITheme.Color.Lavender, 0.16), color = UITheme.Color.Ink,
 })
 -- (the three pills' .Value labels used to be cached here and were never read again -- see the note
 -- on the Season XP bar: this chunk is at Luau's 200-register limit and every unused local counts)
@@ -3907,6 +3950,124 @@ rebirthReqLabel.Text = "Reach Universe God to rebirth."
 rebirthReqLabel.Parent = rebirthReqCard
 themeLabel(rebirthReqLabel, 18)
 
+-- ===== THE FOUR RUNGS, DRAWN, BECAUSE AT 4/4 THIS CARD WAS AN EMPTY AMBER BOX (18.4) =====
+--
+-- Her capture of the finished panel: a purple header, a purple stat card, then a 398 x 176 amber
+-- slab carrying two sentences and about 100 px of nothing, over a grey "ALL REBIRTHS COMPLETE"
+-- button. The endgame's own screen was telling the player there was nothing left -- which is exactly
+-- backwards, because a finished ladder is the largest thing anybody in this game ever does.
+--
+-- The card keeps its job in the two live states (what the next milestone costs and what it pays).
+-- What changes is the third: when the ladder is spent, the sentence is hidden and these rows take
+-- the whole card, one per rebirth, each naming the stage it was gated behind and the two permanent
+-- multipliers it left behind. Nothing here reads or writes the ladder -- the numbers come out of
+-- `GameConfig.GetRebirthDamageMult` / `GetRebirthIncomeMult` with a synthetic `{ Rebirths = n }`,
+-- the same two functions the live branches already call, so a fifth rung (17.14) needs no edit here.
+--
+-- COLOUR, WHICH IS THE OTHER HALF OF THE ROW. The panel was one hue plus a grey. Each rung takes a
+-- kit pastel of its own -- Aqua, Mint, Lavender, Gold, an escalation ending on the trophy colour --
+-- at FULL chroma on the rank disc and at `UITheme.DoneShade` on the row behind it. That is the kit's
+-- own three-state separation and this is the "spent" case of it: same hue, a third of the chroma,
+-- never the refusal grey. Four bright rows on the gold card is where the extra "nijanse" come from,
+-- and none of them is a new colour.
+--
+-- INSIDE AN IIFE with one handle on `hudRefs`, per the register-cap rule at the top of the file.
+;(function()
+	-- Full chroma, one per rung; wrapped rather than indexed directly so a ladder longer than the
+	-- palette (17.14 is open on exactly that) repeats colours instead of handing `DoneShade` a nil.
+	local hues = { UITheme.Color.Aqua, UITheme.Color.Mint, UITheme.Color.Lavender, UITheme.Color.Gold }
+	local count = math.max(GameConfig.MaxRebirths, 1)
+
+	-- MEASURED OFF THE CARD, NOT TYPED. The card is 176 tall; 7 px of margin top and bottom and a
+	-- 6 px gutter leaves 36 px a row at four rungs and 27 at five, so the block always fills the box
+	-- it was added to fill and a fifth rebirth cannot push a row out of the bottom of it.
+	local gap = 6
+	local inset = 7
+	local rowH = math.floor(((rebirthReqCard.Size.Y.Offset - inset * 2) - gap * (count - 1)) / count)
+	local rungs = {}
+
+	for tier = 1, count do
+		local hue = hues[((tier - 1) % #hues) + 1]
+
+		local row = Instance.new("Frame")
+		row.Name = "Rung" .. tier
+		row.Size = UDim2.new(1, -24, 0, rowH)
+		row.Position = UDim2.new(0, 12, 0, inset + (tier - 1) * (rowH + gap))
+		row.Visible = false
+		-- A CHIP LYING ON A CARD, NOT A RAISED OBJECT (18.5). Without this the soft sprite would
+		-- draw a second shadow inside the one the gold card already casts, which is what makes a
+		-- stack of nested surfaces look like fog rather than like layers.
+		row:SetAttribute("NoShadow", true)
+		row.Parent = rebirthReqCard
+		styleCard(row, UITheme.DoneShade(hue), UDim.new(0, 10), 3)
+
+		-- The rank disc is the one thing on the row at full chroma: the row says "spent", the disc
+		-- says "and this is which one". Radius Pill, so `DropShadow` declines it on shape alone.
+		local disc = Instance.new("Frame")
+		disc.Name = "Rank"
+		disc.Size = UDim2.new(0, rowH - 10, 0, rowH - 10)
+		disc.Position = UDim2.new(0, 7, 0.5, 0)
+		disc.AnchorPoint = Vector2.new(0, 0.5)
+		disc.ZIndex = row.ZIndex + UITheme.Z.Badge
+		disc.Parent = row
+		styleCard(disc, hue, UDim.new(1, 0), 2)
+
+		local rank = Instance.new("TextLabel")
+		rank.Name = "RankLabel"
+		rank.Size = UDim2.new(1, 0, 1, 0)
+		rank.BackgroundTransparency = 1
+		rank.Text = tostring(tier)
+		rank.ZIndex = disc.ZIndex + UITheme.Z.Content
+		rank.Parent = disc
+		-- white on a 0.64-0.78 pastel (Lavender through Gold), all of it under UITheme's 0.86
+		-- light-surface cut, so the chunky halo is the right answer and `themeLabel` keeps it
+		themeLabel(rank, math.max(rowH - 18, 14))
+
+		local where = Instance.new("TextLabel")
+		where.Name = "StageLabel"
+		where.Size = UDim2.new(0, 96, 1, -8)
+		where.Position = UDim2.new(0, rowH + 4, 0, 4)
+		where.BackgroundTransparency = 1
+		where.TextXAlignment = Enum.TextXAlignment.Left
+		where.Text = ("Stage %d"):format(GameConfig.GetRebirthTierStageIndex(tier))
+		where.ZIndex = row.ZIndex + UITheme.Z.Content
+		where.Parent = row
+		-- Ink, not white: a DoneShade is a light surface BY CONSTRUCTION (luminance 0.90), so this is
+		-- the `inkOn` answer rather than a taste call, and themeLabel drops the halo with it.
+		themeLabel(where, 16, UITheme.Color.Ink)
+
+		-- WHAT THIS RUNG PAID, as the running totals it left behind rather than as its own increment.
+		-- "+1.5x income" is a number nobody can act on; "you permanently earn x4.00 from here" is the
+		-- shape the info card above already uses and the only one in which a spent milestone reads as
+		-- a gain.
+		local paid = Instance.new("TextLabel")
+		paid.Name = "PaidLabel"
+		paid.Size = UDim2.new(1, -(rowH + 106), 1, -8)
+		paid.Position = UDim2.new(1, -10, 0, 4)
+		paid.AnchorPoint = Vector2.new(1, 0)
+		paid.BackgroundTransparency = 1
+		paid.TextXAlignment = Enum.TextXAlignment.Right
+		paid.Text = ("\u{2694}\u{FE0F} x%.2f    \u{1F9EC} x%.2f"):format(
+			GameConfig.GetRebirthDamageMult({ Rebirths = tier }),
+			GameConfig.GetRebirthIncomeMult({ Rebirths = tier }))
+		paid.ZIndex = row.ZIndex + UITheme.Z.Content
+		paid.Parent = row
+		themeLabel(paid, 16, UITheme.Color.Ink)
+
+		rungs[tier] = row
+	end
+
+	-- One handle out, called from `refreshRebirthPanel` below. The sentence and the rungs are the two
+	-- halves of one switch and are never both on: the card is 176 px and either fills with prose or
+	-- fills with rows.
+	hudRefs.setRebirthRungs = function(show)
+		rebirthReqLabel.Visible = not show
+		for _, row in ipairs(rungs) do
+			row.Visible = show
+		end
+	end
+end)()
+
 local rebirthActionButton = Instance.new("TextButton")
 rebirthActionButton.Name = "ActionButton"
 rebirthActionButton.Size = UDim2.new(1, -32, 0, 58)
@@ -4068,11 +4229,27 @@ local function refreshRebirthPanel()
 	elseif why == "done" then
 		-- The ladder is four rungs and it ENDS. A save from before this rule can hold more than four
 		-- and keeps every point of it -- there is simply nothing left to spend.
+		--
+		-- The sentence is kept but goes UNSEEN in this state (`setRebirthRungs` hides it): the four
+		-- rung rows say the same thing with the numbers in it, and a sentence over four rows is what
+		-- put 100 px of nothing on this card in the first place. It stays authored so the card is
+		-- never blank if the rung block ever fails to build.
 		rebirthReqLabel.Text = string.format(
 			"All %d Rebirths complete.\nEverything they paid for is permanent and stays with you.",
 			GameConfig.MaxRebirths)
-		rebirthActionButton.Text = "ALL REBIRTHS COMPLETE"
-		setButtonColor(rebirthActionButton, UITheme.Color.Locked)
+		-- ===== GOLD, NOT `Locked` (18.4) =====
+		--
+		-- "puno je sivo i monotono", and this button is the sentence it was aimed at: the proudest
+		-- line in the game was grey text on a grey slab. Grey is the kit's REFUSAL swatch -- locked,
+		-- unaffordable, cannot press -- and it is genuinely right for the `stage` branch below, where
+		-- the button is a control the player is not allowed to use yet. It is wrong here, because
+		-- nothing is being refused: there is no fifth rung to want. `Color.Gold` is the kit's trophy
+		-- colour and is used nowhere as an action, so it cannot be misread as "press me"; `Active`
+		-- stays false and the button still does nothing when clicked, which is the behaviour that
+		-- actually matters. White ink over the 4 px halo, same as the gold card above it -- Gold is
+		-- luminance 0.78, under UITheme's 0.86 light-surface cut, so the ink does not want to flip.
+		rebirthActionButton.Text = string.format("\u{1F3C6}  ALL %d REBIRTHS COMPLETE", GameConfig.MaxRebirths)
+		setButtonColor(rebirthActionButton, UITheme.Color.Gold)
 		rebirthActionButton.Active = false
 	else
 		-- HOW FAR OFF, in stages, because that is the unit the player moves in. Naming the creature
@@ -4089,6 +4266,10 @@ local function refreshRebirthPanel()
 		setButtonColor(rebirthActionButton, UITheme.Color.Locked)
 		rebirthActionButton.Active = false
 	end
+
+	-- The req card holds prose in the two live states and the spent-rung block in the third; one call
+	-- owns both halves so they can never both be on. See the block over the rungs.
+	if hudRefs.setRebirthRungs then hudRefs.setRebirthRungs(why == "done") end
 
 	-- ===== THE LADDER BAR (11.16) =====
 	-- Computed here rather than in each of the three branches above, because all three want the same
@@ -4107,7 +4288,12 @@ local function refreshRebirthPanel()
 			frac = math.clamp((stage - 1) / math.max(1, reqStageIndex - 1), 0, 1)
 			text = ("Stage %d / %d"):format(stage, reqStageIndex)
 		end
-		rebirthLadderBar.Fill.Size = UDim2.new(frac, 0, 1, 0)
+		-- THROUGH `SetProgress`, NOT `bar.Fill` (18.1). The fill is a child of the bar's `InnerBody`
+		-- now, so that the pill's own clip trims it at the curved ends instead of the bar clipping a
+		-- square hole and leaving two dark crescents. A direct index would throw here -- "Fill is not
+		-- a valid member of Frame" -- inside the one refresh this panel has. `SetProgress` does the
+		-- recursive lookup; `false` keeps this instant, which is what the direct write was.
+		UITheme.SetProgress(rebirthLadderBar, frac, false)
 		rebirthLadderBar.Label.Text = text
 	end
 
@@ -4180,7 +4366,20 @@ rewardPanel.Name = "RewardPanel"
 -- (anchored at 1,-14, 44 tall), which left ten pixels between them -- so the code bar (5.1) is paid
 -- for with panel height rather than by moving anything that was already here. Still smaller than
 -- the Journal at 968x548, so the responsive fit in registerPanel has nothing new to solve.
-rewardPanel.Size = UDim2.new(0, 700, 0, 578)
+--
+-- 578 -> 638 (18.3), and 56 of those 60 pixels go into the reward glyphs. "vece ikone" was one of
+-- three asks on this panel and the icon could not grow inside a 152 px tile: the day chip ends at
+-- y = 30 and the two value lines own the bottom 50, which left the glyph 56 px in the middle of a
+-- card 140 wide. The cell is 182 now (see CELL_H) and the glyph is 84 -- wider than the day chip
+-- above it, which it was not before. The grid bottom moves 454 -> 514 against a code bar whose top
+-- edge is 638 - 110 = 528.
+--
+-- The last 4 px are the pulse's clearance, and they are a measurement rather than a rounding: the
+-- claimable tile now runs `UITheme.Attention` at peak 1.03 and a UIScale grows about the
+-- AnchorPoint, which on these cells is (0,0) -- so all of the growth goes down and right. The hero
+-- column is the worst case at 372 x 1.03 = +11.2 px, reaching y = 525.2 against a code bar at 528.
+-- Still under the Journal's 968 width, so registerPanel's fit has nothing new to solve.
+rewardPanel.Size = UDim2.new(0, 700, 0, 638)
 rewardPanel.Position = PANEL_ANCHOR
 rewardPanel.ZIndex = 20
 rewardPanel.Visible = false
@@ -4234,10 +4433,13 @@ local rewardStreakLine = select(4, UITheme.PanelHeader(rewardPanel, {
 -- band. Two top-level registers back (card + label) against the one handle the subtitle costs.
 
 local GRID_X, GRID_Y = 25, 142
-local CELL_W, CELL_H, CELL_GAP = 140, 152, 8
+-- CELL_H 152 -> 182 (18.3). The 30 px buys the reward glyph: 56 -> 84 on a small tile and 130 -> 164
+-- on the hero. Nothing else on the card moved except downward by the same amount, and the panel grew
+-- by 56 (2 rows + no extra gutter) so the code bar below still clears the grid by ten.
+local CELL_W, CELL_H, CELL_GAP = 140, 182, 8
 local DAY7_W = 200
 
-local rewardCells = {} -- [dayIndex] = { frame, dayLabel, iconLabel, amountLabel, bonusLabel, checkmark, strokeInst, idleColor, isToday }
+local rewardCells = {} -- [dayIndex] = { frame, dayLabel, headerPill, plinth, iconLabel, amountLabel, bonusLabel, checkmark, strokeInst, idleColor, isToday }
 
 -- one day of the board. `big` is the Day 7 hero column on the right: same anatomy, gold
 -- shell, everything scaled up so it reads as the prize you are streaking towards.
@@ -4248,7 +4450,24 @@ local function buildDayCell(dayIndex, size, position, big)
 	frame.Size = size
 	frame.Position = position
 	frame.Parent = rewardPanel
-	local idleColor = big and Color3.fromRGB(225, 255, 140) or Color3.fromRGB(255, 250, 195)
+	-- ===== SEVEN HUES, NOT ONE CREAM AND ONE LIME (18.3) =====
+	--
+	-- Every tile but the hero was rgb(255,250,195) -- a single cream at luminance 0.97 -- so the board
+	-- had exactly one colour in it and a claimed day had no hue of its own to keep. "vise nijansi
+	-- boja ubaci" is answered here, at the source, rather than by tinting states later.
+	--
+	-- The ramp is cool -> warm -> gold across the week, so the row itself reads as an escalation
+	-- toward the Day 7 prize, and it is drawn entirely from `UITheme.Color`: Aqua, Lavender,
+	-- Bubblegum, Coral, Peach, Sunny, Gold. Two rules decided the list. Nothing in it is GREEN,
+	-- because Green is what a claimable tile turns and a day whose idle colour was already green
+	-- would have no state left to show; and day 7 is Gold rather than the old lime, which is what the
+	-- header band has said this board streaks toward since 17.x ("Sunny because Day 7 is the gold
+	-- hero column"). `#dayHues` is indexed modulo its own length so a longer week cannot nil this.
+	local dayHues = {
+		UITheme.Color.Aqua, UITheme.Color.Lavender, UITheme.Color.Bubblegum,
+		UITheme.Color.Coral, UITheme.Color.Peach, UITheme.Color.Sunny, UITheme.Color.Gold,
+	}
+	local idleColor = dayHues[((dayIndex - 1) % #dayHues) + 1]
 	local strokeInst = styleCard(frame, idleColor, UDim.new(0, 16), big and 5 or 3.5)
 
 	local headerPill = Instance.new("Frame")
@@ -4300,16 +4519,59 @@ local function buildDayCell(dayIndex, size, position, big)
 		icon = "\u{1F48E}"
 	end
 
+	-- ===== THE PLINTH THE REWARD SITS ON (18.3) =====
+	--
+	-- "da ima neku dimenziju da izgleda 3d". The tile is one flat rectangle with a glyph floating in
+	-- the middle of it; a second plane behind the glyph is what turns the reward into an OBJECT
+	-- mounted on the card rather than a sticker printed on it. It also carries the second half of
+	-- "vise nijansi": at `shade(idle, -0.16)` every tile now shows two values of its own hue instead
+	-- of one flat wash, which is fourteen fills across the board where there used to be two.
+	--
+	-- `NoShadow`, because this is a chip lying ON the tile and not a raised object of its own -- a
+	-- soft sprite here would be a second shadow inside the one the tile already casts, which reads as
+	-- fog rather than as layers. What gives it its edge is styleCard's own gradient and outline.
+	local plinth = Instance.new("Frame")
+	plinth.Name = "Plinth"
+	plinth.Size = UDim2.new(0, big and 180 or 106, 0, big and 200 or 92)
+	plinth.Position = UDim2.new(0.5, 0, 0, big and 44 or 34)
+	plinth.AnchorPoint = Vector2.new(0.5, 0)
+	plinth.ZIndex = frame.ZIndex + UITheme.Z.Content
+	plinth:SetAttribute("NoShadow", true)
+	plinth.Parent = frame
+	styleCard(plinth, shade(idleColor, -0.16), UDim.new(0, big and 18 or 14), big and 4 or 3)
+
+	-- ===== "VECE IKONE", MEASURED =====
+	--
+	-- Before: an 80 x 24 day chip above a glyph drawn at 56 px (the box was `(1,0,0,56)` and the art is
+	-- `ScaleType.Fit`, so 56 is the whole of it) -- the reward, which is the only reason the panel
+	-- exists, was drawn narrower than the label naming the day it falls on. After: 84 px on a small
+	-- tile (+50%) and 164 on the hero (+26%), both square and both centred on the plinth, so the glyph
+	-- is now the largest thing on its own card by a wide margin.
+	--
+	-- `maxTextSize` follows, because the slot is an ImageLabel only when `IconLibrary` has a drawing
+	-- for that emoji and a TextLabel when it does not -- a 44 pt cap would have left the fallback
+	-- glyph at its old size inside the new box, which is the failure mode where only SOME of the days
+	-- got bigger. 0.86 x the box, the same ratio the currency pills use.
+	--
+	-- ZIndex is passed explicitly rather than defaulted, so the slot lands one above the plinth and
+	-- its own `IconShadow` sibling (authored at zIndex - 1) lands ON the plinth instead of under the
+	-- tile's opaque body, where liftChildren's by-name skip had been leaving it.
 	local iconLabel = UITheme.IconSlot(frame, {
-		name = "IconLabel", icon = icon, maxTextSize = big and 80 or 44,
-		size = UDim2.new(1, 0, 0, big and 130 or 56),
-		position = UDim2.new(0, 0, 0, big and 50 or 34),
+		name = "IconLabel", icon = icon, maxTextSize = big and 140 or 72,
+		size = UDim2.new(0, big and 164 or 84, 0, big and 164 or 84),
+		position = UDim2.new(0.5, 0, 0, big and 62 or 38),
+		anchorPoint = Vector2.new(0.5, 0),
+		zIndex = frame.ZIndex + UITheme.Z.Content + 1,
 	})
 
+	-- The two value lines are anchored to the BOTTOM edge, so growing the cell moved them with it and
+	-- the only change here is the clearance they keep from the plinth: the plinth ends at y = 126 on a
+	-- 182 px tile and the amount now starts at 128 (was 102 on a 152 px tile against a glyph ending at
+	-- 90). Bonus sits 26 under it and closes 6 px short of the bottom rim.
 	local amountLabel = Instance.new("TextLabel")
 	amountLabel.Name = "AmountLabel"
-	amountLabel.Size = UDim2.new(1, -12, 0, big and 32 or 22)
-	amountLabel.Position = UDim2.new(0, 6, 1, big and -78 or -50)
+	amountLabel.Size = UDim2.new(1, -12, 0, big and 34 or 24)
+	amountLabel.Position = UDim2.new(0, 6, 1, big and -92 or -54)
 	amountLabel.BackgroundTransparency = 1
 	amountLabel.TextWrapped = true
 	-- THE CARD SAYS WHAT THE DAY PAYS, on day 7 as much as on day 1. It briefly read
@@ -4323,7 +4585,7 @@ local function buildDayCell(dayIndex, size, position, big)
 	local bonusLabel = Instance.new("TextLabel")
 	bonusLabel.Name = "BonusLabel"
 	bonusLabel.Size = UDim2.new(1, -12, 0, big and 32 or 22)
-	bonusLabel.Position = UDim2.new(0, 6, 1, big and -42 or -26)
+	bonusLabel.Position = UDim2.new(0, 6, 1, big and -54 or -28)
 	bonusLabel.BackgroundTransparency = 1
 	local bonusParts = {}
 	if reward.potions then table.insert(bonusParts, "\u{1F9EA} x" .. reward.potions) end
@@ -4332,7 +4594,14 @@ local function buildDayCell(dayIndex, size, position, big)
 	bonusLabel.Text = table.concat(bonusParts, "  ")
 	bonusLabel.Visible = #bonusParts > 0
 	bonusLabel.Parent = frame
-	themeLabel(bonusLabel, big and 22 or 17)
+	-- DARK INK, THE SAME ONE THE LINE ABOVE USES, AND IT IS A FIX RATHER THAN A MATCH (18.3). This
+	-- label was the one thing on the card still taking `themeLabel`'s white default, which meant a
+	-- white glyph read entirely off its 4 px halo -- fine at 30pt, mush at 17. It has been sitting on
+	-- a cream tile at luminance 0.97 since the board was written, and the collected state added below
+	-- is a `DoneShade` at 0.90, so the surface under it is now light in every one of the three states
+	-- and white was wrong in all of them. The darkest fill it can land on is Coral at 0.57, where
+	-- this ink measures 4.8:1.
+	themeLabel(bonusLabel, big and 22 or 17, Color3.fromRGB(24, 18, 38))
 
 	local checkmark = claimTick(frame, big and 44 or 36, big and 26 or 22)
 
@@ -4348,7 +4617,11 @@ local function buildDayCell(dayIndex, size, position, big)
 		frame = frame, dayLabel = dayLabel, iconLabel = iconLabel,
 		amountLabel = amountLabel, bonusLabel = bonusLabel,
 		checkmark = checkmark, strokeInst = strokeInst,
-		idleColor = idleColor, isToday = false,
+		-- three more handles, all so `refreshRewardPanel` can repaint a state rather than build one:
+		-- the day chip changes colour with the state, the plinth has to follow the tile's fill or it
+		-- stops being the same object, and `idleThickness` keeps the hero's 5 px rim off a literal.
+		headerPill = headerPill, plinth = plinth,
+		idleColor = idleColor, idleThickness = big and 5 or 4, isToday = false,
 	}
 end
 
@@ -4662,31 +4935,77 @@ local function refreshRewardPanel()
 	local claimedUpTo = canClaim and (rewardIndex - 1) or rewardIndex
 	local todayIndex = canClaim and rewardIndex or nil
 
+	-- ===== THREE STATES ON THREE DIFFERENT AXES (18.3) =====
+	--
+	-- What she photographed: six claimed days painted `Color.Locked` -- flat rgb(163,161,180) with a
+	-- small green tick -- and one bright Day 7. "izgleda kao da dobijam rewards sto radim u
+	-- mrtvacnici". `Locked` is the kit's REFUSAL swatch and four different states were reaching for
+	-- it; a collected day is not a refusal, it is the record of a thing the player did, and painting
+	-- it in the refusal colour is what made a panel full of achievement look like a panel full of
+	-- nothing.
+	--
+	-- So the three states now differ on three different properties rather than on one:
+	--
+	--   claimable   FULL chroma -- `Color.Green`, the one hue this kit reserves for "act now" --
+	--               plus the bright rim at +1 thickness, a READY_RIM day chip reading CLAIM!, and the
+	--               single idle pulse. Loud by RULE now: every branch of it is applied here, off
+	--               `isToday`, so it no longer depends on the day happening to be the gold one.
+	--   collected   the day's OWN hue at about a third of the chroma (`UITheme.DoneShade`). Same
+	--               colour, quieter -- a claimed potion day is still purple and a claimed diamond day
+	--               is still cyan, so a week of collecting reads as a week of collecting. The green
+	--               tick coin stays and is what separates it from a day that is merely not due yet.
+	--   not yet     the day's own hue at full strength, dark rim, no tick, no chip.
+	--
+	-- None of the seven idle hues is green (see `dayHues`), so the claimable tile can never be
+	-- confused with the tile beside it, whichever day of the week it lands on.
 	for d = 1, 7 do
 		local cell = rewardCells[d]
 		if cell then
 			local isClaimed = d <= claimedUpTo
 			local isToday = (d == todayIndex)
-			local idleThickness = (d == 7) and 5 or 4
 			cell.isToday = isToday
 			cell.checkmark.Visible = isClaimed
 			-- state reads off the shell colour, not transparency: fading the card would
 			-- eat the outline and the gradient that make it look moulded.
+			local fill = cell.idleColor
 			if isToday then
-				cell.strokeInst.Color = READY_RIM
-				cell.strokeInst.Thickness = idleThickness + 1
-				cell.dayLabel.Text = "CLAIM!"
-				setButtonColor(cell.frame, UITheme.Color.Green)
+				fill = UITheme.Color.Green
 			elseif isClaimed then
-				cell.strokeInst.Color = OUTLINE_COLOR
-				cell.strokeInst.Thickness = idleThickness
-				cell.dayLabel.Text = "Day " .. d
-				setButtonColor(cell.frame, UITheme.Color.Locked)
+				fill = UITheme.DoneShade(cell.idleColor)
+			end
+			cell.strokeInst.Color = isToday and READY_RIM or OUTLINE_COLOR
+			cell.strokeInst.Thickness = cell.idleThickness + (isToday and 1 or 0)
+			cell.dayLabel.Text = isToday and "CLAIM!" or ("Day " .. d)
+			setButtonColor(cell.frame, fill)
+			-- The chip and the plinth follow the face, or the tile stops reading as one object: a
+			-- white chip on a pale collected tile has no edge left, and a plinth still cut from the
+			-- old hue looks like a sticker somebody forgot to update.
+			setButtonColor(cell.headerPill, isToday and READY_RIM or UITheme.Color.PanelWhite)
+			setButtonColor(cell.plinth, shade(fill, -0.16))
+
+			-- ===== "DA SLJASTI STA JE BITNO" -- THE KIT'S OWN IDLE PULSE, FINALLY WIRED =====
+			--
+			-- `UITheme.Attention` has existed since the motion research landed and had ZERO call sites
+			-- in the game: a `repeatCount = -1, reverses = true` tween at peak 1.05 over a 0.35 s beat
+			-- with a 3.2 s gap, and the kit holds ONE slot so two things can never pulse at once.
+			-- Priority 2 is the number its own comment block names for this exact caller.
+			--
+			-- ONLY WHILE THE PANEL IS OPEN, which is the conservative half rather than the clever one:
+			-- the slot is global, this refresh runs on every DataUpdate whether the board is on screen
+			-- or not, and a pulse held by a hidden panel would lock every future caller out of it for
+			-- the session. Turning it off is the half that matters (§2.5), so the else-branch is
+			-- unconditional -- it is safe on a tile that was never pulsing, it covers the day that was
+			-- just claimed, and it covers "there is nothing to claim today" without a second test.
+			--
+			-- PEAK 1.03 RATHER THAN THE KIT'S 1.05, and it is geometry, not taste. A `UIScale` grows a
+			-- GuiObject about its AnchorPoint and these cells are anchored (0,0), so every pixel of the
+			-- growth goes down and right into the 8 px grid gutter. The hero column is 372 tall: at
+			-- 1.05 it would reach 18.6 px past its own bottom edge and climb into the code bar, at 1.03
+			-- it reaches 11.2 and the panel is sized to clear that (see rewardPanel.Size).
+			if isToday and rewardPanel.Visible then
+				UITheme.Attention(cell.frame, true, { priority = 2, peak = 1.03 })
 			else
-				cell.strokeInst.Color = OUTLINE_COLOR
-				cell.strokeInst.Thickness = idleThickness
-				cell.dayLabel.Text = "Day " .. d
-				setButtonColor(cell.frame, cell.idleColor)
+				UITheme.Attention(cell.frame, false)
 			end
 		end
 	end
@@ -4704,6 +5023,23 @@ local function refreshRewardPanel()
 		setButtonColor(rewardBannerCard, UITheme.Color.Purple)
 	end
 end
+
+-- THE PULSE IS GATED ON `rewardPanel.Visible` (see the block inside the loop above) and this refresh
+-- only runs on a DataUpdate -- which may have been minutes before the player opened the board. So
+-- opening it re-asks the question; there is no cheaper way to start a pulse on a panel that was
+-- already correct when it was hidden. A second connection rather than a branch inside the backdrop
+-- fade above, because that one is written 400 lines earlier than this function exists and a closure
+-- there would resolve `refreshRewardPanel` to a nil global -- the same upvalue trap `corner` and the
+-- ZoneBuilder forward-declarations are documented for at the top of this file.
+rewardPanel:GetPropertyChangedSignal("Visible"):Connect(function()
+	if rewardPanel.Visible then
+		refreshRewardPanel()
+	else
+		for _, cell in pairs(rewardCells) do
+			UITheme.Attention(cell.frame, false)
+		end
+	end
+end)
 
 -- ===== Inventory panel (Potions) =====
 local inventoryPanel = Instance.new("Frame")
