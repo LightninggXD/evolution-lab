@@ -44,6 +44,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 from luamap import build_map  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fix_publishes import bracket_depth_by_line  # noqa: E402
 
 MAIN = ROOT / "src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua"
 DESTDIR = ROOT / "src/ReplicatedStorage/Modules/HUD"
@@ -183,7 +185,16 @@ def main():
     for p in sorted(published, key=lambda n: -names[n][1]):
         if p not in names:
             sys.exit("cannot publish %s -- not a top-level name in MainUI" % p)
-        lines.insert(names[p][1], "hudRefs.%s = %s" % (p, p))
+        if any(re.match(r"^hudRefs\.%s = " % re.escape(p), l) for l in lines):
+            continue                                    # another extraction already published it
+        # `luamap` ends a statement on block keywords and knows nothing about BRACKETS, so for
+        # `local x = UITheme.Pill(parent, {` it reports one line, and the publish would land
+        # inside the constructor -- `Expected '}' ... got '='`. Walk to where they actually close.
+        at = names[p][1]
+        depth = bracket_depth_by_line("\n".join(lines), len(lines))
+        while at < len(lines) and depth[at + 1] > 0:
+            at += 1
+        lines.insert(at, "hudRefs.%s = %s" % (p, p))
         if names[p][1] < start:
             start, end = start + 1, end + 1
         body = lines[start:end - 1]
