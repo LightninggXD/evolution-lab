@@ -616,6 +616,12 @@ end
 
 local LIP_DEPTH = 6
 
+-- A transparent sheet of Roblox stud rings, tiled across a HUD tile's face. Taken from Kristina's
+-- own button prefabs rather than uploaded, so the tiles and the prefabs cannot drift apart. Used
+-- once, in `IconTile`; see the block there for why it is tiled in scale and tinted rather than
+-- drawn at its own colour.
+local STUD_TEXTURE = "rbxassetid://17601461662"
+
 -- ============================================================================
 -- THE DROP SHADOW, THIRD ATTEMPT AND THE FIRST ONE THAT IS NOT A FRAME (18.5)
 -- ============================================================================
@@ -1179,8 +1185,18 @@ end
 -- Rendered a shade darker than the plate so a white icon on a pale tile still has a body. Not a
 -- UIStroke: an ImageLabel's stroke traces the IMAGE BOX, not the drawing inside it, so it would
 -- put a rectangle round every icon. The PNGs carry their own contour instead (see make_icons.py).
+-- A CALLER MAY HAND OVER AN ASSET ID INSTEAD OF AN EMOJI (18.17), and that is not a hole in the
+-- "lookup is by emoji" rule -- it is the escape hatch the rule always needed. IconLibrary maps an
+-- emoji to THE drawing for that idea, one per idea, shared by every surface that means it. The HUD
+-- tiles are the one place where a second drawing of the same idea is wanted: Kristina's tile art
+-- (the basket, the brown bag, the rebirth arrows) is a different picture of "shop"/"inventory" than
+-- the panel rows use, and routing it through IconLibrary would swap it in the panels too.
+--
+-- Recognised by the prefix rather than by a separate argument, so nothing above this line has to
+-- learn a new parameter and an emoji can never be mistaken for an id.
 local function iconSlot(parent, emoji, zIndex, minText, maxText)
-	local asset = IconLibrary.Resolve(emoji)
+	local asset = (type(emoji) == "string" and emoji:match("^rbxassetid://%d+$"))
+		or IconLibrary.Resolve(emoji)
 	if asset then
 		local img = Instance.new("ImageLabel")
 		img.Name = "Icon"
@@ -2004,6 +2020,41 @@ function UITheme.IconTile(parent, opts)
 	end
 	body.Parent = tile
 	addGloss(body, bodyRadius)
+
+	-- ===== THE STUD TEXTURE (18.17) =====
+	--
+	-- Lifted off Kristina's own HUD prefabs in `ReplicatedStorage.UIComponents.Prefabs`, which are
+	-- the look this tile is being brought up to. Everything ELSE those prefabs draw, this
+	-- constructor already had -- the lip under the face is `ShadowBody`, the vertical gradient is
+	-- `Gradient`, the heavy dark border is the shell stroke, the outlined caption is `Caption`. The
+	-- texture was the one thing genuinely missing, and it is what makes the face read as a moulded
+	-- plastic part rather than as flat paint.
+	--
+	-- THREE THINGS ABOUT IT ARE LOAD-BEARING:
+	--
+	--   * Parented INSIDE `InnerBody`, which is the only surface that carries the fill (15.28) and
+	--     the only one with `ClipsDescendants` -- so the rounded corner is free and no second
+	--     UICorner can drift out of step with `bodyRadius`. Drawn above the fill because it is a
+	--     child of it, and below `Gloss` and the icon because both outrank it -- the same stack the
+	--     prefabs use (face, studs, icon, caption).
+	--   * `TileSize` is in SCALE, not the prefab's 24 px. The responsive pass drives a tile from
+	--     82 px down to a 40 px floor, and a fixed tile size would double the stud density on the
+	--     way down; 0.185 keeps five and a bit studs across at every size, which is what the
+	--     prefab has at its authored 130.
+	--   * Black at 0.5, which is the prefab's own value: the art is a transparent sheet of stud
+	--     rings, so this tints the RINGS and leaves the fill alone. Raising it toward 1 fades the
+	--     moulding out; lowering it turns the face grey.
+	local studs = Instance.new("ImageLabel")
+	studs.Name = "Studs"
+	studs.BackgroundTransparency = 1
+	studs.Size = UDim2.new(1, 0, 1, 0)
+	studs.Image = STUD_TEXTURE
+	studs.ImageColor3 = Color.Outline
+	studs.ImageTransparency = 0.5
+	studs.ScaleType = Enum.ScaleType.Tile
+	studs.TileSize = UDim2.new(0.185, 0, 0.185, 0)
+	studs.ZIndex = body.ZIndex + Z.Body
+	studs.Parent = body:FindFirstChild("InnerBody") or body
 
 	local hasCaption = opts.caption ~= nil and opts.caption ~= ""
 
