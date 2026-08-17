@@ -419,6 +419,17 @@ local function addPlankText(part, text, accent, opts)
 	end
 end
 
+-- The two most-used verbs in the world builder: 24 call sites in `ZoneBuilder` before the leaves
+-- were cut out of it, and every one of those leaves needs them too. They came down here in 18.11
+-- for that reason and no other -- a colour verb belongs beside the other colour verb.
+local function lighten(c, t)
+	return c:Lerp(Color3.new(1, 1, 1), t)
+end
+
+local function darken(c, t)
+	return c:Lerp(Color3.new(0, 0, 0), t)
+end
+
 -- Raw zone accents are muted (Forest's is a dark green) and read as dead paint on a Neon part,
 -- so anything meant to actually glow gets the accent pushed up to full saturation first.
 local function vivid(c)
@@ -691,6 +702,8 @@ return {
 	groundColorOf = groundColorOf,
 	addPlankText = addPlankText,
 	vivid = vivid,
+	lighten = lighten,
+	darken = darken,
 	spinForever = spinForever,
 	pulseForever = pulseForever,
 
