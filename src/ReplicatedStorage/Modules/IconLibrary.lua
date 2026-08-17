@@ -1,4 +1,4 @@
-﻿--[[
+--[[
 	IconLibrary -- the asset layer the HUD never had (ROADMAP 9.9).
 
 	Before this, every icon in the game was an EMOJI IN A TEXTLABEL. A tree scan found zero
@@ -44,12 +44,26 @@ local IconLibrary = {}
 -- ===== THE ASSETS =====
 -- Names match `tools/make_icons.py` and `assets/icons/uploaded.json` exactly. Do not rename one
 -- without the other two.
+--
+-- FOUR EXCEPTIONS, added 2026-08-17: `book`, `zone`, `aura` and `robux` are FREE CREATOR-STORE
+-- ASSETS, not uploads of our own art. They have NO `assets/icons/*.png` behind them at all -- `book`
+-- and `zone` still have a house PNG on disk showing a DIFFERENT PICTURE, so redrawing either one and
+-- re-uploading it silently swaps the HUD back to the house look. `zone` also has the word "Teleport"
+-- baked into the artwork, which is why the Zones tile reads "Teleport" above its own "Zones" caption.
+--
+-- Kristina inserted them as a stack of Decals under `Workspace.gift` (they nest, because a Decal
+-- dropped on a Decal parents to it). The full stack, kept here so nothing is lost if that pile is
+-- ever deleted -- these are ids, not endorsements; only the four above are wired:
+--   gift 111576444061359   upgrade 94633314888299       blue potion 75203508047474
+--   yellow potion 73470472846526                        red potion 138146402871393
+--   pets 4871217186        brown bag 12600727274        invite friends 106176247553587
 local ID = {
 	absolute     = "rbxassetid://133654512361485",
 	arrow        = "rbxassetid://100683138086656",
 	audio        = "rbxassetid://77987918035205",
+	aura         = "rbxassetid://73493679165170",   -- store asset, see the note above
 	backpack     = "rbxassetid://112267210821022",
-	bag          = "rbxassetid://12600727274",
+	bag          = "rbxassetid://86141762589488",
 	blackhole    = "rbxassetid://86622214176705",
 	bolt         = "rbxassetid://125449019286643",
 	book         = "rbxassetid://75827505162710",
@@ -99,6 +113,7 @@ local ID = {
 	question     = "rbxassetid://84165149952604",
 	rainbow      = "rbxassetid://72918578421395",
 	rebirth      = "rbxassetid://137919423177940",
+	robux        = "rbxassetid://79711214319288",   -- store asset, see the note above
 	shard        = "rbxassetid://93975864077659",
 	shop         = "rbxassetid://79110444339140",
 	singularity  = "rbxassetid://76125474367091",
@@ -124,86 +139,90 @@ IconLibrary.Id = ID
 
 -- ===== EMOJI -> ICON =====
 --
--- Several emojis deliberately share an icon. That is not laziness: â° â³ âŒ› â±ï¸ are four drawings of
+-- Several emojis deliberately share an icon. That is not laziness: ⏰ ⏳ ⌛ ⏱️ are four drawings of
 -- one idea ("time"), and a set where every near-synonym gets its own subtly different clock is
 -- harder to read at 40 px than one where they all get the same one. The exception is where the
--- game gives two of them DIFFERENT MEANINGS -- â­ is Evolution XP and ðŸŒŸ is an Evolution Shard, and
+-- game gives two of them DIFFERENT MEANINGS -- ⭐ is Evolution XP and 🌟 is an Evolution Shard, and
 -- those two sit next to each other on the Daily panel, so they are a five-point star and a
 -- four-point sparkle and must never be merged.
 local BY_EMOJI = {
 	-- currencies and stats
-	["\u{1F9EC}"] = "dna",       -- ðŸ§¬
-	["\u{1F48E}"] = "diamond",   -- ðŸ’Ž
-	["\u{1F31F}"] = "shard",     -- ðŸŒŸ  (Evolution Shard -- NOT the same as â­)
-	["\u{2B50}"]  = "xp",        -- â­  (Evolution XP)
-	["\u{1F340}"] = "luck",      -- ðŸ€
-	["\u{1F4B0}"] = "coin",      -- ðŸ’°
-	["\u{2694}\u{FE0F}"] = "sword",   -- âš”ï¸
+	["\u{1F9EC}"] = "dna",       -- 🧬
+	["\u{1F48E}"] = "diamond",   -- 💎
+	["\u{1F31F}"] = "shard",     -- 🌟  (Evolution Shard -- NOT the same as ⭐)
+	["\u{2B50}"]  = "xp",        -- ⭐  (Evolution XP)
+	["\u{1F340}"] = "luck",      -- 🍀
+	["\u{1F4B0}"] = "coin",      -- 💰
+	["\u{2694}\u{FE0F}"] = "sword",   -- ⚔️
 	["\u{2694}"]  = "sword",          -- the same emoji written without its variation selector
-	["\u{1F4A5}"] = "boom",      -- ðŸ’¥
-	["\u{2764}\u{FE0F}"] = "heart",   -- â¤ï¸
-	["\u{1F49C}"] = "heart",     -- ðŸ’œ
+	["\u{1F4A5}"] = "boom",      -- 💥
+	["\u{2764}\u{FE0F}"] = "heart",   -- ❤️
+	["\u{1F49C}"] = "heart",     -- 💜
 
 	-- inventory and shops
-	["\u{1F6D2}"] = "cart",      -- ðŸ›’
-	["\u{1F6CD}\u{FE0F}"] = "bag",    -- ðŸ›ï¸
-	["\u{1F6CD}"] = "bag",
-	["\u{1F3EA}"] = "shop",      -- ðŸª
-	["\u{1F392}"] = "backpack",  -- ðŸŽ’
-	["\u{1F9EA}"] = "potion",    -- ðŸ§ª
-	["\u{2697}\u{FE0F}"] = "potion",  -- âš—ï¸
+	["\u{1F6D2}"] = "cart",      -- 🛒
+	-- 🛍️ IS THE ROBUX SHOP, NOT A SHOPPING BAG. Every 🛍️ in the game is a Robux surface: the HUD
+	-- tile, the panel title, the purchase toast, the zone shop's sign and the Shops.lua row. So it
+	-- draws the Robux logo. `bag` keeps its own drawing but now has no caller -- like `map`.
+	["\u{1F6CD}\u{FE0F}"] = "robux",  -- 🛍️
+	["\u{1F6CD}"] = "robux",
+	["\u{1FA84}"] = "aura",           -- 🪄  the Auras tile (it borrowed the DNA glyph before)
+	["\u{1F3EA}"] = "shop",      -- 🏪
+	["\u{1F392}"] = "backpack",  -- 🎒
+	["\u{1F9EA}"] = "potion",    -- 🧪
+	["\u{2697}\u{FE0F}"] = "potion",  -- ⚗️
 	["\u{2697}"]  = "potion",
-	["\u{1F95A}"] = "egg",       -- ðŸ¥š
-	["\u{1F423}"] = "egg",       -- ðŸ£
-	["\u{1F43E}"] = "paw",       -- ðŸ¾
+	["\u{1F95A}"] = "egg",       -- 🥚
+	["\u{1F423}"] = "egg",       -- 🐣
+	["\u{1F43E}"] = "paw",       -- 🐾
 
 	-- navigation and screens
-	["\u{1F4D2}"] = "book",      -- ðŸ“’
-	["\u{1F4D6}"] = "book",      -- ðŸ“–
-	["\u{1F5FA}\u{FE0F}"] = "zone",    -- ðŸ—ºï¸
+	["\u{1F4D2}"] = "book",      -- 📒
+	["\u{1F4D6}"] = "book",      -- 📖
+	["\u{1F5FA}\u{FE0F}"] = "zone",   -- 🗺️  the Zones tile and panel header (the only 🗺️ in the game)
 	["\u{1F5FA}"] = "zone",
-	["\u{267B}\u{FE0F}"] = "rebirth", -- â™»ï¸
+	["\u{267B}\u{FE0F}"] = "rebirth", -- ♻️
 	["\u{267B}"]  = "rebirth",
-	["\u{1F50A}"] = "audio",     -- ðŸ”Š
-	["\u{1F3A1}"] = "wheel",     -- ðŸŽ¡
-	["\u{1F39F}\u{FE0F}"] = "ticket", -- ðŸŽŸï¸
+	["\u{1F50A}"] = "audio",     -- 🔊
+	["\u{1F3A1}"] = "wheel",     -- 🎡
+	["\u{1F39F}\u{FE0F}"] = "ticket", -- 🎟️
 	["\u{1F39F}"] = "ticket",
-	["\u{1F381}"] = "gift",      -- ðŸŽ
-	["\u{1F4C5}"] = "calendar",  -- ðŸ“…
-	["\u{1F389}"] = "party",     -- ðŸŽ‰
+	["\u{1F381}"] = "gift",      -- 🎁
+	["\u{1F4C5}"] = "calendar",  -- 📅
+	["\u{1F389}"] = "party",     -- 🎉
 
 	-- state and feedback
-	["\u{1F512}"] = "lock",      -- ðŸ”’
-	["\u{2713}"]  = "check",     -- âœ“
-	["\u{2714}\u{FE0F}"] = "check",   -- âœ”ï¸
-	["\u{274C}"]  = "cross",     -- âŒ
-	["\u{2753}"]  = "question",  -- â“
-	["\u{2757}"]  = "question",  -- â—
-	["\u{2B06}\u{FE0F}"] = "upgrade", -- â¬†ï¸
+	["\u{1F512}"] = "lock",      -- 🔒
+	["\u{2713}"]  = "check",     -- ✓
+	["\u{2714}\u{FE0F}"] = "check",   -- ✔️
+	["\u{274C}"]  = "cross",     -- ❌
+	["\u{2753}"]  = "question",  -- ❓
+	["\u{2757}"]  = "question",  -- ❗
+	["\u{2B06}\u{FE0F}"] = "upgrade", -- ⬆️
 	["\u{2B06}"]  = "upgrade",
-	["\u{27A1}\u{FE0F}"] = "arrow",   -- âž¡ï¸
+	["\u{27A1}\u{FE0F}"] = "arrow",   -- ➡️
 	["\u{27A1}"]  = "arrow",
-	["\u{2192}"]  = "arrow",     -- â†’
-	["\u{2795}"]  = "plus",      -- âž•
-	["\u{1F525}"] = "fire",      -- ðŸ”¥
-	["\u{26A1}"]  = "bolt",      -- âš¡
-	["\u{2699}\u{FE0F}"] = "gear",    -- âš™ï¸
+	["\u{2192}"]  = "arrow",     -- →
+	["\u{2795}"]  = "plus",      -- ➕
+	["\u{1F525}"] = "fire",      -- 🔥
+	["\u{26A1}"]  = "bolt",      -- ⚡
+	["\u{2699}\u{FE0F}"] = "gear",    -- ⚙️
 	["\u{2699}"]  = "gear",
-	["\u{1F308}"] = "rainbow",   -- ðŸŒˆ
-	["\u{2600}\u{FE0F}"] = "sun",     -- â˜€ï¸
+	["\u{1F308}"] = "rainbow",   -- 🌈
+	["\u{2600}\u{FE0F}"] = "sun",     -- ☀️
 	["\u{2600}"]  = "sun",
-	["\u{1F451}"] = "crown",     -- ðŸ‘‘
-	["\u{1F3C5}"] = "medal",     -- ðŸ…
-	["\u{1F947}"] = "medal",     -- ðŸ¥‡
-	["\u{1F479}"] = "boss",      -- ðŸ‘¹
-	["\u{1F408}"] = "pet",       -- ðŸˆ
-	["\u{1F431}"] = "pet",       -- ðŸ±
+	["\u{1F451}"] = "crown",     -- 👑
+	["\u{1F3C5}"] = "medal",     -- 🏅
+	["\u{1F947}"] = "medal",     -- 🥇
+	["\u{1F479}"] = "boss",      -- 👹
+	["\u{1F408}"] = "pet",       -- 🐈
+	["\u{1F431}"] = "pet",       -- 🐱
 
 	-- TIME. Four emojis, one idea, one drawing -- see the note above this table.
-	["\u{23F0}"] = "clock",      -- â°
-	["\u{23F3}"] = "hourglass",  -- â³
-	["\u{231B}"] = "hourglass",  -- âŒ›
-	["\u{23F1}\u{FE0F}"] = "clock",   -- â±ï¸
+	["\u{23F0}"] = "clock",      -- ⏰
+	["\u{23F3}"] = "hourglass",  -- ⏳
+	["\u{231B}"] = "hourglass",  -- ⌛
+	["\u{23F1}\u{FE0F}"] = "clock",   -- ⏱️
 	["\u{23F1}"] = "clock",
 
 	-- ========================================================================
@@ -217,61 +236,61 @@ local BY_EMOJI = {
 	-- THE BOSS ROWS ARE THE SAME EMOJI ON PURPOSE. `GameConfig.ZoneBosses` reuses each zone's glyph
 	-- for that zone's boss from Volcano onward, so one drawing lights both places with no extra row
 	-- here and nothing to keep in step.
-	["\u{1F332}"] = "forest",      -- ðŸŒ² Forest
-	["\u{1F3DC}\u{FE0F}"] = "desert",   -- ðŸœï¸ Desert
+	["\u{1F332}"] = "forest",      -- 🌲 Forest
+	["\u{1F3DC}\u{FE0F}"] = "desert",   -- 🏜️ Desert
 	["\u{1F3DC}"] = "desert",
-	["\u{1F30A}"] = "ocean",       -- ðŸŒŠ Ocean (and the "Deep Currents" season)
-	["\u{1F30B}"] = "volcano",     -- ðŸŒ‹ Volcano (and "Ashfall")
-	["\u{1F319}"] = "moon",        -- ðŸŒ™ Moon
-	["\u{1F534}"] = "mars",        -- ðŸ”´ Mars
-	["\u{1F30C}"] = "galaxy",      -- ðŸŒŒ Galaxy
-	["\u{26AB}"]  = "blackhole",   -- âš« Black Hole
-	["\u{1F300}"] = "multiverse",  -- ðŸŒ€ Multiverse
-	["\u{1F320}"] = "nebula",      -- ðŸŒ  Nebula (and "Starfall")
-	["\u{1F573}\u{FE0F}"] = "wormhole", -- ðŸ•³ï¸ Wormhole
+	["\u{1F30A}"] = "ocean",       -- 🌊 Ocean (and the "Deep Currents" season)
+	["\u{1F30B}"] = "volcano",     -- 🌋 Volcano (and "Ashfall")
+	["\u{1F319}"] = "moon",        -- 🌙 Moon
+	["\u{1F534}"] = "mars",        -- 🔴 Mars
+	["\u{1F30C}"] = "galaxy",      -- 🌌 Galaxy
+	["\u{26AB}"]  = "blackhole",   -- ⚫ Black Hole
+	["\u{1F300}"] = "multiverse",  -- 🌀 Multiverse
+	["\u{1F320}"] = "nebula",      -- 🌠 Nebula (and "Starfall")
+	["\u{1F573}\u{FE0F}"] = "wormhole", -- 🕳️ Wormhole
 	["\u{1F573}"] = "wormhole",
-	["\u{269B}\u{FE0F}"] = "quantum",   -- âš›ï¸ Quantum Realm
+	["\u{269B}\u{FE0F}"] = "quantum",   -- ⚛️ Quantum Realm
 	["\u{269B}"]  = "quantum",
-	["\u{1F4AD}"] = "dream",       -- ðŸ’­ Dream Dimension
-	["\u{1FA9E}"] = "mirror",      -- ðŸªž Mirror Universe
-	["\u{1F311}"] = "void",        -- ðŸŒ‘ Void Expanse
-	["\u{1F4AB}"] = "singularity", -- ðŸ’« Singularity
-	["\u{1F53A}"] = "absolute",    -- ðŸ”º The Absolute Plane
+	["\u{1F4AD}"] = "dream",       -- 💭 Dream Dimension
+	["\u{1FA9E}"] = "mirror",      -- 🪞 Mirror Universe
+	["\u{1F311}"] = "void",        -- 🌑 Void Expanse
+	["\u{1F4AB}"] = "singularity", -- 💫 Singularity
+	["\u{1F53A}"] = "absolute",    -- 🔺 The Absolute Plane
 
 	-- ========================================================================
 	-- CHROME THAT WAS STILL FALLING BACK TO A GLYPH (10.20)
 	-- ========================================================================
 	-- Found by auditing every emoji that reaches a tile, a pill or a header against this table.
-	-- Several are NEAR-MISSES of rows that already existed -- a second tick glyph, a bare âœ” with no
+	-- Several are NEAR-MISSES of rows that already existed -- a second tick glyph, a bare ✔ with no
 	-- variation selector, a dagger where the rest of the game uses crossed swords -- and those cost
 	-- a row each and no art at all. They are grouped with the icon they join.
-	["\u{2705}"]  = "check",     -- âœ… the Claimed / Done / Premium-unlocked marks
-	["\u{2714}"]  = "check",     -- âœ”  bare, no variation selector: the pet Equipped tick
-	["\u{2715}"]  = "cross",     -- âœ•  the pet Release button
-	["\u{1F5E1}\u{FE0F}"] = "sword",  -- ðŸ—¡ï¸ the pet card's Damage stat
+	["\u{2705}"]  = "check",     -- ✅ the Claimed / Done / Premium-unlocked marks
+	["\u{2714}"]  = "check",     -- ✔  bare, no variation selector: the pet Equipped tick
+	["\u{2715}"]  = "cross",     -- ✕  the pet Release button
+	["\u{1F5E1}\u{FE0F}"] = "sword",  -- 🗡️ the pet card's Damage stat
 	["\u{1F5E1}"] = "sword",
-	["\u{1F4CB}"] = "book",      -- ðŸ“‹ the Season panel's Quests tab
-	["\u{1F948}"] = "medal_silver",   -- ðŸ¥ˆ leaderboard 2nd
-	["\u{1F949}"] = "medal_bronze",   -- ðŸ¥‰ leaderboard 3rd
-	-- âš  and its selector-less twin: the caution line under the pet Fuse row
+	["\u{1F4CB}"] = "book",      -- 📋 the Season panel's Quests tab
+	["\u{1F948}"] = "medal_silver",   -- 🥈 leaderboard 2nd
+	["\u{1F949}"] = "medal_bronze",   -- 🥉 leaderboard 3rd
+	-- ⚠ and its selector-less twin: the caution line under the pet Fuse row
 	["\u{26A0}\u{FE0F}"] = "warning",
 	["\u{26A0}"]  = "warning",
-	["\u{1F4A4}"] = "sleep",     -- ðŸ’¤ the offline-earnings card
-	["\u{2620}\u{FE0F}"] = "skull",   -- â˜ ï¸ the boss-revive prompt
+	["\u{1F4A4}"] = "sleep",     -- 💤 the offline-earnings card
+	["\u{2620}\u{FE0F}"] = "skull",   -- ☠️ the boss-revive prompt
 	["\u{2620}"]  = "skull",
-	["\u{2728}"]  = "sparkle",   -- âœ¨ the season track's shard face, and "NEW FORM"
-	["\u{1F52E}"] = "orb",       -- ðŸ”® the Mystery Potions shop
-	["\u{1F91D}"] = "handshake", -- ðŸ¤ "Trade complete!"
-	["\u{1F3E0}"] = "home",      -- ðŸ  the arena's Back portal
-	["\u{2744}\u{FE0F}"] = "snow",    -- â„ï¸ the "Frostbloom" season
+	["\u{2728}"]  = "sparkle",   -- ✨ the season track's shard face, and "NEW FORM"
+	["\u{1F52E}"] = "orb",       -- 🔮 the Mystery Potions shop
+	["\u{1F91D}"] = "handshake", -- 🤝 "Trade complete!"
+	["\u{1F3E0}"] = "home",      -- 🏠 the arena's Back portal
+	["\u{2744}\u{FE0F}"] = "snow",    -- ❄️ the "Frostbloom" season
 	["\u{2744}"]  = "snow",
-	["\u{1F33F}"] = "sprig",     -- ðŸŒ¿ the "Overgrowth" season
-	["\u{1F36F}"] = "honey",     -- ðŸ¯ the Large potion size
-	-- SPEED IS ONE DRAWING FOR TWO GLYPHS, and they are the same idea told twice: ðŸ‘Ÿ is the Speed
-	-- UPGRADE tile and ðŸƒ is the 2x Speed PASS chip. Before this, the pass chip was the one chip in
+	["\u{1F33F}"] = "sprig",     -- 🌿 the "Overgrowth" season
+	["\u{1F36F}"] = "honey",     -- 🍯 the Large potion size
+	-- SPEED IS ONE DRAWING FOR TWO GLYPHS, and they are the same idea told twice: 👟 is the Speed
+	-- UPGRADE tile and 🏃 is the 2x Speed PASS chip. Before this, the pass chip was the one chip in
 	-- a grid of nine that kept a glyph while its neighbours had art.
-	["\u{1F45F}"] = "speed",     -- ðŸ‘Ÿ
-	["\u{1F3C3}"] = "speed",     -- ðŸƒ
+	["\u{1F45F}"] = "speed",     -- 👟
+	["\u{1F3C3}"] = "speed",     -- 🏃
 
 	-- `zone` IS DELIBERATELY LEFT WITH NO EMOJI, and it is the one entry in `ID` that has none.
 	-- It was orphaned by accident before 10.20 -- drawn, uploaded and unreachable, which is the
@@ -288,12 +307,12 @@ function IconLibrary.Resolve(emoji)
 	if type(emoji) ~= "string" or emoji == "" then return nil end
 	local key = BY_EMOJI[emoji]
 	if key then return ID[key] end
-	-- A call site may pass "ðŸ§¬ DNA" rather than a bare glyph -- the Button and Card helpers
+	-- A call site may pass "🧬 DNA" rather than a bare glyph -- the Button and Card helpers
 	-- concatenate an icon onto its text. Matching the leading glyph costs one substring compare per
 	-- distinct length, and the alternative is every caller learning to split its own string.
 	--
-	-- Descending, so that "âš”ï¸" (two code points, 6 bytes with the variation selector) is tried
-	-- before "âš”" (3 bytes) -- otherwise the shorter prefix always wins and the selector is left
+	-- Descending, so that "⚔️" (two code points, 6 bytes with the variation selector) is tried
+	-- before "⚔" (3 bytes) -- otherwise the shorter prefix always wins and the selector is left
 	-- dangling on the front of the remaining text.
 	for _, n in ipairs({ 8, 7, 6, 4, 3 }) do
 		local head = emoji:sub(1, n)
@@ -308,7 +327,7 @@ function IconLibrary.Has(emoji)
 end
 
 -- Strips a leading mapped emoji (and the space after it) off a label, so a caption that reads
--- "ðŸ§¬ DNA" becomes "DNA" once the glyph has been replaced by a drawn icon beside it. Returns the
+-- "🧬 DNA" becomes "DNA" once the glyph has been replaced by a drawn icon beside it. Returns the
 -- string untouched when nothing was stripped, so it is safe to call on anything.
 function IconLibrary.StripLeading(text)
 	if type(text) ~= "string" then return text end
@@ -324,4 +343,3 @@ function IconLibrary.StripLeading(text)
 end
 
 return IconLibrary
-
