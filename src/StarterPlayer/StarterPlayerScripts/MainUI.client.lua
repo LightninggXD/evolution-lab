@@ -3505,155 +3505,23 @@ robuxButton.MouseButton1Click:Connect(function()
 end)
 
 -- ===== Playtime Gifts panel =====
-local playtimePanel = Instance.new("Frame")
-playtimePanel.Name = "PlaytimePanel"
-playtimePanel.Size = UDim2.new(0, 790, 0, 294)
-playtimePanel.Position = PANEL_ANCHOR
-playtimePanel.ZIndex = 20
-playtimePanel.Visible = false
-playtimePanel.Parent = screenGui
-styleCard(playtimePanel, PANEL_SHELL, UDim.new(0, 22), 5)
-registerPanel(playtimePanel)
-panelClose(playtimePanel)
-
--- Converted to the shared accent band (17.x). This panel had ALREADY grown its own title-plus-
--- subtitle pair by hand -- a 32 px label at y = 10 and a sentence at y = 54 -- which is the shape
--- PanelHeader standardises, so the conversion is a straight swap and costs two registers less than
--- it saves. The cells were at y = 92 and the band ends at 94, so they move 2 px and nothing else on
--- this panel has to be touched. Peach, warm, for a timer that pays you for staying.
-UITheme.PanelHeader(playtimePanel, {
-	title = "⏰ Playtime Gifts",
-	subtitle = "The longer this session runs, the better the gift",
-	accent = UITheme.Color.Peach,
-})
-
-local PLAYTIME_CELL_W = 142
-local playtimeCells = {} -- [index] = { frame, statusLabel, checkmark, strokeInst }
-
-for i, milestone in ipairs(GameConfig.PlaytimeGifts) do
-	local frame = Instance.new("Frame")
-	frame.Name = "Gift" .. i
-	frame.Size = UDim2.new(0, PLAYTIME_CELL_W, 0, 182)
-	frame.Position = UDim2.new(0, 16 + (i - 1) * (PLAYTIME_CELL_W + 12), 0, 94)
-	frame.Parent = playtimePanel
-	local strokeInst = styleCard(frame, UITheme.Color.Orange, UDim.new(0, 16), 4)
-
-	local timeLabel = Instance.new("TextLabel")
-	timeLabel.Name = "TimeLabel"
-	timeLabel.Size = UDim2.new(1, -14, 0, 26)
-	timeLabel.Position = UDim2.new(0, 7, 0, 8)
-	timeLabel.BackgroundTransparency = 1
-	timeLabel.Text = milestone.minutes .. " min"
-	timeLabel.Parent = frame
-	themeLabel(timeLabel, 24)
-
-	local iconLabel = Instance.new("TextLabel")
-	iconLabel.Name = "IconLabel"
-	iconLabel.Size = UDim2.new(1, 0, 0, 52)
-	iconLabel.Position = UDim2.new(0, 0, 0, 36)
-	iconLabel.BackgroundTransparency = 1
-	iconLabel.Text = milestone.diamonds and "💎" or (milestone.potions and "🧪" or "🧬")
-	iconLabel.Parent = frame
-	themeLabel(iconLabel, 44)
-
-	local amountLabel = Instance.new("TextLabel")
-	amountLabel.Name = "AmountLabel"
-	amountLabel.Size = UDim2.new(1, -12, 0, 24)
-	amountLabel.Position = UDim2.new(0, 6, 0, 92)
-	amountLabel.BackgroundTransparency = 1
-	amountLabel.Text = formatNumber(milestone.dna) .. " DNA"
-	amountLabel.Parent = frame
-	themeLabel(amountLabel, 21, UITheme.Color.Cream)
-
-	local bonusLabel = Instance.new("TextLabel")
-	bonusLabel.Name = "BonusLabel"
-	bonusLabel.Size = UDim2.new(1, -12, 0, 22)
-	bonusLabel.Position = UDim2.new(0, 6, 0, 118)
-	bonusLabel.BackgroundTransparency = 1
-	local parts = {}
-	if milestone.potions then table.insert(parts, "🧪 x" .. milestone.potions) end
-	if milestone.diamonds then table.insert(parts, "💎 x" .. milestone.diamonds) end
-	bonusLabel.Text = table.concat(parts, "  ")
-	bonusLabel.Visible = #parts > 0
-	bonusLabel.Parent = frame
-	themeLabel(bonusLabel, 19)
-
-	local statusLabel = Instance.new("TextLabel")
-	statusLabel.Name = "StatusLabel"
-	statusLabel.Size = UDim2.new(1, -12, 0, 26)
-	statusLabel.Position = UDim2.new(0, 6, 1, -34)
-	statusLabel.BackgroundTransparency = 1
-	statusLabel.Text = "Locked"
-	statusLabel.Parent = frame
-	themeLabel(statusLabel, 20, UITheme.Color.Cream)
-
-	local checkmark = claimTick(frame, 32, 20)
-
-	local claimButton = claimOverlay(frame)
-	claimButton.MouseButton1Click:Connect(function()
-		Remotes.ClaimPlaytimeGift:FireServer(i)
-	end)
-
-	playtimeCells[i] = { frame = frame, statusLabel = statusLabel, checkmark = checkmark, strokeInst = strokeInst }
-end
+-- MOVED OUT (18.22) to `UIComponents.PlaytimeGiftsPanel`, and rebuilt in the new panel design on
+-- the way -- five milestones is a list, and this was the widest FIXED frame in the HUD: 790 x 294
+-- holding five 142-wide cells in a hand-laid horizontal row. Beside Teleport and the Store it read
+-- as a different game.
+--
+-- REQUIRED HERE AND NOT IN THE CLICK HANDLER, unlike the other three. `PlaytimeGiftService` fires
+-- `PlaytimeStatus` twice -- 0.5 s after join, and after each claim -- and never on a timer, so a
+-- module built on the first click would have missed `sessionStart` and every row would count down
+-- from when the panel was opened. The module's own header carries the rest of the reasoning.
+--
+-- Six top-level locals came off this file with it (`playtimePanel`, `PLAYTIME_CELL_W`,
+-- `playtimeCells`, `playtimeSessionStart`, `playtimeClaimed`, `refreshPlaytimePanel`) and this
+-- statement adds none -- see the register note over `columnTile`.
+require(script.Parent.UIComponents.PlaytimeGiftsPanel).Init(screenGui)
 
 playtimeButton.MouseButton1Click:Connect(function()
-	toggleOnly(playtimePanel)
-end)
-
-local playtimeSessionStart = os.time()
-local playtimeClaimed = {}
-
-Remotes.PlaytimeStatus.OnClientEvent:Connect(function(payload)
-	if payload.sessionStart then
-		playtimeSessionStart = payload.sessionStart
-	end
-	playtimeClaimed = {}
-	if payload.claimed then
-		for _, idx in ipairs(payload.claimed) do
-			playtimeClaimed[idx] = true
-		end
-	end
-end)
-
-local function refreshPlaytimePanel()
-	local elapsedSeconds = os.time() - playtimeSessionStart
-	for i, milestone in ipairs(GameConfig.PlaytimeGifts) do
-		local cell = playtimeCells[i]
-		if cell then
-			local isClaimed = playtimeClaimed[i] == true
-			cell.checkmark.Visible = isClaimed
-			if isClaimed then
-				cell.statusLabel.Text = "Claimed"
-				cell.statusLabel.TextColor3 = UITheme.Color.Cream
-				cell.strokeInst.Color = OUTLINE_COLOR
-				cell.strokeInst.Thickness = 4
-				setButtonColor(cell.frame, UITheme.Color.Locked)
-			else
-				local remaining = milestone.minutes * 60 - elapsedSeconds
-				if remaining <= 0 then
-					cell.statusLabel.Text = "CLAIM!"
-					cell.statusLabel.TextColor3 = UITheme.Color.White
-					cell.strokeInst.Color = READY_RIM
-					cell.strokeInst.Thickness = 5
-					setButtonColor(cell.frame, UITheme.Color.Green)
-				else
-					cell.statusLabel.Text = string.format("in %dm %ds", remaining // 60, remaining % 60)
-					cell.statusLabel.TextColor3 = UITheme.Color.Cream
-					cell.strokeInst.Color = OUTLINE_COLOR
-					cell.strokeInst.Thickness = 4
-					setButtonColor(cell.frame, UITheme.Color.Orange)
-				end
-			end
-		end
-	end
-end
-
-task.spawn(function()
-	while true do
-		task.wait(1)
-		refreshPlaytimePanel()
-	end
+	require(script.Parent.UIComponents.PlaytimeGiftsPanel).Toggle()
 end)
 
 
