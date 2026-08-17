@@ -79,6 +79,12 @@ local ARENA_VERSION = 2
 -- byte, with every comment that explains why they behave the way they do. Nothing about what gets
 -- built changed; only where the vocabulary lives.
 --
+-- AND FOUR MORE FOLLOWED THEM (18.10): `seatModel`, `makeSign`, `stoneTones` and `addLight`.
+-- Those went because the VILLAGE leaf needs them -- `villMesh` seats a model, `addWell` tones a
+-- rock, `addStall` makes a sign and lights itself -- and because each was already vocabulary
+-- rather than a decision about a zone. `makeSign` in particular was reading a SIGN_* palette that
+-- had already moved to the kit without it.
+--
 -- WHY IT WENT FIRST, AND WHY THIS IS NOT THE JOB MainUI WAS: this file was 9,281 lines with 190
 -- top-level `local` lines, 48 of them used across spans of 600+ lines, and `newPart` is called at
 -- 534 sites spread over the whole of it. There is no line at which a cut leaves the locals behind --
@@ -114,6 +120,8 @@ local TERRAIN_INNER, TERRAIN_OUTER = ZoneKit.TERRAIN_INNER, ZoneKit.TERRAIN_OUTE
 local TERRAIN_DEPTH = ZoneKit.TERRAIN_DEPTH
 local SIGN_INK, SIGN_RIM = ZoneKit.SIGN_INK, ZoneKit.SIGN_RIM
 local SIGN_FACE, SIGN_FONT = ZoneKit.SIGN_FACE, ZoneKit.SIGN_FONT
+local seatModel, makeSign = ZoneKit.seatModel, ZoneKit.makeSign
+local stoneTones, addLight = ZoneKit.stoneTones, ZoneKit.addLight
 
 -- How close you have to stand for any shop prompt in the world to offer itself. A player's body
 -- scales from 1x at Cell to 9x at The Absolute, and a ProximityPrompt measures to the character's
@@ -212,162 +220,23 @@ end
 -- DECLARED UP HERE ON PURPOSE. addLandmark is written ~800 lines above the mesh-prop section where
 -- this was first declared, and Lua binds an upvalue where the function is WRITTEN -- so from down
 -- there it resolved to a nil global and every landmark silently fell back to its block style with
--- nothing in the log. Same trap, same fix, as the `addLight, scatterPoint` forward declarations.
+-- nothing in the log. Same trap, same fix, as the `scatterPoint` forward declaration below.
 local ACTIVE_ZONE_KEY = nil
 
--- SEATS A CLONED MODEL ON THE GROUND, whatever its author did with its pivot.
--- Everything in ServerStorage.Models was made by a different hand and their pivots are in
--- different places -- some centred, some at the base -- so the usual
--- `PivotTo(CFrame.new(x, geom.Size.Y / 2, z))` only lands correctly for the ones that happen to be
--- centred, and it guesses the height off ONE CHILD PART of a multi-part model on top of that. The
--- Forest trees were neither: they hovered 8 to 15 studs over the grass.
--- Measure instead of guessing. Put it down at y = 0, read where the bounding box actually ended
--- up, and drop it by exactly that much. `sink` buries it a little for props that should look
--- half-embedded rather than placed.
-local function seatModel(inst, x, z, yaw, sink)
-	inst:PivotTo(CFrame.new(x, 0, z) * CFrame.Angles(0, yaw or 0, 0))
-	local cf, size = inst:GetBoundingBox()
-	local bottom = cf.Position.Y - size.Y / 2
-	inst:PivotTo(inst:GetPivot() + Vector3.new(0, -bottom - (sink or 0), 0))
-	return inst
-end
-
--- Forward-declared. Both are defined in the shared-decoration section far below, but the portal,
--- cliff, titan and prop builders are all written above it, and Lua binds an upvalue where the
--- function is *written* rather than where it runs -- without these names in scope up here every
+-- Forward-declared. `scatterPoint` is defined in the shared-decoration section far below, but the
+-- portal, cliff, titan and prop builders are all written above it, and Lua binds an upvalue where
+-- the function is *written* rather than where it runs -- without the name in scope up here every
 -- call would silently resolve to a nil global and blow up at world-build time.
-local addLight, scatterPoint
+--
+-- `addLight` stood on this line until 18.10 and is the kit's now. It needs no forward declaration
+-- at all any more: it arrives re-localised at the top of the file, which is above everything.
+local scatterPoint
 
 -- Forward-declared for the same reason, and needed by the WALLS. `terrainCrestY(zoneKey)` is how
 -- high the terrace band stands where it meets the boundary -- the outermost tier's tread, which at
 -- x = TERRAIN_OUTER is simply `rise * tiers` whatever the segment edges did. It is defined beside
 -- TERRAIN_PROFILE, which is the table it reads, but `addRockRampart` is written far above that.
 local terrainCrestY
-
--- Same reason, for the soft-prop vocabulary (knobs, scallops, bunting, planters). They are written
--- down in the village section beside the structures that use them most, but addZoneProps -- which
--- is written above it -- dresses the scattered crates and banners out of the same set.
-local addKnob, addScallops, addBunting, addPlanter, candy
-
--- Every name board in the world -- the gate signs, the two direction signs on the walkway, the
--- landmark under the arch, the shop titles and the stall odds -- is one of these.
---
--- It used to be a single flat TextLabel: 35% transparent near-black, white Gotham, one 12px corner.
--- Floating over a bright zone that reads as a chat bubble somebody forgot to delete, and it is the
--- reason the zone names looked worse than the props they were standing next to.
---
--- The rebuild is the sticker shape the rest of the game uses -- ink outline, cream rim, coloured
--- face, gloss, hard shadow, outlined text -- with ONE rule behind every dimension:
---
---   *every layer is sized in SCALE, never in pixels.*
---
--- These billboards are sized in studs (UDim2.new(16, 0, 5.5, 0)), so their pixel size changes with
--- distance. A 4px UIStroke or a 12px UICorner is a hairline up close and a fat crayon border from
--- across the platform. Nested Frames at fractional sizes hold their proportions at every range,
--- which is why the border here is three stacked rounded rectangles rather than a stroke.
---
--- opts (all optional): { color = Color3 face colour, textColor = Color3, bob = false }
-local function makeSign(parentModel, text, cframe, size, opts)
-	opts = opts or {}
-	local face = opts.color or SIGN_FACE
-
-	local signPart = newPart({
-		Name = "SignPart",
-		Size = Vector3.new(1, 1, 1),
-		CFrame = cframe,
-		Transparency = 1,
-		CanCollide = false,
-		Parent = parentModel,
-	})
-
-	local billboard = Instance.new("BillboardGui")
-	billboard.Name = "Sign"
-	billboard.Size = size or UDim2.new(0, 260, 0, 70)
-	billboard.StudsOffset = Vector3.new(0, 3, 0)
-	billboard.AlwaysOnTop = false
-	-- Half the late zones are lit almost to black. A light-influenced board goes unreadable exactly
-	-- where the player most needs to be told which way the exit is.
-	billboard.LightInfluence = 0
-	-- A SHOP-SIZED BOARD NEEDS SHOP-SIZED REACH. 160 studs is right for a direction sign you
-	-- read while walking past it; it is wrong for the board over a shop, which is the one thing
-	-- in the village a player is supposed to spot from the far end of the street and walk TO.
-	-- At 160 the shop board simply was not drawn from anywhere you would notice the shop from.
-	billboard.MaxDistance = opts.maxDistance or 160
-	billboard.Parent = signPart
-
-	local RADIUS = UDim.new(0.24, 0)
-
-	local function plate(parent, name, color, inset, dy, z)
-		local f = Instance.new("Frame")
-		f.Name = name
-		f.BackgroundColor3 = color
-		f.BorderSizePixel = 0
-		f.AnchorPoint = Vector2.new(0.5, 0.5)
-		f.Position = UDim2.new(0.5, 0, 0.5 + (dy or 0), 0)
-		f.Size = UDim2.new(1 - inset * 2, 0, 1 - inset * 2 * 2.6, 0)
-		f.ZIndex = z
-		local c = Instance.new("UICorner")
-		c.CornerRadius = RADIUS
-		c.Parent = f
-		f.Parent = parent
-		return f
-	end
-
-	-- hard shadow, ink outline, cream rim, coloured face -- four rectangles, no strokes
-	plate(billboard, "Shadow", Color3.fromRGB(16, 10, 24), 0.012, 0.05, 1).BackgroundTransparency = 0.25
-	plate(billboard, "Outline", SIGN_INK, 0, 0, 2)
-	local rim = plate(billboard, "Rim", SIGN_RIM, 0.022, 0, 3)
-	local body = plate(rim, "Face", face, 0.03, 0, 4)
-
-	local grad = Instance.new("UIGradient")
-	grad.Rotation = 90
-	grad.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, face:Lerp(Color3.new(1, 1, 1), 0.34)),
-		ColorSequenceKeypoint.new(0.55, face),
-		ColorSequenceKeypoint.new(1, face:Lerp(Color3.new(0, 0, 0), 0.36)),
-	})
-	grad.Parent = body
-
-	-- the sheen: a rounded strip across the top third. Same invariant as UITheme -- it never gets
-	-- close to opaque and it never renders above the text.
-	local gloss = Instance.new("Frame")
-	gloss.Name = "Gloss"
-	gloss.BackgroundColor3 = Color3.new(1, 1, 1)
-	gloss.BackgroundTransparency = 0.8
-	gloss.BorderSizePixel = 0
-	gloss.Position = UDim2.new(0.5, 0, 0.06, 0)
-	gloss.AnchorPoint = Vector2.new(0.5, 0)
-	gloss.Size = UDim2.new(0.88, 0, 0.3, 0)
-	gloss.ZIndex = 5
-	local glossCorner = Instance.new("UICorner")
-	glossCorner.CornerRadius = UDim.new(1, 0)
-	glossCorner.Parent = gloss
-	gloss.Parent = body
-
-	local label = Instance.new("TextLabel")
-	label.Name = "TextLabel"
-	label.BackgroundTransparency = 1
-	-- inset in SCALE so the word can never touch the rim, whatever the board's aspect ratio is.
-	-- The old sign ran its text to the very edge of the plate, which is what made "Desert" look
-	-- like it had been cut off by the frame it was sitting in.
-	label.Size = UDim2.new(0.88, 0, 0.66, 0)
-	label.Position = UDim2.new(0.5, 0, 0.5, 0)
-	label.AnchorPoint = Vector2.new(0.5, 0.5)
-	label.Font = SIGN_FONT
-	label.TextScaled = true
-	label.TextColor3 = opts.textColor or Color3.fromRGB(255, 255, 255)
-	label.Text = text
-	label.ZIndex = 8
-	label.Parent = body
-
-	local textStroke = Instance.new("UIStroke")
-	textStroke.Thickness = 2.5
-	textStroke.Color = SIGN_INK
-	textStroke.LineJoinMode = Enum.LineJoinMode.Round
-	textStroke.Parent = label
-
-	return signPart
-end
 
 -- Scatters vertical support pillars + a thin neon light strip along a wall so it never
 -- reads as one flat bare slab -- reused by both wall-building helpers below. Must be defined
@@ -680,70 +549,6 @@ local ROCK_MATERIAL = {
 	CelestialThrone = Enum.Material.Marble,
 	AbsolutePlane = Enum.Material.Marble,
 }
-
--- Rock is the zone's own ground colour pulled toward white in three steps, so a Forest cliff comes
--- out pale green and a Mars cliff pale rust without one hand-picked palette anywhere.
-local function stoneTones(zone)
-	local g = groundColorOf(zone)
-	-- cosmic zones ship a near-black ground; lifting those to a readable stone needs a much
-	-- bigger step toward white than a Desert's already-bright sand does
-	local lum = g.R * 0.3 + g.G * 0.59 + g.B * 0.11
-	-- A near-black ground (Volcano, Black Hole, the void zones) is useless as a rock colour: lift it
-	-- toward white and you get flat grey cliffs in a zone that should be glowing orange. Mix the
-	-- accent in first -- that is the colour the zone is actually about -- and lift the result.
-	local base = lum < 0.28 and g:Lerp(zone.accentColor, 0.62) or g
-
-	-- ...AND THE SAME IS TRUE AT THE OTHER END, WHICH NOTHING HANDLED.
-	--
-	-- The Absolute Plane's ground is rgb(255,255,255). Lifting white toward white returns white, so
-	-- all three tones came back identical to the floor -- measured distance 0.000 -- and the cliffs,
-	-- their caps, the lips and the backdrop mesas were literally the same colour as the ground they
-	-- stood on. Seventy-one percent of the final zone's surface was within a rounding error of pure
-	-- white: the reward for twenty stages of climbing was a blank field with no silhouette in it.
-	--
-	-- Mirror of the dark rule: mix the accent in to get a colour the zone is actually about, then
-	-- step DOWN toward black instead of up toward white, so the shading still separates the three.
-	local pale = lum > 0.78
-	if pale then
-		base = g:Lerp(zone.accentColor, 0.5):Lerp(Color3.new(0, 0, 0), 0.28)
-	end
-
-	-- ROCK IS ROCK-COLOURED. THE BIOME IS A TINT ON IT, NOT THE WHOLE OF IT.
-	--
-	-- Everything above derives the cliff colour from the zone's GROUND, so Forest's cliffs came out
-	-- rgb(88,149,88) -- solid green. At 24 x 68 x 60 studs a block that colour does not read as a
-	-- rock face at all; it reads as a stacked green slab, which is exactly what the terraces were
-	-- reported as looking like. No amount of mesh cladding fixes a colour that is wrong underneath.
-	--
-	-- 58% toward a warm neutral stone keeps enough of the biome to tell Forest from Mars across the
-	-- map -- which is what the note below is protecting -- while putting the cliffs back in the
-	-- family of colours actual stone comes in.
-	--
-	-- The two special cases are deliberately left ALONE and this is why: the dark path (Volcano,
-	-- Black Hole, the void zones) has already mixed the accent in to get glowing lava rock rather
-	-- than flat grey, and the pale path (Absolute Plane) exists because lifting white toward white
-	-- returned white and left 71% of that zone with no silhouette. Greying either of them out would
-	-- undo a fix that is documented directly above.
-	if not pale and lum >= 0.28 then
-		base = base:Lerp(Color3.fromRGB(138, 132, 120), 0.58)
-	end
-
-	-- The three steps stay small on purpose. An earlier pass lerped 30/46/62% toward white and
-	-- every zone came out the same chalky pastel: the cliffs stopped reading as that biome's rock
-	-- and the platform lost its colour identity from a distance.
-	if pale then
-		return {
-			base:Lerp(Color3.new(0, 0, 0), 0.06),
-			base:Lerp(Color3.new(1, 1, 1), 0.14),
-			base:Lerp(Color3.new(1, 1, 1), 0.30),
-		}, base:Lerp(Color3.new(0, 0, 0), 0.42)
-	end
-	return {
-		base:Lerp(Color3.new(1, 1, 1), 0.08),
-		base:Lerp(Color3.new(1, 1, 1), 0.22),
-		base:Lerp(Color3.new(1, 1, 1), 0.38),
-	}, base:Lerp(Color3.new(0, 0, 0), 0.42)
-end
 
 -- One course of overlapping boulders standing against a boundary wall. `axis` is the axis the wall
 -- runs along, `fixed` the wall's coordinate on the other axis, `inward` which way the zone is.
@@ -1082,7 +887,8 @@ end
 -- scatterPoint can never solve. 175 clears the wreck by 15 studs and costs nothing: it is still
 -- the same distance off the walkway, only further up it.
 --
--- SHOP_SCALE is declared much further down, next to addStall, and cannot be used up here.
+-- SHOP_SCALE is `VillageKit.SHOP_SCALE` and could be read here, but this number is not derived
+-- from it: 175 was measured against the Ocean shipwreck, not against the kiosk's own size.
 local SHOP_Z = 175
 local scatterBlocks = {}
 local function reserveScatter(x, z, radius)
@@ -1263,19 +1069,27 @@ local function addGroundDetail(model, zone, cx)
 	end
 end
 
--- ===== THE VILLAGE PALETTE, DECLARED HERE BECAUSE addZoneProps READS IT =====
--- These four were authored ~170 lines below, beside the VILLAGE_STYLE table that reassigns them
--- per zone, which reads well and compiled fine -- and meant the three uses in addZoneProps below
--- (the crate lid, a knob and the banner emblem) resolved to a nil GLOBAL, so those parts took
--- Roblox's default grey instead of cream. A `local` is only visible BELOW its own line no matter
--- where the function is called from. If you move this block, it has to stay above addZoneProps.
--- The values here are the Forest set and are the documented fallback; `applyVillageStyle` at the
--- VILLAGE_STYLE table overwrites all four per zone, and that is still the only writer.
-local VILLAGE_WOOD = Color3.fromRGB(154, 108, 62)
-local VILLAGE_WOOD_DARK = Color3.fromRGB(101, 69, 40)
-local VILLAGE_CLOTH = Color3.fromRGB(240, 235, 222)
-local VILLAGE_CREAM = Color3.fromRGB(252, 244, 226)
-
+-- ===== THE VILLAGE'S MATERIALS LEFT THIS FILE (18.10) =====
+--
+-- `ServerScriptService.VillageKit` -- the per-zone palette, `applyVillageStyle` and the tables it
+-- reads, the soft-prop vocabulary (`candy`, `addKnob`, `addScallops`, `addBunting`, `addPlanter`)
+-- and the prop library itself (`addLamp`, `addStall`, `addWell`, `SHOP_SCALE`, and the `villMesh`
+-- loader behind them). Twenty-two top-level names, which took this file from **189 of Luau's 200
+-- registers to 169**. Read its header for where the line between the two files is drawn.
+--
+-- WHAT DID NOT MOVE: the layout. `addZoneProps` below, and `addZoneVillage`, `buildZoneShop` and
+-- `buildMysteryOddsBoard` further down, still decide where every piece stands, still hang the
+-- prompts and still read `GameConfig`. They call the library through this require.
+--
+-- NOT RE-LOCALISED, unlike `ZoneKit` above -- there are fifteen call sites, not five hundred, and
+-- `VillageKit.addKnob(...)` is worth its four extra characters for saying where the thing lives.
+--
+-- `VILLAGE` IS A REFERENCE, NOT A COPY, and it has to be: `applyVillageStyle` reassigns all six of
+-- its fields once per zone, so a value copied here would be frozen on Forest forever and silently
+-- (`docs/SPLIT.md` §3 rule 2). The table is shared, so the field reads below always see the zone
+-- currently being built.
+local VillageKit = require(script.Parent.VillageKit)
+local VILLAGE = VillageKit.palette
 -- ===== SET DRESSING =====
 -- Crates, banners, signposts and spinning pickups. Cheap, but they are what makes a space read as
 -- lived-in: the reference art is full of small readable objects at player height.
@@ -1332,14 +1146,14 @@ local function addZoneProps(model, zone, cx)
 			local at = CFrame.new(x + jx, cy + sz / 2, z + jz) * CFrame.Angles(0, math.rad(spin), 0)
 			newPart({ Name = "Crate", Size = Vector3.new(sz, sz, sz), CFrame = at, Color = s % 2 == 0 and woodDark or wood, Material = Enum.Material.WoodPlanks, Parent = model })
 			-- lid, batten and four corner blocks: the joinery is what sells it as a container
-			newPart({ Name = "CrateLid", Size = Vector3.new(sz + 0.9, 1.1, sz + 0.9), CFrame = at * CFrame.new(0, sz / 2, 0), Color = VILLAGE_CREAM, Material = Enum.Material.WoodPlanks, CanCollide = false, Parent = model })
+			newPart({ Name = "CrateLid", Size = Vector3.new(sz + 0.9, 1.1, sz + 0.9), CFrame = at * CFrame.new(0, sz / 2, 0), Color = VILLAGE.cream, Material = Enum.Material.WoodPlanks, CanCollide = false, Parent = model })
 			newPart({ Name = "CrateBatten", Size = Vector3.new(sz * 1.35, 1.2, 0.5), CFrame = at * CFrame.new(0, 0, sz / 2 + 0.1) * CFrame.Angles(0, 0, math.rad(38)), Color = woodDark, Material = Enum.Material.Wood, CanCollide = false, Parent = model })
 			-- one corner post, on the face the batten crosses. The second was on the back edge of a
 			-- box you can only see one side of.
 			newPart({ Name = "CrateCorner", Size = Vector3.new(1.2, sz, 1.2), CFrame = at * CFrame.new(-sz / 2, 0, sz / 2), Color = woodDark, Material = Enum.Material.Wood, CanCollide = false, Parent = model })
 			cy += sz
 			if s == stack then
-				newPart({ Name = "CrateFruit", Shape = Enum.PartType.Ball, Size = Vector3.new(3.4, 3, 3.4), CFrame = at * CFrame.new(0, sz / 2 + 1.8, 0), Color = candy(c), Material = Enum.Material.SmoothPlastic, CanCollide = false, CastShadow = false, Parent = model })
+				newPart({ Name = "CrateFruit", Shape = Enum.PartType.Ball, Size = Vector3.new(3.4, 3, 3.4), CFrame = at * CFrame.new(0, sz / 2 + 1.8, 0), Color = VillageKit.candy(c), Material = Enum.Material.SmoothPlastic, CanCollide = false, CastShadow = false, Parent = model })
 				newPart({ Name = "CrateFruitLeaf", Size = Vector3.new(1.6, 0.4, 0.9), CFrame = at * CFrame.new(0.7, sz / 2 + 3.2, 0) * CFrame.Angles(0, 0, math.rad(22)), Color = Color3.fromRGB(104, 180, 96), Material = Enum.Material.Grass, CanCollide = false, CastShadow = false, Parent = model })
 			end
 		end
@@ -1363,12 +1177,12 @@ local function addZoneProps(model, zone, cx)
 		local h = math.random(26, 40)
 		local spin = math.random(0, 360)
 		local at = CFrame.new(x, 0, z) * CFrame.Angles(0, math.rad(spin), 0)
-		local cloth, trim = candy(b), candy(b + 3)
+		local cloth, trim = VillageKit.candy(b), VillageKit.candy(b + 3)
 
 		newPart({ Name = "BannerPole", Size = Vector3.new(1.6, h, 1.6), CFrame = at * CFrame.new(0, h / 2, 0), Color = woodDark, Material = Enum.Material.Wood, Parent = model })
 		newPart({ Name = "BannerCrossbar", Size = Vector3.new(15, 1.1, 1.1), CFrame = at * CFrame.new(0, h - 1.5, 0), Color = woodDark, Material = Enum.Material.Wood, CanCollide = false, Parent = model })
 		for _, sx in ipairs({ -1, 1 }) do
-			addKnob(model, (at * CFrame.new(sx * 7.5, h - 1.5, 0)).Position, 1.9, VILLAGE_CREAM)
+			VillageKit.addKnob(model, (at * CFrame.new(sx * 7.5, h - 1.5, 0)).Position, 1.9, VILLAGE.cream)
 		end
 
 		local clothH = h * 0.42
@@ -1378,10 +1192,10 @@ local function addZoneProps(model, zone, cx)
 		for _, dy in ipairs({ 0.22, -0.22 }) do
 			newPart({ Name = "BannerStripe", Size = Vector3.new(13.4, clothH * 0.13, 0.7), CFrame = at * CFrame.new(0, clothY + clothH * dy, 0), Color = trim, Material = Enum.Material.Fabric, CanCollide = false, CastShadow = false, Parent = model })
 		end
-		newPart({ Name = "BannerEmblem", Shape = Enum.PartType.Ball, Size = Vector3.new(4.6, 4.6, 1.2), CFrame = at * CFrame.new(0, clothY, -0.5), Color = VILLAGE_CREAM, Material = Enum.Material.SmoothPlastic, CanCollide = false, CastShadow = false, Parent = model })
-		addScallops(model, at, 12, 4, clothY - clothH / 2, 0, trim, cloth, 3.4)
+		newPart({ Name = "BannerEmblem", Shape = Enum.PartType.Ball, Size = Vector3.new(4.6, 4.6, 1.2), CFrame = at * CFrame.new(0, clothY, -0.5), Color = VILLAGE.cream, Material = Enum.Material.SmoothPlastic, CanCollide = false, CastShadow = false, Parent = model })
+		VillageKit.addScallops(model, at, 12, 4, clothY - clothH / 2, 0, trim, cloth, 3.4)
 
-		local knob = addKnob(model, (at * CFrame.new(0, h + 1.4, 0)).Position, 3.4, accent, Enum.Material.Neon)
+		local knob = VillageKit.addKnob(model, (at * CFrame.new(0, h + 1.4, 0)).Position, 3.4, accent, Enum.Material.Neon)
 		addLight(knob, accent, 18, 1.4)
 	end
 
@@ -1481,515 +1295,13 @@ end
 --
 -- Each piece is built off a base CFrame with local offsets rather than absolute positions, so a
 -- structure can be turned to face the street without re-deriving every part's coordinates.
--- ===== THE VILLAGE IS BUILT OF DIFFERENT STUFF IN EVERY ZONE =====
 --
--- These four values dress EVERY hand-placed structure in a zone: the street fence, the welcome
--- arch, the name board, the benches, the planters, the well, the stalls and the shop. They were
--- four constants, so all twenty zones were furnished in the same brown pine and the same cream
--- paint -- and that is most of what "every zone is the same template" actually is. The layout was
--- never the loudest part; the MATERIAL was. A pine picket fence with cream caps on the Moon, in
--- the Void and inside a black hole is the same village dropped twenty times.
---
--- They are `local` and REASSIGNED per zone rather than threaded through as parameters: fifty-nine
--- lines across a dozen builders read them, and none of those builders is handed the zone. The
--- write happens in one place -- `applyVillageStyle`, called from the zone loop right where
--- ACTIVE_ZONE_KEY is set -- so the mutation has exactly one owner and one lifetime.
---
--- Material matters as much as colour here: Wood and WoodPlanks are what say "cottage", and a
--- zone whose village is cut from Basalt, Ice, Marble or Neon reads as a different civilisation
--- without a single part moving.
--- The four locals themselves are declared ABOVE addZoneProps, not here, because that function
--- reads three of them -- see the note there. This is where they are documented and where they are
--- reassigned; it is not where they are introduced.
-
--- The defaults are the Forest set, kept as the fallback so a zone with no entry here builds
--- exactly as it always did.
-local VILLAGE_DEFAULT = {
-	wood = VILLAGE_WOOD, dark = VILLAGE_WOOD_DARK,
-	cloth = VILLAGE_CLOTH, cream = VILLAGE_CREAM,
-}
-
--- ===== THE RULE IS CONTRAST WITH THE GROUND, NOT AGREEMENT WITH THE THEME =====
---
--- The obvious way to write this table is to theme each village to its biome: charred timber in the
--- Volcano, pale stone on the Moon, chrome in the Mirror Universe. That was the first cut and it is
--- WRONG, and the Moon proved it in one screenshot -- a silver-grey fence, arch, benches and name
--- board standing on a 170-grey lunar floor under a white sky simply vanished. The zone came back
--- as a white field with nothing built on it, which is worse than the repeated brown village it
--- replaced: repetition is boring, invisibility is broken.
---
--- The village's job is to be the BUILT thing on the natural ground. So it is picked against the
--- ground's luminance and only then tinted toward the biome:
---
---   ground bright (Desert .78, CelestialThrone .70, Moon .67, MirrorUniverse .60,
---                  AbsolutePlane 1.00) -> DARK village
---   ground dark   (VoidExpanse .02, BlackHole .04, Singularity .06, Multiverse .08,
---                  AntimatterZone .10 ... TimeRift .28) -> BRIGHT village
---   ground mid    (Nebula .35, QuantumRealm .39, Forest .44, Mars .46, Ocean .48) -> either,
---                  chosen for hue contrast instead
---
--- The theme then lives in the HUE and in VILLAGE_MATERIAL below, which is where it can be read
--- without costing legibility: a bone-and-ember village in the Volcano, a charcoal-and-cyan one on
--- the Moon, deep blue and gold on the Celestial Throne.
-local VILLAGE_STYLE = {
-	-- ---- mid ground: brown timber on green is the original and it works
-	Forest         = VILLAGE_DEFAULT,
-	Ocean          = { wood = Color3.fromRGB(224, 208, 178), dark = Color3.fromRGB(152, 132, 102), cloth = Color3.fromRGB(250, 244, 226), cream = Color3.fromRGB(252, 250, 240) },
-	Mars           = { wood = Color3.fromRGB(232, 214, 182), dark = Color3.fromRGB(160, 140, 108), cloth = Color3.fromRGB(250, 236, 210), cream = Color3.fromRGB(252, 244, 226) },
-	Nebula         = { wood = Color3.fromRGB(252, 224, 240), dark = Color3.fromRGB(186, 138, 178), cloth = Color3.fromRGB(150, 240, 236), cream = Color3.fromRGB(252, 240, 250) },
-	QuantumRealm   = { wood = Color3.fromRGB(206, 246, 252), dark = Color3.fromRGB(124, 190, 210), cloth = Color3.fromRGB(232, 250, 254), cream = Color3.fromRGB(244, 253, 255) },
-
-	-- ---- BRIGHT ground -> DARK village
-	Desert         = { wood = Color3.fromRGB(122, 80, 48),   dark = Color3.fromRGB(74, 48, 28),    cloth = Color3.fromRGB(244, 222, 178), cream = Color3.fromRGB(250, 238, 206) },
-	-- charcoal and cyan: a moonbase, not a moon rock
-	Moon           = { wood = Color3.fromRGB(72, 76, 92),    dark = Color3.fromRGB(40, 44, 56),    cloth = Color3.fromRGB(150, 226, 250), cream = Color3.fromRGB(198, 232, 248) },
-	MirrorUniverse = { wood = Color3.fromRGB(58, 64, 84),    dark = Color3.fromRGB(32, 36, 50),    cloth = Color3.fromRGB(196, 216, 244), cream = Color3.fromRGB(214, 230, 250) },
-	-- deep royal blue carrying gold. Gold on gold sand is invisible; gold on navy is a throne room.
-	CelestialThrone= { wood = Color3.fromRGB(56, 62, 116),   dark = Color3.fromRGB(32, 36, 74),    cloth = Color3.fromRGB(250, 226, 150), cream = Color3.fromRGB(248, 214, 118) },
-	-- the only pure-white ground in the game, so the only truly black village
-	AbsolutePlane  = { wood = Color3.fromRGB(44, 40, 58),    dark = Color3.fromRGB(22, 20, 32),    cloth = Color3.fromRGB(196, 150, 246), cream = Color3.fromRGB(126, 112, 168) },
-
-	-- ---- DARK ground -> BRIGHT village
-	-- bone and ember. The charred-timber version of this was dark-on-dark and disappeared exactly
-	-- the way the Moon did.
-	Volcano        = { wood = Color3.fromRGB(214, 190, 178), dark = Color3.fromRGB(150, 124, 114), cloth = Color3.fromRGB(255, 148, 92),  cream = Color3.fromRGB(248, 234, 224) },
-	Galaxy         = { wood = Color3.fromRGB(200, 186, 250), dark = Color3.fromRGB(142, 126, 200), cloth = Color3.fromRGB(232, 222, 255), cream = Color3.fromRGB(242, 236, 255) },
-	BlackHole      = { wood = Color3.fromRGB(186, 176, 214), dark = Color3.fromRGB(124, 116, 156), cloth = Color3.fromRGB(190, 142, 255), cream = Color3.fromRGB(224, 218, 244) },
-	Multiverse     = { wood = Color3.fromRGB(220, 200, 244), dark = Color3.fromRGB(158, 136, 190), cloth = Color3.fromRGB(252, 226, 250), cream = Color3.fromRGB(248, 240, 254) },
-	Wormhole       = { wood = Color3.fromRGB(154, 240, 222), dark = Color3.fromRGB(92, 176, 166),  cloth = Color3.fromRGB(224, 252, 244), cream = Color3.fromRGB(236, 253, 248) },
-	TimeRift       = { wood = Color3.fromRGB(232, 202, 130), dark = Color3.fromRGB(172, 142, 76),  cloth = Color3.fromRGB(250, 238, 194), cream = Color3.fromRGB(252, 244, 214) },
-	AntimatterZone = { wood = Color3.fromRGB(230, 226, 236), dark = Color3.fromRGB(164, 160, 178), cloth = Color3.fromRGB(255, 118, 222), cream = Color3.fromRGB(252, 248, 254) },
-	DreamDimension = { wood = Color3.fromRGB(230, 210, 252), dark = Color3.fromRGB(172, 150, 208), cloth = Color3.fromRGB(198, 250, 240), cream = Color3.fromRGB(250, 246, 255) },
-	VoidExpanse    = { wood = Color3.fromRGB(158, 154, 190), dark = Color3.fromRGB(102, 98, 134),  cloth = Color3.fromRGB(146, 134, 210), cream = Color3.fromRGB(196, 192, 220) },
-	Singularity    = { wood = Color3.fromRGB(166, 188, 240), dark = Color3.fromRGB(102, 124, 182), cloth = Color3.fromRGB(210, 228, 255), cream = Color3.fromRGB(228, 240, 255) },
-}
-
--- Which material the "timber" of a village is actually cut from. Absent = Wood/WoodPlanks, i.e.
--- unchanged. Two entries per zone because the code uses Wood for posts and WoodPlanks for boards
--- and boxes, and swapping only one of them leaves a plank fence with metal legs.
-local VILLAGE_MATERIAL = {
-	Ocean          = { post = Enum.Material.Slate,     board = Enum.Material.Slate },
-	Volcano        = { post = Enum.Material.Basalt,    board = Enum.Material.Basalt },
-	Moon           = { post = Enum.Material.Metal,     board = Enum.Material.DiamondPlate },
-	Mars           = { post = Enum.Material.Sandstone, board = Enum.Material.Sandstone },
-	Galaxy         = { post = Enum.Material.Marble,    board = Enum.Material.Marble },
-	BlackHole      = { post = Enum.Material.Slate,     board = Enum.Material.Slate },
-	Multiverse     = { post = Enum.Material.Marble,    board = Enum.Material.Marble },
-	Nebula         = { post = Enum.Material.Marble,    board = Enum.Material.Marble },
-	Wormhole       = { post = Enum.Material.Metal,     board = Enum.Material.DiamondPlate },
-	QuantumRealm   = { post = Enum.Material.Glass,     board = Enum.Material.Glass },
-	TimeRift       = { post = Enum.Material.Metal,     board = Enum.Material.CorrodedMetal },
-	AntimatterZone = { post = Enum.Material.Metal,     board = Enum.Material.DiamondPlate },
-	DreamDimension = { post = Enum.Material.Marble,    board = Enum.Material.Marble },
-	MirrorUniverse = { post = Enum.Material.Metal,     board = Enum.Material.Metal },
-	VoidExpanse    = { post = Enum.Material.Slate,     board = Enum.Material.Slate },
-	CelestialThrone= { post = Enum.Material.Marble,    board = Enum.Material.Marble },
-	Singularity    = { post = Enum.Material.Metal,     board = Enum.Material.Metal },
-	AbsolutePlane  = { post = Enum.Material.Marble,    board = Enum.Material.Marble },
-}
-
--- Live values the builders read. Reassigned by applyVillageStyle, never written anywhere else.
-local VILLAGE_POST_MAT = Enum.Material.Wood
-local VILLAGE_BOARD_MAT = Enum.Material.WoodPlanks
-
--- ===== THE OUTLINE TIER, AND WHY IT IS NOT SIMPLY "DARKER" =====
---
--- Measured across 443 street-level props in Forest: **not one** was near-ink. The darkest thing on
--- the whole street was a glow post at value 0.35, and the structural colour every prop hangs off
--- (`VILLAGE_WOOD_DARK`) sat at 0.40. So the world had no outline tier at all -- everything from the
--- fence to the lamp to the bench was a mid-tone against a mid-tone ground, which is exactly what
--- "flat and pastel" is made of. The house style's first rule is the dark contour (see the chunky
--- look notes); the HUD has it, the icons have it, the props did not.
---
--- The seventeen sites that read `VILLAGE_WOOD_DARK` are all skeleton -- lamp foot, post, bracket
--- and roof, fence rail, arch pillar, bench leg, planter rim, sign post and batten. Pushing that one
--- colour is therefore a whole-world outline pass for one line, with no new parts anywhere.
---
--- IT IS A CONTRAST TRIM, NOT A DARK TRIM, and that distinction is what keeps it from repeating the
--- mistake the village palette above already paid for: a silver village on the Moon's pale ground
--- vanished, so villages are picked AGAINST THE GROUND. If the trim were unconditionally dark it
--- would vanish the same way -- on the bright-ground zones the village body is itself dark, and
--- ink-on-ink is invisible.
---
--- The trim contrasts with the THING IT OUTLINES rather than with the background, which is the whole
--- point of an outline and is also why it can be decided here from one colour: a light body gets a
--- near-ink trim, and a body already dark gets a bone one. Either way the prop reads as drawn.
--- THE FLIP POINT IS 0.32, AND 0.42 WAS WRONG -- Forest is the case that proves it. Its wood-dark
--- is a mid brown at value 0.396, which is not "already dark" in any useful sense: it carries an ink
--- trim perfectly well. At 0.42 it took the flip instead and every fence rail, bench leg and planter
--- rim in the starting zone came out CREAM. Below 0.32 are the five genuinely dark bodies (Absolute
--- 0.13, Mirror 0.20, Moon 0.22, Desert and Celestial 0.29) -- the bright-ground zones, which is
--- exactly the set the flip exists for.
---
--- The audit that missed this checked all nineteen palettes in `VILLAGE_STYLE` and passed. Forest is
--- not in that table -- it is `VILLAGE_DEFAULT`, the fallback -- so the one zone every player starts
--- in was the one zone the check did not cover. **A table-driven audit has to include the default.**
-local function trimFor(body)
-	local h, s, v = Color3.toHSV(body)
-	if v > 0.32 then
-		-- room to go down: genuine ink, hue kept so oak trims brown and marble trims blue-grey
-		return Color3.fromHSV(h, math.min(s * 1.08, 1), math.max(v * 0.34, 0.13))
-	end
-	-- already dark; going darker would erase it, so the outline goes the other way
-	return Color3.fromHSV(h, s * 0.5, math.min(v * 2.5 + 0.12, 0.93))
-end
-
-local function applyVillageStyle(key)
-	local s = VILLAGE_STYLE[key] or VILLAGE_DEFAULT
-	VILLAGE_WOOD = s.wood
-	-- `s.dark` is the authored mid-tone shade of the body, and it stays available as that; what the
-	-- skeleton wants is a step further than "a bit darker", so it is derived rather than authored --
-	-- twenty hand-picked ink colours would be twenty chances for one of them to be wrong.
-	VILLAGE_WOOD_DARK = trimFor(s.dark)
-	VILLAGE_CLOTH, VILLAGE_CREAM = s.cloth, s.cream
-	local m = VILLAGE_MATERIAL[key]
-	VILLAGE_POST_MAT = m and m.post or Enum.Material.Wood
-	VILLAGE_BOARD_MAT = m and m.board or Enum.Material.WoodPlanks
-end
-
--- The candy palette every soft prop below picks from. Deliberately not derived from the zone
--- accent: the accent already colours the neon, the trim and the lights, and when the bunting and
--- the flowers took it too every zone collapsed into one hue. A fixed sweet-shop set of colours
--- against the biome's own greens and rusts is what reads as *decoration* rather than as more biome.
-local CANDY = {
-	Color3.fromRGB(255, 128, 158), -- bubblegum
-	Color3.fromRGB(255, 206, 92),  -- butter
-	Color3.fromRGB(126, 220, 232), -- sky
-	Color3.fromRGB(180, 152, 255), -- lilac
-	Color3.fromRGB(140, 226, 148), -- mint
-	Color3.fromRGB(255, 158, 110), -- peach
-}
-
-function candy(i)
-	return CANDY[((i - 1) % #CANDY) + 1]
-end
-
--- ---- shared soft-prop vocabulary ----
--- Four shapes that turn a box into a toy: a rounded cap, a scalloped skirt, a pennant string and
--- a planter. Everything on the street is built out of these, which is what makes the street read
--- as one set rather than as a pile of unrelated props.
-
--- A ball sitting on top of a post. One part, and it is the single biggest difference between a
--- fence that looks like a row of stakes and one that looks drawn.
-function addKnob(model, pos, size, color, material)
-	return newPart({
-		Name = "Knob", Shape = Enum.PartType.Ball,
-		Size = Vector3.new(size, size, size), Position = pos,
-		Color = color, Material = material or Enum.Material.SmoothPlastic,
-		CanCollide = false, CastShadow = false, Parent = model,
-	})
-end
-
--- The scalloped skirt hanging off an awning or a roof: a row of half-domes, alternating two
--- colours. Squashed balls rather than real semicircles -- at this chunky scale the silhouette is
--- all that carries, and a ball costs one part where a proper scallop costs three.
-function addScallops(model, base, width, count, y, z, colorA, colorB, size)
-	size = size or 3.4
-	for i = 0, count - 1 do
-		local t = count > 1 and (i / (count - 1) - 0.5) or 0
-		newPart({
-			Name = "Scallop", Shape = Enum.PartType.Ball,
-			Size = Vector3.new(size, size * 0.85, size * 0.5),
-			CFrame = base * CFrame.new(t * width, y, z),
-			Color = (i % 2 == 0) and colorA or colorB,
-			Material = Enum.Material.Fabric, CanCollide = false, CastShadow = false, Parent = model,
-		})
-	end
-end
-
--- A string of triangular pennants between two points. Each flag is a single Wedge, mirrored turn
--- and turn about so the row reads as alternating triangles -- one part per flag, because a
--- properly symmetric pennant costs two and this runs the length of the street on both sides.
--- The line sags: `droop` is how far the middle of the run hangs below its ends.
-function addBunting(model, fromPos, toPos, count, droop, seed)
-	local span = toPos - fromPos
-	local dir = span.Unit
-	local yaw = math.atan2(-dir.X, -dir.Z)
-
-	-- the cord itself, in two straight segments meeting at the lowest point: a real catenary is
-	-- not worth the parts, and two segments already sell the sag
-	local mid = fromPos + span * 0.5 - Vector3.new(0, droop, 0)
-	for _, seg in ipairs({ { fromPos, mid }, { mid, toPos } }) do
-		local a, b = seg[1], seg[2]
-		newPart({
-			Name = "BuntingCord", Size = Vector3.new(0.3, 0.3, (b - a).Magnitude),
-			CFrame = CFrame.lookAt((a + b) / 2, b),
-			Color = VILLAGE_WOOD_DARK, Material = Enum.Material.Fabric,
-			CanCollide = false, CastShadow = false, Parent = model,
-		})
-	end
-
-	for i = 1, count do
-		local t = i / (count + 1)
-		-- height on whichever of the two cord segments this flag hangs from
-		local sag = droop * (1 - math.abs(t - 0.5) * 2)
-		local at = fromPos + span * t - Vector3.new(0, sag, 0)
-		-- A Wedge is a right triangle standing on its long edge -- apex UP, which is a bunting flag
-		-- upside down. Rolling it 180 degrees about Z puts the point at the bottom where it belongs
-		-- and keeps the height on Y and the width on Z. (Rolling 90, which is what this did first,
-		-- laid every flag flat and the street looked strung with coloured drinking straws.)
-		newPart({
-			Name = "Pennant", Shape = Enum.PartType.Wedge, Size = Vector3.new(0.26, 4.6, 3.4),
-			CFrame = CFrame.new(at - Vector3.new(0, 2.3, 0))
-				* CFrame.Angles(0, yaw + (i % 2 == 0 and math.pi or 0), 0)
-				* CFrame.Angles(0, 0, math.pi),
-			Color = candy(i + (seed or 0)), Material = Enum.Material.Fabric,
-			CanCollide = false, CastShadow = false, Parent = model,
-		})
-	end
-end
-
--- A window box of flowers. Three blooms, each a ball on a stem with a paler centre, in a wooden
--- trough. Placed along the street and in front of the stalls.
--- `scale` is for the shop, which is built several times life size: a natural-size window box in
--- front of a 70-stud stall reads as a dropped matchbox. Every other caller passes three arguments
--- and gets exactly what it always got.
-function addPlanter(model, base, seed, scale)
-	local s = scale or 1
-	newPart({ Name = "PlanterBox", Size = Vector3.new(11, 4, 5.4) * s, CFrame = base * CFrame.new(0, 2 * s, 0), Color = VILLAGE_WOOD, Material = Enum.Material.WoodPlanks, Parent = model })
-	newPart({ Name = "PlanterRim", Size = Vector3.new(12, 0.9, 6.2) * s, CFrame = base * CFrame.new(0, 4.2 * s, 0), Color = VILLAGE_WOOD_DARK, Material = Enum.Material.WoodPlanks, CanCollide = false, Parent = model })
-	newPart({ Name = "PlanterSoil", Size = Vector3.new(10, 1, 4.6) * s, CFrame = base * CFrame.new(0, 4.4 * s, 0), Color = Color3.fromRGB(88, 62, 44), Material = Enum.Material.Ground, CanCollide = false, Parent = model })
-	for i = -1, 1 do
-		local bloom = candy(i + 2 + (seed or 0))
-		newPart({ Name = "FlowerStem", Size = Vector3.new(0.5, 3.2, 0.5) * s, CFrame = base * CFrame.new(i * 3.4 * s, 6.2 * s, 0), Color = Color3.fromRGB(96, 168, 92), Material = Enum.Material.Grass, CanCollide = false, CastShadow = false, Parent = model })
-		newPart({ Name = "FlowerHead", Shape = Enum.PartType.Ball, Size = Vector3.new(3.4, 2.6, 3.4) * s, CFrame = base * CFrame.new(i * 3.4 * s, 8.2 * s, 0), Color = bloom, Material = Enum.Material.SmoothPlastic, CanCollide = false, CastShadow = false, Parent = model })
-		newPart({ Name = "FlowerHeart", Shape = Enum.PartType.Ball, Size = Vector3.new(1.5, 1.3, 1.5) * s, CFrame = base * CFrame.new(i * 3.4 * s, 8.7 * s, 0), Color = VILLAGE_CREAM, Material = Enum.Material.SmoothPlastic, CanCollide = false, CastShadow = false, Parent = model })
-	end
-end
-
--- A lantern on a post, hung off the +Z side of `base`. Used along the street and beside every
--- structure below: a settlement reads as a settlement mostly by being lit.
--- ===== THE VILLAGE PROP LIBRARY =====
---
--- `ServerStorage.PropMeshes.Vill_<Thing>` -- stall, well, cart, lamp, signpost, barrel, planter,
--- fence, bench, crates, anvil, banner post. Twelve models SHARED by all twenty zones, so they are
--- deliberately biome-neutral: wood, stone, cloth and brass, nothing that ties them to one place.
---
--- The street is the one part of the map a player stands right next to, and it was the last thing
--- still made of primitives -- a cube for a crate, a cylinder for a barrel, stacked slabs for a
--- lamp. Next to a meshed boss walking past, that is what read as unfinished.
---
--- Returns nil when nothing is filed, and every caller keeps its primitive path behind that check,
--- so a missing model is a slightly plainer village and never a broken one.
--- `model` IS A PARAMETER, not an upvalue. It was written without one first time round and Lua
--- resolved it to a nil global, so `clone.Parent = nil` -- every lamp in the game silently vanished:
--- the mesh went nowhere AND the primitive path had already been skipped because the mesh "worked".
--- Nothing errored and nothing was logged; the only evidence was a count of zero on both sides.
-local function villMesh(model, name, height, base, yawJitter)
-	local lib = ServerStorage:FindFirstChild("PropMeshes")
-	local template = lib and lib:FindFirstChild("Vill_" .. name)
-	if not template then return nil end
-	local clone = template:Clone()
-	-- measured BEFORE parenting: GetBoundingBox covers every descendant, so measuring after it is
-	-- inside the zone model measures the zone
-	local _, raw = clone:GetBoundingBox()
-	clone:ScaleTo(height / math.max(raw.Y, 0.1))
-	for _, part in ipairs(clone:GetDescendants()) do
-		if part:IsA("BasePart") then
-			-- generated meshes arrive UNANCHORED; newPart anchors what it makes, nothing anchors these
-			part.Anchored = true
-			part.CanCollide = false
-		end
-	end
-	clone.Name = "Vill" .. name
-	-- ACTIVE_FRAME is what lets a builder written for one spot be re-used anywhere (see newPart);
-	-- a mesh placed with a raw CFrame would ignore it and land outside the zone that is being built.
-	local active = ZoneKit.getFrame()
-	local frame = active and (active * base) or base
-	clone.Parent = model
-	local pos = frame.Position
-	-- seatModel, not PivotTo: these were authored by the generator with their pivots wherever they
-	-- landed, and guessing the drop is what once left the Forest trees hovering over the grass.
-	seatModel(clone, pos.X, pos.Z, math.atan2(-frame.LookVector.X, -frame.LookVector.Z) + math.rad(yawJitter or 0))
-	return clone
-end
-
-local function addLamp(model, base, color, h)
-	h = h or 21
-
-	-- The mesh lamp carries its own post, bracket, housing and glass, so the whole primitive build
-	-- below is skipped -- but NOT the light itself. A PointLight is not geometry and the street is
-	-- lit by these; dropping it would leave twenty zones dark at the same moment they got prettier.
-	local meshLamp = villMesh(model, "Lamp", h + 4, base)
-	if meshLamp then
-		local glowPart = meshLamp:FindFirstChildWhichIsA("BasePart", true)
-		if glowPart then
-			addLight(glowPart, color, 20, 0.9)
-		end
-		return glowPart
-	end
-	-- a flared foot, so the post meets the ground in something rather than being pushed into it
-	newPart({ Name = "LampFoot", Size = Vector3.new(4.2, 1.6, 4.2), CFrame = base * CFrame.new(0, 0.8, 0), Color = VILLAGE_WOOD_DARK, Material = Enum.Material.Metal, Parent = model })
-	newPart({ Name = "LampFootTrim", Size = Vector3.new(3, 0.8, 3), CFrame = base * CFrame.new(0, 2, 0), Color = VILLAGE_CREAM, Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
-	newPart({ Name = "LampPost", Size = Vector3.new(1.5, h, 1.5), CFrame = base * CFrame.new(0, h / 2, 0), Color = VILLAGE_WOOD_DARK, Material = Enum.Material.Metal, Parent = model })
-	newPart({ Name = "LampBracket", Size = Vector3.new(1, 1, 5), CFrame = base * CFrame.new(0, h - 1.2, 2), Color = VILLAGE_WOOD_DARK, Material = Enum.Material.Metal, CanCollide = false, Parent = model })
-
-	-- The lantern head: a tapered stack instead of one flat plate. Three courses shrinking upward
-	-- give the roof a pitch, which is the whole difference between a street lamp and a box on a
-	-- stick -- and it gets a knob on top, like everything else out here.
-	for i, tier in ipairs({ { 5.6, 1.2 }, { 3.4, 1.1 } }) do
-		newPart({ Name = "LampRoof", Size = Vector3.new(tier[1], tier[2], tier[1]), CFrame = base * CFrame.new(0, h - 1.4 + (i - 1) * 1.1, 3.4), Color = i == 1 and VILLAGE_WOOD_DARK or VILLAGE_WOOD, Material = Enum.Material.WoodPlanks, CanCollide = false, Parent = model })
-	end
-	addKnob(model, (base * CFrame.new(0, h + 1.6, 3.4)).Position, 1.8, color, Enum.Material.Neon)
-
-	local glass = newPart({ Name = "LampGlass", Size = Vector3.new(3.8, 4.8, 3.8), CFrame = base * CFrame.new(0, h - 4, 3.4), Color = color, Material = Enum.Material.Neon, Transparency = 0.35, CanCollide = false, CastShadow = false, Parent = model })
-	-- a cream collar under the glass, so the light sits in a housing rather than floating
-	newPart({ Name = "LampCollar", Size = Vector3.new(4.4, 0.7, 4.4), CFrame = base * CFrame.new(0, h - 6.6, 3.4), Color = VILLAGE_CREAM, Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
-	addLight(glass, color, 20, 0.9)
-	return glass
-end
-
--- HOW BIG EVERY SHOP IS BUILT.
---
--- The stall was authored at 30 x 20 x 23 studs back when the player was a one-stud creature. The
--- character now runs 1.0 -> 5.0 through the chain and stands ~30 studs tall at the top of it, so
--- the only building in the village that actually SELLS anything had become a knee-high box you
--- walked straight past -- reported as "I cannot even see the shop". Everything in `addStall` and
--- in the counters `buildZoneShop` puts on it is multiplied by this one number, so the shop grows
--- as a single object and nothing drifts out of proportion with anything else on it: deck, posts,
--- awning, sign board, bottles, the lamps beside it and the planters in front.
---
--- 2.6 puts the awning ridge at ~57 studs and the name board at ~59 -- taller than the welcome
--- arch (36) and the zone name board (55), which is deliberate: the shop should be the tallest
--- thing on the street, because it is the only one worth walking to. Raising it further starts
--- pushing the front lip toward the walkway (see the clearance note at the call site).
-local SHOP_SCALE = 2.6
-
--- A MODERN KIOSK, not a market stall.
---
--- This was a wooden market stall -- striped canvas awning, scalloped valance, crates, a barrel and
--- flower boxes -- and scaling it up just made a big rustic stall. The shop is the one piece of the
--- village that should read as BUILT rather than pitched, so it is now a white panel-and-glass
--- kiosk: a flat cantilevered canopy, a dark stone counter on a bright shell, a glass back wall and
--- zone-accent light strips doing the decorating the bunting and the flowers used to do.
---
--- Every number is still authored at the old stall's scale and multiplied by SHOP_SCALE on the way
--- out through `at` and `vs`, so one constant still moves the whole thing.
---
--- THE PALETTE IS DELIBERATELY NOT THE VILLAGE'S. Two fixed tones -- a near-white panel and a
--- near-black frame -- with the zone accent used only as light. That pair reads against every
--- ground in the strip; a dark modern shell would disappear in Void and Singularity and a cream one
--- would disappear on Moon. See the village contrast note.
---
--- Returns the counter, which is what a caller hangs a ProximityPrompt on.
-local function addStall(model, base, accent, title, wares)
-	local S = SHOP_SCALE
-	local function at(x, y, z) return base * CFrame.new(x * S, y * S, z * S) end
-	local function vs(x, y, z) return Vector3.new(x * S, y * S, z * S) end
-	local function pt(x, y, z) return (base * CFrame.new(x * S, y * S, z * S)).Position end
-
-	local PANEL = Color3.fromRGB(244, 247, 252)
-	local FRAME = Color3.fromRGB(41, 45, 58)
-	local FRAME_LITE = Color3.fromRGB(88, 96, 118)
-	local GLASS = accent:Lerp(Color3.new(1, 1, 1), 0.5)
-
-	-- one light strip: neon, never collides, never casts, and carries its own PointLight. Every
-	-- accent-coloured thing on this building is one of these, which is what keeps the kiosk two
-	-- tones plus light instead of a third painted colour.
-	local function strip(name, size, cf, bright, range)
-		local p = newPart({ Name = name, Size = size, CFrame = cf, Color = accent, Material = Enum.Material.Neon, CanCollide = false, CastShadow = false, Parent = model })
-		if bright then addLight(p, accent, range or 22, bright) end
-		return p
-	end
-
-	-- ===== the plinth the whole thing stands on =====
-	newPart({ Name = "StallDeck", Size = vs(32, 2, 22), CFrame = at(0, 1, 0), Color = FRAME, Material = Enum.Material.Metal, Parent = model })
-	newPart({ Name = "StallDeckTop", Size = vs(30, 0.7, 20), CFrame = at(0, 2.3, 0), Color = PANEL, Material = Enum.Material.SmoothPlastic, Parent = model })
-	-- the light line around the base. A glowing seam at floor level is the single cheapest thing
-	-- that separates "modern building" from "big white box".
-	strip("StallPlinthLight", vs(32.6, 0.5, 0.6), at(0, 2.1, 11.2))
-	strip("StallPlinthLight", vs(32.6, 0.5, 0.6), at(0, 2.1, -11.2))
-	for _, sx in ipairs({ -1, 1 }) do
-		strip("StallPlinthLight", vs(0.6, 0.5, 22.4), at(sx * 16.2, 2.1, 0))
-	end
-	-- a step, because the plinth lip is over five studs off the ground at this scale
-	newPart({ Name = "StallStep", Size = vs(20, 1.2, 3.6), CFrame = at(0, 0.6, 12.4), Color = FRAME_LITE, Material = Enum.Material.Metal, Parent = model })
-
-	-- ===== frame columns =====
-	for _, sx in ipairs({ -1, 1 }) do
-		for _, sz in ipairs({ -1, 1 }) do
-			newPart({ Name = "StallPost", Size = vs(1.4, 20, 1.4), CFrame = at(sx * 14.6, 12.3, sz * 9.6), Color = FRAME, Material = Enum.Material.Metal, Parent = model })
-			strip("StallPostLight", vs(1.7, 0.6, 1.7), at(sx * 14.6, 6, sz * 9.6))
-		end
-	end
-
-	-- ===== glass back wall, and the stock lit behind it =====
-	newPart({ Name = "StallBack", Size = vs(31, 18, 0.9), CFrame = at(0, 12.5, -9.9), Color = FRAME, Material = Enum.Material.Metal, CanCollide = false, Parent = model })
-	for i = -1, 1 do
-		newPart({ Name = "StallGlass", Size = vs(9, 15, 0.4), CFrame = at(i * 9.7, 12.6, -9.3), Color = GLASS, Material = Enum.Material.Glass, Transparency = 0.55, CanCollide = false, CastShadow = false, Parent = model })
-	end
-	for _, sx in ipairs({ -1, 1 }) do
-		newPart({ Name = "StallMullion", Size = vs(0.8, 16, 1), CFrame = at(sx * 4.85, 12.6, -9.2), Color = PANEL, Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
-	end
-	newPart({ Name = "StallShelf", Size = vs(28, 0.8, 3.2), CFrame = at(0, 10.4, -7.8), Color = PANEL, Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
-	strip("StallShelfLight", vs(27, 0.35, 0.5), at(0, 9.9, -6.4), 0.7, 16)
-	for i, c in ipairs(wares) do
-		-- uniform on all three axes: a Shape=Ball with unequal sides is silently drawn as a sphere
-		-- of its SMALLEST one, which is how the old wares came out flatter than they were built
-		newPart({ Name = "StallWare", Shape = Enum.PartType.Ball, Size = vs(3.6, 3.6, 3.6), CFrame = at(-11 + (i - 1) * 5.5, 12.6, -7.8), Color = c, Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
-		newPart({ Name = "StallWarePad", Shape = Enum.PartType.Cylinder, Size = vs(0.4, 4.2, 4.2), CFrame = at(-11 + (i - 1) * 5.5, 10.9, -7.8) * CFrame.Angles(0, 0, math.rad(90)), Color = c, Material = Enum.Material.Neon, Transparency = 0.3, CanCollide = false, CastShadow = false, Parent = model })
-	end
-
-	-- ===== the counter: white body, dark top, one light line along the front =====
-	local counter = newPart({ Name = "StallCounter", Size = vs(30, 6.2, 4), CFrame = at(0, 5.8, 9.4), Color = PANEL, Material = Enum.Material.SmoothPlastic, Parent = model })
-	newPart({ Name = "StallCounterTop", Size = vs(31.4, 1, 5.4), CFrame = at(0, 9.4, 9.4), Color = FRAME, Material = Enum.Material.Metal, Parent = model })
-	strip("StallCounterLight", vs(30.6, 0.8, 0.5), at(0, 7.9, 11.5), 0.9, 20)
-
-	-- ===== the canopy: one flat slab on a dark fascia, lit from underneath =====
-	newPart({ Name = "StallCanopy", Size = vs(35, 1.6, 25), CFrame = at(0, 21.4, 1.5), Color = PANEL, Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
-	newPart({ Name = "StallFascia", Size = vs(35.6, 2.8, 1.1), CFrame = at(0, 20.6, 13.6), Color = FRAME, Material = Enum.Material.Metal, CanCollide = false, Parent = model })
-	strip("StallFasciaLight", vs(33, 0.7, 0.5), at(0, 20.6, 14.3), 1.1, 26)
-	for i = -1, 1 do
-		strip("StallCanopyLight", vs(24, 0.3, 0.7), at(0, 20.5, i * 6 + 1.5), 0.5, 14)
-	end
-
-	-- ===== the pylons, which are what you actually see from the far end of the street =====
-	--
-	-- The billboard turns to face the camera and is readable from 640 studs, but a sign with no
-	-- building under it reads as UI floating over the map. These two lit blades give the shop a
-	-- silhouette above every roof in the village, which is what makes it a place rather than a
-	-- label.
-	for _, sx in ipairs({ -1, 1 }) do
-		newPart({ Name = "ShopPylon", Size = vs(1.6, 32, 2.4), CFrame = at(sx * 16.8, 18, 9), Color = FRAME, Material = Enum.Material.Metal, CanCollide = false, Parent = model })
-		strip("ShopPylonLight", vs(0.8, 26, 1.4), at(sx * 17.6, 20, 9), 1.4, 30)
-		local cap = addKnob(model, pt(sx * 16.8, 34.6, 9), 3 * S, accent, Enum.Material.Neon)
-		addLight(cap, accent, 30, 1.6)
-	end
-
-	-- ===== the forecourt: lit pads instead of a striped runner, and two bollards =====
-	for i = 0, 2 do
-		newPart({ Name = "StallPad", Size = vs(26 - i * 3, 0.3, 6.4), CFrame = at(0, 0.2, 15.5 + i * 7), Color = i % 2 == 0 and PANEL or accent, Material = i % 2 == 0 and Enum.Material.SmoothPlastic or Enum.Material.Neon, Transparency = i % 2 == 0 and 0 or 0.35, CanCollide = false, CastShadow = false, Parent = model })
-	end
-	for _, sx in ipairs({ -1, 1 }) do
-		newPart({ Name = "ShopBollard", Size = vs(2.4, 8, 2.4), CFrame = at(sx * 20, 4, 13), Color = FRAME, Material = Enum.Material.Metal, Parent = model })
-		strip("ShopBollardLight", vs(2.8, 0.9, 2.8), at(sx * 20, 8.4, 13), 1.2, 22)
-	end
-
-	-- CLEAR OF THE CANOPY. The canopy's top face is at 22.2 and the billboard's own StudsOffset is a
-	-- fixed 3 studs that does not scale, so the board is placed on the geometry rather than on that
-	-- offset: at 28 the whole board sits above the slab at any SHOP_SCALE.
-	makeSign(model, title, at(0, 28, 6), UDim2.new(24 * S, 0, 7 * S, 0), { maxDistance = 640 })
-	return counter
-end
-
--- The village well: a cobbled rim, a roof on two posts, a bucket on a rope.
-local function addWell(model, base, zone)
-	local tones = stoneTones(zone)
-	for i = 0, 11 do
-		local a = i * math.pi / 6
-		newPart({ Name = "WellStone", Size = Vector3.new(4.6, 5, 3.2), CFrame = base * CFrame.new(math.cos(a) * 8, 2.5, math.sin(a) * 8) * CFrame.Angles(0, -a, 0), Color = tones[(i % 2) + 1], Material = Enum.Material.Cobblestone, Parent = model })
-	end
-	newPart({ Name = "WellWater", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.6, 13, 13), CFrame = base * CFrame.new(0, 3.6, 0) * CFrame.Angles(0, 0, math.rad(90)), Color = Color3.fromRGB(86, 176, 226), Material = Enum.Material.Glass, Transparency = 0.32, CanCollide = false, Parent = model })
-	for _, sx in ipairs({ -1, 1 }) do
-		newPart({ Name = "WellPost", Size = Vector3.new(1.8, 17, 1.8), CFrame = base * CFrame.new(sx * 7, 13, 0), Color = VILLAGE_WOOD_DARK, Material = Enum.Material.Wood, Parent = model })
-	end
-	for _, sz in ipairs({ -1, 1 }) do
-		newPart({ Name = "WellRoof", Size = Vector3.new(20, 1.4, 9), CFrame = base * CFrame.new(0, 22, sz * 3.6) * CFrame.Angles(math.rad(sz * 26), 0, 0), Color = VILLAGE_WOOD, Material = Enum.Material.WoodPlanks, CanCollide = false, Parent = model })
-	end
-	newPart({ Name = "WellRope", Size = Vector3.new(0.4, 8, 0.4), CFrame = base * CFrame.new(0, 16.5, 0), Color = Color3.fromRGB(206, 188, 150), Material = Enum.Material.Fabric, CanCollide = false, Parent = model })
-	newPart({ Name = "WellBucket", Size = Vector3.new(4.2, 4.2, 4.2), CFrame = base * CFrame.new(0, 10.5, 0), Color = VILLAGE_WOOD, Material = Enum.Material.Wood, CanCollide = false, Parent = model })
-end
-
+-- THE MATERIALS ARE IN `VillageKit`; WHAT IS LEFT HERE IS THE PLAN. The nineteen per-zone palettes
+-- and the rule behind them (contrast with the GROUND, not agreement with the theme), the outline
+-- tier, the candy set, the four soft shapes and the prop library are all in
+-- `ServerScriptService.VillageKit` as of 18.10 -- see the require above `addZoneProps`. What
+-- follows is the placement: the odds board, the shop counters and `addZoneVillage`, which is the
+-- function that says where a village's pieces actually stand.
 -- ===== THE MYSTERY KIOSK'S ODDS BOARD (12.8) =====
 --
 -- Same job and same shape as `buildEggOddsBoard` over the egg podiums, and deliberately the same
@@ -2203,12 +1515,12 @@ end
 --     remote and no server handler exist for them at all.
 local function buildZoneShop(model, zone, cx, shopKey, shopDef, base)
 	-- the counters are built at the same scale as the stall they stand on -- see SHOP_SCALE
-	local S = SHOP_SCALE
+	local S = VillageKit.SHOP_SCALE
 	local function at(x, y, z) return base * CFrame.new(x * S, y * S, z * S) end
 	local function vs(x, y, z) return Vector3.new(x * S, y * S, z * S) end
 
 	local color = shopDef.color or vivid(zone.accentColor)
-	local counter = addStall(model, base, color, shopDef.title, {
+	local counter = VillageKit.addStall(model, base, color, shopDef.title, {
 		color, color:Lerp(Color3.new(1, 1, 1), 0.4), color:Lerp(Color3.new(0, 0, 0), 0.3),
 		color:Lerp(Color3.new(1, 1, 1), 0.7), color,
 	})
@@ -2297,7 +1609,7 @@ local function buildZoneShop(model, zone, cx, shopKey, shopDef, base)
 			local glass = newPart({ Name = "FusionPod", Shape = Enum.PartType.Ball, Size = vs(11, 11, 11), CFrame = at(sx * 9, 10.4, 2), Color = color, Material = Enum.Material.Glass, Transparency = 0.55, CanCollide = false, Parent = model })
 			addLight(glass, color, math.min(22 * S, 60), 1.6)
 			pulseForever(glass, 0.62, 2.4)
-			addKnob(model, (at(sx * 9, 16.6, 2)).Position, 3.4 * S, Color3.fromRGB(244, 247, 252))
+			VillageKit.addKnob(model, (at(sx * 9, 16.6, 2)).Position, 3.4 * S, Color3.fromRGB(244, 247, 252))
 		end
 		local beam = newPart({ Name = "FusionBeam", Shape = Enum.PartType.Cylinder, Size = vs(18, 2.2, 2.2), CFrame = at(0, 10.4, 2), Color = Color3.fromRGB(255, 246, 200), Material = Enum.Material.Neon, Transparency = 0.15, CanCollide = false, CastShadow = false, Parent = model })
 		pulseForever(beam, 0.5, 1.3)
@@ -2352,7 +1664,7 @@ local function addZoneVillage(model, zone, cx, index)
 	-- and a street that stopped where it used to left most of the walk in the dark.
 	for z = 420, 30, -30 do
 		for _, sx in ipairs({ -1, 1 }) do
-			addLamp(model, CFrame.new(cx + sx * 32, 0, z) * CFrame.Angles(0, math.rad(sx < 0 and 90 or -90), 0), accent, 20)
+			VillageKit.addLamp(model, CFrame.new(cx + sx * 32, 0, z) * CFrame.Angles(0, math.rad(sx < 0 and 90 or -90), 0), accent, 20)
 		end
 	end
 	-- the picket fence, now painted cream and capped: a bare stake with a flat top reads as a
@@ -2395,8 +1707,8 @@ local function addZoneVillage(model, zone, cx, index)
 						-- does not pen the player into it
 						part.CanCollide = false
 						alt = not alt
-						part.Color = alt and VILLAGE_WOOD or VILLAGE_CREAM
-						part.Material = VILLAGE_POST_MAT
+						part.Color = alt and VILLAGE.wood or VILLAGE.cream
+						part.Material = VILLAGE.post
 					end
 				end
 				run.Name = "FenceRun"
@@ -2412,15 +1724,15 @@ local function addZoneVillage(model, zone, cx, index)
 			picket += 1
 			for _, sx in ipairs({ -1, 1 }) do
 				local px = cx + sx * 24
-				newPart({ Name = "FencePicket", Size = Vector3.new(1.6, 7, 1.6), Position = Vector3.new(px, 3.5, z), Color = picket % 2 == 0 and VILLAGE_CREAM or VILLAGE_WOOD, Material = VILLAGE_POST_MAT, CanCollide = false, Parent = model })
+				newPart({ Name = "FencePicket", Size = Vector3.new(1.6, 7, 1.6), Position = Vector3.new(px, 3.5, z), Color = picket % 2 == 0 and VILLAGE.cream or VILLAGE.wood, Material = VILLAGE.post, CanCollide = false, Parent = model })
 				if picket % 2 == 0 then
-					addKnob(model, Vector3.new(px, 7.4, z), 2.4, VILLAGE_WOOD)
+					VillageKit.addKnob(model, Vector3.new(px, 7.4, z), 2.4, VILLAGE.wood)
 				end
 			end
 		end
 		for z = 426, 30, -12 do
 			for _, sx in ipairs({ -1, 1 }) do
-				newPart({ Name = "FenceRail", Size = Vector3.new(0.7, 1, 12), Position = Vector3.new(cx + sx * 24, 5.4, z), Color = VILLAGE_WOOD_DARK, Material = VILLAGE_POST_MAT, CanCollide = false, Parent = model })
+				newPart({ Name = "FenceRail", Size = Vector3.new(0.7, 1, 12), Position = Vector3.new(cx + sx * 24, 5.4, z), Color = VILLAGE.dark, Material = VILLAGE.post, CanCollide = false, Parent = model })
 			end
 		end
 	end
@@ -2430,40 +1742,40 @@ local function addZoneVillage(model, zone, cx, index)
 	-- triangles overhead is the single clearest signal that a place is a shopfront and not terrain.
 	for _, sx in ipairs({ -1, 1 }) do
 		for z = 420, 60, -30 do
-			addBunting(model,
+			VillageKit.addBunting(model,
 				Vector3.new(cx + sx * 32, 18, z),
 				Vector3.new(cx + sx * 32, 18, z - 30), 5, 3.4, z)
 		end
 	end
-	addBunting(model, Vector3.new(cx - 30, 29, 426), Vector3.new(cx + 30, 29, 426), 7, 4, 3)
+	VillageKit.addBunting(model, Vector3.new(cx - 30, 29, 426), Vector3.new(cx + 30, 29, 426), 7, 4, 3)
 
 	-- flower boxes between the lamps, turned to face the walkway
 	for i, spot in ipairs({ { -1, 381 }, { 1, 381 }, { -1, 301 }, { 1, 261 }, { -1, 181 }, { 1, 181 }, { -1, 100 }, { 1, 140 }, { -1, 60 }, { 1, 60 } }) do
-		addPlanter(model, CFrame.new(cx + spot[1] * 29, 0, spot[2]) * CFrame.Angles(0, math.rad(spot[1] < 0 and 90 or -90), 0), i)
+		VillageKit.addPlanter(model, CFrame.new(cx + spot[1] * 29, 0, spot[2]) * CFrame.Angles(0, math.rad(spot[1] < 0 and 90 or -90), 0), i)
 	end
 
 	-- welcome arch where the street starts, so arriving in a zone has a threshold
 	for _, sx in ipairs({ -1, 1 }) do
-		newPart({ Name = "ArchPillar", Size = Vector3.new(6, 30, 6), Position = Vector3.new(cx + sx * 30, 15, 426), Color = VILLAGE_WOOD_DARK, Material = VILLAGE_POST_MAT, Parent = model })
+		newPart({ Name = "ArchPillar", Size = Vector3.new(6, 30, 6), Position = Vector3.new(cx + sx * 30, 15, 426), Color = VILLAGE.dark, Material = VILLAGE.post, Parent = model })
 		-- a cream collar a third of the way up each pillar, and a knob on top
-		newPart({ Name = "ArchPillarCollar", Size = Vector3.new(7.4, 2.2, 7.4), Position = Vector3.new(cx + sx * 30, 9, 426), Color = VILLAGE_CREAM, Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
-		addKnob(model, Vector3.new(cx + sx * 30, 36.4, 426), 5, VILLAGE_CREAM)
+		newPart({ Name = "ArchPillarCollar", Size = Vector3.new(7.4, 2.2, 7.4), Position = Vector3.new(cx + sx * 30, 9, 426), Color = VILLAGE.cream, Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
+		VillageKit.addKnob(model, Vector3.new(cx + sx * 30, 36.4, 426), 5, VILLAGE.cream)
 		-- The pennons hanging off the arch. These were one flat 14x8 sheet of raw accent colour each,
 		-- and from the arrival gate they were simply two bright rectangles floating beside the
 		-- pillars -- the loudest wrong thing in the zone. Now: a rod, two-tone cloth, a stripe, and a
 		-- pointed tail, which is what a hanging pennon actually looks like.
 		local bx = cx + sx * 25
-		local cloth, trim = candy(sx > 0 and 1 or 4), candy(sx > 0 and 4 or 1)
-		newPart({ Name = "ArchBannerRod", Size = Vector3.new(0.9, 0.9, 9), Position = Vector3.new(bx, 29, 426), Color = VILLAGE_WOOD_DARK, Material = VILLAGE_POST_MAT, CanCollide = false, Parent = model })
+		local cloth, trim = VillageKit.candy(sx > 0 and 1 or 4), VillageKit.candy(sx > 0 and 4 or 1)
+		newPart({ Name = "ArchBannerRod", Size = Vector3.new(0.9, 0.9, 9), Position = Vector3.new(bx, 29, 426), Color = VILLAGE.dark, Material = VILLAGE.post, CanCollide = false, Parent = model })
 		newPart({ Name = "ArchBanner", Size = Vector3.new(0.6, 13, 8), Position = Vector3.new(bx, 22, 426), Color = cloth, Material = Enum.Material.Fabric, CanCollide = false, Parent = model })
 		newPart({ Name = "ArchBannerStripe", Size = Vector3.new(0.9, 2.2, 8.4), Position = Vector3.new(bx, 24.5, 426), Color = trim, Material = Enum.Material.Fabric, CanCollide = false, CastShadow = false, Parent = model })
-		newPart({ Name = "ArchBannerEmblem", Shape = Enum.PartType.Ball, Size = Vector3.new(1.1, 4, 4), Position = Vector3.new(bx - sx * 0.5, 20.5, 426), Color = VILLAGE_CREAM, Material = Enum.Material.SmoothPlastic, CanCollide = false, CastShadow = false, Parent = model })
+		newPart({ Name = "ArchBannerEmblem", Shape = Enum.PartType.Ball, Size = Vector3.new(1.1, 4, 4), Position = Vector3.new(bx - sx * 0.5, 20.5, 426), Color = VILLAGE.cream, Material = Enum.Material.SmoothPlastic, CanCollide = false, CastShadow = false, Parent = model })
 		-- the swallow tail: a wedge rolled point-down, the same trick the pennants use
 		newPart({ Name = "ArchBannerTail", Shape = Enum.PartType.Wedge, Size = Vector3.new(0.6, 5, 8),
 			CFrame = CFrame.new(bx, 13, 426) * CFrame.Angles(0, math.rad(90), 0) * CFrame.Angles(0, 0, math.pi),
 			Color = cloth, Material = Enum.Material.Fabric, CanCollide = false, Parent = model })
 	end
-	newPart({ Name = "ArchBeam", Size = Vector3.new(72, 4, 7), Position = Vector3.new(cx, 32, 426), Color = VILLAGE_WOOD, Material = VILLAGE_BOARD_MAT, CanCollide = false, Parent = model })
+	newPart({ Name = "ArchBeam", Size = Vector3.new(72, 4, 7), Position = Vector3.new(cx, 32, 426), Color = VILLAGE.wood, Material = VILLAGE.board, CanCollide = false, Parent = model })
 	newPart({ Name = "ArchBeamTrim", Size = Vector3.new(76, 1.4, 8), Position = Vector3.new(cx, 34.6, 426), Color = zone.accentColor:Lerp(Color3.new(1, 1, 1), 0.25), Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
 
 	-- THE ZONE NAME, STANDING ON THE ARCH.
@@ -2478,11 +1790,11 @@ local function addZoneVillage(model, zone, cx, index)
 	-- edge (35) overlaps the beam trim's top (35.3) on purpose: a board resting exactly on a surface
 	-- shows daylight under it from any angle that is even slightly below it.
 	local nameBoard = newPart({ Name = "ZoneNameBoard", Size = Vector3.new(58, 17, 2.6),
-		Position = Vector3.new(cx, 43.5, 426), Color = VILLAGE_WOOD, Material = VILLAGE_BOARD_MAT,
+		Position = Vector3.new(cx, 43.5, 426), Color = VILLAGE.wood, Material = VILLAGE.board,
 		CanCollide = false, Parent = model })
 	for _, sx in ipairs({ -1, 1 }) do
-		newPart({ Name = "ZoneNameBatten", Size = Vector3.new(3, 20, 3.4), Position = Vector3.new(cx + sx * 27.5, 43.5, 426), Color = VILLAGE_WOOD_DARK, Material = VILLAGE_POST_MAT, CanCollide = false, Parent = model })
-		addKnob(model, Vector3.new(cx + sx * 27.5, 54.6, 426), 4.4, VILLAGE_CREAM)
+		newPart({ Name = "ZoneNameBatten", Size = Vector3.new(3, 20, 3.4), Position = Vector3.new(cx + sx * 27.5, 43.5, 426), Color = VILLAGE.dark, Material = VILLAGE.post, CanCollide = false, Parent = model })
+		VillageKit.addKnob(model, Vector3.new(cx + sx * 27.5, 54.6, 426), 4.4, VILLAGE.cream)
 	end
 	-- Coarse on purpose -- see the note on the gate board: a big canvas is what stops a SurfaceGui
 	-- being drawn at range, and this is a sign meant to be read from down the street.
@@ -2497,15 +1809,15 @@ local function addZoneVillage(model, zone, cx, index)
 		buildZoneShop(model, zone, cx, shopKey, shopDef, CFrame.new(cx - 150, 0, SHOP_Z) * facing)
 	end
 
-	addWell(model, CFrame.new(cx + 150, 0, -168), zone)
+	VillageKit.addWell(model, CFrame.new(cx + 150, 0, -168), zone)
 
 	-- benches facing the street, between the lamps
 	for _, spot in ipairs({ { -1, 345 }, { 1, 305 }, { -1, 225 }, { 1, 144 }, { -1, 112 }, { 1, 72 } }) do
 		local bx = cx + spot[1] * 38
-		newPart({ Name = "BenchSeat", Size = Vector3.new(4, 1.2, 14), Position = Vector3.new(bx, 4.4, spot[2]), Color = VILLAGE_WOOD, Material = VILLAGE_BOARD_MAT, Parent = model })
-		newPart({ Name = "BenchBack", Size = Vector3.new(1, 6, 14), Position = Vector3.new(bx - spot[1] * 1.6, 7.4, spot[2]), Color = VILLAGE_WOOD, Material = VILLAGE_BOARD_MAT, CanCollide = false, Parent = model })
+		newPart({ Name = "BenchSeat", Size = Vector3.new(4, 1.2, 14), Position = Vector3.new(bx, 4.4, spot[2]), Color = VILLAGE.wood, Material = VILLAGE.board, Parent = model })
+		newPart({ Name = "BenchBack", Size = Vector3.new(1, 6, 14), Position = Vector3.new(bx - spot[1] * 1.6, 7.4, spot[2]), Color = VILLAGE.wood, Material = VILLAGE.board, CanCollide = false, Parent = model })
 		for _, sz in ipairs({ -1, 1 }) do
-			newPart({ Name = "BenchLeg", Size = Vector3.new(3.4, 4, 1.2), Position = Vector3.new(bx, 2, spot[2] + sz * 5.5), Color = VILLAGE_WOOD_DARK, Material = VILLAGE_POST_MAT, CanCollide = false, Parent = model })
+			newPart({ Name = "BenchLeg", Size = Vector3.new(3.4, 4, 1.2), Position = Vector3.new(bx, 2, spot[2] + sz * 5.5), Color = VILLAGE.dark, Material = VILLAGE.post, CanCollide = false, Parent = model })
 		end
 	end
 
@@ -2757,15 +2069,6 @@ function scatterPoint(cx, spreadX, spreadZ, halfSize)
 	-- rather than CLEAR_HALF: the boss arena is the widest reservation on the platform.
 	local sign = math.random(1, 2) == 1 and -1 or 1
 	return claim(cx + sign * math.random(math.min(boss + 12, spreadX), spreadX), math.random(-spreadZ, -centre))
-end
-
-function addLight(part, color, range, brightness)
-	local l = Instance.new("PointLight")
-	l.Color = color
-	l.Range = range or 24
-	l.Brightness = brightness or 2
-	l.Parent = part
-	return l
 end
 
 -- The platform went from 700 x 860 to 900 x 860 -- 24% more ground, all of it off the street where
@@ -8091,7 +7394,7 @@ local function buildEventArena(parent)
 			local top = outer and 34 or 21
 			local at = CFrame.new(centre + Vector3.new(0, top, 0)) * CFrame.Angles(0, a, 0) * CFrame.new(0, 0, -rr)
 			newPart({ Name = "Spectator", Size = Vector3.new(7.5, 9, 5), CFrame = at * CFrame.new(0, 4.5, 0),
-				Color = candy(i), Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
+				Color = VillageKit.candy(i), Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
 			newPart({ Name = "SpectatorHead", Size = Vector3.new(6, 6, 5), CFrame = at * CFrame.new(0, 12, 0),
 				Color = SKIN[(i % #SKIN) + 1], Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
 		end
@@ -8605,11 +7908,11 @@ function ZoneBuilder.Build()
 			-- unrotated on purpose: its faces look along Z, which is the axis the player is walking
 			-- down, so it is read head-on from the gate rather than edge-on.
 			local signX = cx - 104
-			newPart({ Name = "ArrivalSignPost", Size = Vector3.new(2.6, 21, 2.6), Position = Vector3.new(signX, 10.5, 310), Color = VILLAGE_WOOD_DARK, Material = Enum.Material.Wood, Parent = model })
-			local arrivalBoard = newPart({ Name = "ArrivalSignBoard", Size = Vector3.new(32, 12, 1.8), Position = Vector3.new(signX, 27, 310), Color = VILLAGE_WOOD, Material = Enum.Material.WoodPlanks, CanCollide = false, Parent = model })
+			newPart({ Name = "ArrivalSignPost", Size = Vector3.new(2.6, 21, 2.6), Position = Vector3.new(signX, 10.5, 310), Color = VILLAGE.dark, Material = Enum.Material.Wood, Parent = model })
+			local arrivalBoard = newPart({ Name = "ArrivalSignBoard", Size = Vector3.new(32, 12, 1.8), Position = Vector3.new(signX, 27, 310), Color = VILLAGE.wood, Material = Enum.Material.WoodPlanks, CanCollide = false, Parent = model })
 			for _, sx in ipairs({ -1, 1 }) do
-				newPart({ Name = "ArrivalSignBatten", Size = Vector3.new(1.8, 14, 2.4), Position = Vector3.new(signX + sx * 15, 27, 310), Color = VILLAGE_WOOD_DARK, Material = Enum.Material.Wood, CanCollide = false, Parent = model })
-				addKnob(model, Vector3.new(signX + sx * 15, 35, 310), 3.2, VILLAGE_CREAM)
+				newPart({ Name = "ArrivalSignBatten", Size = Vector3.new(1.8, 14, 2.4), Position = Vector3.new(signX + sx * 15, 27, 310), Color = VILLAGE.dark, Material = Enum.Material.Wood, CanCollide = false, Parent = model })
+				VillageKit.addKnob(model, Vector3.new(signX + sx * 15, 35, 310), 3.2, VILLAGE.cream)
 			end
 			addPlankText(arrivalBoard, zone.emoji .. " " .. zone.name, vivid(zone.accentColor), { maxDistance = 420, pixelsPerStud = 18 })
 			local signLamp = newPart({ Name = "ArrivalSignLamp", Shape = Enum.PartType.Ball, Size = Vector3.new(3.4, 3.4, 3.4), Position = Vector3.new(signX, 36.4, 310), Color = vivid(zone.accentColor), Material = Enum.Material.Neon, CanCollide = false, Parent = model })
@@ -8624,8 +7927,8 @@ function ZoneBuilder.Build()
 			-- ACTIVE_ZONE_KEY further down, because addZoneVillage runs in this block and the
 			-- decoration builders run after it -- setting it there would have furnished every zone in
 			-- the PREVIOUS zone's timber, which is a bug that looks exactly like no bug at all in
-			-- nineteen zones out of twenty. See the block above VILLAGE_STYLE.
-			applyVillageStyle(zone.key)
+			-- nineteen zones out of twenty. See the palette note at the top of `VillageKit`.
+			VillageKit.applyVillageStyle(zone.key)
 
 			local _, wallColor = stoneTones(zone)
 			local prevZone = GameConfig.Zones[i - 1]

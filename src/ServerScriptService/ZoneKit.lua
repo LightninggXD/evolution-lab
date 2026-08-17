@@ -1,7 +1,7 @@
 -- ZoneKit -- the vocabulary the world is built in: the part factory, the two rules it applies
 -- without being asked (shadow by size, solidity by name), the placement frame those rules read,
--- the platform's own dimensions, the sign palette, and the four small verbs the scenery is
--- painted and animated with.
+-- the platform's own dimensions, the sign palette, and the small verbs the scenery is painted,
+-- lit, seated, labelled and animated with.
 --
 -- WHY THIS IS ITS OWN FILE, AND WHY IT IS THE FIRST THING OUT (18.9)
 -- -----------------------------------------------------------------
@@ -445,6 +445,227 @@ local function pulseForever(part, to, seconds)
 	}):Play()
 end
 
+-- ===== FOUR MORE VERBS, MOVED DOWN FOR THE VILLAGE LEAF (18.10) =====
+--
+-- These four were still `ZoneBuilder`'s when the village prop library came to move, and every one
+-- of them was already vocabulary rather than a decision about a zone -- `makeSign` even reads the
+-- SIGN_* palette that had been sitting up in this file without it. They are byte-for-byte what was
+-- in the builder, except that `addLight` gained the `local` it never needed there (it was filling
+-- a forward declaration 2,500 lines above itself, which is a shape that only means anything inside
+-- the file that wrote the declaration).
+--
+-- All four are re-localised on the builder's side, so their 110 call sites read exactly as before.
+
+-- SEATS A CLONED MODEL ON THE GROUND, whatever its author did with its pivot.
+-- Everything in ServerStorage.Models was made by a different hand and their pivots are in
+-- different places -- some centred, some at the base -- so the usual
+-- `PivotTo(CFrame.new(x, geom.Size.Y / 2, z))` only lands correctly for the ones that happen to be
+-- centred, and it guesses the height off ONE CHILD PART of a multi-part model on top of that. The
+-- Forest trees were neither: they hovered 8 to 15 studs over the grass.
+-- Measure instead of guessing. Put it down at y = 0, read where the bounding box actually ended
+-- up, and drop it by exactly that much. `sink` buries it a little for props that should look
+-- half-embedded rather than placed.
+local function seatModel(inst, x, z, yaw, sink)
+	inst:PivotTo(CFrame.new(x, 0, z) * CFrame.Angles(0, yaw or 0, 0))
+	local cf, size = inst:GetBoundingBox()
+	local bottom = cf.Position.Y - size.Y / 2
+	inst:PivotTo(inst:GetPivot() + Vector3.new(0, -bottom - (sink or 0), 0))
+	return inst
+end
+
+-- Every name board in the world -- the gate signs, the two direction signs on the walkway, the
+-- landmark under the arch, the shop titles and the stall odds -- is one of these.
+--
+-- It used to be a single flat TextLabel: 35% transparent near-black, white Gotham, one 12px corner.
+-- Floating over a bright zone that reads as a chat bubble somebody forgot to delete, and it is the
+-- reason the zone names looked worse than the props they were standing next to.
+--
+-- The rebuild is the sticker shape the rest of the game uses -- ink outline, cream rim, coloured
+-- face, gloss, hard shadow, outlined text -- with ONE rule behind every dimension:
+--
+--   *every layer is sized in SCALE, never in pixels.*
+--
+-- These billboards are sized in studs (UDim2.new(16, 0, 5.5, 0)), so their pixel size changes with
+-- distance. A 4px UIStroke or a 12px UICorner is a hairline up close and a fat crayon border from
+-- across the platform. Nested Frames at fractional sizes hold their proportions at every range,
+-- which is why the border here is three stacked rounded rectangles rather than a stroke.
+--
+-- opts (all optional): { color = Color3 face colour, textColor = Color3, bob = false }
+local function makeSign(parentModel, text, cframe, size, opts)
+	opts = opts or {}
+	local face = opts.color or SIGN_FACE
+
+	local signPart = newPart({
+		Name = "SignPart",
+		Size = Vector3.new(1, 1, 1),
+		CFrame = cframe,
+		Transparency = 1,
+		CanCollide = false,
+		Parent = parentModel,
+	})
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "Sign"
+	billboard.Size = size or UDim2.new(0, 260, 0, 70)
+	billboard.StudsOffset = Vector3.new(0, 3, 0)
+	billboard.AlwaysOnTop = false
+	-- Half the late zones are lit almost to black. A light-influenced board goes unreadable exactly
+	-- where the player most needs to be told which way the exit is.
+	billboard.LightInfluence = 0
+	-- A SHOP-SIZED BOARD NEEDS SHOP-SIZED REACH. 160 studs is right for a direction sign you
+	-- read while walking past it; it is wrong for the board over a shop, which is the one thing
+	-- in the village a player is supposed to spot from the far end of the street and walk TO.
+	-- At 160 the shop board simply was not drawn from anywhere you would notice the shop from.
+	billboard.MaxDistance = opts.maxDistance or 160
+	billboard.Parent = signPart
+
+	local RADIUS = UDim.new(0.24, 0)
+
+	local function plate(parent, name, color, inset, dy, z)
+		local f = Instance.new("Frame")
+		f.Name = name
+		f.BackgroundColor3 = color
+		f.BorderSizePixel = 0
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.Position = UDim2.new(0.5, 0, 0.5 + (dy or 0), 0)
+		f.Size = UDim2.new(1 - inset * 2, 0, 1 - inset * 2 * 2.6, 0)
+		f.ZIndex = z
+		local c = Instance.new("UICorner")
+		c.CornerRadius = RADIUS
+		c.Parent = f
+		f.Parent = parent
+		return f
+	end
+
+	-- hard shadow, ink outline, cream rim, coloured face -- four rectangles, no strokes
+	plate(billboard, "Shadow", Color3.fromRGB(16, 10, 24), 0.012, 0.05, 1).BackgroundTransparency = 0.25
+	plate(billboard, "Outline", SIGN_INK, 0, 0, 2)
+	local rim = plate(billboard, "Rim", SIGN_RIM, 0.022, 0, 3)
+	local body = plate(rim, "Face", face, 0.03, 0, 4)
+
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = 90
+	grad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, face:Lerp(Color3.new(1, 1, 1), 0.34)),
+		ColorSequenceKeypoint.new(0.55, face),
+		ColorSequenceKeypoint.new(1, face:Lerp(Color3.new(0, 0, 0), 0.36)),
+	})
+	grad.Parent = body
+
+	-- the sheen: a rounded strip across the top third. Same invariant as UITheme -- it never gets
+	-- close to opaque and it never renders above the text.
+	local gloss = Instance.new("Frame")
+	gloss.Name = "Gloss"
+	gloss.BackgroundColor3 = Color3.new(1, 1, 1)
+	gloss.BackgroundTransparency = 0.8
+	gloss.BorderSizePixel = 0
+	gloss.Position = UDim2.new(0.5, 0, 0.06, 0)
+	gloss.AnchorPoint = Vector2.new(0.5, 0)
+	gloss.Size = UDim2.new(0.88, 0, 0.3, 0)
+	gloss.ZIndex = 5
+	local glossCorner = Instance.new("UICorner")
+	glossCorner.CornerRadius = UDim.new(1, 0)
+	glossCorner.Parent = gloss
+	gloss.Parent = body
+
+	local label = Instance.new("TextLabel")
+	label.Name = "TextLabel"
+	label.BackgroundTransparency = 1
+	-- inset in SCALE so the word can never touch the rim, whatever the board's aspect ratio is.
+	-- The old sign ran its text to the very edge of the plate, which is what made "Desert" look
+	-- like it had been cut off by the frame it was sitting in.
+	label.Size = UDim2.new(0.88, 0, 0.66, 0)
+	label.Position = UDim2.new(0.5, 0, 0.5, 0)
+	label.AnchorPoint = Vector2.new(0.5, 0.5)
+	label.Font = SIGN_FONT
+	label.TextScaled = true
+	label.TextColor3 = opts.textColor or Color3.fromRGB(255, 255, 255)
+	label.Text = text
+	label.ZIndex = 8
+	label.Parent = body
+
+	local textStroke = Instance.new("UIStroke")
+	textStroke.Thickness = 2.5
+	textStroke.Color = SIGN_INK
+	textStroke.LineJoinMode = Enum.LineJoinMode.Round
+	textStroke.Parent = label
+
+	return signPart
+end
+
+-- Rock is the zone's own ground colour pulled toward white in three steps, so a Forest cliff comes
+-- out pale green and a Mars cliff pale rust without one hand-picked palette anywhere.
+local function stoneTones(zone)
+	local g = groundColorOf(zone)
+	-- cosmic zones ship a near-black ground; lifting those to a readable stone needs a much
+	-- bigger step toward white than a Desert's already-bright sand does
+	local lum = g.R * 0.3 + g.G * 0.59 + g.B * 0.11
+	-- A near-black ground (Volcano, Black Hole, the void zones) is useless as a rock colour: lift it
+	-- toward white and you get flat grey cliffs in a zone that should be glowing orange. Mix the
+	-- accent in first -- that is the colour the zone is actually about -- and lift the result.
+	local base = lum < 0.28 and g:Lerp(zone.accentColor, 0.62) or g
+
+	-- ...AND THE SAME IS TRUE AT THE OTHER END, WHICH NOTHING HANDLED.
+	--
+	-- The Absolute Plane's ground is rgb(255,255,255). Lifting white toward white returns white, so
+	-- all three tones came back identical to the floor -- measured distance 0.000 -- and the cliffs,
+	-- their caps, the lips and the backdrop mesas were literally the same colour as the ground they
+	-- stood on. Seventy-one percent of the final zone's surface was within a rounding error of pure
+	-- white: the reward for twenty stages of climbing was a blank field with no silhouette in it.
+	--
+	-- Mirror of the dark rule: mix the accent in to get a colour the zone is actually about, then
+	-- step DOWN toward black instead of up toward white, so the shading still separates the three.
+	local pale = lum > 0.78
+	if pale then
+		base = g:Lerp(zone.accentColor, 0.5):Lerp(Color3.new(0, 0, 0), 0.28)
+	end
+
+	-- ROCK IS ROCK-COLOURED. THE BIOME IS A TINT ON IT, NOT THE WHOLE OF IT.
+	--
+	-- Everything above derives the cliff colour from the zone's GROUND, so Forest's cliffs came out
+	-- rgb(88,149,88) -- solid green. At 24 x 68 x 60 studs a block that colour does not read as a
+	-- rock face at all; it reads as a stacked green slab, which is exactly what the terraces were
+	-- reported as looking like. No amount of mesh cladding fixes a colour that is wrong underneath.
+	--
+	-- 58% toward a warm neutral stone keeps enough of the biome to tell Forest from Mars across the
+	-- map -- which is what the note below is protecting -- while putting the cliffs back in the
+	-- family of colours actual stone comes in.
+	--
+	-- The two special cases are deliberately left ALONE and this is why: the dark path (Volcano,
+	-- Black Hole, the void zones) has already mixed the accent in to get glowing lava rock rather
+	-- than flat grey, and the pale path (Absolute Plane) exists because lifting white toward white
+	-- returned white and left 71% of that zone with no silhouette. Greying either of them out would
+	-- undo a fix that is documented directly above.
+	if not pale and lum >= 0.28 then
+		base = base:Lerp(Color3.fromRGB(138, 132, 120), 0.58)
+	end
+
+	-- The three steps stay small on purpose. An earlier pass lerped 30/46/62% toward white and
+	-- every zone came out the same chalky pastel: the cliffs stopped reading as that biome's rock
+	-- and the platform lost its colour identity from a distance.
+	if pale then
+		return {
+			base:Lerp(Color3.new(0, 0, 0), 0.06),
+			base:Lerp(Color3.new(1, 1, 1), 0.14),
+			base:Lerp(Color3.new(1, 1, 1), 0.30),
+		}, base:Lerp(Color3.new(0, 0, 0), 0.42)
+	end
+	return {
+		base:Lerp(Color3.new(1, 1, 1), 0.08),
+		base:Lerp(Color3.new(1, 1, 1), 0.22),
+		base:Lerp(Color3.new(1, 1, 1), 0.38),
+	}, base:Lerp(Color3.new(0, 0, 0), 0.42)
+end
+
+local function addLight(part, color, range, brightness)
+	local l = Instance.new("PointLight")
+	l.Color = color
+	l.Range = range or 24
+	l.Brightness = brightness or 2
+	l.Parent = part
+	return l
+end
+
 -- ===== THE FRAME HAS EXACTLY ONE OWNER =====
 -- These two are the whole interface to `ACTIVE_FRAME`. `ZoneBuilder` sets it around a builder that
 -- was written for one spot and one orientation -- the portal in a Z wall, the Volcano cone, the
@@ -472,6 +693,11 @@ return {
 	vivid = vivid,
 	spinForever = spinForever,
 	pulseForever = pulseForever,
+
+	seatModel = seatModel,
+	makeSign = makeSign,
+	stoneTones = stoneTones,
+	addLight = addLight,
 
 	setFrame = setFrame,
 	getFrame = getFrame,
