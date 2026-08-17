@@ -1,5 +1,28 @@
 # `src/` — Luau mirror of the Evolution Lab place
 
+> ## 🗑️ `src/ServerStorage/` NO LONGER EXISTS (2026-08-17) — READ THIS BEFORE THE BLOCKS BELOW
+>
+> **Everything the dated blocks below say about `ServerStorage` describes a directory that is gone
+> from disk.** Two removals, months apart, and nothing has replaced either:
+>
+> - **`ServerStorage/LightConfig`** (the third-party code, `LightConfig.server.lua` + `Type.lua`)
+>   was deleted in `632ba50` — it was the file the backdoor was found in. It is why the CRLF note
+>   in the 2026-08-13 block and the two `Game` rows in the `luanames` table below have no files
+>   behind them any more.
+> - **`ServerStorage/_PushBackup/*`** — the six pre-2026-08-03 snapshots — were deleted from disk
+>   on **2026-08-17**. They were near-copies of `MainUI`, `ZoneBuilder`, `CreatureService` and
+>   `BossService` from before the split, i.e. **1.2 MB of the largest files in the tree, in their
+>   largest form**, sitting where a glob or a grep would find them first. Every one of them is in
+>   git; `git show 1c9ec1e:src/ServerStorage/_PushBackup/ZoneBuilder_pre_2026_08_03.lua` is the way
+>   back to any of them, and it is the only way that should ever be used.
+>
+> **The copies inside the Studio place were NOT touched by this.** `ServerStorage._PushBackup.*`
+> may still exist there, and a manifest sweep will therefore report them as Studio-only. That is
+> expected and is not drift to repair — do not push them back to disk.
+>
+> **`src/` is now 94 files and all of them are live code.** There is no longer any directory in
+> this tree that a reader has to be warned off.
+
 > ## ✅ IN SYNC WITH THE CLOUD PLACE (2026-08-13, fifth session)
 >
 > **The sweep the block below asked for has been run, and it predicted correctly.** Studio on
@@ -111,22 +134,33 @@ nothing; seven means something new". A cold agent running the linter today sees 
 that conclusion on 2026-08-12 before the count was checked. The file grew from 44 scripts to 56
 between those two measurements; the note did not.
 
-**The baseline is 13 names across 10 files.** Every one is checked and is a false positive or dead
-code. More than 13 means something new; the list below says which are already known.
+**The baseline is 13 names across 11 files** *(re-measured 2026-08-17; it was 13 across 10 before,
+and the membership changed on both sides even though the total did not)*. Every one is checked and
+is a false positive. More than 13 means something new; the list below says which are already known.
 
 | File | Line | Name |
 |---|---|---|
-| `MainUI.client.lua` | 804 | `animatePanel` |
-| `MainUI.client.lua` | 3364 | `stop` |
+| `MainUI.client.lua` | 710 | `animatePanel` |
+| `MainUI.client.lua` | 3750 | `nextStageDef` |
 | `LoadingScreen.client.lua` | 208, 231 | `modules`, `bar` |
 | `SoundLibrary.lua` | 334 | `flatCache` |
 | `StatsService.lua` | 70 | `publish` |
-| `FirstJoin.client.lua` | 333 | `runGuide` |
+| `FirstJoin.client.lua` | 371 | `runGuide` |
 | `HatchReveal.client.lua` | 82 | `bestDist` |
 | `RarityBeam.client.lua` | 174 | `toastSeq` |
-| `Type.lua` | 23 | `Game` |
-| `LightConfig.server.lua` | 38 | `Game` |
-| `ZoneBuilder_pre_gate_axis.lua` | 110, 112 | `scatterPoint`, `makeSign` |
+| `PanelFocus.client.lua` | 190 | `ensure` |
+| `GameConfig/Pets.lua` | 915 | `nextIndex` |
+| `GameConfig/RobuxShop.lua` | 186 | `base` |
+| `HUD/RebirthBeacon.lua` | 66 | `stop` |
+
+**What moved, so the next re-measure is not a mystery.** Three rows left because their files did:
+`Type.lua` and `LightConfig.server.lua` (`Game`) and `ZoneBuilder_pre_gate_axis.lua`
+(`scatterPoint`, `makeSign`) were all deleted from `src/ServerStorage` — see the block at the top.
+Three arrived because the splits moved code into new files without changing it: `stop` is MainUI's
+old line-3364 `stop`, now in `HUD/RebirthBeacon.lua`, and `nextIndex` / `base` came out of
+`GameConfig` with `Pets` and `RobuxShop`. `MainUI`'s two line numbers moved for the same reason.
+**No name on this list is new code**, and `luascope.py` — the check that actually catches a name
+used out of scope — is clean on all 94 files.
 
 ### ⚠️ A FOURTH CAUSE, found 2026-08-14: `local a, b, c` breaks the linter
 
@@ -149,16 +183,19 @@ one per line** in new code (`SplicerUI.client.lua` does, with a comment saying w
 parser and re-baseline in the same commit. It is a linter bug, not a Luau rule — the comma form is
 valid and is used elsewhere in this tree.
 
-They are three causes, not eleven:
+They are now **one** cause, not three — and that is the whole change since 2026-08-12, because the
+other two causes were entire directories and both have been deleted:
 
 - **The linter's binding blind spot** — a `local` declared inside a `do` block, before a `repeat`,
-  or forward-declared and assigned by a later `function name(...)`. That covers `animatePanel`,
-  `stop`, `modules`, `bar`, `flatCache`, `publish`, `runGuide`, `bestDist` and `toastSeq`.
-  `animatePanel`'s pattern is deliberate: it is what keeps MainUI under Luau's 200-local cap.
-- **`Game`, the deprecated Roblox global**, in the third-party LightConfig code parked in
-  `ServerStorage`, which sets nothing.
-- **`_PushBackup` snapshots**, which are dead code by definition — never edit them and never read
-  them for current behaviour.
+  forward-declared and assigned by a later `function name(...)`, or written in the comma form the
+  section above describes. That covers **all thirteen**: `animatePanel`, `nextStageDef`, `modules`,
+  `bar`, `flatCache`, `publish`, `runGuide`, `bestDist`, `toastSeq`, `ensure`, `nextIndex`, `base`
+  and `stop`. `animatePanel`'s pattern is deliberate: it is what keeps MainUI under Luau's
+  200-local cap.
+- ~~**`Game`, the deprecated Roblox global**, in the third-party LightConfig code~~ — the code was
+  deleted with `ServerStorage/LightConfig` in `632ba50`.
+- ~~**`_PushBackup` snapshots**~~ — deleted from disk 2026-08-17. There is nothing in this tree any
+  more that is dead by definition; if the linter flags a file, that file is live code.
 
 `EvolutionVisuals.lua:305` `waited` was on the old list and is **no longer reported**; it was fixed
 at some point and nobody updated this file, which is the same failure in the other direction.
@@ -166,17 +203,29 @@ at some point and nobody updated this file, which is the same failure in the oth
 **If you change this number, say so here in the same commit.** A stale tripwire is worse than none:
 it converts every real regression into "probably just the baseline".
 
-## Reading a big file without loading it — `tools/luamap.py`
+## Reading a big file without loading it — `docs/CODEMAP.md` first, `tools/luamap.py` second
 
-Five files in this tree cannot be read whole without spending most of a context window:
+**Start at `docs/CODEMAP.md`.** It is a generated register with a per-file page listing every
+function and every section heading with exact `Read(offset, limit)` coordinates, and a page costs
+about two thousand tokens against the file's hundred and fifty. Regenerate with
+`py tools/codemap.py`; `--check` exits 1 when it is stale. Everything below is still true and is
+the lower-level tool the register was built on.
+
+Files that cannot be read whole without spending most of a context window
+*(re-measured 2026-08-17 — three of the five in the old table have shrunk or ceased to exist)*:
 
 | File | Size | ~tokens if read whole |
 |---|---:|---:|
-| `ServerScriptService/ZoneBuilder.lua` | 560 KB | **~147k** |
-| `StarterPlayer/.../MainUI.client.lua` | 379 KB | **~99k** |
-| `ReplicatedStorage/Modules/GameConfig.lua` | 262 KB | ~69k |
-| `ServerScriptService/CreatureService.lua` | 204 KB | ~54k |
-| `ServerScriptService/BossService.lua` | 156 KB | ~41k |
+| `ServerScriptService/ZoneBuilder.lua` | 506 KB | **~136k** |
+| `StarterPlayer/.../MainUI.client.lua` | 258 KB | **~69k** |
+| `ServerScriptService/CreatureService.lua` | 202 KB | ~54k |
+| `ServerScriptService/BossService.lua` | 160 KB | ~43k |
+| `ReplicatedStorage/Modules/UITheme.lua` | 134 KB | ~36k |
+
+`ReplicatedStorage/Modules/GameConfig.lua` was 262 KB and is **gone as a single file** — it is a
+44-line loader plus 16 parts under `Modules/GameConfig/`, the largest of which (`Characters.lua`,
+77 KB) is readable whole. `MainUI` came down the same way: 11,743 lines to 5,015, with 22 modules
+under `Modules/HUD/` and `Modules/UIKit`. See `docs/SPLIT.md`.
 
 **Never `Read` one of these without an `offset`/`limit`.** One such read poisons the rest of the
 session: every later request re-sends it.
@@ -200,35 +249,54 @@ reported a single 8,737-line "function" covering 99% of ZoneBuilder. `for`/`whil
 openers; their `do` is, tracked through `pending_do` so a wrapped loop header still claims the right
 one. If the coverage percentage ever collapses toward one giant entry again, that counter is why.
 
-## Why ZoneBuilder is NOT split, and what to do instead
+## ZoneBuilder IS being split now — the section that used to sit here said the opposite
 
-It was split once (`ZoneBuilder` + `ZoneDecor`) and the split was reverted; `ZoneDecor` sat as
-orphaned, diverged dead code until 11.27 deleted it. The mechanism was a function module closing
-over ZoneBuilder's top-level locals, with **29 helpers passed in by hand and 4 names returned** — so
-adding a helper call meant editing both lists, and forgetting one produced a `nil` at build time
-rather than an error at edit time. A fresh `require` of a cloned ZoneBuilder also did not give a
-fresh ZoneDecor, which is its own rebuild trap.
+**This heading read "Why ZoneBuilder is NOT split, and what to do instead" and that answer is
+out of date.** It was written when the only prior attempt was `ZoneDecor`, and it argued from that
+one failure that the file should stay whole. `docs/SPLIT.md` is the current contract; read it
+instead of this section. What is worth keeping from the old text is *why `ZoneDecor` failed*,
+because it is the shape the current split deliberately does not use:
 
-The map replaces the reason to split: the unit worth addressing is the **function**, not the file,
-and a split would still hand you a 76 KB `buildValleySide` when that is what you need. If a file
-really must shrink, shrink that function first — it is the actual monolith — and treat it as a
-roadmap row with a rebuild to verify, not as a side quest.
+> It was split once (`ZoneBuilder` + `ZoneDecor`) and the split was reverted; `ZoneDecor` sat as
+> orphaned, diverged dead code until 11.27 deleted it. The mechanism was a function module closing
+> over ZoneBuilder's top-level locals, with **29 helpers passed in by hand and 4 names returned** —
+> so adding a helper call meant editing both lists, and forgetting one produced a `nil` at build
+> time rather than an error at edit time. A fresh `require` of a cloned ZoneBuilder also did not
+> give a fresh ZoneDecor, which is its own rebuild trap.
+
+The current cuts are **sibling `ModuleScript`s with a named surface**, not closures over the host's
+locals — `ServerScriptService/ZoneKit.lua` (the build vocabulary) and
+`ServerScriptService/VillageKit.lua` (what a village is made of). The clone trap in the last
+sentence above **still applies verbatim** to both: requiring a fresh clone of `ZoneBuilder` does not
+give you a fresh `ZoneKit`, so destroy and re-parent a clone of the kit first after pushing a kit
+change.
+
+The old section's advice is still the right advice for a *reader*: the unit worth addressing is the
+**function**, not the file, and no split will stop `buildValleySide` being 1,267 lines when that is
+what you need. `docs/CODEMAP.md` gets you to it without opening the file.
 
 ## What is in here
 
-All 44 scripts in the place, including `ServerStorage/_PushBackup/*` (older snapshots kept
-inside the place) and the third-party `ServerStorage/LightConfig`. The `_PushBackup` copies are
-**not** live code — do not edit them and do not read them for current behaviour.
+**All 94 scripts in the place, and every one of them is live code.** There is no longer a
+`ServerStorage` directory in this tree — the `_PushBackup` snapshots and the third-party
+`LightConfig` are both gone, and the block at the top of this file says when and where to find them
+in git. Nothing here needs the old warning about what not to read.
 
 ## Applying changes back to Studio
 
 Studio remains the source of truth for running code; this tree is a mirror. When pushing back:
 
 1. `list_roblox_studios` → `set_active_studio` to confirm the right instance.
-2. Overwrite whole scripts rather than patching if the two have diverged — `old_string` anchors
-   from a stale mirror will not match.
+2. **Push whole files over the HTTP bridge — do not replay edits.** `tools/` serves `src/` on
+   `http://127.0.0.1:8731/…` and Studio pulls each file with `HttpGet` +
+   `ScriptEditorService:UpdateSourceAsync`, which has no 200 KB limit and cannot half-apply. That
+   is the route for `ZoneBuilder` in particular, where `.Source` writes fail outright above 200 KB.
 3. `multi_edit` only works against the **Edit** datamodel; ask for Stop if Studio is in Play.
-   Its `replace_all` has reported success while changing nothing — always check the count.
+   Its `replace_all` has reported success while changing nothing — always check the count. On
+   `ZoneBuilder` it times out at 120 s and a timed-out call is **neither a no-op nor atomic**;
+   prefer the bridge above.
+   **A new file is not just a source push** — create the `ModuleScript` instance first, or the
+   `UpdateSourceAsync` has nothing to write to.
 4. After any `MainUI` edit, run the `loadstring` check (see `ROADMAP.md`); the register cap
    fails silently and takes the whole HUD with it.
 5. `ZoneBuilder.Build()` skips any zone already present in `workspace.Zones`, so decoration
