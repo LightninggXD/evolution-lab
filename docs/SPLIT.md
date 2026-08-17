@@ -193,6 +193,11 @@ ScrollAffordance 123  InventoryTabs 116  RebirthRungs 115  Codes 115
 TileColumnFit 108     RebirthBeacon 101  CurrencyPlus 47
 ```
 
+**`ZoneBuilder` 9,281 → 8,937 lines + `ServerScriptService/ZoneKit` (495).** The vocabulary only —
+`newPart` with the shadow-by-size rule and the solidity-by-name list it applies, the placement
+frame those read, `groundColorOf`, `addPlankText`, `vivid`, `spinForever`, `pulseForever`, the sign
+palette and the platform's own dimensions. The leaves have not moved yet; see §6.
+
 **`GameConfig` 5,205 → a 23-line loader + 16 parts** under `Modules/GameConfig/`: Evolution,
 Upgrades, Zones, Pets, Rebirth, Rewards, Potions, Shops, Diamonds, Mastery, RobuxShop, Events,
 Season, Helpers, Characters, Codes. No call site changed — it still returns one table.
@@ -213,20 +218,44 @@ does. Do not assume MainUI's recipe transfers; it does not, and here is the evid
 
 ### `ZoneBuilder` (9,281 lines) — a real refactor, not a move
 
-190 top-level locals, **48 of them used across spans of 600+ lines**, and `newPart` alone has
+190 top-level `local` lines, **48 of them used across spans of 600+ lines**, and `newPart` alone has
 **534 call sites** spread over the whole file. There is no line at which a cut leaves the locals
 behind, so §1's recipe does not apply.
 
-The order that does work:
+**AND THAT 190 WAS THE WRONG NUMBER TO WATCH. The real one was 198, and the ceiling is 200.** The
+scan above counts *lines*; Luau counts *names*, and `local addKnob, addScallops, addBunting,
+addPlanter, candy` is one line and five registers. Measured by asking the compiler itself — prepend
+N dummy top-level locals and find where `loadstring` starts refusing — `ZoneBuilder` at commit
+`d7dd54b` compiled with **2** to spare and failed at 3 with *"Out of local registers … exceeded
+limit 200"*. So the second file in this project was living on the same cliff as `MainUI`, and in
+the file where crossing it does not break a panel but stops the world from building at all. The
+`ZoneKit` cut took it to **189**, i.e. 11 of headroom. Re-measure the same way after any move here:
+that is the number that decides whether the next edit is safe, not the line count.
 
-1. **First build `ZoneKit`** — `newPart`, `vivid`, `pulseForever`, `groundColorOf`,
-   `addPlankText`, the shadow-by-size rule, the solidity audit and the terrace-band constants.
-   That is the vocabulary the other 8,000 lines speak, and nothing else can move until it exists.
+1. ~~**First build `ZoneKit`**~~ — **DONE 2026-08-17.** `ServerScriptService/ZoneKit.lua`, 495
+   lines: `newPart`, the shadow-by-size rule, `SOLID_PROPS` + its audit, `ACTIVE_FRAME`,
+   `groundColorOf`, `addPlankText`, `vivid`, `spinForever`, `pulseForever`, the `SIGN_*` palette
+   and the platform / terrace-band constants. Moved by `tools/splits/extract_zonekit.py`, byte for
+   byte except nine comment lines that said "in this file" about ZoneBuilder and now name it.
+   `ZoneBuilder` requires it as a sibling and **re-localises** every name (`local newPart =
+   ZoneKit.newPart`), so none of the 534 call sites changed.
+   **The one thing that could not be re-localised is `ACTIVE_FRAME`**, because it is reassigned:
+   a copy taken at require time would be frozen at nil forever — §3 rule 2, in the server's
+   dialect. It has `ZoneKit.setFrame` / `getFrame` and the eight sites that used to assign it now
+   call those.
 2. Then the leaves, in this order, because each is a section that only reads the kit: the village
    prop library (2,108), ground clutter (3,147), idols and ruins (3,463), the mesh prop layer
    (5,172), the egg plaza (6,136 — 1,759 lines, the single biggest), the boss arena (7,895).
+   *(Those line numbers are pre-`ZoneKit`; subtract ~350 or re-read `docs/codemap/ZoneBuilder.md`.)*
 3. **Read GEMINI.md §7 first.** A careless edit here regenerates or deletes the world, and
    `BUILD_VERSION` must still beat the world's stamp or a rebuild is a silent no-op.
+4. **A leaf is not proven by lint.** What proved `ZoneKit` was a full rebuild in Edit and a census
+   against numbers earlier rows had already recorded: `TerraceTop` **784/784** solid (11.23),
+   `ValleyRock` 410/410 and `ValleyRockBase` 0/410 (11.22), AbsolutePlane's floor back at
+   rgb(204,204,204) Marble (17.7), and the two frame-built structures landing at exactly their
+   frame's offset — the Celestial throne at **cx − 130.00** and the Volcano cone at cx − 150. A
+   broken frame is invisible to every lint in this repo and puts a mountain in the middle of a
+   village.
 
 ### `CreatureService` (3,869) and `BossService` (3,053) — split the rig factory out
 

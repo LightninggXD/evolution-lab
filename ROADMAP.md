@@ -832,6 +832,48 @@ Gathered 2026-08-07/08 while writing this plan.
 
 ## Changelog
 
+- **2026-08-17 (forty-seventh session)** — **`ZoneBuilder` WAS TWO LOCALS FROM NOT COMPILING, AND
+  NOBODY KNEW.** The session's job was step 1 of `docs/SPLIT.md` §6 — build `ZoneKit` before any
+  leaf can move — and the measurement taken on the way is the more important half.
+  **The register count everyone had been quoting was the wrong count.** The scan that planned this
+  split reported "190 top-level locals"; it counts `local` *lines*, and Luau counts *names*, so
+  `local addKnob, addScallops, addBunting, addPlanter, candy` is one line and five registers.
+  Asked of the compiler directly — prepend N dummy top-level locals and find where `loadstring`
+  starts refusing — `ZoneBuilder` at `d7dd54b` compiled with **2 to spare** and failed at 3 with
+  *"Out of local registers when trying to allocate `built`: exceeded limit 200"*. Control: a
+  synthetic chunk compiles at 200 locals and fails at 201. So the second-biggest file in the game
+  was on the same cliff `MainUI` has been pinned against for a year — except that here crossing it
+  does not delete the HUD, it stops the **world** from building. The cut took it to **189**.
+  **`ServerScriptService/ZoneKit.lua`, 495 lines**: `newPart` (with the shadow-by-size rule and the
+  solidity-by-name list it applies to every part without being asked), `ACTIVE_FRAME`,
+  `groundColorOf`, `addPlankText`, `vivid`, `spinForever`, `pulseForever`, the `SIGN_*` palette,
+  the platform dimensions and the terrace-band constants. `ZoneBuilder` 9,281 → 8,937.
+  **Not one of the 534 `newPart` call sites changed**: every name is re-localised on the other side
+  of the require, which costs exactly the register the `local function` cost. The exception is the
+  placement frame, which is *reassigned* — a copy taken at require time would be frozen at nil
+  forever, silently (`docs/SPLIT.md` §3 rule 2, in the server's dialect), so it is reached through
+  `ZoneKit.setFrame` / `getFrame` at the eight sites that used to assign it.
+  Moved by `tools/splits/extract_zonekit.py` rather than by hand, byte for byte, with nine comment
+  lines repointed because they said "104 call sites **in this file**" about a file they had left.
+  **PROVED BY REBUILDING THE WORLD, not by lint.** Full rebuild in Edit from a fresh clone, stamp
+  **133 → 135**, 21 zones, 104,896 descendants, 2,080 shell parts pinned, no audit warning (i.e.
+  every `SOLID_PROPS` name was created). Census against numbers earlier rows had already recorded:
+  `TerraceTop` **784/784** solid — the exact count 11.23 measured — `ValleyRock` 410/410 with
+  `ValleyRockBase` 0/410 (11.22), `GroundRock` 53/53, `BenchSeat` 120/120, `StallCrate` 80/80,
+  AbsolutePlane's floor back at **rgb(204,204,204) Marble lum 0.80** with 20% of its parts over
+  0.85 luminance against Forest's 17% (17.7's fix, intact). The two structures built through a
+  frame land at exactly their frame's offset — the Celestial throne at **cx − 130.00** on all five
+  of its part names, the Volcano cone at cx − 150 — and the arena's return gate stands **across**
+  its approach (X spread 178, Z spread 56), which is the yaw that 11.x row fixed. Three captures:
+  the Forest street at eye height (lamps, fence and bunting all casting real contact shadows), the
+  Volcano terraces, and the arrival board reading **🌲 Forest** in cream on brown, because 236
+  `PlankText` surfaces reporting the right `.Text` is exactly the evidence GEMINI.md rule 8 says is
+  not evidence. All three lints clean on both files, **93/93 files byte-identical to Studio**.
+  **What did NOT move, deliberately:** every leaf. `GROUND_MATERIAL` stayed with the zones because
+  it is a decision about one zone, while `groundColorOf` is a rule about any floor — the same line
+  17.7 drew. `HubPlaza`, `RebirthShrine` and `LeaderboardService` re-derive some of this vocabulary
+  and were left alone; nobody asked, and each is behind its own version stamp.
+
 - **2026-08-17 (forty-sixth session, second half)** — **THE SPLIT WENT ALL THE WAY THROUGH THE TWO
   FILES WHERE IT COULD BE MECHANICAL.** `MainUI` **11,743 → 5,015** and `GameConfig` **5,205 → a
   44-line loader**; 38 new modules, and not one call site outside them changed.

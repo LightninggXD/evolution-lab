@@ -71,53 +71,49 @@ local BUILD_VERSION = 135
 -- and it has already had to move once -- so it gets a stamp of its own and is rebuilt alone.
 local ARENA_VERSION = 2
 
--- Roughly 2.4x the old 450 x 550. The zone had one street with a shop on it and two market
--- stalls beside it, and that filled the platform -- there was nowhere to put more creatures
--- without them standing in the walkway. Everything below is expressed against these two numbers
--- or against the derived constants further down, so the platform is the only thing to change.
+-- ================= the build vocabulary =================
+-- THE KIT LEFT THIS FILE (18.9). `newPart` -- with the shadow-by-size rule and the
+-- solidity-by-name list it applies to every part without being asked -- plus `groundColorOf`,
+-- `addPlankText`, `vivid`, `spinForever`, `pulseForever`, the placement frame they all read, the
+-- sign palette and the platform's own dimensions are `ServerScriptService.ZoneKit` now, byte for
+-- byte, with every comment that explains why they behave the way they do. Nothing about what gets
+-- built changed; only where the vocabulary lives.
 --
--- ONE THING LIVES OUTSIDE THIS FILE AND HAS TO MOVE WITH IT: `GameConfig.ZoneSpacing`, the gap
--- between two zones' centres on X. Widening the platform from 450 to 700 without moving the
--- 630-stud spacing left every pair of neighbouring zones overlapping by 70 studs of floor -- and
--- ~400 studs once the rampart and the two rows of backdrop mesas behind each wall are counted, so
--- the next zone's (pass-through) mesas stood on this zone's platform with creatures spawning
--- inside them. Spacing must stay clear of PLATFORM_WIDTH + 2 * (30 + mesa depth); it is 1900 now.
+-- WHY IT WENT FIRST, AND WHY THIS IS NOT THE JOB MainUI WAS: this file was 9,281 lines with 190
+-- top-level `local` lines, 48 of them used across spans of 600+ lines, and `newPart` is called at
+-- 534 sites spread over the whole of it. There is no line at which a cut leaves the locals behind --
+-- which is what made MainUI's split a change of wrapper and makes this one a refactor. So the
+-- vocabulary comes out first and the leaves (the village prop library, the ground clutter, the
+-- idols and ruins, the mesh prop layer, the egg plaza, the boss arena) move onto it afterwards.
+-- `docs/SPLIT.md` §6 is the measured order; `docs/CODEMAP.md` says where everything lives.
 --
--- The width then went 700 -> 900, because once the spacing was right there was room for it. Only X
--- moved: the street runs down Z and every piece of furniture on it (the arch, the fence, the lamps,
--- the benches, the egg plaza) is placed at a FIXED Z, so a deeper platform would leave the street
--- ending short of the wall. A wider one just puts more ground either side of it -- which is where
--- the creatures, the biome props and the landmark live.
--- WIDENING ON X IS FREE; DEEPENING ON Z IS NOT. The street runs down Z and every piece of
--- furniture on it -- arch, fence, lamps, bunting, planters, benches, arrival sign, landmark -- sits
--- at a hand-written Z, so a deeper platform leaves the whole village stopping short of the wall
--- with a field of nothing behind it. Every one of those numbers was multiplied by 1150/860 = 1.337
--- when this went 860 -> 1150, along with ARRIVAL_Z, BOSS_Z, ARRIVAL_CLEAR and DECO_SPREAD_Z, and
--- with BossService.GATE_APPROACH_Z and CreatureService's Z keep-out in the two files that share
--- this geometry. If it moves again, they all move again.
-local PLATFORM_DEPTH = 1150
-local PLATFORM_WIDTH = 1250
--- Raised from 140 to make room for the taller gateway below: the old portal's cap topped out at
--- 138.5 and had nowhere left to grow. The rampart spires (150-205) still break the line, which is
--- what they are for.
-local WALL_HEIGHT = 180
-local WALL_THICK = 4
-local PORTAL_GAP = 100
+-- RE-LOCALISED RATHER THAN CALLED AS `ZoneKit.newPart(...)`, deliberately: there are 534 call
+-- sites below and rewriting every one of them is 534 chances to break the world in exchange for
+-- nothing visible, and a `local x = ZoneKit.x` costs exactly the register the `local function x`
+-- it replaces cost. 28 names left and 19 came back.
+--
+-- AND THAT LAST CLAUSE TURNED OUT TO MATTER MUCH MORE THAN IT READS. Counted the way LUAU counts --
+-- names, not `local` lines, so `local addKnob, addScallops, addBunting, addPlanter, candy` is one
+-- line and five registers -- this file stood at **198 of the 200 top-level registers** before the
+-- move. Two away from the ceiling that MainUI has been pinned against for a year, in the file where
+-- crossing it does not break a panel but stops the entire world from building. It is at 189 now.
+-- The 190 quoted above and in `docs/SPLIT.md` §6 is the LINE count, which is the number that was
+-- measured when this split was planned and is not the number the compiler enforces.
+--
+-- THE ONE THING THAT COULD NOT BE RE-LOCALISED IS THE FRAME. `ACTIVE_FRAME` is mutable and
+-- `newPart` reads it on every call, so a copy taken here would be frozen at nil forever, silently
+-- -- the trap `docs/SPLIT.md` §3 rule 2 records. It is reached through `ZoneKit.setFrame` and
+-- `ZoneKit.getFrame` at the eight sites that used to assign or read it.
+local ZoneKit = require(script.Parent.ZoneKit)
 
--- ===== WHERE THE TERRACE BAND STARTS AND STOPS (11.23) =====
--- These two used to be declared down beside TERRAIN_PROFILE, ~3,300 lines below, which is where
--- the long note explaining them still lives. They are up here now because the WALLS have to know
--- them: `addRockRampart` runs 1,500 lines above the terrain section and it is the one thing in the
--- file that stands in the same ground the terraces occupy, so it cannot be written without them.
--- Read the note over TERRAIN_PROFILE for what the band is FOR; these are just the two numbers.
---
--- 623, NOT 625. The X wall's sealing slab is WALL_THICK thick centred on cx +/- 625, i.e. it
--- occupies 623..627 -- so a terrace slab that ran to 625 put two studs of solid ground inside a
--- solid wall, 1,032 times across the world. The band now stops exactly at the wall's inner face.
-local TERRAIN_INNER = 415        -- where the valley floor ends and the first cliff begins
-local TERRAIN_OUTER = 623        -- the inner face of the boundary wall
--- ...and the same two studs at each end of the depth, for the Z walls.
-local TERRAIN_DEPTH = PLATFORM_DEPTH - WALL_THICK
+local newPart, groundColorOf, addPlankText = ZoneKit.newPart, ZoneKit.groundColorOf, ZoneKit.addPlankText
+local vivid, spinForever, pulseForever = ZoneKit.vivid, ZoneKit.spinForever, ZoneKit.pulseForever
+local PLATFORM_DEPTH, PLATFORM_WIDTH = ZoneKit.PLATFORM_DEPTH, ZoneKit.PLATFORM_WIDTH
+local WALL_HEIGHT, WALL_THICK, PORTAL_GAP = ZoneKit.WALL_HEIGHT, ZoneKit.WALL_THICK, ZoneKit.PORTAL_GAP
+local TERRAIN_INNER, TERRAIN_OUTER = ZoneKit.TERRAIN_INNER, ZoneKit.TERRAIN_OUTER
+local TERRAIN_DEPTH = ZoneKit.TERRAIN_DEPTH
+local SIGN_INK, SIGN_RIM = ZoneKit.SIGN_INK, ZoneKit.SIGN_RIM
+local SIGN_FACE, SIGN_FONT = ZoneKit.SIGN_FACE, ZoneKit.SIGN_FONT
 
 -- How close you have to stand for any shop prompt in the world to offer itself. A player's body
 -- scales from 1x at Cell to 9x at The Absolute, and a ProximityPrompt measures to the character's
@@ -166,37 +162,6 @@ local GROUND_MATERIAL = {
 	AbsolutePlane = Enum.Material.Marble,
 }
 
--- ---- THE GROUND IS NEVER THE BRIGHTEST THING IN ITS OWN ZONE (17.7)
---
--- Reported as "ovi zadnji stagevi su samo bela svetlost i nista zivo se ne vidi", with a capture of
--- The Absolute Plane: a white ground under a white haze with white props on it, the only readable
--- thing in the frame being the black outline round her own body.
---
--- The zone's ground is authored at rgb(255, 255, 255) -- luminance 1.00, where the next brightest
--- ground in the whole game is Desert's 0.79 and every other zone sits below it. Nothing placed on a
--- floor that bright can be lighter than it, so the ground stops being a surface things sit ON and
--- becomes the brightest object in frame; and the outline that carries this game's whole look has
--- nothing left to sit against.
---
--- THE CEILING LIVES HERE RATHER THAN IN THE ZONE'S TABLE, for the same reason 17.1 put the emitter
--- ceiling in `VFXLibrary` beside the tint: a zone author says what colour the ground IS, and the
--- builder is what knows how bright a floor is allowed to BE. It is a ceiling and never an
--- assignment -- nineteen of the twenty zones pass through it untouched.
---
--- The two white-floor workarounds already in this file (the patch tones below, and the cliffs) are
--- deliberately left alone and still fire: a capped Absolute Plane reads 0.80, which is still the
--- brightest ground in the game and still needs its decoration to step DOWN rather than up.
-local GROUND_MAX_LUM = 0.80
-
-local function groundColorOf(zone)
-	local c = zone.groundColor
-	local l = 0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B
-	if l <= GROUND_MAX_LUM then
-		return c
-	end
-	return c:Lerp(Color3.new(0, 0, 0), 1 - GROUND_MAX_LUM / l)
-end
-
 -- Optional AI-generated cliff/rock formation per zone, cloned repeatedly along a
 -- boundary to hide the flat invisible collision wall behind natural-looking terrain
 -- instead of a flat slab. Zones with no entry here just keep the plain wall look.
@@ -240,14 +205,6 @@ local function addCliffLine(model, wall, template, axis, length, clearHalf)
 	end
 end
 
--- While this is set, every part newPart makes is placed *through* it instead of straight into
--- world space, so a builder written for one spot and one orientation can be re-used anywhere.
--- The portal gateway is written entirely in the plane x = wallX with +X pointing at the zone
--- interior; handing it a frame is what lets the same 170 lines stand a gate in a Z wall without
--- re-deriving a single coordinate. spinForever transforms its base the same way, so tweened
--- parts stay in step with the parts they were built from.
-local ACTIVE_FRAME = nil
-
 -- WHICH ZONE IS BEING BUILT RIGHT NOW, for the two builders that need a mesh keyed by zone and are
 -- handed everything except the zone. Set by the zone loop around the decoration builder; read by
 -- addMeshProps and by addLandmark.
@@ -257,188 +214,6 @@ local ACTIVE_FRAME = nil
 -- there it resolved to a nil global and every landmark silently fell back to its block style with
 -- nothing in the log. Same trap, same fix, as the `addLight, scatterPoint` forward declarations.
 local ACTIVE_ZONE_KEY = nil
-
--- ===== SHADOWS ARE DECIDED BY SIZE, IN ONE PLACE =====
---
--- `CastShadow = false` appears at **104 call sites** in this file and `CastShadow = true` at none:
--- the world cast no shadows at all, on purpose, for draw cost. That is the single biggest reason
--- the ground reads as a flat coloured plane -- a shadow is what plants an object ON a surface, and
--- without one every prop hovers over its own footprint. Measured in Forest: 2,430 of 3,904 parts
--- had it off, and **537 of those were big** (volume > 400) -- the stall deck, the barrels, the
--- crates, the signs, exactly the things whose shadow the eye looks for.
---
--- Turning it on wholesale is the wrong answer at 83,000 parts, and turning it on at 104 call sites
--- by hand is 104 chances to disagree. So the decision moves HERE and is made from the part's own
--- dimensions, which is a fact the call site does not have to remember:
---
---   long  >= 3.5   a thing, not a pebble. Below this the shadow is smaller than the softness.
---   short >= 0.5   NOT a decal. Ground rings, painted patches and water planes are flat by design;
---                  their shadow lands inside themselves and is pure cost.
---   vol   <= 200k   NOT the backdrop. A 49x186x99 mesa's shadow is a dark band across a whole
---                  district, and it stands outside the play area anyway.
---
--- Neon and anything half-transparent are skipped: a glow that casts a hard shadow reads as a solid
--- object pretending to be light.
---
--- MEASURED, not assumed: this rule turns on 1,367 parts per zone and leaves ~2,500 off. Verified by
--- eye at ground level -- the fence, the lamp posts and the zone sign all plant properly -- and the
--- wide shot is unchanged, because Roblox stops drawing shadows past its own distance limit long
--- before the far wall.
-local SHADOW_MIN_LONG = 1.5
-local SHADOW_MIN_SHORT = 0.2
-local SHADOW_MAX_VOL = 200000
-
--- ===== WHAT IS SOLID, AND WHY THIS LIST IS SHORT =====
---
--- `CanCollide = false` appears at 418 sites in this file, and the obvious reading -- that the world
--- is full of props you can walk through by accident -- is WRONG. Auditing them against the running
--- world (ray and box queries against the engine, not a read of the source) put almost all of them
--- in one of three defensible groups:
---
---   * backed by something else that IS solid -- `CliffFace` and `CliffRubble` sit against
---     `CliffJut` / `CliffBlock` / `TerraceTop`, `PoolStone` against `PoolBed`. The drawn rock is
---     scenery on a collision hull, which is the right way round.
---   * deliberate, with the reason already written down -- the `EggShell` is a Block wearing a
---     sphere mesh, so its collision is the BOX and its corners stick out at head height; and the
---     street fence is decoration rather than a pen, which is why the player can leave the road.
---   * correctly intangible -- grass tufts, flowers, mushrooms, coins, waterfall spray.
---
--- What was genuinely wrong is the rocks. A `GroundRock` is a 12-stud boulder standing on open
--- ground with nothing behind it, and you walk straight through. Same for scree, mounds and the well.
--- That is exactly the row's own wording -- "rocks and walls stop the player" -- and it is the whole
--- of the real defect, so this list is deliberately short rather than a sweep.
---
--- The street furniture joins it because walking through a bench reads as the same bug even though
--- nobody would call a bench a wall.
---
--- CHECKED FIRST: none of these sits on the route. The path corridor is 30 studs wide and the
--- closest of any of them to the centre line is 54 studs, so making them solid blocks nothing.
---
--- ===== SECOND PASS, 2026-08-11: "you can walk through half the objects" =====
---
--- Re-run the same way the first audit was done -- `GetPartBoundsInBox` against the LIVE world for
--- every prop name in Forest that had no solid part at all, asking the engine whether anything solid
--- shared its volume. That put 60-odd names in the "backed by solid" column exactly as the note
--- above claims (every cliff skin, the waterfalls, the banners, the planters, the terrace mushrooms),
--- and left a short list of free-standing physical objects with nothing behind them at all.
---
--- Those are the ones below. Each was also checked against the street: the corridor is 30 wide and
--- the closest of these is 48 studs off the centre line, so none of them blocks the route -- the same
--- check the first pass documents.
---
--- NOT added, deliberately: the flowers, pennants, bunting, runes, glints and the loose statue
--- details (Leg, Paw, Eye, Horn, Wing) are correctly intangible; `BackdropMesa` is 196-stud
--- background scenery nobody can reach; and the portal's high stonework sits 138-218 studs up.
-local SOLID_PROPS = {
-	GroundRock = true, ValleyRock = true, ValleyScree = true, Mound = true,
-	PoolStone = true, WellStone = true, WellPost = true,
-	BenchSeat = true, BenchLeg = true,
-	LampPost = true, LampFoot = true, GlowPost = true,
-	-- a log lying across the ground, and two braziers the size of a player -- the three things in
-	-- the world most obviously solid to the eye and most obviously not to the feet
-	FallenLog = true, IdolBrazier = true, GuardianBrazier = true,
-	-- the sibling of GlowPost, which has been solid since 10.13; they are the same object with two
-	-- names and only one of them stopped anybody
-	GlintPost = true,
-	-- ground mushrooms. The TERRACE ones are already backed by their shelf and are left alone.
-	MushroomCap = true, MushroomStem = true,
-	-- "a player who walks through a crate stack is being told the world is a painting" -- the note
-	-- over CrateStack, which was solid while the loose crates beside it were not
-	StallCrate = true,
-
-	-- ===== THE SAME TWO OBJECTS UNDER TWENTY NAMES (11.21) =====
-	--
-	-- `GroundRock` and `Mound` above are not two props. They are the DEFAULT names of
-	-- `addGroundLitter` and `addMounds` -- and eighteen of the twenty litter configs and nineteen of
-	-- the twenty mound configs pass a `name` of their own, because a moon rock should not be called
-	-- GroundRock in the explorer. Both builders write `CanCollide = false` and rely entirely on this
-	-- table to put it back, so the two zones that kept the default were solid and the other eighteen
-	-- were not. Measured on a fresh build: 621 litter parts and 169 mounds, 0 of them colliding.
-	--
-	-- The names are listed rather than pattern-matched on purpose. A rule like "anything ending in
-	-- Rock" would have swept up scenery nobody should collide with, and the warn at the end of
-	-- Build() is what stops this list rotting again -- see SOLID_SEEN.
-	Shell = true, LavaRock = true, MoonRock = true, MarsRock = true, Meteorite = true,
-	Debris = true, RealityChip = true, Cinder = true, Fragment = true, Quanta = true,
-	Cog = true, SlagChunk = true, Pebble = true, GlassShard = true, VoidGrit = true,
-	GildedStone = true, CollapsedGrit = true, AbsoluteChip = true,
-	Sandbar = true, AshMound = true, RegolithMound = true, DustRidge = true,
-	StardustDrift = true, CollapsedRidge = true, VoidMound = true, DustBank = true,
-	WarpSwell = true, FieldSwell = true, SandDrift = true, BlastBerm = true,
-	CloudBank = true, PolishedSwell = true, AshSwell = true, DrawnSwell = true, WhiteSwell = true,
-}
-
--- Names in SOLID_PROPS that a build is NOT expected to produce, so the audit below stays worth
--- reading. Both of these belong to `addLamp`'s primitive fallback, which every zone now skips
--- because a `Vill_Lamp` mesh is filed -- they are correct entries guarding a branch that is still
--- reachable if that mesh is ever missing, not rot. Anything else silent is rot.
-local SOLID_PROPS_OPTIONAL = { LampPost = true, LampFoot = true }
--- Every SOLID_PROPS name this build actually created. Cleared at the top of Build().
-local SOLID_SEEN = {}
-
--- ===== WHY THIS AUDIT EXISTS (11.21) =====
--- The list above is a set of NAMES, and names are the one thing in this file that a per-biome
--- config can change without anything noticing. Eighteen zones renamed their ground litter and
--- nineteen renamed their mounds, and the whole solidity rule silently stopped applying to them for
--- as long as it took somebody to walk through a boulder and measure it. A name that never appears
--- is either a typo or a prop that has been renamed out from under this table; either way it is a
--- rule that is not doing anything, and it should say so once per build rather than never.
-local function auditSolidProps()
-	local unseen = {}
-	for name in pairs(SOLID_PROPS) do
-		if not SOLID_SEEN[name] and not SOLID_PROPS_OPTIONAL[name] then
-			unseen[#unseen + 1] = name
-		end
-	end
-	if #unseen > 0 then
-		table.sort(unseen)
-		warn(("[ZoneBuilder] SOLID_PROPS has %d name(s) nothing in this build ever created -- "
-			.. "either the prop was renamed and is now walk-through, or the entry is dead: %s")
-			:format(#unseen, table.concat(unseen, ", ")))
-	end
-end
-
-local function shouldCastShadow(p)
-	if p.Transparency >= 0.5 or p.Material == Enum.Material.Neon then
-		return false
-	end
-	local s = p.Size
-	local long = math.max(s.X, s.Y, s.Z)
-	local short = math.min(s.X, s.Y, s.Z)
-	return long >= SHADOW_MIN_LONG
-		and short >= SHADOW_MIN_SHORT
-		and (s.X * s.Y * s.Z) <= SHADOW_MAX_VOL
-end
-
-local function newPart(props)
-	local p = Instance.new("Part")
-	p.Anchored = true
-	p.CanCollide = true
-	p.TopSurface = Enum.SurfaceType.Smooth
-	p.BottomSurface = Enum.SurfaceType.Smooth
-	for k, v in pairs(props) do
-		p[k] = v
-	end
-	if ACTIVE_FRAME then
-		-- after the props loop on purpose: Position / Orientation / CFrame have all been applied
-		-- by now, whichever of them the caller used
-		p.CFrame = ACTIVE_FRAME * p.CFrame
-	end
-	-- LAST, and deliberately overriding the caller. The 104 `CastShadow = false` props in this file
-	-- all predate the rule above and none of them is a considered decision about *that* part -- they
-	-- are one blanket policy typed out 104 times. Leaving them to win would mean the rule only
-	-- applied to parts nobody had gotten round to.
-	p.CastShadow = shouldCastShadow(p)
-	-- ...and the same shape of decision for collision (10.13), but from a NAME rather than a size.
-	-- Shadows are a property of how big a thing is; solidity is a property of what it IS. A bush and
-	-- a boulder are the same size and only one of them should stop you, so no measurement can decide
-	-- this and the list above has to be explicit.
-	if SOLID_PROPS[p.Name] then
-		p.CanCollide = true
-		SOLID_SEEN[p.Name] = true
-	end
-	return p
-end
 
 -- SEATS A CLONED MODEL ON THE GROUND, whatever its author did with its pivot.
 -- Everything in ServerStorage.Models was made by a different hand and their pivots are in
@@ -492,23 +267,6 @@ local addKnob, addScallops, addBunting, addPlanter, candy
 -- which is why the border here is three stacked rounded rectangles rather than a stroke.
 --
 -- opts (all optional): { color = Color3 face colour, textColor = Color3, bob = false }
-local SIGN_INK = Color3.fromRGB(26, 18, 36)
-local SIGN_RIM = Color3.fromRGB(255, 247, 230)
-local SIGN_FACE = Color3.fromRGB(74, 62, 96)
--- Same probe UITheme uses: FredokaOne is the game's display face but it does not exist on every
--- Studio build, and an unknown Enum.Font would be a hard error at world-build time.
-local SIGN_FONT = (function()
-	local ok, resolved = pcall(function()
-		local probe = Instance.new("TextLabel")
-		probe.Font = Enum.Font.FredokaOne
-		local f = probe.Font
-		probe:Destroy()
-		return f
-	end)
-	if ok and typeof(resolved) == "EnumItem" then return resolved end
-	return Enum.Font.GothamBlack
-end)()
-
 local function makeSign(parentModel, text, cframe, size, opts)
 	opts = opts or {}
 	local face = opts.color or SIGN_FACE
@@ -611,84 +369,6 @@ local function makeSign(parentModel, text, cframe, size, opts)
 	return signPart
 end
 
--- Text painted straight onto a prop's own face, for the boards that stand in a fixed direction and
--- so have no use for a billboard's camera-facing. Both broad faces get one, so the board reads from
--- either side of the street. Sized in scale for the same reason makeSign is: a SurfaceGui's canvas
--- is PixelsPerStud x the part, and every fixed offset drifts the moment the board changes size.
--- opts (all optional): { maxDistance = studs, pixelsPerStud = n }. The two zone-name boards need
--- both: they are the labels a player reads from the middle of the platform to know where they are
--- and which way out is, and a board four times the size of a direction sign does not want four
--- times the canvas resolution to go with it.
-local function addPlankText(part, text, accent, opts)
-	opts = opts or {}
-	for _, face in ipairs({ Enum.NormalId.Front, Enum.NormalId.Back }) do
-		local gui = Instance.new("SurfaceGui")
-		gui.Name = "PlankText"
-		gui.Face = face
-		gui.LightInfluence = 0 -- half the late zones are lit almost to black
-		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-		gui.PixelsPerStud = opts.pixelsPerStud or 32
-		gui.MaxDistance = opts.maxDistance or 240
-		gui.Parent = part
-
-		-- cream rim, ink panel: the same two-shell moulding the HUD tiles use, so a board on the
-		-- street and a button on the screen read as the same set of objects. Both are sized in scale
-		-- rather than pixels -- a SurfaceGui's canvas is PixelsPerStud x the part, so a fixed-pixel
-		-- inset would be a different thickness on every board that is not exactly this size.
-		local rim = Instance.new("Frame")
-		rim.Name = "Rim"
-		rim.AnchorPoint = Vector2.new(0.5, 0.5)
-		rim.Position = UDim2.new(0.5, 0, 0.5, 0)
-		rim.Size = UDim2.new(0.92, 0, 0.74, 0)
-		rim.BackgroundColor3 = SIGN_RIM
-		rim.BorderSizePixel = 0
-		local rimCorner = Instance.new("UICorner")
-		rimCorner.CornerRadius = UDim.new(0.28, 0)
-		rimCorner.Parent = rim
-		rim.Parent = gui
-
-		local plate = Instance.new("Frame")
-		plate.Name = "Plate"
-		plate.AnchorPoint = Vector2.new(0.5, 0.5)
-		plate.Position = UDim2.new(0.5, 0, 0.5, 0)
-		plate.Size = UDim2.new(0.94, 0, 0.9, 0)
-		-- a warm dark brown rather than the flat near-black the old floating label used: it reads as
-		-- paint on the plank it is on, which is the whole point of moving the text onto the board
-		plate.BackgroundColor3 = SIGN_INK:Lerp(Color3.fromRGB(96, 60, 40), 0.34)
-		plate.BorderSizePixel = 0
-		local plateCorner = Instance.new("UICorner")
-		plateCorner.CornerRadius = UDim.new(0.26, 0)
-		plateCorner.Parent = plate
-		plate.Parent = rim
-
-		-- the accent bar under the word: one stripe in the destination's own colour, which is what
-		-- lets a player match the board to the gate it points at without reading it
-		local strip = Instance.new("Frame")
-		strip.Name = "Strip"
-		strip.AnchorPoint = Vector2.new(0.5, 1)
-		strip.Position = UDim2.new(0.5, 0, 0.93, 0)
-		strip.Size = UDim2.new(0.68, 0, 0.1, 0)
-		strip.BackgroundColor3 = accent or SIGN_RIM
-		strip.BorderSizePixel = 0
-		local stripCorner = Instance.new("UICorner")
-		stripCorner.CornerRadius = UDim.new(1, 0)
-		stripCorner.Parent = strip
-		strip.Parent = plate
-
-		local label = Instance.new("TextLabel")
-		label.Name = "TextLabel"
-		label.BackgroundTransparency = 1
-		label.AnchorPoint = Vector2.new(0.5, 0.5)
-		label.Position = UDim2.new(0.5, 0, 0.44, 0)
-		label.Size = UDim2.new(0.86, 0, 0.6, 0)
-		label.Font = SIGN_FONT
-		label.TextScaled = true
-		label.TextColor3 = Color3.fromRGB(255, 250, 238)
-		label.Text = text
-		label.Parent = plate
-	end
-end
-
 -- Scatters vertical support pillars + a thin neon light strip along a wall so it never
 -- reads as one flat bare slab -- reused by both wall-building helpers below. Must be defined
 -- before buildXWall/buildZWall since Lua resolves `local function` upvalues lexically.
@@ -713,32 +393,6 @@ local PORTAL_STONE_DARK = Color3.fromRGB(92, 114, 145)
 local PORTAL_STONE_LITE = Color3.fromRGB(163, 185, 211)
 local PORTAL_FRAME = Color3.fromRGB(45, 84, 145)
 local PORTAL_DEEP = Color3.fromRGB(20, 38, 74)
-
--- Raw zone accents are muted (Forest's is a dark green) and read as dead paint on a Neon part,
--- so anything meant to actually glow gets the accent pushed up to full saturation first.
-local function vivid(c)
-	local k = math.min(1 / math.max(c.R, c.G, c.B, 0.001), 3.2)
-	return Color3.new(math.min(1, c.R * k), math.min(1, c.G * k), math.min(1, c.B * k))
-end
-
--- Endless motion with no per-frame Lua at all. A repeating tween jumps back to its start value
--- every cycle, which is invisible as long as the tween covers exactly one step of the
--- arrangement's rotational symmetry -- so the blades are always built as a symmetric set and
--- spun by exactly one step of it.
-local function spinForever(part, base, stepDeg, seconds)
-	-- the part itself was already placed through ACTIVE_FRAME by newPart, so its tween goal has
-	-- to go through the same frame or the first tick would teleport it back to world space
-	if ACTIVE_FRAME then base = ACTIVE_FRAME * base end
-	TweenService:Create(part, TweenInfo.new(seconds, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {
-		CFrame = base * CFrame.Angles(math.rad(stepDeg), 0, 0),
-	}):Play()
-end
-
-local function pulseForever(part, to, seconds)
-	TweenService:Create(part, TweenInfo.new(seconds, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
-		Transparency = to,
-	}):Play()
-end
 
 -- One gateway, centred on (wallX, 0) in the wall plane. `target` is the zone it leads to, and its
 -- accent colour drives every glowing element so the gate still tells you where it goes.
@@ -1000,10 +654,10 @@ end
 -- platform. On the X walls they sat at right angles to that line, so the shop and its walkway
 -- read as rotated ninety degrees from the way the player was actually facing.
 local function buildPortalInZWall(model, cx, wallZ, target)
-	local previous = ACTIVE_FRAME
-	ACTIVE_FRAME = CFrame.new(cx, 0, wallZ) * CFrame.Angles(0, math.rad(wallZ > 0 and 90 or -90), 0)
+	local previous = ZoneKit.getFrame()
+	ZoneKit.setFrame(CFrame.new(cx, 0, wallZ) * CFrame.Angles(0, math.rad(wallZ > 0 and 90 or -90), 0))
 	buildPortal(model, 0, target, 1)
-	ACTIVE_FRAME = previous
+	ZoneKit.setFrame(previous)
 end
 
 -- ===== BOUNDARY CLIFFS, GROUND DRESSING AND GUARDIAN TITANS =====
@@ -2140,7 +1794,8 @@ local function villMesh(model, name, height, base, yawJitter)
 	clone.Name = "Vill" .. name
 	-- ACTIVE_FRAME is what lets a builder written for one spot be re-used anywhere (see newPart);
 	-- a mesh placed with a raw CFrame would ignore it and land outside the zone that is being built.
-	local frame = ACTIVE_FRAME and (ACTIVE_FRAME * base) or base
+	local active = ZoneKit.getFrame()
+	local frame = active and (active * base) or base
 	clone.Parent = model
 	local pos = frame.Position
 	-- seatModel, not PivotTo: these were authored by the generator with their pivots wherever they
@@ -3814,8 +3469,8 @@ end
 -- All of it is part-built rather than Roblox Terrain: the world is a 36,000-stud strip with
 -- streaming on, and voxel terrain neither streams the same way nor matches the chunky look the
 -- rest of the game is cut from.
--- TERRAIN_INNER / TERRAIN_OUTER / TERRAIN_DEPTH are declared at the top of the file, beside
--- PLATFORM_WIDTH -- see the note there. They moved because `addRockRampart` needs them and it is
+-- TERRAIN_INNER / TERRAIN_OUTER / TERRAIN_DEPTH are declared in `ZoneKit`, beside PLATFORM_WIDTH
+-- -- see the note there. They left this section because `addRockRampart` needs them and it is
 -- written 2,400 lines above this point.
 
 -- Per-zone character. Anything absent falls back to the defaults in buildTerrain, so a new zone
@@ -5184,7 +4839,8 @@ end
 -- a zone with no model filed for a slot simply does not get that slot. The twenty primitive biome
 -- builders below are untouched and still draw everything they always drew, so a missing mesh is a
 -- slightly emptier zone and never a broken one. (ACTIVE_ZONE_KEY is declared at the top of the
--- file, beside ACTIVE_FRAME -- addLandmark needs it too and is written far above this point.)
+-- file, where ACTIVE_FRAME stood before it became `ZoneKit`'s -- addLandmark needs it too and is
+-- written far above this point.)
 
 -- `count` is CLUMP CENTRES, not props: each centre grows 1..clump instances inside clumpR of it.
 -- Scattering singles over 350 x 548 studs reads as evenly-spaced dots however many you place --
@@ -6635,7 +6291,7 @@ decorationBuilders.Volcano = function(model, zone, cx)
 	-- to the next zone now opens in the middle of the -Z wall, directly under where it used to sit.
 	-- Its far skirt runs into the boundary cliffs at that offset, which is how a mountain should
 	-- meet a canyon wall anyway.
-	ACTIVE_FRAME = CFrame.new(-150, 0, 0)
+	ZoneKit.setFrame(CFrame.new(-150, 0, 0))
 	local y = 0
 	for i = 0, 6 do
 		local w = 172 - i * 22
@@ -6681,7 +6337,7 @@ decorationBuilders.Volcano = function(model, zone, cx)
 			newPart({ Name = "LavaBank", Size = Vector3.new(w + 10, 2.4, 26), Orientation = Vector3.new(0, side * i * 3, 0), Position = Vector3.new(px + side * i * 12, 0.6, pz + i * 17), Color = darken(basalt, 0.15), Material = Enum.Material.Basalt, CanCollide = false, Parent = model })
 		end
 	end
-	ACTIVE_FRAME = nil
+	ZoneKit.setFrame(nil)
 
 	-- outlying lava pools with a cooled crust ring, so the far corners glow too
 	for _ = 1, 5 do
@@ -7658,7 +7314,7 @@ decorationBuilders.CelestialThrone = function(model, zone, cx)
 	-- this is the zone's name, so it has to be a recognisable seat on a stepped dais, not another
 	-- abstract tower. buildBiomeBase below is therefore asked for no landmark of its own.
 	-- Set to one side like every other landmark, so the gate in the -Z wall keeps its approach.
-	ACTIVE_FRAME = CFrame.new(-130, 0, 0)
+	ZoneKit.setFrame(CFrame.new(-130, 0, 0))
 	local y = 0
 	for i = 1, 5 do
 		local w = 130 - i * 16
@@ -7681,7 +7337,7 @@ decorationBuilders.CelestialThrone = function(model, zone, cx)
 			addLight(halo, gold, 70, 4)
 		end
 	end
-	ACTIVE_FRAME = nil
+	ZoneKit.setFrame(nil)
 
 	buildBiomeBase(model, cx, {
 		litter = { count = 18, name = "GildedStone", colors = { marble, Color3.fromRGB(224, 206, 164), lighten(deepGold, 0.3) }, minSize = 3, maxSize = 10, material = Enum.Material.Marble },
@@ -8377,10 +8033,10 @@ local function buildEventArena(parent)
 	-- yaw -90, not 180. buildPortal is written with local +X pointing at the interior, and a yaw of
 	-- 180 sends that to world -X -- the gate stood correctly in the rim but its steps, mat, runes
 	-- and guardians all faced sideways out of the arena instead of in across the sand.
-	local previous = ACTIVE_FRAME
-	ACTIVE_FRAME = CFrame.new(centre + Vector3.new(0, 0, -(R + 8))) * CFrame.Angles(0, math.rad(-90), 0)
+	local previous = ZoneKit.getFrame()
+	ZoneKit.setFrame(CFrame.new(centre + Vector3.new(0, 0, -(R + 8))) * CFrame.Angles(0, math.rad(-90), 0))
 	buildPortal(model, 0, returnTarget, 1)
-	ACTIVE_FRAME = previous
+	ZoneKit.setFrame(previous)
 
 	-- ---- WHAT IT STANDS ON. Seen from anywhere but directly overhead the whole Colosseum was a
 	-- coin on edge: an 8-stud disc with 600 studs of empty sky under it. Two stepped drums beneath
@@ -8877,7 +8533,7 @@ function ZoneBuilder.Build()
 	built = true
 
 	applyDistanceFog()
-	table.clear(SOLID_SEEN)
+	ZoneKit.resetSolidSeen()
 
 	local zonesFolder = workspace:FindFirstChild("Zones")
 
@@ -9243,7 +8899,7 @@ function ZoneBuilder.Build()
 	end
 
 	keepShellLoaded(zonesFolder)
-	auditSolidProps()
+	ZoneKit.auditSolidProps()
 end
 
 -- Where a player lands when they enter `zoneKey`, and which way they are turned: ALWAYS at the +Z
