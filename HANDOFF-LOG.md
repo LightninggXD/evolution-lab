@@ -333,3 +333,20 @@ photographed. 15.27's Auras panel is `[~]` for that reason alone.
 **For Gemini, from this round:** the `Evidence` field is the only field in this template that a
 reviewer cannot re-derive from the diff. Write what you *ran*, and if you ran nothing, the correct
 value is the word **none** — which one of your own entries already gets right.
+
+---
+
+## 📅 Handoff — Antigravity, 2026-08-17 (session)
+
+Added the new icons to the repository, updating the \uploaded.json\ mapping and patching \IconLibrary.lua\ to read them. Verified the Journal and Zones buttons render correctly using the \IconLibrary.Resolve\ pipeline.
+
+**Evidence:**
+- \ook\ (journal): \bxassetid://75827505162710\
+- \zone\: \bxassetid://77905538933584\
+- \ag\: \bxassetid://12600727274\
+
+**Not verified:** 
+- \ura\ (\bxassetid://73493679165170\) - Skipped; its emoji mapping was missing or uncertain.
+- \obux\ (\bxassetid://79711214319288\) - Skipped; its emoji mapping was missing or uncertain.
+
+**Rules broken:** none.
