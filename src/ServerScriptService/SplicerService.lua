@@ -58,7 +58,25 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 -- already-built world re-run the search instead of keeping the machine where it is. A placement
 -- search only ever answers about the world that exists at the moment it runs, so moving the call
 -- and moving the version are ONE change -- either alone does nothing.
-local MACHINE_VERSION = 5
+-- 5 -> 6 (2026-08-17): the machine is TWICE THE SIZE and its prompt reaches four times as far.
+-- Both halves are the same bug and it is a bug about the PLAYER, not about this file. A max-stage
+-- body is BodyScale 5, i.e. a bounding box of 45 x 42 x 35 studs -- bigger than the whole machine,
+-- which measured 27 x 25 x 27. Standing next to it the player could not see it, and could not reach
+-- it either: `MaxActivationDistance` was 16 while the character's own half-width is ~22, so its
+-- collision stopped it further out than the prompt could ever fire. The machine was not broken; it
+-- had simply become unreachable as the bodies around it grew. Same rule as the boss reach note in
+-- `CombatClient`: reach > (structure half-width + player half-width).
+local MACHINE_VERSION = 6
+
+-- ===== HOW BIG =====
+-- Applied with `Model:ScaleTo` at the end of `buildMachine` rather than by rewriting the sixty-odd
+-- authored dimensions below, so the geometry stays readable and the outline lips keep their exact
+-- proportion to the masses they rim. Everything downstream that cares about the size reads it back
+-- off the model with `:GetScale()` instead of assuming 1.
+--
+-- 2 puts it at 55 x 50 x 55 -- a head taller than a max-stage player rather than knee-high to one --
+-- and keeps the footprint clear of both the street (STREET_HALF) and the rebirth plaza at x 225.
+local MACHINE_SCALE = 2
 
 -- Seconds between two rolls from one player. The client's own reveal runs ~2.4 s.
 local ROLL_INTERVAL = 1.2
@@ -79,11 +97,14 @@ local ROLL_INTERVAL = 1.2
 -- 75 studs nearer the spawn at (0, 1, 366): more of the walk-down, not less, which is the reason
 -- this machine is on this side of the street in the first place.
 local PREFERRED = Vector3.new(120, 0, 290)
-local FOOTPRINT = Vector3.new(30, 26, 30)
+-- The footprint the placement search has to find empty, and it has to grow WITH the machine or the
+-- search happily clears a 30-stud box and then a 60-stud machine is built through a conifer.
+local FOOTPRINT = Vector3.new(30, 26, 30) * MACHINE_SCALE
 
 -- How close a player has to be for the helix to turn. Squared, because this is compared in a
--- loop and a square root per player per tick buys nothing.
-local ANIMATE_RANGE_SQ = 90 * 90
+-- loop and a square root per player per tick buys nothing. Scaled too: this is a distance to a
+-- landmark, and a bigger landmark is legible from further away.
+local ANIMATE_RANGE_SQ = (90 * MACHINE_SCALE) * (90 * MACHINE_SCALE)
 
 -- ===== PALETTE =====
 -- The first build of this machine was pale steel and light blue, and against Forest's bright green
@@ -162,7 +183,8 @@ local SIGN_CLEAR = { xMin = 40, xMax = 150, zMin = 200, zMax = 230 }
 local function findClearSpot()
 	local candidates = { Vector3.new(0, 0, 0) }
 	for ring = 1, 6 do
-		local step = ring * 26
+		-- the step is one footprint wide, so consecutive rings do not overlap each other
+		local step = ring * 26 * MACHINE_SCALE
 		table.insert(candidates, Vector3.new(step, 0, 0))
 		table.insert(candidates, Vector3.new(-step, 0, 0))
 		table.insert(candidates, Vector3.new(0, 0, step))
@@ -397,7 +419,15 @@ local function buildMachine(centre)
 	prompt.ActionText = "Splice"
 	prompt.ObjectText = "DNA Splicer"
 	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = 16
+	-- ===== 16 -> 70, AND 70 IS MEASURED, NOT PICKED =====
+	-- `MaxActivationDistance` is NOT scaled by `Model:ScaleTo` -- prompts are not geometry -- so it
+	-- has to be written here. The plinth rim is 27.4 studs across as authored, so 54.8 at scale 2 --
+	-- a half-width of 27.4. A max-stage player's own half-width is ~22 and the rim's collision stops
+	-- it before it can stand any closer than the sum, so nothing under 49.4 can EVER fire, which is
+	-- exactly how 16 came to be unreachable. 70 clears that with margin and shows the prompt while
+	-- the player is still walking in rather than snapping on at the last step. The other landmark
+	-- prompts in this game sit in the same band (Pet Shop 42, PhotoPad 46) for smaller structures.
+	prompt.MaxActivationDistance = 70
 	prompt.RequiresLineOfSight = false
 	prompt:SetAttribute("ShopPanel", "splicer")
 	prompt.Parent = console
@@ -407,6 +437,49 @@ local function buildMachine(centre)
 			d.Anchored = true
 		end
 	end
+
+	-- ===== THE SCALE PASS, AND THE THREE THINGS IT HAS TO PUT BACK =====
+	--
+	-- `Model:ScaleTo` does the geometry -- every part's Size, every offset between them, the light
+	-- range and the particle sizes -- and that is the only reason the sixty-odd authored dimensions
+	-- above are still written at their true scale-1 proportions instead of being multiplied by hand.
+	--
+	-- 1. IT DOES NOT LEAVE THE MACHINE ON THE GROUND. It scales about the model's pivot, and setting
+	--    `WorldPivot` to the ground square under the machine was NOT enough on its own -- measured
+	--    afterwards, the whole model came out 1.9 studs low and its base was 2.6 studs under the
+	--    lawn. So the drop is MEASURED and undone rather than reasoned about: whatever the pivot
+	--    turns out to be, the bottom of the bounding box ends up exactly where it started.
+	-- 2. THE HELIX OFFSETS ARE STALE. They were captured above as `pivot:Inverse() * world`, from a
+	--    world the scale has just moved. Left alone, the first heartbeat of `driveHelix` slams every
+	--    bead back to its unscaled offset and the strands sit in a tight knot inside a tube twice
+	--    their size. They are re-read from the geometry that now exists, which is exact.
+	--    `helixPivot` IS the tube's centre -- that is what the authored 12.6 was -- so it is taken
+	--    from the part instead of from an arithmetic that a future edit could silently invalidate.
+	-- 3. IT DOES SCALE `MaxActivationDistance`, which was a surprise: prompts are not geometry, but
+	--    the engine scales this one anyway, and the 70 set above came out as 140. Written again here,
+	--    after the scale, so the number in the source is the number in the world.
+	if MACHINE_SCALE ~= 1 then
+		local cfBefore, sizeBefore = model:GetBoundingBox()
+		local groundedAt = cfBefore.Position.Y - sizeBefore.Y * 0.5
+
+		model.WorldPivot = CFrame.new(centre.X, 0, centre.Z)
+		model:ScaleTo(MACHINE_SCALE)
+
+		local cfAfter, sizeAfter = model:GetBoundingBox()
+		local drop = (cfAfter.Position.Y - sizeAfter.Y * 0.5) - groundedAt
+		if math.abs(drop) > 0.001 then
+			model:TranslateBy(Vector3.new(0, -drop, 0))
+		end
+
+		local tube = model:FindFirstChild("Tube")
+		helixPivot = CFrame.new(tube.Position)
+		for _, entry in ipairs(helix) do
+			entry.offset = helixPivot:Inverse() * entry.part.CFrame
+		end
+
+		prompt.MaxActivationDistance = 70
+	end
+
 	model:SetAttribute("MachineVersion", MACHINE_VERSION)
 	return model
 end
@@ -627,9 +700,13 @@ function SplicerService.Init()
 
 	if existing then
 		machineModel = existing
-		local pivot = existing:FindFirstChild("Plinth")
+		-- WAS `Plinth.Position + 10.7`, which is the tube's centre expressed as an authored offset
+		-- from a different part -- correct at scale 1 and wrong at every other scale, and wrong again
+		-- the first time anything moves the plinth. The tube IS the axis the helix turns on, so it is
+		-- read directly and the machine's own size never enters into it.
+		local pivot = existing:FindFirstChild("Tube")
 		if pivot then
-			helixPivot = CFrame.new(pivot.Position + Vector3.new(0, 10.7, 0))
+			helixPivot = CFrame.new(pivot.Position)
 		end
 		helix = {}
 		for _, d in ipairs(existing:GetDescendants()) do

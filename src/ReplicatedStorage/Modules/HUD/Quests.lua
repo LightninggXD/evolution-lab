@@ -10,6 +10,7 @@ local RS = game:GetService("ReplicatedStorage")
 local GameConfig = require(RS.Modules.GameConfig)
 local UITheme = require(RS.Modules.UITheme)
 local UIKit = require(RS.Modules:WaitForChild("UIKit"))
+local IconLibrary = require(RS.Modules.IconLibrary)
 
 local Remotes = RS.Remotes
 
@@ -85,7 +86,10 @@ return function(hud)
 		row.Parent = list
 
 		-- THE COLOUR IS THE AURA. This chip is painted the exact Color3 the particles on the body
-		-- take, so the panel and the player are the same object seen twice.
+		-- take, so the panel and the player are the same object seen twice. Since 18.20 it also
+		-- carries the tier's own drawing (`IconLibrary.AuraIcon`) -- the colour alone made seven
+		-- rounded squares that differ by hue and nothing else, and two of the seven (Secret near-black,
+		-- Common near-white) read as "empty" rather than as an aura.
 		local chip = Instance.new("Frame")
 		chip.Name = "Chip"
 		chip.Size = UDim2.new(0, 44, 0, 44)
@@ -95,9 +99,27 @@ return function(hud)
 		styleCard(chip, mut.color, UDim.new(0, 12), 3)
 		chip.Parent = row
 
+		-- The art goes in AFTER styleCard, which is what lets `liftChildren` carry it to Content --
+		-- authored at the chip's own ZIndex it would sit under the InnerBody that holds the colour.
+		local auraArt
+		local auraId = IconLibrary.AuraIcon(mut.name)
+		if auraId then
+			auraArt = Instance.new("ImageLabel")
+			auraArt.Name = "AuraArt"
+			auraArt.BackgroundTransparency = 1
+			auraArt.Image = auraId
+			auraArt.ScaleType = Enum.ScaleType.Fit
+			auraArt.Size = UDim2.new(1, -6, 1, -6)
+			auraArt.Position = UDim2.new(0, 3, 0, 3)
+			auraArt.ZIndex = chip.ZIndex + UITheme.Z.Content
+			auraArt.Parent = chip
+		end
+
 		-- Inked by luminance, not by rarity name: Godly is near-white and Secret is near-black, and
 		-- the two sit four rows apart in the same column.
 		local bright = (0.299 * mut.color.R + 0.587 * mut.color.G + 0.114 * mut.color.B) > 0.55
+		-- Badge, not Content: the count now has a drawing under it rather than a flat colour, and
+		-- Content is where that drawing sits.
 		local count = UITheme.Label(chip, {
 			name = "Count",
 			text = "",
@@ -106,7 +128,7 @@ return function(hud)
 			maxTextSize = 20,
 			minTextSize = 12,
 			color = bright and Color3.fromRGB(46, 40, 30) or UITheme.Color.White,
-			zIndex = chip.ZIndex + UITheme.Z.Content,
+			zIndex = chip.ZIndex + UITheme.Z.Badge,
 		})
 
 		local name = UITheme.Label(row, {
@@ -152,7 +174,8 @@ return function(hud)
 			equipRemote:FireServer(mut.name)
 		end)
 
-		rows[mut.name] = { row = row, count = count, name = name, effect = effect, wear = wear }
+		rows[mut.name] = { row = row, count = count, name = name, effect = effect, wear = wear,
+			art = auraArt }
 	end
 
 	local function refreshAurasPanel()
@@ -169,6 +192,11 @@ return function(hud)
 
 			r.count.Text = isOwned and ("x" .. n) or "?"
 			r.name.TextTransparency = isOwned and 0 or 0.35
+			-- An unfound aura keeps its drawing but shows it as a silhouette, so the row still reads as
+			-- "this exists and you have not got it" rather than as a blank square.
+			if r.art then
+				r.art.ImageTransparency = isOwned and 0 or 0.72
+			end
 			if isOwned then
 				r.effect.Text = ("\u{1F48E} x%.2f DNA   \u{26A1} +%d%% speed"):format(mut.incomeMult, mut.speedPct)
 				r.effect.TextTransparency = 0

@@ -77,6 +77,18 @@ screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent = playerGui
 hudRefs.screenGui = screenGui
 
+-- The friend-invite button draws itself into the HUD from its own module. Three things this line
+-- has to get right, all of them measured on 2026-08-17:
+--   * NO TOP-LEVEL LOCAL for the require -- this file sits against Luau's 200-register cap.
+--   * It is `screenGui` here, not `mainScreen`; that name has never existed in this file, and the
+--     version that used it was passing nil into Init.
+--   * FindFirstChild, never a bare WaitForChild. The module is not in every place file yet, and a
+--     WaitForChild with no timeout yields FOREVER at the top of MainUI -- which does not "skip the
+--     button", it deletes the entire HUD below this point.
+if script.Parent:WaitForChild("UIComponents", 10) and script.Parent.UIComponents:FindFirstChild("FriendInviteButton") then
+	require(script.Parent.UIComponents.FriendInviteButton).Init(screenGui)
+end
+
 -- ===== Top bar: Stage + DNA =====
 local topBar = Instance.new("Frame")
 topBar.Name = "TopBar"
@@ -781,8 +793,26 @@ do
 end
 
 local function closeAllPanels()
+	-- THE OTHER HALF OF THE ONE-PANEL RULE (18.21). `togglePanels` only holds what passed through
+	-- `registerPanel`, and the `UIComponents` overlays -- Teleport and Store, built by
+	-- ScrollingPanelBuilder -- never do: they are full-screen dims, so registerPanel's centring and
+	-- UIScale pop are wrong for them. The result was the only pair in the game that could be open at
+	-- once, which is what the Journal showing behind Teleport was.
+	--
+	-- Swept by the `HudPanel` attribute rather than by name, so a panel added to that builder later
+	-- is covered without this function learning about it -- the same reason registerPanel stamps it.
+	-- Registered panels are EXCLUDED and not merely hidden twice: their close is a tween, and they
+	-- stay `Visible` while it plays, so writing `Visible = false` here would cut the animation off
+	-- on its first frame.
+	local registered = {}
 	for _, p in ipairs(togglePanels) do
+		registered[p] = true
 		animatePanel(p, false)
+	end
+	for _, p in ipairs(screenGui:GetChildren()) do
+		if not registered[p] and p:IsA("GuiObject") and p.Visible and p:GetAttribute("HudPanel") then
+			p.Visible = false
+		end
 	end
 end
 local function toggleOnly(panel)
@@ -867,12 +897,58 @@ local RIGHT_BOTTOM_Y = 46
 local PANEL_ANCHOR = UDim2.new(0.5, 0, 0.5, 0)
 hudRefs.PANEL_ANCHOR = PANEL_ANCHOR
 
+-- ===== HER TILE ART, ADOPTED RATHER THAN CLONED (18.17) =====
+--
+-- Kristina drew nine HUD buttons and they live in `ReplicatedStorage.UIComponents.Prefabs`. The
+-- obvious move -- clone the prefab and parent it here -- does not survive contact with this HUD, for
+-- four reasons, all of which are why only the ART and the COLOUR are taken:
+--
+--   * Every prefab is authored at a fixed 130x130 with a 95 px icon and a fixed 30 pt caption. The
+--     responsive pass at the bottom of this file drives a tile from 82 px down to a 40 px floor, so
+--     a cloned prefab renders its icon 13 px outside its own tile on any ordinary viewport.
+--   * There are nine prefabs and thirteen tiles. Potions, Season, Audio, Gifts and Auto have none,
+--     so a clone-if-present rule leaves two different button designs in one column.
+--   * `ShopButtonPrefab` is a bare TextButton and the other eight are a Frame wrapping one; the
+--     lookup that works for eight of them silently returns the wrong instance for the ninth.
+--   * The tile contract -- `Body.Label`, `Body.Caption`, `Badge`, `SetColor`, the press squash --
+--     is read from six places outside this file, and a prefab has none of those names.
+--
+-- Everything the prefabs draw AROUND the icon, `UITheme.IconTile` already draws: the 6 px dark lip
+-- under the face is `ShadowBody`, the vertical gradient is `Gradient`, the heavy near-black border
+-- is the shell stroke, the outlined word is `Caption`. The one thing it did not have was the tiled
+-- stud texture, and that is now in `IconTile` itself -- so all thirteen tiles get the look, not the
+-- nine with art.
+--
+-- `icon` here is an ASSET ID, not an emoji, and `iconSlot` takes either (see its note). That is the
+-- point of doing it here rather than in IconLibrary: the basket, the brown bag and the rebirth
+-- arrows are a SECOND drawing of ideas the library already has, and remapping 🛒 / 🎒 / ♻️ would
+-- swap them inside every panel row and toast in the game as well.
+--
+-- Colour is the prefab's own bottom gradient stop, because `gradientFor` builds upward from the
+-- fill it is given (+0.4 at the crown) -- so passing the darker stop lands the crown on the lighter
+-- one and reproduces her ramp instead of stacking two lightenings.
+--
+-- DAILY IS THE ONE PREFAB WHOSE COLOUR IS NOT TAKEN. `DailyButtonPrefab` is green and so is
+-- `RobuxButtonPrefab`, and the two sit side by side at orders 3 and 4 of the right cluster -- two
+-- adjacent green tiles read as one control. Robux keeps the green (it is the brand colour and its
+-- icon IS the green hexagon); Daily keeps Peach, which its Coral "NEW!" badge was chosen against.
+-- Its gift art is still adopted.
 local function columnTile(side, order, emoji, caption, color, badge, badgeColor)
+	local art = ({
+		Shop      = { "rbxassetid://17009547085",     Color3.fromRGB(180,  20,  20) },
+		Inventory = { "rbxassetid://12600727274",     Color3.fromRGB( 90, 120, 180) },
+		Rebirth   = { "rbxassetid://17009541315",     Color3.fromRGB( 40, 180, 255) },
+		Auras     = { "rbxassetid://73493679165170",  Color3.fromRGB( 80,  20, 160) },
+		Journal   = { "rbxassetid://75827505162710",  Color3.fromRGB( 40, 100, 220) },
+		Zones     = { "rbxassetid://77905538933584",  Color3.fromRGB(220,  50, 150) },
+		Robux     = { "rbxassetid://79711214319288",  Color3.fromRGB( 40, 180,  50) },
+		Daily     = { "rbxassetid://111576444061359", nil },
+	})[caption]
 	local opts = {
 		name = caption .. "Button",
-		icon = emoji,
+		icon = (art and art[1]) or emoji,
 		caption = caption,
-		color = color,
+		color = (art and art[2]) or color,
 		size = TILE_SIZE,
 		radius = 20,
 		badge = badge,
@@ -949,25 +1025,31 @@ hudRefs.rebirthButton = rebirthButton
 -- keeps its authored pixel position on every viewport. Held by nobody, because this file is at
 -- Luau's 200-local ceiling and one more top-level local silently deletes the whole HUD; the code
 -- that needs it finds it back as `screenGui.AurasButton`, the name columnTile stamps on it.
-columnTile("L", 4, "\u{1F9EC}", "Auras", UITheme.Color.Purple)
+-- 🪄, not 🧬: this tile borrowed the DNA glyph, so the Auras button drew the DNA currency icon and
+-- read as a second DNA button beside the DNA counter. 🪄 is this tile's own key in IconLibrary.
+columnTile("L", 4, "\u{1FA84}", "Auras", UITheme.Color.Purple)
 
--- POTIONS GETS ITS OWN TILE (18.16), and it is built exactly the way the Auras tile above is, for
--- exactly the reasons in that note: here rather than later, so the responsive column pass at the
--- bottom of the file picks it up, and held by NOBODY, because one more top-level local deletes the
--- HUD. `columnTile` stamps the name, so it is `screenGui.PotionsButton` from here on.
+-- ===== THE POTIONS TILE IS GONE AGAIN (2026-08-17), AND 18.16's ARGUMENT WAS NOT WRONG =====
 --
--- WHY A TILE AND NOT A TAB: potions were reachable only as a tab inside the Inventory panel, which
--- is two presses and a panel about something else for the one consumable a player uses mid-fight.
--- The 5th slot puts it on the second row of the left grid, under Auras.
-columnTile("L", 5, "\u{1F9EA}", "Potions", UITheme.Color.Aqua)
-
--- The handler is attached by name because the tile above is not held in a local -- and the require
--- is inside it for the same register reason. See the note on `zonesButton` further down.
-screenGui.PotionsButton.MouseButton1Click:Connect(function()
-	local PotionsPanel = require(script.Parent.UIComponents.PotionsPanel)
-	PotionsPanel.Init(screenGui)
-	PotionsPanel.Toggle()
-end)
+-- 18.16 added a 5th tile here on the grounds that potions were "two presses and a panel about
+-- something else", and gave it its own screen, `UIComponents.PotionsPanel`. What that produced was
+-- TWO Potions buttons on screen at once -- this tile, and the Potions tab in the Inventory strip --
+-- opening two DIFFERENT frames that draw the same bottles. Photographed by the owner, who asked for
+-- the inventory one to be the only one. Two doors to one shelf is worse than a door one press
+-- further away, because a player who finds both has to work out whether they are the same thing.
+--
+-- The TILE goes and the TAB stays, which is the direction that keeps the strip a set: Pets,
+-- Potions and Relics are three kinds of thing you own, and they belong behind one 🎒. See
+-- `Modules.HUD.InventoryTabs`, which is now three tabs wide.
+--
+-- `UIComponents.PotionsPanel` IS LEFT STANDING and is now unreachable -- the same call this file
+-- already made for the panel the original Inventory tile opened (see the note above `shopToggleButton`).
+-- It is required lazily from the handler that used to be here and from nowhere else, so with the
+-- handler gone it is simply never loaded; deleting it is a separate change and not the one asked for.
+--
+-- Nothing else needs to move: the left column's layout is driven by the tile COUNT
+-- (`Modules.HUD.TileColumnFit`), so four tiles are the 2x2 block they were before 18.16 rather
+-- than a 2x2 block with a hole in it.
 
 -- RIGHT CLUSTER (right-aligned), two tiles wide and filling upward from the bottom-right corner --
 -- see RIGHT_COUNT and the layout pass at the end of the file. Order runs left-to-right then up:
@@ -1473,8 +1555,10 @@ petsScroll.Name = "PetsScroll"
 -- clear of the title above and the action bar sitting on the bottom edge
 -- 26 px lower than it was, and 26 shorter: 13.4's odds strip sits in the gap. The action bar on the
 -- bottom edge is unmoved, so only the top of the scroll changed.
-petsScroll.Size = UDim2.new(1, -44, 1, -218)
-petsScroll.Position = UDim2.new(0, 22, 0, 144)
+-- 144 -> 162 and -218 -> -236 (2026-08-17): the odds strip stopped SHARING the tab row and took a
+-- row of its own -- see the note where it is built. 18 px off the top of the scroll, nothing else.
+petsScroll.Size = UDim2.new(1, -44, 1, -236)
+petsScroll.Position = UDim2.new(0, 22, 0, 162)
 petsScroll.BackgroundTransparency = 1
 petsScroll.BorderSizePixel = 0
 petsScroll.ScrollBarThickness = 6
@@ -1502,7 +1586,10 @@ end
 local petsEmptyLabel = Instance.new("TextLabel")
 petsEmptyLabel.Name = "EmptyLabel"
 petsEmptyLabel.Size = UDim2.new(1, -60, 0, 60)
-petsEmptyLabel.Position = UDim2.new(0, 30, 0, 120)
+-- 120 -> 196: it used to clip the bottom of the odds line by 4 px and would have taken 22 of it
+-- once that line moved down into its own row. 196 also centres it better in the empty scroll area
+-- it is standing in front of.
+petsEmptyLabel.Position = UDim2.new(0, 30, 0, 196)
 petsEmptyLabel.BackgroundTransparency = 1
 petsEmptyLabel.TextWrapped = true
 petsEmptyLabel.ZIndex = petsPanel.ZIndex + UITheme.Z.Content
@@ -1550,11 +1637,23 @@ do
 	-- in the 94..132 row and only 262 px of the panel's 772, so the whole left half of that row was
 	-- empty and this is exactly the kind of quiet, always-true line that belongs in it.
 	--
-	-- 102 rather than 94 centres the 22 px line on the 38 px tabs beside it (94 + (38-22)/2 = 102).
-	-- The width stops 300 px short of the right edge: 262 of tab plus a 16 gap plus the margin, so a
-	-- long odds string truncates against the tabs instead of running under them.
-	odds.Size = UDim2.new(1, -300, 0, 22)
-	odds.Position = UDim2.new(0, 22, 0, 102)
+	-- ===== AND IT STOPPED SHARING IT WHEN THE STRIP GREW A THIRD TAB (2026-08-17) =====
+	--
+	-- The tab row went 262 -> 358 for the Relics tab, which left this line 360 px of the row instead
+	-- of 472. That is not a nudge: the string is 689 px wide at its authored 16 px (measured with
+	-- `GetTextBoundsParams`), so 472 was ALREADY making it shrink to about 11 px, and 360 drove it to
+	-- the 8 px floor and still overflowed -- `TextFits` false, i.e. an unreadable line that also lies
+	-- about the odds by cutting the tail off.
+	--
+	-- So the sharing was the thing that had to go, not the width. It takes the row UNDER the tabs
+	-- (94 + 38 tab row + a 4 gap = 136) at the panel's full inner width, 728 px, where all 689 fit at
+	-- full size with room to spare. The 18 px this costs come off the top of `petsScroll`.
+	--
+	-- WHAT WOULD NOT HAVE WORKED: leaving it beside the tabs and letting it wrap to two lines. Two
+	-- lines of 345 px do fit in 360 -- but `themeLabel` leaves the label auto-shrinking, so what you
+	-- get is not a clean two-line block, it is the same shrink with a wrap in it.
+	odds.Size = UDim2.new(1, -44, 0, 22)
+	odds.Position = UDim2.new(0, 22, 0, 136)
 	odds.BackgroundTransparency = 1
 	odds.RichText = true
 	odds.TextXAlignment = Enum.TextXAlignment.Left
@@ -3272,6 +3371,12 @@ end)
 -- ceiling and one more top-level local silently deletes the entire HUD. See the Fusion and Season
 -- Pass panels, which are wrapped for the same reason.
 -- MOVED OUT (18.9) to `ReplicatedStorage.Modules.HUD.InventoryTabs` -- 96 lines, unchanged.
+--
+-- ORDER IS LOAD-BEARING HERE. `RelicsPanel` builds the third panel and publishes it as
+-- `hudRefs.relicsPanel`; `InventoryTabs` reads that name the moment it runs. Swap these two lines
+-- and the strip silently builds two tabs instead of three -- which is why the tab side is written
+-- to skip a nil target rather than to error on one.
+require(RS.Modules:WaitForChild("HUD"):WaitForChild("RelicsPanel"))(hudRefs)
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("InventoryTabs"))(hudRefs)
 
 

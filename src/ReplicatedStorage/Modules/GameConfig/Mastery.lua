@@ -41,9 +41,29 @@ GameConfig.BaseJumpPower = 44
 -- exponent keeps the early stages honest and flattens the top, and the caps are the hard ceiling.
 -- The caps are set where they are because of what sits under them. 150 studs/s crosses the 860-stud
 -- platform in under six seconds, which StreamingEnabled keeps up with; much past that and a player
--- outruns the ground they are running on. 92 of jump power is 21 studs of height, nowhere near
--- the 180-stud zone walls -- a jump that clears a boundary drops the player into the gap between
--- two platforms, where there is no floor at all.
+-- outruns the ground they are running on. Jump is capped for a different reason, below.
+--
+-- ===== THE JUMP CAP CAME 92 -> 60 (2026-08-17), AND THE CAP IS THE ONLY THING THAT MOVED =====
+--
+-- `BaseJumpPower` is still 44 and the Mastery bonus is still +1.2 a stage, so NOTHING below the
+-- top of the curve changes: a stage-one body jumps its authored 4.9 studs exactly as before. The
+-- cap is what a max-stage player actually lands on -- (44 + 24) * sizeMult^0.5 reaches 132 at
+-- scale 5, i.e. every late player was pinned to the ceiling and the ceiling was the whole spec.
+--
+-- 92 is 21.6 studs of apex (`power^2 / (2 * 196.2)`), which is what the owner reported as "I can
+-- jump onto everything". It was also never the number this file's own comment three lines up
+-- describes: BaseJumpPower's note says the top stage should clear "about 11" studs, which is a cap
+-- of 66. 60 lands at 9.2 studs -- over the 6-stud podium and the 3-stud plaza deck with room, under
+-- anything that is meant to be climbed.
+--
+-- IT IS ALSO A HORIZONTAL FIX, which is the half that is easy to miss. Air time is `2 * power /
+-- gravity`, and a top-stage body runs at 280 studs/second WITH THAT SPEED CARRIED INTO THE AIR --
+-- so 92 bought 0.94 s of flight and 263 studs of ground per jump, most of a platform. 60 is 0.61 s
+-- and 172 studs. The rest of that distance is walk speed, not jump, and is deliberate.
+--
+-- Still nowhere near the 180-stud zone walls -- a jump that clears a boundary drops the player into
+-- the gap between two platforms, where there is no floor at all -- and still well under the 26-stud
+-- terrace riser that `ZoneTerrain` sets as its floor so the climb cannot be skipped.
 --
 -- THE BODY SCALE CURVE WAS HALVED at the same time: GameConfig.Stages[].scale now runs 1.0 -> 5.0
 -- where it used to run 1.0 -> 9.0. A late-stage player was tall enough that a whole platform read
@@ -51,7 +71,7 @@ GameConfig.BaseJumpPower = 44
 -- is still monotonic and every evolve is still visible; it is the top of the curve that came down.
 GameConfig.SpeedScaleExponent = 0.82
 GameConfig.MaxWalkSpeed = 150
-GameConfig.MaxJumpPower = 92
+GameConfig.MaxJumpPower = 60
 
 -- How much of the size a character actually gets back as pace. Shared by walk and jump so a giant
 -- that covers ground quickly can also still clear its own shop steps.

@@ -24,7 +24,10 @@ return function(GameConfig)
 GameConfig.PotionKinds = {
 	{ key = "dna",  name = "DNA",  emoji = "\u{1F9EC}", imageId = "rbxassetid://75203508047474", color = Color3.fromRGB(96, 200, 255),  blurb = "DNA from every source" },
 	{ key = "xp",   name = "XP",   emoji = "\u{2B50}",  imageId = "rbxassetid://73470472846526", color = Color3.fromRGB(255, 206, 92),  blurb = "Evolution XP" },
-	{ key = "luck", name = "Luck", emoji = "\u{1F340}", imageId = "rbxassetid://75203508047474", color = Color3.fromRGB(126, 226, 132), blurb = "egg, pet, character and mutation luck" },
+	-- NOT the blue bottle: that is DNA's, and the two kinds sat side by side in the shop wearing the
+	-- same picture. There is no green bottle in the art, so Luck takes its own emoji's drawing --
+	-- which is green, and is what every other Luck surface in the game already shows.
+	{ key = "luck", name = "Luck", emoji = "\u{1F340}", imageId = "rbxassetid://140260937065697", color = Color3.fromRGB(126, 226, 132), blurb = "egg, pet, character and mutation luck" },
 	-- ===== THE FOURTH KIND (11.8) =====
 	--
 	-- Nine potions become twelve without a single new potion being written, because the loop below

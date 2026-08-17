@@ -721,6 +721,57 @@ local STALL_WOOD = Color3.fromRGB(178, 126, 76)
 local STALL_WOOD_DARK = Color3.fromRGB(139, 94, 54)
 local STALL_PLANK = Color3.fromRGB(198, 148, 96)
 
+-- ===== THE STALL IS A BUILT KIOSK NOW, NOT A LEANING BOARD =====
+--
+-- What stood behind the eggs was a counter, a tilted plank board and two posts -- flat carpentry
+-- that reads as a fence from anywhere but dead-on. The reference the whole plaza was built from is
+-- a proper market kiosk: a timber counter you walk up to, four posts and a striped canopy over it.
+-- That model exists (`ServerStorage.SourceProps.Shops.Model`), so the stall is three clones of it
+-- standing in a row -- one behind each egg -- instead of a wall pretending to be one.
+--
+-- SCALE, AND WHY IT IS NOT THE EGG SPACING. The kiosk ships 13.4 studs wide, which is one player
+-- wide and vanishes on a 120-stud deck; at 2.3x (30.8 wide, aligned to the 32-stud egg spacing) the
+-- eggs still towered over it and it read as three garden sheds. 2.9x is 38.9 wide and 32 tall,
+-- which is a building you walk up to -- so the row spaces itself at 38 rather than at the eggs' 32
+-- and the outer stalls sit six studs wide of their egg. That is invisible on a continuous row and
+-- it is the whole reason the stalls can be this size: 3 x 38.9 on 38 centres spans 115 studs, and
+-- 120 (i.e. ScatterKit's CLEAR_HALF of 60 either side of the centre line) is all the width the
+-- plaza is allowed before biome decoration is free to land on it.
+local KIOSK_TEMPLATE = ServerStorage:FindFirstChild("Models") and ServerStorage.Models:FindFirstChild("PetStallKiosk")
+local KIOSK_SCALE = 2.9
+local KIOSK_SPACING = 38   -- wider than EGG_SPACING on purpose -- see above
+local KIOSK_Z = -28        -- centre of the row; its back lands on the back edge of the deck
+local KIOSK_FRONT_Z = -10  -- where its counter faces the player; the sign hangs off this
+local SIGN_Y = 29          -- see the sign block in buildEggPlaza for why it is not on the roofline
+
+-- The deck grew with them: 40 studs deep was cut for a flat board, and a kiosk 28 studs deep
+-- standing on it would have had its back half hanging over bare ground.
+local DECK_DEPTH = 62
+local DECK_Z = -15
+
+-- One kiosk per egg, aligned to the same X the podiums use so each shell stands in its own stall.
+local function buildKioskRow(shop, cx, eggCount)
+	if not KIOSK_TEMPLATE then return end
+	local startX = cx - KIOSK_SPACING * (eggCount - 1) / 2
+	for i = 1, eggCount do
+		local kiosk = KIOSK_TEMPLATE:Clone()
+		kiosk.Name = "StallKiosk"
+		kiosk:ScaleTo(KIOSK_SCALE)
+		kiosk.Parent = shop
+		-- the template's pivot is its own base centre, so this stands it ON the planks
+		kiosk:PivotTo(CFrame.new(startX + KIOSK_SPACING * (i - 1), PLAZA_DECK_TOP, KIOSK_Z))
+		-- generated/inserted geometry arrives unanchored and shadow-casting: unanchored is a stall
+		-- that falls through the world on the first physics step, and this is the one spot in a zone
+		-- where players stand still, so nothing structural here casts a shadow either
+		for _, d in ipairs(kiosk:GetDescendants()) do
+			if d:IsA("BasePart") then
+				d.Anchored = true
+				d.CastShadow = false
+			end
+		end
+	end
+end
+
 -- The pedestals are a FIXED SLATE BLUE, not the zone accent. They used to be tinted from
 -- zone.accentColor like everything else on the stall, which meant a Volcano stand was orange under
 -- an orange egg and a Desert one was sand under a cream egg -- the stand and the thing it displays
@@ -839,31 +890,29 @@ local function buildEggPlaza(shop, zone, cx, eggs)
 	-- ---- the deck: planks laid ON the ground. No dais and no stairs -- the reference stall is
 	-- something you walk onto without noticing, and four rises of stair in front of a shop is three
 	-- more decisions than buying an egg deserves.
-	newPart({ Name = "StallDeck", Size = Vector3.new(deckW, 1.2, 40), Position = Vector3.new(cx, 0.6, PLAZA_Z), Color = STALL_WOOD_DARK, Material = Enum.Material.Wood, Parent = shop })
+	newPart({ Name = "StallDeck", Size = Vector3.new(deckW, 1.2, DECK_DEPTH), Position = Vector3.new(cx, 0.6, DECK_Z), Color = STALL_WOOD_DARK, Material = Enum.Material.Wood, Parent = shop })
 	-- individual boards, so it reads as carpentry instead of one brown rectangle
 	local boards = math.max(6, math.floor(deckW / 9))
 	local boardW = deckW / boards
 	for i = 0, boards - 1 do
-		newPart({ Name = "StallPlank", Size = Vector3.new(boardW - 0.8, 0.5, 39),
-			Position = Vector3.new(cx - deckW / 2 + boardW * (i + 0.5), PLAZA_DECK_TOP, PLAZA_Z),
+		newPart({ Name = "StallPlank", Size = Vector3.new(boardW - 0.8, 0.5, DECK_DEPTH - 1),
+			Position = Vector3.new(cx - deckW / 2 + boardW * (i + 0.5), PLAZA_DECK_TOP, DECK_Z),
 			Color = i % 2 == 0 and STALL_PLANK or STALL_WOOD, Material = Enum.Material.Wood, CanCollide = false, Parent = shop })
 	end
 	-- the glowing lip around the edge -- the one piece of neon the stall keeps, because it is what
 	-- says "this patch of ground is a shop" from fifty studs out
-	for _, dz in ipairs({ -20, 20 }) do
-		newPart({ Name = "StallTrim", Size = Vector3.new(deckW + 2, 0.7, 1.8), Position = Vector3.new(cx, PLAZA_DECK_TOP, PLAZA_Z + dz), Color = accent, Material = Enum.Material.Neon, CanCollide = false, Parent = shop })
+	for _, dz in ipairs({ -DECK_DEPTH / 2, DECK_DEPTH / 2 }) do
+		newPart({ Name = "StallTrim", Size = Vector3.new(deckW + 2, 0.7, 1.8), Position = Vector3.new(cx, PLAZA_DECK_TOP, DECK_Z + dz), Color = accent, Material = Enum.Material.Neon, CanCollide = false, Parent = shop })
 	end
 	for _, side in ipairs({ -1, 1 }) do
-		newPart({ Name = "StallTrim", Size = Vector3.new(1.8, 0.7, 40), Position = Vector3.new(cx + side * halfW, PLAZA_DECK_TOP, PLAZA_Z), Color = accent, Material = Enum.Material.Neon, CanCollide = false, Parent = shop })
+		newPart({ Name = "StallTrim", Size = Vector3.new(1.8, 0.7, DECK_DEPTH), Position = Vector3.new(cx + side * halfW, PLAZA_DECK_TOP, DECK_Z), Color = accent, Material = Enum.Material.Neon, CanCollide = false, Parent = shop })
 	end
 
-	-- ---- the counter the eggs stand behind, and the leaning display board above it. The board is
-	-- TILTED BACK ~12 degrees like a market stall's panel; upright it is a wall, and a wall is
-	-- exactly what this used to be.
-	newPart({ Name = "StallCounter", Size = Vector3.new(deckW, 2.4, 9), Position = Vector3.new(cx, 2, backZ + 4.5), Color = STALL_WOOD_DARK, Material = Enum.Material.Wood, Parent = shop })
-	local boardCF = CFrame.new(cx, 13, backZ) * CFrame.Angles(math.rad(-12), 0, 0)
-	newPart({ Name = "StallBoard", Size = Vector3.new(deckW, 22, 1.6), CFrame = boardCF, Color = STALL_WOOD, Material = Enum.Material.Wood, Parent = shop })
-	newPart({ Name = "StallBoardCap", Size = Vector3.new(deckW + 3, 2, 2.8), CFrame = boardCF * CFrame.new(0, 11.6, 0), Color = STALL_WOOD_DARK, Material = Enum.Material.Wood, CanCollide = false, Parent = shop })
+	-- ---- the row of kiosks the eggs stand in front of. See buildKioskRow: this replaced a counter
+	-- slab, a tilted plank board and nothing else, which read as a fence from every angle but one.
+	buildKioskRow(shop, cx, #eggs)
+	-- The two end posts stay, and they are no longer holding a board up: they are what the lanterns
+	-- hang off, and they book-end the row at the ends of the deck where the kiosks stop.
 	for _, side in ipairs({ -1, 1 }) do
 		newPart({ Name = "StallPost", Size = Vector3.new(2.8, 27, 2.8), Position = Vector3.new(cx + side * (halfW - 1.4), 13.5, backZ + 1), Color = STALL_WOOD_DARK, Material = Enum.Material.Wood, Parent = shop })
 		newPart({ Name = "StallPostCap", Shape = Enum.PartType.Ball, Size = Vector3.new(4.2, 4.2, 4.2), Position = Vector3.new(cx + side * (halfW - 1.4), 27.4, backZ + 1), Color = STALL_WOOD, Material = Enum.Material.Wood, CanCollide = false, Parent = shop })
@@ -885,15 +934,24 @@ local function buildEggPlaza(shop, zone, cx, eggs)
 	-- 10.2, not 7.6: the shells top out around 19-20 studs and the panel's lower half was sitting
 	-- right behind the middle egg's crown, so from dead-on the word was half eaten. This lands the
 	-- panel at ~23 and its text clear of everything on the counter.
-	local signCF = boardCF * CFrame.new(0, 10.2, 1.6)
+	-- Hung across the middle kiosk's awning rather than on a board, and upright rather than tilted:
+	-- there is no board any more, and a sign leaning off a canopy reads as a sign that fell.
+	--
+	-- IT IS AT AWNING HEIGHT AND NOT ABOVE THE ROOF. Clearing the roofline (34) put it exactly where
+	-- the middle egg's featured-pet billboard draws -- and a BillboardGui always wins in screen
+	-- space, so the word EGGS was covered by a Draco from the one angle the stall is read from. At 27
+	-- it reads as the stall's fascia, which is where a market stall's name goes anyway.
+	local signCF = CFrame.new(cx, SIGN_Y, KIOSK_FRONT_Z + 1.5)
 	-- Proportion matters here and it is not free to pick: a SurfaceGui TextLabel with TextScaled
 	-- fits by whichever axis binds first, and on a 5:1 panel that is always the HEIGHT -- so the
 	-- word came out as a small line floating in a wide white bar. About 3:1 is where the text
 	-- actually fills the panel, which is the proportion the reference sign uses.
-	newPart({ Name = "StallSignFrame", Size = Vector3.new(40, 14, 1.2), CFrame = signCF,
+	-- 33 wide, not 40: on a 120-stud plank board it was a banner across the back, on a 39-stud
+	-- kiosk it is that kiosk's own fascia, and at 40 it hid the whole middle stall behind itself.
+	newPart({ Name = "StallSignFrame", Size = Vector3.new(33, 12, 1.2), CFrame = signCF,
 		Color = Color3.fromRGB(28, 38, 58), Material = Enum.Material.SmoothPlastic,
 		CanCollide = false, Parent = shop })
-	local signFace = newPart({ Name = "StallSignFace", Size = Vector3.new(35.5, 10, 1.2),
+	local signFace = newPart({ Name = "StallSignFace", Size = Vector3.new(29, 8.6, 1.2),
 		CFrame = signCF * CFrame.new(0, 0, 0.5), Color = Color3.fromRGB(248, 250, 252),
 		Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = shop })
 
@@ -1009,4 +1067,13 @@ end
 -- verbs wide.
 return {
 	buildEggPlaza = buildEggPlaza,
+	-- exported for the in-place restall of zones that were built before the kiosks existed --
+	-- swapping the geometry beats a full 50k-part world rebuild for a change this local
+	buildKioskRow = buildKioskRow,
+	KIOSK_SCALE = KIOSK_SCALE,
+	KIOSK_Z = KIOSK_Z,
+	KIOSK_FRONT_Z = KIOSK_FRONT_Z,
+	SIGN_Y = SIGN_Y,
+	DECK_DEPTH = DECK_DEPTH,
+	DECK_Z = DECK_Z,
 }

@@ -75,14 +75,19 @@ local TERRAIN_DEPTH = ZoneKit.TERRAIN_DEPTH
 -- ===== NO TIER MAY BE LOWER THAN A MAXED JUMP (item 19, 2026-08-11) =====
 --
 -- `rise` is not just a look. A Roblox jump reaches `power^2 / (2 * 196.2)`, and GameConfig's
--- MaxJumpPower of 92 puts a fully upgraded player's apex at **21.6 studs** -- so every shelf built
--- at or under that was reachable by walking to the cliff and holding space, with the staircase and
--- the whole climb it gates reduced to decoration. Raised creatures are the only Evolution Shard
--- source in the game, so the climb is the price of the currency.
+-- MaxJumpPower used to be 92, which put a fully upgraded player's apex at **21.6 studs** -- so every
+-- shelf built at or under that was reachable by walking to the cliff and holding space, with the
+-- staircase and the whole climb it gates reduced to decoration. Raised creatures are the only
+-- Evolution Shard source in the game, so the climb is the price of the currency.
 --
 -- Five zones were at or under it (DreamDimension 20, Ocean 22, Wormhole 22, Galaxy 24, TimeRift 25)
--- and are now 26, which clears the apex by 4.4 studs. **26 is the floor for any new zone**; if
--- MaxJumpPower ever rises, this number has to rise with it.
+-- and are now 26. **26 is the floor for any new zone**; if MaxJumpPower ever rises, this number has
+-- to rise with it.
+--
+-- THE CAP CAME DOWN TO 60 ON 2026-08-17 (a 9.2-stud apex), so the margin is 16.8 studs rather than
+-- 4.4 and nothing here needed to move. 26 STAYS ANYWAY: it is now the number that keeps the risers
+-- taller than the props standing on them (see the step-height note above), and dropping it back to
+-- 20 to match the smaller jump would undo that for a margin nobody can see.
 local TERRAIN_PROFILE = {
 	-- `trees` is the CHANCE (0..1) that a given terrace segment gets a conifer, not a count: the
 	-- segments already vary in size and position, so a probability spreads them unevenly where a

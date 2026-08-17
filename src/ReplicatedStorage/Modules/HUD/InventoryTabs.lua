@@ -1,4 +1,4 @@
--- InventoryTabs -- the tab strip that swaps the Inventory panel between potions and pets.
+-- InventoryTabs -- the tab strip that swaps the Inventory panel between pets, potions and relics.
 --
 -- MOVED OUT OF `MainUI` (18.9), byte for byte. It was already a closed
 -- `;(function() ... end)()` block -- the shape this file's 200-register ceiling forces
@@ -15,6 +15,10 @@ local themeLabel, styleCard = UIKit.themeLabel, UIKit.styleCard
 return function(hud)
 	local inventoryPanel, petsPanel, refreshInventoryPanel = hud.inventoryPanel, hud.petsPanel, hud.refreshInventoryPanel
 	local toggleOnly = hud.toggleOnly
+	-- Built by `Modules.HUD.RelicsPanel`, which MainUI requires on the line above this module. Read
+	-- once here rather than per tab: if that require is ever moved below this one the strip loses a
+	-- tab instead of erroring 96 lines later on a nil target.
+	local relicsPanel = hud.relicsPanel
 
 	-- `topY` is where the strip's own top edge goes. Absent means the old behaviour -- ABOVE the card,
 	-- at -34 -- which is still right for the Pets panel: its title is up there too (y = -30), so the
@@ -23,7 +27,13 @@ return function(hud)
 	local function buildTabs(panel, activeIndex, topY)
 		local row = Instance.new("Frame")
 		row.Name = "InventoryTabs"
-		row.Size = UDim2.new(0, 262, 0, 38)
+		-- 262 -> 358 FOR THE THIRD TAB (2026-08-17). The tabs came 124 -> 112 at the same time rather
+		-- than letting the row grow the full 132: this strip is right-aligned inside the panel, and on
+		-- the Pets panel it shares its row with the enchant-odds line, whose width is `1, -412` and is
+		-- derived from THIS number (358 + a 16 gap + the 22 margin + a little). 112 still clears the
+		-- longest caption, "\u{1F9EA} Potions", at the authored 19 px with no shrink.
+		-- 3 * 112 + 2 * 8 of padding = 352, and the 6 spare are the same slack the two-tab row had.
+		row.Size = UDim2.new(0, 358, 0, 38)
 		-- above the card, not inside it: both panels fill their own interior with content that was
 		-- laid out before this existed, and squeezing a row in at the top would have meant moving
 		-- every scroll frame in both of them
@@ -43,14 +53,21 @@ return function(hud)
 		layout.Padding = UDim.new(0, 8)
 		layout.Parent = row
 
+		-- RELICS IS THE THIRD SHELF (2026-08-17), and the tile that used to open potions from the left
+		-- column went at the same time. Pets, potions and relics are three kinds of thing you own, so
+		-- they are three tabs behind one \u{1F392} rather than three doors on the HUD -- see the note
+		-- where that tile used to be in `MainUI`. Its panel is deliberately empty for now; the tab
+		-- exists so the room can be furnished without the navigation changing again.
+		-- Each colour is its panel's own header accent, which is the rule the whole HUD follows.
 		local defs = {
 			{ text = "\u{1F43E} Pets", target = petsPanel, color = UITheme.Color.Bubblegum },
 			{ text = "\u{1F9EA} Potions", target = inventoryPanel, color = UITheme.Color.Aqua },
+			{ text = "\u{1F52E} Relics", target = relicsPanel, color = UITheme.Color.Gold },
 		}
 		for i, def in ipairs(defs) do
 			local tab = Instance.new("TextButton")
 			tab.Name = "Tab" .. i
-			tab.Size = UDim2.new(0, 124, 0, 34)
+			tab.Size = UDim2.new(0, 112, 0, 34)
 			tab.LayoutOrder = i
 			tab.AutoButtonColor = false
 			tab.Text = def.text
@@ -96,7 +113,7 @@ return function(hud)
 			if capStroke then capStroke.Transparency = cap.TextTransparency end
 			tab.Text = ""
 			tab.MouseButton1Click:Connect(function()
-				if def.target == panel then return end
+				if not def.target or def.target == panel then return end
 				toggleOnly(def.target)
 				if def.target == inventoryPanel then
 					refreshInventoryPanel()
@@ -110,4 +127,9 @@ return function(hud)
 	-- off PanelHeader's second return value, which would cost a top-level register this file has not
 	-- got. The row is 38 tall carrying 34 px tabs, so it ends at 132 and the rule below clears it.
 	buildTabs(inventoryPanel, 2, 94)
+	-- Guarded, unlike the two above: those two panels are built in MainUI itself and cannot be
+	-- absent, where this one comes from a sibling module that a future split could reorder.
+	if relicsPanel then
+		buildTabs(relicsPanel, 3, 94)
+	end
 end

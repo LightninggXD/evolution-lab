@@ -111,6 +111,13 @@ function Builder.CreatePanel(options)
 	overlay.BackgroundTransparency = 0.5
 	overlay.Visible = false
 	overlay.ZIndex = 50
+	-- THE STAMP IS THE CONTRACT (18.21). MainUI keeps its panels in `togglePanels`, a local it
+	-- cannot export, and marks each one with this attribute so another script can still find them.
+	-- These overlays never pass through its `registerPanel` -- they are full-screen dims, and that
+	-- function centres the frame and gives it a UIScale pop, neither of which suits one. Wearing the
+	-- stamp is what lets the exclusion work in both directions without either file importing the
+	-- other: MainUI's `closeAllPanels` sweeps for it, and `SetOpen` below sweeps for it too.
+	overlay:SetAttribute("HudPanel", true)
 	overlay.Parent = screenGui
 
 	local panel = Instance.new("Frame")
@@ -200,27 +207,44 @@ function Builder.CreatePanel(options)
 	studs(closeBtn, 15, 0.5, 8, 55)
 
 	-- ---- the list
+	local isHorizontal = options.ScrollDirection == "Horizontal"
+	local footerHeight = options.FooterHeight or 0
+	
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Name = "List"
-	scroll.Size = UDim2.new(1, -20, 1, -85)
+	scroll.Size = UDim2.new(1, -20, 1, -(85 + footerHeight))
 	scroll.Position = UDim2.new(0, 10, 0, 75)
 	scroll.BackgroundTransparency = 1
 	scroll.BorderSizePixel = 0
 	scroll.ScrollBarThickness = 6
 	scroll.ScrollBarImageColor3 = Color3.fromRGB(120, 120, 140)
-	-- cards carry a stroke drawn OUTSIDE their bounds; without this the top one paints over the
-	-- header rule and the bottom one over the panel's own border
 	scroll.ClipsDescendants = true
 	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scroll.AutomaticCanvasSize = isHorizontal and Enum.AutomaticSize.X or Enum.AutomaticSize.Y
 	scroll.ZIndex = 52
 	scroll.Parent = panel
 
 	local layout = Instance.new("UIListLayout")
 	layout.Padding = UDim.new(0, 15)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.FillDirection = isHorizontal and Enum.FillDirection.Horizontal or Enum.FillDirection.Vertical
+	if not isHorizontal then
+		layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	else
+		layout.VerticalAlignment = Enum.VerticalAlignment.Center
+	end
 	layout.Parent = scroll
+	
+	local footerFrame = nil
+	if footerHeight > 0 then
+		footerFrame = Instance.new("Frame")
+		footerFrame.Name = "Footer"
+		footerFrame.Size = UDim2.new(1, -20, 0, footerHeight - 10)
+		footerFrame.Position = UDim2.new(0, 10, 1, -footerHeight)
+		footerFrame.BackgroundTransparency = 1
+		footerFrame.ZIndex = 52
+		footerFrame.Parent = panel
+	end
 
 	-- ROOM FOR THE STROKE ON ALL FOUR SIDES, and the horizontal half of this is not optional.
 	-- A card's `UIStroke` is 4 px drawn OUTSIDE its bounds and the scroll clips. Sized `1, -10` in
@@ -258,6 +282,19 @@ function Builder.CreatePanel(options)
 		local cardGradient = gradient(card, cardOptions.BackgroundColors)
 		stroke(card, INK, 4)
 		studs(card, 24, 0.85, 8, 53)
+		
+		if cardOptions.CustomLayout then
+			return {
+				Instance = card,
+				SetColors = function(colors)
+					cardGradient.Color = ColorSequence.new({
+						ColorSequenceKeypoint.new(0, colors[1]),
+						ColorSequenceKeypoint.new(1, colors[2]),
+					})
+				end,
+				Destroy = function() card:Destroy() end,
+			}
+		end
 
 		local cIcon = Instance.new("ImageLabel")
 		cIcon.Name = "Icon"
@@ -453,12 +490,31 @@ function Builder.CreatePanel(options)
 	local api = nil
 
 	local function SetOpen(open)
+		-- BEFORE the panel is shown, so the screen never holds two open panels for even a frame. See
+		-- the note on the `HudPanel` stamp above for why this is swept by attribute.
+		if open then
+			for _, other in ipairs(screenGui:GetChildren()) do
+				if other ~= overlay and other:IsA("GuiObject") and other.Visible
+					and other:GetAttribute("HudPanel") then
+					other.Visible = false
+				end
+			end
+		end
+
 		overlay.Visible = open and true or false
 		-- refresh on the way IN, never on the way out: a panel is opened seconds or minutes after
 		-- the data it shows last changed
 		if overlay.Visible and refreshFn then
 			local ok, err = pcall(refreshFn, api)
 			if not ok then warn(("[%s] refresh failed: %s"):format(options.Name, tostring(err))) end
+		end
+
+		-- REWOUND AFTER THE REFRESH, NOT BEFORE. `refreshFn` clears the list and rebuilds every card,
+		-- and a canvas zeroed first is left wherever regrowing the content puts it -- which is how a
+		-- panel reopened at the bottom of its own list stayed there. MainUI's `animatePanel` does the
+		-- same thing for the panels IT owns; this is that rule for the ones built here.
+		if overlay.Visible then
+			scroll.CanvasPosition = Vector2.zero
 		end
 	end
 
@@ -468,6 +524,7 @@ function Builder.CreatePanel(options)
 		Overlay = overlay,
 		Panel = panel,
 		Scroll = scroll,
+		Footer = footerFrame,
 		AddCard = AddCard,
 		Clear = Clear,
 		Toggle = function() SetOpen(not overlay.Visible) end,

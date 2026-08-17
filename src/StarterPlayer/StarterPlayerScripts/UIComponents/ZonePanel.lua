@@ -100,7 +100,10 @@ function ZonePanel.Init(screenGui)
 		Parent = screenGui,
 		Name = "Teleport",
 		Title = "TELEPORT",
-		HeaderIcon = "rbxassetid://12600727274", -- her bag art; a map/portal icon would be better
+		-- The teleport pad, and the SAME id the Zones sidebar tile carries. The comment here used to
+		-- ask for "a map/portal icon" while the header wore the brown bag off the Inventory tile --
+		-- two different screens sharing one drawing, which is the thing an icon is supposed to prevent.
+		HeaderIcon = "rbxassetid://77905538933584",
 		HeaderColors = { Color3.fromRGB(255, 150, 255), Color3.fromRGB(255, 50, 200) },
 	})
 

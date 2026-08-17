@@ -45,28 +45,52 @@ local IconLibrary = {}
 -- Names match `tools/make_icons.py` and `assets/icons/uploaded.json` exactly. Do not rename one
 -- without the other two.
 --
--- FOUR EXCEPTIONS, added 2026-08-17: `book`, `zone`, `aura` and `robux` are FREE CREATOR-STORE
--- ASSETS, not uploads of our own art. They have NO `assets/icons/*.png` behind them at all -- `book`
--- and `zone` still have a house PNG on disk showing a DIFFERENT PICTURE, so redrawing either one and
--- re-uploading it silently swaps the HUD back to the house look. `zone` also has the word "Teleport"
--- baked into the artwork, which is why the Zones tile reads "Teleport" above its own "Zones" caption.
+-- STORE ASSETS ARE MARKED `-- store`, and they are NOT uploads of our own art. They have NO
+-- `assets/icons/*.png` behind them at all -- several (`book`, `zone`, `dna`, `gift`, `paw`, `plus`,
+-- `potion`, `shop`, `upgrade`, `wheel`, `bolt`, `backpack`) STILL have a house PNG on disk showing a
+-- DIFFERENT PICTURE, so redrawing one and re-uploading it silently swaps the HUD back to the house
+-- look. `zone` also has the word "Teleport" baked into the artwork, which is why the Zones tile reads
+-- "Teleport" above its own "Zones" caption.
 --
--- Kristina inserted them as a stack of Decals under `Workspace.gift` (they nest, because a Decal
--- dropped on a Decal parents to it). The full stack, kept here so nothing is lost if that pile is
--- ever deleted -- these are ids, not endorsements; only the four above are wired:
---   gift 111576444061359   upgrade 94633314888299       blue potion 75203508047474
---   yellow potion 73470472846526                        red potion 138146402871393
---   pets 4871217186        brown bag 12600727274        invite friends 106176247553587
+-- Kristina inserted them as a stack of Decals (they nest, because a Decal dropped on a Decal
+-- parents to it). The stack is the source of every `-- store` id below. It used to sit in
+-- WORKSPACE, where a Decal with no parent Part renders nothing but the pile still counted as world
+-- geometry; it now lives in `ServerStorage.SourceProps.IconDecals` with the rest of the raw art.
+-- Nothing reads it at run time -- these ids are already copied into the table below, and the pile
+-- is kept only so the source art can be found again.
+--
+-- STILL IN THAT PILE AND NOT WIRED, kept here so nothing is lost if it is ever deleted -- these are
+-- ids, not endorsements. Each one needs a caller before it earns a row in `ID`; an id with no caller
+-- is the exact failure `tools/apply_uploads.py` audits for:
+--   invite friends 106176247553587   quest target 12600726983   news 12600693619
+--   RNG dice 138904672713663         2x pass 87223429981926
+--   orange DNA 91710505122330        yellow DNA 140169929215726  red DNA 135886260297010
+--   purple DNA 83100327236925
+--
+-- The four spare DNA colours are the interesting ones: `dna` is one glyph doing four jobs (the
+-- currency pill, the Auras header, the DNA potion, the Splicer) and they could be told apart.
 local ID = {
 	absolute     = "rbxassetid://133654512361485",
 	arrow        = "rbxassetid://100683138086656",
 	audio        = "rbxassetid://77987918035205",
-	aura         = "rbxassetid://73493679165170",   -- store asset, see the note above
-	backpack     = "rbxassetid://112267210821022",
+	aura         = "rbxassetid://73493679165170",   -- store
+	-- THE SEVEN AURA TIERS (18.20). One drawing per `GameConfig.Mutations` rank, and they are picked
+	-- to agree with `mut.color` rather than with the rarity NAME -- Secret is near-black and Godly is
+	-- near-white, so a set sorted by "how fancy" would put the two brightest images four rows apart.
+	-- Reached through `IconLibrary.AuraIcon(name)`, never through `Resolve`: a mutation row carries no
+	-- emoji, so there is no key for the emoji table to hold.
+	aura_common    = "rbxassetid://904513526",      -- store, pale wisp
+	aura_rare      = "rbxassetid://1393222319",     -- store, blue cloud
+	aura_epic      = "rbxassetid://986954285",      -- store, violet flame
+	aura_legendary = "rbxassetid://1216336525",     -- store, gold flare
+	aura_mythic    = "rbxassetid://567502351",      -- store, red lightning
+	aura_secret    = "rbxassetid://1280932391",     -- store, dark blue arc
+	aura_godly     = "rbxassetid://3733610821",     -- store, white burst
+	backpack     = "rbxassetid://12600727274",      -- store, and the id the Inventory tile already used
 	bag          = "rbxassetid://86141762589488",
 	blackhole    = "rbxassetid://86622214176705",
-	bolt         = "rbxassetid://125449019286643",
-	book         = "rbxassetid://75827505162710",
+	bolt         = "rbxassetid://12600837039",      -- store
+	book         = "rbxassetid://75827505162710",   -- store
 	boom         = "rbxassetid://98622443720558",
 	boss         = "rbxassetid://75913353547225",
 	calendar     = "rbxassetid://114216417880572",
@@ -78,14 +102,17 @@ local ID = {
 	crown        = "rbxassetid://100737784411045",
 	desert       = "rbxassetid://107579072515574",
 	diamond      = "rbxassetid://94306408327096",
-	dna          = "rbxassetid://97605056516888",
+	-- DNA IS THE GAME'S NAME AND ITS CURRENCY, so it gets the drawn helix rather than the house glyph.
+	-- Blue of the five in the pile: the base palette is dark grey + neon blue + purple, and this one
+	-- glyph lands on the DNA pill, the Auras header, the DNA potion and every income toast.
+	dna          = "rbxassetid://108366319686153",  -- store
 	dream        = "rbxassetid://84498845488665",
 	egg          = "rbxassetid://85200417748395",
 	fire         = "rbxassetid://114362288516361",
 	forest       = "rbxassetid://139549052766790",
 	galaxy       = "rbxassetid://73608735294271",
 	gear         = "rbxassetid://134940823652825",
-	gift         = "rbxassetid://116511141331182",
+	gift         = "rbxassetid://111576444061359",  -- store
 	handshake    = "rbxassetid://105809271165337",
 	heart        = "rbxassetid://103783313754607",
 	home         = "rbxassetid://117910760992150",
@@ -105,17 +132,17 @@ local ID = {
 	ocean        = "rbxassetid://73127498026523",
 	orb          = "rbxassetid://96092681500201",
 	party        = "rbxassetid://123272919810963",
-	paw          = "rbxassetid://115889303279770",
+	paw          = "rbxassetid://4871217186",       -- store
 	pet          = "rbxassetid://75752760135035",
-	plus         = "rbxassetid://91152374913942",
-	potion       = "rbxassetid://86593763008335",
+	plus         = "rbxassetid://75590499344429",   -- store
+	potion       = "rbxassetid://75203508047474",   -- store, and the same bottle `PotionKinds.dna` uses
 	quantum      = "rbxassetid://100109299598613",
 	question     = "rbxassetid://84165149952604",
 	rainbow      = "rbxassetid://72918578421395",
 	rebirth      = "rbxassetid://137919423177940",
-	robux        = "rbxassetid://79711214319288",   -- store asset, see the note above
+	robux        = "rbxassetid://79711214319288",   -- store
 	shard        = "rbxassetid://93975864077659",
-	shop         = "rbxassetid://79110444339140",
+	shop         = "rbxassetid://12600726809",      -- store, the market stall
 	singularity  = "rbxassetid://76125474367091",
 	skull        = "rbxassetid://124856616676295",
 	sleep        = "rbxassetid://126193952793647",
@@ -126,16 +153,32 @@ local ID = {
 	sun          = "rbxassetid://128063910082223",
 	sword        = "rbxassetid://77111451475226",
 	ticket       = "rbxassetid://102723710825138",
-	upgrade      = "rbxassetid://94822131391656",
+	upgrade      = "rbxassetid://94633314888299",   -- store
 	void         = "rbxassetid://86778432912380",
 	volcano      = "rbxassetid://116235909195170",
 	warning      = "rbxassetid://98782266115018",
-	wheel        = "rbxassetid://136196933572720",
+	wheel        = "rbxassetid://121390188581874",  -- store
 	wormhole     = "rbxassetid://83004249894908",
 	xp           = "rbxassetid://90055084700953",
-	zone         = "rbxassetid://77905538933584",
+	zone         = "rbxassetid://77905538933584",   -- store
 }
 IconLibrary.Id = ID
+
+-- ===== MUTATION RANK -> AURA ICON =====
+-- By NAME, not by index: `GameConfig.Mutations` is rank-ordered and a tier inserted in the middle
+-- would silently shift every drawing down one row if this were positional.
+local BY_MUTATION = {
+	Common = "aura_common", Rare = "aura_rare", Epic = "aura_epic", Legendary = "aura_legendary",
+	Mythic = "aura_mythic", Secret = "aura_secret", Godly = "aura_godly",
+}
+
+-- Returns the aura drawing for a mutation name, or nil for one this table has never heard of --
+-- the same contract as `Resolve`, so a mutation added to GameConfig next year draws its colour chip
+-- alone rather than an empty square.
+function IconLibrary.AuraIcon(mutationName)
+	local key = BY_MUTATION[mutationName]
+	return key and ID[key] or nil
+end
 
 -- ===== EMOJI -> ICON =====
 --
