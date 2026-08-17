@@ -22,9 +22,9 @@ return function(GameConfig)
 -- ('dna'). Both are string-keyed on purpose: a table whose only keys are integers is a sparse array
 -- and Roblox silently drops those crossing a RemoteEvent -- the bug that ate EquippedCharacters.
 GameConfig.PotionKinds = {
-	{ key = "dna",  name = "DNA",  emoji = "\u{1F9EC}", color = Color3.fromRGB(96, 200, 255),  blurb = "DNA from every source" },
-	{ key = "xp",   name = "XP",   emoji = "\u{2B50}",   color = Color3.fromRGB(255, 206, 92),  blurb = "Evolution XP" },
-	{ key = "luck", name = "Luck", emoji = "\u{1F340}", color = Color3.fromRGB(126, 226, 132), blurb = "egg, pet, character and mutation luck" },
+	{ key = "dna",  name = "DNA",  emoji = "\u{1F9EC}", imageId = "rbxassetid://75203508047474", color = Color3.fromRGB(96, 200, 255),  blurb = "DNA from every source" },
+	{ key = "xp",   name = "XP",   emoji = "\u{2B50}",  imageId = "rbxassetid://73470472846526", color = Color3.fromRGB(255, 206, 92),  blurb = "Evolution XP" },
+	{ key = "luck", name = "Luck", emoji = "\u{1F340}", imageId = "rbxassetid://75203508047474", color = Color3.fromRGB(126, 226, 132), blurb = "egg, pet, character and mutation luck" },
 	-- ===== THE FOURTH KIND (11.8) =====
 	--
 	-- Nine potions become twelve without a single new potion being written, because the loop below
@@ -36,7 +36,7 @@ GameConfig.PotionKinds = {
 	-- twenty minutes is not a consumable, it is a different game. `healthMult` is its own column on
 	-- the sizes table so the numbers can be gentle (1.5 / 2 / 2.5) while the table still refuses to
 	-- let a new size skip it.
-	{ key = "health", name = "Health", emoji = "\u{2764}\u{FE0F}", color = Color3.fromRGB(255, 104, 118), blurb = "max health, and faster regeneration" },
+	{ key = "health", name = "Health", emoji = "\u{2764}\u{FE0F}", imageId = "rbxassetid://138146402871393", color = Color3.fromRGB(255, 104, 118), blurb = "max health, and faster regeneration" },
 }
 
 -- Luck is an ADDITIVE percentage everywhere else in the game (upgrades give +2 a level, pets give
@@ -69,6 +69,7 @@ for _, kind in ipairs(GameConfig.PotionKinds) do
 			-- points, health has its own gentler multiplier plus a regen rate, and DNA and XP take
 			-- the shared `size.mult`. `applyBoost` keeps the STRONGER of each field when a second
 			-- bottle is drunk, so a field that is nil for a kind simply never enters that comparison.
+			imageId = kind.imageId,
 			mult = (kind.key == "dna" or kind.key == "xp") and size.mult
 				or (kind.key == "health") and size.healthMult
 				or nil,

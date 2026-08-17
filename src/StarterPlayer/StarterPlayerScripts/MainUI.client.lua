@@ -951,6 +951,24 @@ hudRefs.rebirthButton = rebirthButton
 -- that needs it finds it back as `screenGui.AurasButton`, the name columnTile stamps on it.
 columnTile("L", 4, "\u{1F9EC}", "Auras", UITheme.Color.Purple)
 
+-- POTIONS GETS ITS OWN TILE (18.16), and it is built exactly the way the Auras tile above is, for
+-- exactly the reasons in that note: here rather than later, so the responsive column pass at the
+-- bottom of the file picks it up, and held by NOBODY, because one more top-level local deletes the
+-- HUD. `columnTile` stamps the name, so it is `screenGui.PotionsButton` from here on.
+--
+-- WHY A TILE AND NOT A TAB: potions were reachable only as a tab inside the Inventory panel, which
+-- is two presses and a panel about something else for the one consumable a player uses mid-fight.
+-- The 5th slot puts it on the second row of the left grid, under Auras.
+columnTile("L", 5, "\u{1F9EA}", "Potions", UITheme.Color.Aqua)
+
+-- The handler is attached by name because the tile above is not held in a local -- and the require
+-- is inside it for the same register reason. See the note on `zonesButton` further down.
+screenGui.PotionsButton.MouseButton1Click:Connect(function()
+	local PotionsPanel = require(script.Parent.UIComponents.PotionsPanel)
+	PotionsPanel.Init(screenGui)
+	PotionsPanel.Toggle()
+end)
+
 -- RIGHT CLUSTER (right-aligned), two tiles wide and filling upward from the bottom-right corner --
 -- see RIGHT_COUNT and the layout pass at the end of the file. Order runs left-to-right then up:
 -- 1,2 are the top row, 7,8 the bottom. Order 5 is the Season Pass tile, which is built inside its
@@ -1158,8 +1176,20 @@ for i, zone in ipairs(GameConfig.Zones) do
 	zonesScroll.CanvasSize = UDim2.new(0, 0, 0, i * 74)
 end
 
+-- ===== THE NEW PANEL DESIGN OWNS THIS BUTTON NOW (18.16) =====
+--
+-- `StarterPlayerScripts.UIComponents.ZonePanel` -- the same twenty-one zones and the same
+-- `TeleportToZone` remote, drawn in the card design. `zonesPanel` above is still built and still
+-- refreshed; it is simply no longer what this tile opens, which is deliberate for one commit so
+-- the old panel can be compared against the new one before it is deleted.
+--
+-- REQUIRED INSIDE THE HANDLER, NOT AT THE TOP OF THE FILE. This file is at 166 of Luau's 200
+-- top-level registers ([[evolution-lab-mainui-register-limit]]) and a top-level `local` for each of
+-- the four new panels is four registers spent to save a table lookup on a button press.
 zonesButton.MouseButton1Click:Connect(function()
-	toggleOnly(zonesPanel)
+	local ZonePanel = require(script.Parent.UIComponents.ZonePanel)
+	ZonePanel.Init(screenGui)
+	ZonePanel.Toggle()
 end)
 
 -- ===== Stage Mastery panel =====
@@ -2255,8 +2285,14 @@ rebirthActionButton.Text = "REBIRTH"
 rebirthActionButton.Parent = rebirthPanel
 styleButton(rebirthActionButton, UITheme.Color.Locked, UDim.new(1, 0))
 
+-- The new panel design owns this button now (18.16) -- see the note on `zonesButton` for why the
+-- require is inside the handler. `RebirthPanel` asks `CanRebirthNow` and `GetNextRebirthTier`, the
+-- same two functions this panel's own refresh does, so the two can never disagree about whether a
+-- rung is available.
 rebirthButton.MouseButton1Click:Connect(function()
-	toggleOnly(rebirthPanel)
+	local RebirthPanel = require(script.Parent.UIComponents.RebirthPanel)
+	RebirthPanel.Init(screenGui)
+	RebirthPanel.Toggle()
 end)
 
 rebirthActionButton.MouseButton1Click:Connect(function()
@@ -3352,8 +3388,15 @@ require(RS.Modules:WaitForChild("HUD"):WaitForChild("PassShop"))(hudRefs)
 -- MOVED OUT (18.9) to `ReplicatedStorage.Modules.HUD.CurrencyPlus` -- 27 lines, unchanged.
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("CurrencyPlus"))(hudRefs)
 
+-- The new panel design owns this button now (18.16) -- see the note on `zonesButton`.
+--
+-- THIS IS THE TILE THE NEW STORE BELONGS ON, and it is worth saying which one it is not: the "Shop"
+-- tile in the left column opens the DNA UPGRADES panel, which is bought with in-game DNA and is a
+-- different screen entirely. The store that takes Robux has always been this one.
 robuxButton.MouseButton1Click:Connect(function()
-	toggleOnly(robuxPanel)
+	local ShopPanel = require(script.Parent.UIComponents.ShopPanel)
+	ShopPanel.Init(screenGui)
+	ShopPanel.Toggle()
 end)
 
 -- ===== Playtime Gifts panel =====
