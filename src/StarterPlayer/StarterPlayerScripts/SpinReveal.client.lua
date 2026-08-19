@@ -46,6 +46,9 @@ local BIG_WINS = {
 
 local SHELL_MAX_LIFE = math.max(24, (GameConfig.SpinMaxChain or 12) * 5.6)
 local MAX_QUEUE = 3
+-- How many times one payload may fail to build before it is dropped. Dropping a spin is bad;
+-- retrying one that can never build is worse, because it holds every later spin behind it.
+local MAX_BUILD_ATTEMPTS = 8
 
 local INK = CardKit.INK
 local WHITE = Color3.fromRGB(255, 255, 255)
@@ -647,12 +650,25 @@ local function revealPod(pod, big)
 	end
 end
 
-local function playChain(payload)
+-- Held from the moment a shell exists until the animation thread takes ownership of it, so the
+-- protected wrapper below can tear down one that was abandoned half-built.
+--
+-- MEASURED, not theorised: with a builder made to throw on purpose, the first spin was caught and
+-- dropped correctly and the next two still reported "still busy after 8 attempts". `buildShell`
+-- sets `busy` before any of the builders run, and the only thing that clears it is `shell.finish`
+-- -- which the throw skipped, leaving it to the `task.delay(SHELL_MAX_LIFE, ...)` safety net 67
+-- seconds later. So a single builder fault still ate a minute of spins, and left a dimmed, blurred,
+-- empty shell sitting over the game while it did. Same bug as the drain wedge, one order of
+-- magnitude smaller, and invisible until the wedge above was fixed.
+local pendingShell = nil
+
+local function buildAndPlay(payload)
 	local spins = payload.spins
 	if type(spins) ~= "table" or #spins == 0 then return false end
 
 	local shell = buildShell()
 	if not shell then return false end
+	pendingShell = shell
 
 	local wheel, pods, arc, bulbs = buildWheel(shell.root)
 	local hub, pointer = buildFurniture(shell.root)
@@ -748,7 +764,35 @@ local function playChain(payload)
 		task.delay(3.0, shell.finish)
 	end)
 
+	-- The animation thread owns the shell from here; it has its own pcall and its own finish.
+	pendingShell = nil
 	return true
+end
+
+-- THE PROTECTED DOOR, and the half that never had one. Everything `buildAndPlay` does before its
+-- `task.spawn` -- five builders, the dismiss button, `shell.open()` -- ran outside any `pcall`:
+-- the one inside guards the ANIMATION only, and it lives in a different thread, so an error in a
+-- builder escaped into the drain loop below and killed it. A missing icon, a `SpinWheel` row with
+-- no emoji, a PlayerGui reparent mid-open: any of them and the wheel went silent for the rest of
+-- the session while the server kept charging Robux, shards and the free daily for it.
+--
+-- Returns `played, unbuildable`. The second value is what stops the retry from becoming the same
+-- wedge by a slower road: a payload that THREW will throw again, so it is dropped rather than
+-- put back at the head of the queue forever.
+local function playChain(payload)
+	local ok, res = pcall(buildAndPlay, payload)
+	if not ok then
+		warn("[SpinReveal] could not build the wheel: " .. tostring(res))
+		-- Give the half-built shell back rather than waiting out SHELL_MAX_LIFE: `busy` is what
+		-- every later spin queues behind, and an empty dimmed overlay is what the player is
+		-- looking through in the meantime.
+		if pendingShell then
+			pendingShell.finish()
+			pendingShell = nil
+		end
+		return false, true
+	end
+	return res, false
 end
 
 -- ============================================================================
@@ -761,16 +805,35 @@ local function drain()
 	if draining then return end
 	draining = true
 	task.spawn(function()
-		while #queue > 0 do
-			local payload = table.remove(queue, 1)
-			if not playChain(payload) then
-				table.insert(queue, 1, payload)
-				task.wait(0.35)
-			else
-				repeat task.wait(0.2) until not busy
+		-- `draining` MUST be cleared on every exit, and it used to be cleared on exactly one: the
+		-- line after a `while` that ran unprotected. Anything that threw inside took the thread
+		-- with it and left the flag true forever, so every later `SpinResult` was queued and
+		-- `drain()` returned at its first line. The player kept paying and saw nothing at all --
+		-- there is no notify fallback any more, deliberately.
+		local ok, err = pcall(function()
+			local attempts = 0
+			while #queue > 0 do
+				-- Peek rather than pop: the payload only leaves the queue once it is spoken for,
+				-- so a failure has nothing to put back and cannot lose one by forgetting to.
+				local played, unbuildable = playChain(queue[1])
+				if played then
+					table.remove(queue, 1)
+					attempts = 0
+					repeat task.wait(0.2) until not busy
+				elseif unbuildable or attempts >= MAX_BUILD_ATTEMPTS then
+					table.remove(queue, 1)
+					warn(("[SpinReveal] dropped a spin payload (%s)"):format(
+						unbuildable and "it threw while building" or ("still busy after " .. attempts .. " attempts")))
+					attempts = 0
+				else
+					-- The ordinary case: `buildShell` refused because one is already open.
+					attempts += 1
+					task.wait(0.35)
+				end
 			end
-		end
+		end)
 		draining = false
+		if not ok then warn("[SpinReveal] drain loop failed: " .. tostring(err)) end
 	end)
 end
 
