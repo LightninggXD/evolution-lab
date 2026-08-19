@@ -3,20 +3,23 @@
 	server half of 8.1 and 8.5).
 
 	=========================================================================================
-	THIS IS DELIBERATELY NOT WIRED TO ANYTHING YET
+	THIS IS FULLY WIRED AND REACHABLE. The paragraph that used to stand here said the opposite.
 	=========================================================================================
-	`Init()` hooks PlayerRemoving and a timeout sweep and nothing else -- and ServerMain does not
-	call it. No remote is created, nothing requires this file, and so none of it can be reached by
-	a client or run at all. That is not an oversight -- ROADMAP Phase 8 is
-	gated behind "do not start until the game is live and stable", and what is written here is the
-	half that gate is actually about: the exploit surface. It is written now because it is the half
-	that can be PROVEN now, against two save tables on one server, with no second client involved.
+	`ServerMain` requires this file at line 34 and calls `Init()` at line 135; `Init` creates all
+	seven remotes -- TradeUpdate, TradeInvite, TradeRequest, TradeAccept, TradeCancel,
+	TradeSetOffer, TradeConfirm -- and connects the five inbound ones. The client half is
+	`ReplicatedStorage.Modules.HUD.TradePanel`, required by MainUI. Row 8.6 is `[x]`.
 
-	What is still missing, and is a deliberate stop rather than a gap: the remotes, the trade
-	window, the 3-second confirm hold and the "you are giving / you are getting" summary (8.1's UI
-	half and 8.5's). Those need two real clients to mean anything, and this project's standard is
-	that an unverifiable feature is worth less than the doubt it casts on the ones beside it --
-	the reason 5.4 was deferred rather than written blind.
+	The old text was accurate when it was written: Phase 8 was gated behind "do not start until the
+	game is live and stable", and only the server core -- the exploit surface the gate is actually
+	about -- existed, because that is the half provable against two save tables on one server with
+	no second client. The gate was opened when the place was published and the rest was built. The
+	comment was simply never updated, and it went on telling every reader the feature was inert.
+
+	Corrected 2026-08-19 (roadmap 19.10), together with the identical claim in ROADMAP's Phase 8
+	preamble. WHAT IS STILL TRUE: there is no HUD tile for trading. The only door is clicking
+	another player in the world, which is roadmap row 21.1 -- shipped and undiscoverable is a
+	different problem from unwired, and worth keeping the two apart.
 
 	=========================================================================================
 	ONLY PETS, AND WHY NOT CURRENCY

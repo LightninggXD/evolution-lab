@@ -66,7 +66,17 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 -- collision stopped it further out than the prompt could ever fire. The machine was not broken; it
 -- had simply become unreachable as the bodies around it grew. Same rule as the boss reach note in
 -- `CombatClient`: reach > (structure half-width + player half-width).
-local MACHINE_VERSION = 6
+-- 6 -> 7 (2026-08-19, roadmap 19.9): the placement search was siting the machine against creatures.
+-- `body_geom` walks, so a mob standing on the preferred spot at `Init()` pushed the build a whole
+-- ring -- and to a different ring every boot: measured at (120, 30), (328, 498), (-192, 290) and
+-- (380, 290) on four consecutive starts, 260 to 312 studs from home. Creatures are excluded by
+-- folder and the occupancy test now also requires `Anchored`. A played world keeps the model it
+-- already has, so this bump is the half of the fix that makes the other half happen at all.
+-- 7 -> 8 (same row, after the capture): 7 was not enough and the screenshot is what said so. The
+-- authored spot it chose, (-72, 312), passed every test in this file and stood 11.4 studs THROUGH
+-- the Forest arrival board -- because a board is `CanCollide = false` and an occupancy test only
+-- sees solids. Signage is now rejected by shape, and the spot list was re-probed against that rule.
+local MACHINE_VERSION = 8
 
 -- ===== HOW BIG =====
 -- Applied with `Model:ScaleTo` at the end of `buildMachine` rather than by rewriting the sixty-odd
@@ -96,7 +106,34 @@ local ROLL_INTERVAL = 1.2
 -- behind the sign or 52 studs out, and neither is a spot anybody chose. 290 is the same east verge,
 -- 75 studs nearer the spawn at (0, 1, 366): more of the walk-down, not less, which is the reason
 -- this machine is on this side of the street in the first place.
-local PREFERRED = Vector3.new(120, 0, 290)
+--
+-- IT IS A LIST NOW, AND ONE POINT WAS NEVER ENOUGH (19.9). Forest's props are `math.random`-placed
+-- and re-rolled on every world rebuild, so no single coordinate is ever "the clear one" -- it is a
+-- coordinate whose luck is re-rolled with the world. Measured on this world: (120, 290) is covered
+-- by a `ForestTree` and two `PropBOULDER`s, and a grid scan of the whole plaza deck at the
+-- machine's real footprint found **23 clear spots and every one of them on the WEST verge** -- the
+-- east side was full from x = 40 to x = 180. So the ring search did what it was told, walked
+-- between 221 and 312 studs, and landed somewhere different on all four boots it was watched on.
+--
+-- Same answer HubPlaza reached for the same reason (see its `PHOTO_SPOTS`): a composition is a
+-- LIST of real choices, and the search is the floor under it rather than the thing that decides.
+-- Every spot below was probed against the live world at the full footprint. All four sit on the
+-- plaza deck (x -172..172, z 80..416), outside the 30-stud corridor and inboard of the lamp line
+-- at x = +-84 -- which is the verge, and is where this machine has always belonged.
+local PREFERRED_SPOTS = {
+	-- The authored east-verge spot, kept FIRST because the argument above is still the right one on
+	-- any world where it is clear: it faces the walk-down and it is the side the machine was sited
+	-- on. It is simply not clear on every world.
+	Vector3.new(120, 0, 290),
+	-- West outer verge near the gate end. The nearest spot to the spawn walk-down that survives
+	-- every rule below, signage included.
+	Vector3.new(-156, 0, 384),
+	-- West verge, south. Open on every world probed.
+	Vector3.new(-72, 0, 168),
+	Vector3.new(-84, 0, 160),
+}
+-- The ring search still steps out from here when every authored spot is unlucky at once.
+local PREFERRED = PREFERRED_SPOTS[1]
 -- The footprint the placement search has to find empty, and it has to grow WITH the machine or the
 -- search happily clears a 30-stud box and then a 60-stud machine is built through a conifer.
 local FOOTPRINT = Vector3.new(30, 26, 30) * MACHINE_SCALE
@@ -181,7 +218,13 @@ local STREET_HALF = 30
 local SIGN_CLEAR = { xMin = 40, xMax = 150, zMin = 200, zMax = 230 }
 
 local function findClearSpot()
-	local candidates = { Vector3.new(0, 0, 0) }
+	-- The authored spots first, in order, each one a real choice. Only when all four are unlucky at
+	-- once does the ring search step out from the first -- and then it is a safety net rather than
+	-- the thing choosing where a landmark stands.
+	local candidates = {}
+	for _, spot in ipairs(PREFERRED_SPOTS) do
+		table.insert(candidates, spot - PREFERRED)
+	end
 	for ring = 1, 6 do
 		-- the step is one footprint wide, so consecutive rings do not overlap each other
 		local step = ring * 26 * MACHINE_SCALE
@@ -193,11 +236,41 @@ local function findClearSpot()
 		table.insert(candidates, Vector3.new(-step, 0, step))
 	end
 
+	-- CREATURES ARE NOT OBSTRUCTIONS, AND LEAVING THEM IN HERE IS WHY THIS MACHINE MOVED HOUSE ON
+	-- EVERY BOOT. Measured 2026-08-19 on a live server: the only things this test found standing on
+	-- the preferred spot were two `body_geom` parts -- a creature, mid-walk. Four consecutive boots
+	-- sent the machine to (120, 30), (328, 498), (-192, 290) and (380, 290), between 260 and 312
+	-- studs away and never twice to the same place, because the blocker was somewhere different
+	-- each time. A landmark the player is meant to FIND cannot be sited by where a mob happened to
+	-- be standing at `Init()`.
+	--
+	-- Excluded by folder, and then the loop below also requires `Anchored`. The folder is the cheap
+	-- explicit half; the anchored test is the general rule, and it is the one that matters: a part
+	-- that is not anchored is not a fact about the place, it is a fact about this instant. Same
+	-- reasoning as the creature filter the 12.13 sightline measurement needed.
 	local params = OverlapParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { machineModel }
+	params.FilterDescendantsInstances = { machineModel, workspace:FindFirstChild("Creatures") }
 
-	for _, offset in ipairs(candidates) do
+	-- A SIGN IS INVISIBLE TO AN OCCUPANCY TEST, BECAUSE A SIGN IS NOT SOLID. Found the honest way
+	-- (19.9): the first cut of this list put the machine at (-72, 312), the occupancy test called
+	-- it clear, and the capture showed it standing THROUGH the Forest arrival board -- measured, an
+	-- 11.4-stud intersection. `ArrivalSignBoard` is `CanCollide = false`, like every board, banner
+	-- and plank surface in this game, so the test above could never have objected.
+	--
+	-- This is 12.13's rule one step further out. That row reserved the event sign's SIGHTLINE by
+	-- name; this reserves every sign's own BODY by shape, which needs no name and no coordinates.
+	-- Raised, because "Board" and "Plank" are also what the deck underfoot is made of, and a thing
+	-- you read is a thing at eye height.
+	local signage = {}
+	for _, d in ipairs(workspace:GetDescendants()) do
+		if d:IsA("BasePart") and d.Anchored and d.Position.Y > 8
+			and (d.Name:find("Sign") or d.Name:find("Board") or d.Name:find("Banner")) then
+			table.insert(signage, d)
+		end
+	end
+
+	for index, offset in ipairs(candidates) do
 		local centre = PREFERRED + offset
 		local blocked = math.abs(centre.X) - FOOTPRINT.X * 0.5 < STREET_HALF
 		-- the event sign's sightline, rejected before the occupancy test because no occupancy test
@@ -212,18 +285,33 @@ local function findClearSpot()
 			local box = CFrame.new(centre + Vector3.new(0, FOOTPRINT.Y / 2, 0))
 			local hits = workspace:GetPartBoundsInBox(box, FOOTPRINT, params)
 			for _, part in ipairs(hits) do
-				-- The floor is not an obstruction; everything standing ON it is.
-				if part.CanCollide and part.Position.Y > 0.5 then
+				-- The floor is not an obstruction; everything standing ON it is -- as long as it is
+				-- STILL there a minute from now. `Anchored` is the general form of the creature
+				-- filter above: a part that can move is a fact about this instant, not about the
+				-- place, and siting a landmark against one gives a different answer every boot.
+				if part.CanCollide and part.Anchored and part.Position.Y > 0.5 then
+					blocked = true
+					break
+				end
+			end
+		end
+		-- and the signage the box test cannot see -- compared in plan view, because a machine and a
+		-- sign that share ground share it at every height a player looks from
+		if not blocked then
+			for _, s in ipairs(signage) do
+				local sh = s.Size / 2
+				if (FOOTPRINT.X * 0.5 + sh.X) - math.abs(s.Position.X - centre.X) > 0
+					and (FOOTPRINT.Z * 0.5 + sh.Z) - math.abs(s.Position.Z - centre.Z) > 0 then
 					blocked = true
 					break
 				end
 			end
 		end
 		if not blocked then
-			return centre, offset.Magnitude
+			return centre, offset.Magnitude, index <= #PREFERRED_SPOTS
 		end
 	end
-	return PREFERRED, -1
+	return PREFERRED, -1, false
 end
 
 -- ===== THE MACHINE =====
@@ -715,11 +803,17 @@ function SplicerService.Init()
 			end
 		end
 	else
-		local centre, moved = findClearSpot()
+		local centre, moved, authored = findClearSpot()
 		machineModel = buildMachine(centre)
 		machineModel.Parent = map
-		if moved > 0 then
-			warn(("[SplicerService] preferred spot was occupied; machine moved %.0f studs to (%d, %d)")
+		-- Landing on the second or third AUTHORED spot is not a fault and must not be reported as
+		-- one -- that is the list doing its job. Only the ring search having to step out is worth a
+		-- warn, because that is the case where nobody chose where this machine ended up.
+		if moved > 0 and authored then
+			print(("[SplicerService] first spot taken; machine stands at authored spot (%d, %d)")
+				:format(centre.X, centre.Z))
+		elseif moved > 0 then
+			warn(("[SplicerService] every authored spot was occupied; machine searched %.0f studs to (%d, %d)")
 				:format(moved, centre.X, centre.Z))
 		end
 	end
