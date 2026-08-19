@@ -644,8 +644,29 @@ function PlayerDataService.Init()
 		stageStat.Value = GameConfig.Stages[data.StageIndex].name
 		stageStat.Parent = leaderstats
 
+		-- THE JOIN PUSH IS A RACE AND IT IS ONE THE CLIENT CANNOT WIN RELIABLY. Every client script
+		-- that draws from `data` -- MainUI, FirstJoin, the panels -- has to have reached its
+		-- `DataUpdate` connect before this fires, and each of them gets there only after a string
+		-- of `WaitForChild`s, several `require`s and a whole ScreenGui built out of thousands of
+		-- instances. A `RemoteEvent` fired at a client that is not listening yet is simply gone.
+		--
+		-- Nothing was broken by that, because `DNAService`'s periodic sync pushes every 3 seconds
+		-- and any listener that missed the first payload catches the next one. But three seconds
+		-- is a very long time to spend at the start of a first session: it is a HUD with no
+		-- numbers in it and, for a brand-new player, the guided tutorial not having started yet.
+		--
+		-- Three pushes over ~1.5 s close it for every listener at once, which is why this is here
+		-- rather than in any one client. It costs two extra payloads per join and no new remote.
 		task.wait(0.3)
 		PlayerDataService.PushToClient(player)
+		task.spawn(function()
+			for _, delay in ipairs({ 0.5, 1.0 }) do
+				task.wait(delay)
+				-- Re-checked each time: a player can leave inside this window, and `PushToClient`
+				-- would then be firing at a Player that is no longer in the game.
+				if player.Parent then PlayerDataService.PushToClient(player) end
+			end
+		end)
 	end)
 
 	Players.PlayerRemoving:Connect(function(player)

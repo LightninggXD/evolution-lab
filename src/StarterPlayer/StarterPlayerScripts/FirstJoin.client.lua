@@ -342,9 +342,27 @@ CardKit.Corner(buttonHalo, 14)
 
 gui.IgnoreGuiInset = false
 
+-- THE CALLER IS A HEARTBEAT, AND THE EXPENSIVE CASE IS THE ONE THAT FINDS NOTHING. Measured on
+-- the live HUD at 12,317 descendants: a recursive `FindFirstChild` that HITS costs 0.0004 ms,
+-- because it stops the moment it matches -- but one that MISSES walks the entire tree and costs
+-- **0.1645 ms per frame, 9.9 ms every second at 60 fps**. And a miss is not the rare case: it is
+-- what happens for as long as the HUD is still building, which on a first join is exactly when
+-- this runs, on exactly the phone a brand-new player is holding.
+--
+-- So both answers are cached. A hit is held until the button is destroyed or reparented, so a HUD
+-- rebuild is still picked up rather than leaving the arrow on a dead instance; a miss is held for
+-- RETRY_EVERY, which turns 60 full-tree walks a second into four.
+local evolveButton = nil
+local nextLookup = 0
+local RETRY_EVERY = 0.25
 local function findEvolveButton()
+	if evolveButton and evolveButton.Parent then return evolveButton end
+	local now = os.clock()
+	if now < nextLookup then return nil end
+	nextLookup = now + RETRY_EVERY
 	local host = player.PlayerGui:FindFirstChild("EvolutionLabUI")
-	return host and host:FindFirstChild("EvolveButton", true)
+	evolveButton = host and host:FindFirstChild("EvolveButton", true) or nil
+	return evolveButton
 end
 
 -- ============================================================================
@@ -466,7 +484,16 @@ local function updateTrail(toPos, tone)
 end
 
 local function pointAt(target, height)
-	if not target then
+	-- `trailSuspended` for the same reason `updateTrail` reads it, and this is the half that was
+	-- missing. The panel watcher hides the guide by setting `gui.Enabled = false`, which governs
+	-- GuiObjects -- and neither of these is one. A `BillboardGui` is its own LayerCollector and
+	-- carries its own `Enabled`; a `Highlight` renders off its `Adornee` and does not care what it
+	-- is parented to at all. So opening the Store left a creature outlined in yellow with a beacon
+	-- bobbing over it, behind the panel the player had just opened.
+	--
+	-- Read HERE rather than in the watcher, because the guide loop calls `pointAt` every frame:
+	-- anything the watcher switched off would be switched straight back on by the next tick.
+	if trailSuspended or not target then
 		marker.Enabled = false
 		pointHL.Enabled = false
 		pointHL.Adornee = nil
@@ -634,12 +661,14 @@ local function onData(data)
 	runGuide()
 end
 
+-- ONE SUBSCRIPTION, AND NOTHING TO ASK. There used to be a fallback here that invoked a
+-- `GetData` RemoteFunction if the first `DataUpdate` was missed. There is no `GetData`, and no
+-- `RemoteFunction` and no `OnServerInvoke` anywhere in this game -- the whole codebase is one-way
+-- remotes plus a `StringValue` for anything a client needs to pull. So the fallback never ran;
+-- what it did do was `WaitForChild("GetData", 10)` on the main thread, ten seconds of a brand-new
+-- player's first minute spent waiting for something that was never going to be parented.
+--
+-- The race it was written for is real and is closed on the server instead, where it is closed for
+-- every listener at once: `PlayerDataService` now pushes three times over the first ~1.5 s of a
+-- join. See the comment on `PlayerAdded`.
 Remotes:WaitForChild("DataUpdate").OnClientEvent:Connect(onData)
-
-local getRemote = Remotes:FindFirstChild("GetData") or Remotes:WaitForChild("GetData", 10)
-if getRemote then
-	task.spawn(function()
-		local d = getRemote:InvokeServer()
-		if d then onData(d) end
-	end)
-end
