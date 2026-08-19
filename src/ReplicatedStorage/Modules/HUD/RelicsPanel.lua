@@ -221,6 +221,14 @@ return function(hud)
 	-- different questions: "is my free one ready" and "I do not want to wait". The free one carries
 	-- its own countdown as its caption -- a timer that lives anywhere other than on the button it
 	-- gates is a timer the player has to go and look for.
+	--
+	-- A BANKED CHEST IS NOT A THIRD DOOR, IT IS THE FIRST ONE ALREADY OPEN. The wheel's relic
+	-- segment hands over unopened chests (`RelicService.GiveChest`) and nothing here used to spend
+	-- them -- so a player paid 99 R$, was told "open it in the Forge", and found no such thing.
+	-- Rather than crowd a third button onto a 48 px row, the free button becomes the banked one
+	-- while any are held: same slot, different word, different colour, and it sends "banked".
+	-- Spending the bank FIRST is what makes that safe -- the free timer keeps running underneath,
+	-- so nothing is thrown away by opening a banked chest at any moment.
 	local chestRow = Instance.new("Frame")
 	chestRow.Name = "ChestRow"
 	chestRow.Size = UDim2.new(1, -32, 0, 48)
@@ -232,6 +240,13 @@ return function(hud)
 	local FREE_READY = { Color3.fromRGB(120, 255, 170), Color3.fromRGB(20, 200, 100) }
 	local FREE_WAIT = { Color3.fromRGB(178, 184, 204), Color3.fromRGB(120, 126, 150) }
 	local DIAMOND_BUY = { Color3.fromRGB(175, 245, 255), Color3.fromRGB(30, 170, 215) }
+	-- Gold, because a banked chest is something already won rather than something being waited for,
+	-- and the two states share one button: green would make them read as the same event.
+	local BANKED = { Color3.fromRGB(255, 226, 130), Color3.fromRGB(228, 158, 20) }
+
+	-- Read by the callback, written by the refresh. The button's own text is not the source of
+	-- truth for which remote to send -- a caption is a picture of the state, not the state.
+	local bankedChests = 0
 
 	local _, freeChest = CardKit.Button(chestRow, {
 		name = "FreeChest",
@@ -242,7 +257,7 @@ return function(hud)
 		textSize = 22,
 		zIndex = baseZ + 1,
 		callback = function()
-			Remotes.OpenRelicChest:FireServer("free")
+			Remotes.OpenRelicChest:FireServer(bankedChests > 0 and "banked" or "free")
 		end,
 	})
 
@@ -627,9 +642,20 @@ return function(hud)
 
 		-- --- the chest buttons
 		local ready, remaining = GameConfig.GetRelicChestReady(data, os.time())
-		freeChest.SetEnabled(ready, FREE_READY)
-		freeChest.SetText(ready and "FREE CHEST" or ("%dm %02ds"):format(remaining // 60, remaining % 60))
-		if not ready then freeChest.SetColors(FREE_WAIT) end
+		bankedChests = tonumber(data.RelicChests) or 0
+		if bankedChests > 0 then
+			-- The count is in the caption rather than on a pill: this button is already carrying a
+			-- countdown in the other state, so a number in the same place is the one thing a player
+			-- is used to reading off it.
+			freeChest.SetEnabled(true, BANKED)
+			freeChest.SetText(bankedChests > 1
+				and ("OPEN CHEST (%d)"):format(bankedChests)
+				or "OPEN CHEST")
+		else
+			freeChest.SetEnabled(ready, FREE_READY)
+			freeChest.SetText(ready and "FREE CHEST" or ("%dm %02ds"):format(remaining // 60, remaining % 60))
+			if not ready then freeChest.SetColors(FREE_WAIT) end
+		end
 		buyChest.SetEnabled((data.Diamonds or 0) >= GameConfig.RelicChestDiamondCost, DIAMOND_BUY)
 
 		-- --- the grid

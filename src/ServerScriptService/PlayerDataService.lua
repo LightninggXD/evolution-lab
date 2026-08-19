@@ -102,6 +102,12 @@ local function defaultData()
 		RelicForgeUnlocked = false,
 		LastRelicChest = 0,
 		RelicChestsOpened = 0,
+		-- UNOPENED chests, banked by `RelicService.GiveChest` -- today only the Lucky Wheel's relic
+		-- segment, which is why this field existed for a while without being declared here: the
+		-- service incremented it, `Load`'s generic backfill never saw a default to hand to anyone,
+		-- and the Forge had no button that spent one. A wheel segment a player pays Robux for was
+		-- landing in a number nothing could read.
+		RelicChests = 0,
 		-- Group and Community status and claim timestamps (5.5)
 		InGroup = false,
 		ClaimedGroupChest = 0,

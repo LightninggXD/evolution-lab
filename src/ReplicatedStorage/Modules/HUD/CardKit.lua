@@ -179,7 +179,11 @@ function CardKit.Button(parent, opts)
 	CardKit.Stroke(btn, BLACK, 2)
 	CardKit.Studs(btn, 15, 0.55, radius, btn.ZIndex)
 
-	local baseColors = opts.colors
+	-- THE SAME DEFAULT THE GRADIENT ABOVE TOOK, and not `opts.colors` raw. `SetEnabled(false)` swaps
+	-- in `DISABLED` and `SetEnabled(true)` swaps back to whatever this holds, so a button built
+	-- without `colors` used to render fine, grey fine, and then index a nil on the way back --
+	-- a fault invisible until the first caller that greys a button and un-greys it again.
+	local baseColors = opts.colors or { WHITE, WHITE }
 	local enabled = true
 	local handle
 	handle = {
