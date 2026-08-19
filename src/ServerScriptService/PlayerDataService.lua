@@ -86,6 +86,22 @@ local function defaultData()
 		-- os.time() of the last free daily spin (5.6). Compared by UTC day number, the same boundary
 		-- LastRewardClaim uses, so the login reward and the free spin roll over together.
 		LastFreeSpin = 0,
+		-- ===== RELICS (2026-08-17) =====
+		-- `Relics` is relic KEY -> { copies, level }, string-keyed like `Potions` and for the same
+		-- reason: a table whose only keys are integers is a sparse array and Roblox silently drops
+		-- those crossing a RemoteEvent. `EquippedRelicKeys` is the ordered list of what is worn, the
+		-- `EquippedPetIds` shape exactly -- a list of ids, never a slot-indexed array, so a slot lost
+		-- to a rebirth reset cannot leave a hole in the middle of it.
+		--
+		-- `RelicForgeUnlocked` IS OFF THE REBIRTH RESET LIST ON PURPOSE, like `TutorialDone`. It is
+		-- stamped the first time the player reaches stage 10 and never cleared; a live
+		-- `StageIndex >= 10` test would shut the forge the instant they rebirthed, taking a screen
+		-- full of owned things away at the exact moment they were promised a reward.
+		Relics = {},
+		EquippedRelicKeys = {},
+		RelicForgeUnlocked = false,
+		LastRelicChest = 0,
+		RelicChestsOpened = 0,
 		-- Group and Community status and claim timestamps (5.5)
 		InGroup = false,
 		ClaimedGroupChest = 0,
@@ -414,6 +430,17 @@ function PlayerDataService.Load(player)
 		-- rather than leaving a half-populated table for the client to index
 		if type(data.AudioVolumes) ~= "table" then data.AudioVolumes = def.AudioVolumes end
 		if type(data.RedeemedCodes) ~= "table" then data.RedeemedCodes = {} end
+		-- THE TOP-LEVEL NIL-FILL DOES NOT DESCEND, which is the warning this block's own header
+		-- carries -- so both relic tables need their own guard or the first write to one on a save
+		-- written as something else indexes nil. Empty is the correct answer for an old save here,
+		-- unlike `TutorialDone` below: a player who has never opened a chest owns no relics.
+		if type(data.Relics) ~= "table" then data.Relics = {} end
+		if type(data.EquippedRelicKeys) ~= "table" then data.EquippedRelicKeys = {} end
+		-- ...and a save that reached stage 10 before relics existed gets the forge on this load
+		-- rather than being asked to climb again for a door that was not there the first time.
+		if (data.StageIndex or 1) >= (GameConfig.RelicUnlockStage or 10) then
+			data.RelicForgeUnlocked = true
+		end
 		if not data.DiamondUpgrades then data.DiamondUpgrades = {} end
 		for k, v in pairs(def.DiamondUpgrades) do
 			if data.DiamondUpgrades[k] == nil then

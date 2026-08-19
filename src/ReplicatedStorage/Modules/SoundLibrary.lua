@@ -457,6 +457,38 @@ local NOTIFY_SOUND = {
 	-- the welcome-back card (5.2). The rising chime rather than the cash register: this is the
 	-- first sound of a session and it is announcing that being away paid, not that money changed hands
 	offline = "levelUp",
+	-- ===== A RELIC CHEST IS AN EGG (17.6) =====
+	--
+	-- Not `purchase`, which is the cash register and belongs to something bought at a stated price --
+	-- a relic chest is a ROLL, and the free one costs nothing at all. Not `levelUp` either: that is
+	-- this game's "the account went up a rung" chime and it is already doing four jobs (a zone, a
+	-- character, a quest, a return from offline), none of which describe a duplicate Melon Slice.
+	-- What a chest actually is -- a container opening onto a random thing with a rarity printed on it
+	-- -- is an egg, so it takes the egg's own chime.
+	--
+	-- THIS ROW IS THE FLOOR, AND IT IS FLAT ON PURPOSE. `PlayNotify` calls `PlayLocal(name)` with no
+	-- options, so on its own this plays `hatch` at speed 1.0 -- which by HATCH_SPEED's own note is
+	-- what a Rare sounds like, i.e. "unremarkable" rather than silent. That is the correct behaviour
+	-- for a payload this table cannot see inside, and it is what a relic notification will sound like
+	-- if MainUI's branch is ever removed or bails early.
+	--
+	-- THE RARITY IS ADDED BY THE CALLER, AND IT COSTS NO SECOND SOUND. MainUI's relic branch follows
+	-- this with `SoundLibrary.PlayHatch(payload.rarity)`, and that is not a second sting layered on
+	-- the first: 2D playback caches ONE Sound instance per name and restarts it (trap 3 in the
+	-- header), so the second call lands on the SAME object in the SAME frame, rewrites PlaybackSpeed
+	-- and Volume, and replays it from 0. A Mythic therefore arrives at 0.68 -- deep, long and heavy
+	-- -- and a duplicate Common at 1.30, off one asset and one row. `hatch` carries no `minGap`, so
+	-- nothing drops the refined play in favour of the flat one.
+	--
+	-- The five relic rarity names in `GameConfig.RelicRarities` are the egg ladder's names, so
+	-- HATCH_SPEED already has a row for every one of them and nothing had to be added there.
+	--
+	-- WHY THE PITCH IS NOT EXPRESSED HERE. Every value in this table is a plain sound name and
+	-- `PlayNotify`'s whole contract is `NOTIFY_SOUND[kind] -> PlayLocal(name)`. Making one row a
+	-- table or a function so it could carry a pitch would make twenty other rows' contract
+	-- conditional for one kind's benefit, and the branch that already holds the rarity is one line
+	-- away from the sound it wants.
+	relic = "hatch",
 }
 
 function SoundLibrary.PlayNotify(payload)

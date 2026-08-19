@@ -253,12 +253,13 @@ end
 
 -- ===== THE LUCKY SPIN =====
 --
--- One spin, eight outcomes, and which one it lands on IS the product. It sits on the shelf beside
+-- One spin, twelve outcomes, and which one it lands on IS the product. It sits on the shelf beside
 -- the flat DNA packs deliberately: the pack is the safe buy and the wheel is the gamble, so the
--- wheel's EXPECTED DNA IS SET BELOW the pack at the same price (2,260 against 2,500 authored
+-- wheel's EXPECTED DNA IS SET BELOW the pack at the same price (2,191 against 2,500 authored
 -- stage-one clicks). What the buyer is paying that difference for is the tail -- diamonds, potions,
--- shards and a jackpot that no pack sells at any price. A wheel whose average beat the guaranteed
--- product would simply retire the guaranteed product, and then there would be one product again.
+-- shards, a relic chest, a pet and a jackpot that no pack sells at any price. A wheel whose average
+-- beat the guaranteed product would simply retire the guaranteed product, and then there would be
+-- one product again.
 --
 -- The weights sum to exactly 100, so at zero luck a weight IS its percentage. That is not a
 -- coincidence to preserve for its own sake -- GetSpinOddsText divides by the real total either way
@@ -267,27 +268,137 @@ end
 -- ORDERED COMMON FIRST, and the order is load-bearing: luck lifts the later segments, the same
 -- shape RollMysteryPotion uses, so the luck economy reaches this wheel too. Move a row and you have
 -- changed what luck does to it.
+--
+-- =========================================================================================
+-- THE 2026-08-17 REBALANCE: 8 SEGMENTS -> 12, AND WHY EVERY WEIGHT MOVED
+-- =========================================================================================
+-- The owner asked for relic chests, a pet and a free re-spin on the wheel, plus "malo vise dna" --
+-- a DNA prize bigger than the two that were already there. Four new segments cost 18.5 points of
+-- weight and the four rows below funded them, so the table still sums to 100 and the odds board is
+-- still readable without arithmetic:
+--
+--   dna_splash  34 -> 30    the commonest row pays for the commonest new one (the re-spin)
+--   potion      24 -> 21
+--   dna_surge   18 -> 11    THE BIG CUT, and the deliberate one. `dna_flood` below is the DNA the
+--                           owner asked for, and the wheel's DNA budget was already spent -- so the
+--                           middle of the DNA ladder shrinks and the money moves into a rarer,
+--                           larger payout. The wheel's DNA now arrives as a longer tail rather than
+--                           as a fat middle, which is what makes a 20,000 row worth landing on.
+--   diamonds    12 -> 10
+--   shards       7 -> 7     unchanged: this row IS the shard price of a spin (SpinCostShards), so
+--                           moving it would quietly change how often the wheel refunds itself
+--   luck_l     3.5 -> 3
+--   vault        1 -> 1     unchanged
+--   jackpot    0.5 -> 0.5   unchanged -- the marquee does not get cheaper because the wheel grew
+--
+-- ===== WHY `respin` SITS AT POSITION 2 AND NOT WHEREVER ITS WEIGHT WOULD PUT IT =====
+--
+-- Every other row is in descending weight order, which is what makes the luck ramp legible. This
+-- one is not, and the exception is the whole reason it is safe.
+--
+-- A re-spin is not a prize, it is a MULTIPLIER ON THE WHOLE TABLE: at probability p, every payout
+-- on this wheel is worth 1/(1-p) of its face value, because 6 spins in 100 come back for another
+-- go. At p = 0.06 that is x1.064 on everything, which is why the raw DNA figure below (2,060) had
+-- to be set under the 2,260 the old wheel paid rather than at it -- 2,060 / 0.94 = 2,191, and 2,191
+-- is the number that has to stay under the pack.
+--
+-- Luck must therefore NOT lift this row, or a lucky player would not merely win better prizes, they
+-- would win MORE SPINS, and the multiplier would compound with the same luck that already bent the
+-- prizes. Position 2 gives it a spread of 1/11 -- the smallest non-zero lift on the wheel -- so at
+-- the game's worst honest luck (385%) the re-spin goes 6% -> 4.0% of the table rather than up.
+-- Luck makes the re-spin RARER as a share, which is exactly right: it is being crowded out by the
+-- real prizes it is there to hand you another shot at.
+--
+-- ===== THE FOUR NEW ROWS =====
+--
+--   respin      6     Another spin. Granted by chaining server-side, capped -- see SpinMaxChain.
+--   relic       5     One UNOPENED Relic Chest, banked through `RelicService.GiveChest`. A bought
+--                     chest costs 40 Diamonds, so at 5% this row is worth ~2 Diamonds a spin, and
+--                     the `diamonds` row it was funded from was cut by exactly 2 points. It banks
+--                     even for a player under the forge's stage-10 gate: the chest waits in
+--                     `data.RelicChests` and opens the day the forge does, which is a better answer
+--                     than refusing a prize the wheel already showed them landing on.
+--   pet         4     One pet, rolled out of the player's CURRENT zone's mid-tier egg. Not a fixed
+--                     species: a wheel that always paid the same creature would be a duplicate
+--                     generator within a day, and a pet from a zone the player has not reached
+--                     would be worth nothing to them (see GetPetZoneFactor).
+--   dna_flood   1.5   20,000 DNA. Ten times the commonest row and a third of the jackpot -- the
+--                     rung the DNA ladder was missing between "nice" and "once a fortnight".
+--
+-- ===== `colors` AND `short` ARE HERE ON PURPOSE =====
+--
+-- The wheel is DRAWN now (`SpinReveal.client.lua`), and a pod's colour and its two-word caption are
+-- facts about the prize, not about the panel. Putting them anywhere else means the surface that
+-- shows the odds and the surface that shows the wheel can disagree about what a jackpot looks like
+-- -- the same rule `GameConfig.Potions` already follows with its own `colors` pair, and for the
+-- same reason. A row without them draws grey and still works; nothing here may ever be REQUIRED by
+-- the drawing code, or a segment added in a hurry crashes the reveal instead of looking plain.
 GameConfig.SpinWheel = {
-	{ key = "dna_splash", emoji = "\u{1F9EC}", name = "DNA Splash",     weight = 34,  dna = 2000 },
-	{ key = "potion",     emoji = "\u{1F9EA}", name = "Potion",         weight = 24,  potionId = "dna_m", potions = 1 },
-	{ key = "dna_surge",  emoji = "\u{1F9EC}", name = "DNA Surge",      weight = 18,  dna = 6000 },
-	{ key = "diamonds",   emoji = "\u{1F48E}", name = "25 Diamonds",    weight = 12,  diamonds = 25 },
-	{ key = "shards",     emoji = "\u{1F31F}", name = "25 Shards",      weight = 7,   shards = 25 },
-	{ key = "luck_l",     emoji = "\u{1F340}", name = "2x Large Luck",  weight = 3.5, potionId = "luck_l", potions = 2 },
-	{ key = "vault",      emoji = "\u{1F48E}", name = "120 Diamonds",   weight = 1,   diamonds = 120 },
-	{ key = "jackpot",    emoji = "\u{1F308}", name = "JACKPOT",        weight = 0.5, dna = 100000, diamonds = 60 },
+	{ key = "dna_splash", emoji = "\u{1F9EC}", name = "DNA Splash",     short = "2K DNA",   weight = 30,  dna = 2000,
+	  colors = { Color3.fromRGB(120, 210, 255), Color3.fromRGB(56, 138, 226) } },
+	{ key = "respin",     emoji = "\u{1F3A1}", name = "FREE SPIN",      short = "SPIN AGAIN", weight = 6, respin = 1,
+	  colors = { Color3.fromRGB(255, 226, 120), Color3.fromRGB(245, 160, 40) } },
+	{ key = "potion",     emoji = "\u{1F9EA}", name = "Potion",         short = "POTION",   weight = 21,  potionId = "dna_m", potions = 1,
+	  colors = { Color3.fromRGB(150, 250, 200), Color3.fromRGB(46, 190, 130) } },
+	{ key = "dna_surge",  emoji = "\u{1F9EC}", name = "DNA Surge",      short = "6K DNA",   weight = 11,  dna = 6000,
+	  colors = { Color3.fromRGB(140, 190, 255), Color3.fromRGB(70, 110, 235) } },
+	{ key = "diamonds",   emoji = "\u{1F48E}", name = "25 Diamonds",    short = "25 GEMS",  weight = 10,  diamonds = 25,
+	  colors = { Color3.fromRGB(170, 235, 255), Color3.fromRGB(70, 180, 240) } },
+	{ key = "shards",     emoji = "\u{1F31F}", name = "25 Shards",      short = "25 SHARDS", weight = 7,  shards = 25,
+	  colors = { Color3.fromRGB(255, 235, 150), Color3.fromRGB(240, 190, 55) } },
+	{ key = "relic",      emoji = "\u{1F52E}", name = "Relic Chest",    short = "RELIC",    weight = 5,   relicChests = 1,
+	  colors = { Color3.fromRGB(210, 170, 255), Color3.fromRGB(140, 85, 235) } },
+	{ key = "pet",        emoji = "\u{1F43E}", name = "Mystery Pet",    short = "PET",      weight = 4,   pet = 1,
+	  colors = { Color3.fromRGB(255, 175, 220), Color3.fromRGB(235, 90, 175) } },
+	{ key = "luck_l",     emoji = "\u{1F340}", name = "2x Large Luck",  short = "2x LUCK",  weight = 3,   potionId = "luck_l", potions = 2,
+	  colors = { Color3.fromRGB(180, 255, 165), Color3.fromRGB(80, 200, 90) } },
+	{ key = "dna_flood",  emoji = "\u{1F30A}", name = "DNA FLOOD",      short = "20K DNA",  weight = 1.5, dna = 20000,
+	  colors = { Color3.fromRGB(120, 165, 255), Color3.fromRGB(48, 70, 210) } },
+	{ key = "vault",      emoji = "\u{1F48E}", name = "120 Diamonds",   short = "120 GEMS", weight = 1,   diamonds = 120,
+	  colors = { Color3.fromRGB(190, 245, 255), Color3.fromRGB(40, 150, 225) } },
+	{ key = "jackpot",    emoji = "\u{1F308}", name = "JACKPOT",        short = "JACKPOT",  weight = 0.5, dna = 100000, diamonds = 60,
+	  colors = { Color3.fromRGB(255, 215, 90), Color3.fromRGB(255, 120, 60) } },
 }
+
+-- HOW MANY TIMES ONE PRESS MAY CHAIN THROUGH `respin` BEFORE THE LAST ONE IS FORCED TO PAY.
+--
+-- 12 is not a balance figure, it is a fuse. At a 6% re-spin the chance of twelve in a row is
+-- 0.06^12 ~= 2e-15, which is not a path any player will ever walk -- so this constant does not
+-- change what the wheel is worth to anyone. What it does is make the grant loop in `RobuxShopService`
+-- structurally unable to run forever: a config edit that pushed the re-spin weight to something
+-- absurd, or a future segment that also chains, would otherwise hang a server thread inside a
+-- receipt handler with the player's Robux already taken. A bounded loop cannot do that.
+--
+-- The client also reads this: a chain arrives as an ordered list of segments and the reveal plays
+-- one spin per entry, so the bound is also the longest piece of theatre the wheel can ever ask a
+-- player to sit through.
+GameConfig.SpinMaxChain = 12
+
+-- Where a segment sits in the table, by key. The wheel is DRAWN from this order and the pointer
+-- lands by INDEX, so the client needs the index and the server has to send it -- but neither side
+-- may hard-code it, because inserting a row would then silently point every prize at its neighbour.
+-- Returns nil for an unknown key, which the caller is expected to treat as "do not animate", not as
+-- an error: a segment key from a newer server than this client is a thing that will happen.
+function GameConfig.GetSpinIndex(key)
+	for i, seg in ipairs(GameConfig.SpinWheel) do
+		if seg.key == key then return i end
+	end
+	return nil
+end
 
 -- How hard luck bends the wheel. NORMALISED BY SEGMENT COUNT -- (i-1)/(n-1), where
 -- RollMysteryPotion uses a raw (i-1) -- and that difference is the whole reason this constant
--- exists. That table has three rows and this one has eight, so under a raw index the same luck
--- would bend this wheel nearly three times as hard, and adding a ninth segment one day would
+-- exists. That table has three rows and this one has twelve, so under a raw index the same luck
+-- would bend this wheel four times as hard, and adding a thirteenth segment one day would
 -- silently make every existing player luckier without a line of code changing. Normalised, the
 -- strength of luck is a property of this constant alone.
 --
--- At the game's worst honest luck (385%, measured in the ROADMAP 2.12 balance pass) the jackpot
--- moves 0.5% -> 1.4% and the commonest segment 34% -> 17%. Luck is worth having here and does not
--- take the wheel over.
+-- THE 8 -> 12 GROWTH ABOVE IS THE PROOF THAT THIS WORKS, and it is worth writing down because it
+-- is the only test this design has ever had. Nothing here changed when four rows were added, and
+-- the luck curve came out where it was: at the game's worst honest luck (385%, measured in the
+-- ROADMAP 2.12 balance pass) the jackpot moves 0.5% -> 1.32% where the eight-row wheel gave 1.4%,
+-- and the commonest segment moves 30% -> 14.1% where it used to go 34% -> 17%. Same shape, same
+-- verdict: luck is worth having here and does not take the wheel over.
 GameConfig.SpinLuckSpread = 1.2
 
 -- What one spin costs in Evolution Shards, for the door into this wheel that takes no Robux (9.4).

@@ -202,6 +202,58 @@ function PetService.GrantPetFromDrop(data, zoneKey, raised)
 	return insertPet(data, GameConfig.RollFromPool(pool, GameConfig.GetLuckPercent(data), 0))
 end
 
+-- ===== A PET FROM THE LUCKY SPIN (2026-08-17) =====
+--
+-- The wheel grew a `pet` segment, and `insertPet` is deliberately local -- this is the door it gets
+-- rather than a second `table.insert(data.Pets, ...)` in `RobuxShopService`, which would be a second
+-- definition of what a pet IS the first time the entry shape gains a field.
+--
+-- ===== WHICH SPECIES, AND WHY IT IS NOT A FIXED ONE =====
+--
+-- It rolls out of the player's CURRENT zone's **Better** egg, and all three words are load-bearing:
+--
+--   CURRENT ZONE, because `GetPetZoneFactor` scales a pet's output down as the player climbs past
+--     the zone it came from. A fixed species -- some special "wheel pet" authored once -- would be a
+--     Forest creature to a player at Singularity, i.e. a prize worth arithmetically nothing, and the
+--     wheel would have a segment whose reward gets worse every hour you play. Rolling where they
+--     stand means the pet is worth what a pet is worth, at every stage, forever.
+--   BETTER, the middle of the three tiers, because it is the only one whose slice spans the whole
+--     rarity ladder (`rarityMin = 1, rarityMax = 5`). Basic structurally cannot produce a Legendary
+--     and Premium cannot produce a Common, and neither of those is the right shape for a gamble the
+--     player did not choose the tier of. The middle egg is the honest "a pet, could be anything".
+--   ROLLS, rather than picking, so this pays the same luck the rest of the wheel pays --
+--     `rollAndInsert` reads `GetPetLuckPercent` plus the egg's own `luckBonus`, and it carries the
+--     Secret pre-roll too. A spin CAN hand over a Secret, at the same odds a hatch would, which is
+--     the sort of thing that should be true of a jackpot machine and is true here for free because
+--     this went through the shared roll instead of around it.
+--
+-- Returns the def on success, or nil plus a reason. **A full bag returns nil and the caller must
+-- pay something else** -- unlike a terrace drop, which may silently swallow the pet because the kill
+-- was already paid for. Here the spin is the payment and it has not happened yet, so the caller
+-- (see `applySpin`) substitutes the shard payout rather than charging for nothing. It does NOT
+-- notify, push or announce: the wheel owns its own reveal and a second `pet` notification would put
+-- HatchReveal's egg theatre on screen underneath the wheel's.
+function PetService.GrantWheelPet(data)
+	if not data then return nil, "nodata" end
+	if #data.Pets >= MAX_PETS then return nil, "full" end
+
+	local eggs = GameConfig.GetEggsForZone(data.CurrentZone or "Forest")
+	local eggDef
+	for _, egg in ipairs(eggs) do
+		if egg.tierSuffix == "Better" then
+			eggDef = egg
+			break
+		end
+	end
+	-- Belt and braces for a zone key that is not in ZONE_EGG_BASE -- an old save, a zone renamed,
+	-- a hub. Falling back to whatever egg the list DID produce, and then to the game's first egg,
+	-- is better than returning nil: the player landed on the pet segment and must get a pet.
+	eggDef = eggDef or eggs[1] or GameConfig.Eggs[1]
+	if not eggDef then return nil, "noegg" end
+
+	return rollAndInsert(data, eggDef)
+end
+
 local EGG_INTERVAL = 0.35   -- comfortably faster than the hatch animation, far slower than a loop
 local lastEgg = {}          -- [userId] = os.clock()
 

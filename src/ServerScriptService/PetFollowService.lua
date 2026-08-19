@@ -122,7 +122,10 @@ local function rebuild(player, data)
 		if def then
 			-- the nameplate has to stay legible from a big player's eye height too, hence the
 			-- scale term on its draw distance
-			local model, root = PetModel.Build(def, saved.tier, { scale = petScale, plateDistance = 34 + 30 * ownerScale })
+			-- `fx` asks for the mesh species' own sparkle rig, which the library parks by default:
+			-- these are the pets a player actually looks at, and there are at most a handful of them
+			-- per player -- unlike the sixty standing on egg podiums across the strip.
+			local model, root = PetModel.Build(def, saved.tier, { scale = petScale, plateDistance = 34 + 30 * ownerScale, fx = true })
 			model:SetAttribute("OwnerUserId", player.UserId)
 			model:SetAttribute("Slot", slot)
 			model:SetAttribute("SlotCount", #equipped)

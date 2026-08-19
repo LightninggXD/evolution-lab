@@ -38,6 +38,12 @@ function DNAService.GetIncomeMult(data, excludeEvents)
 	-- `incomeMult` field) -- this function never learns any pass by name. Because this is the single
 	-- income multiplier, the pass reaches clicks, kill payouts and idle auto-collect at once.
 	mult = mult * GameConfig.GetPassMult(data, "incomeMult")
+	-- The equipped relics, as ONE term. `GetRelicMult` sums the four slots' shares and returns
+	-- `1 + total` -- it is never a product over the slots, which is the exponential the pet bonus
+	-- shipped twice before it was found (see the note on GetEquippedBonus). Placed after the pass so
+	-- a bought multiplier still applies to everything above it, and before the worn skin for the
+	-- same reason the pass is: relics are earned, the wardrobe is worn.
+	mult = mult * GameConfig.GetRelicMult(data, "incomeMult")
 	-- THE VIP WARDROBE'S DNA HALF, and the only term in this function that reads what the player is
 	-- WEARING. It sits after GetPassMult for the same reason the damage half does in
 	-- GetCombatDamage: the VIP pass's own 1.5x and the worn skin's 1.10-1.50 stack, so the row is
@@ -120,6 +126,9 @@ function DNAService.GetCombatDamage(data)
 	-- cap in CreatureService/BossService is a fraction of the player's own health and is untouched,
 	-- so a pass makes fights shorter without making the player unkillable.
 	mult = mult * GameConfig.GetPassMult(data, "damageMult")
+	-- The equipped relics, summed and applied once -- see the twin of this line in GetIncomeMult
+	-- for why it can never be a product over the slots.
+	mult = mult * GameConfig.GetRelicMult(data, "damageMult")
 	-- THE VIP WARDROBE, and the only term in this function that reads what the player is WEARING.
 	-- Everything else here is something owned or climbed to; a costume has never decided damage and
 	-- still does not, except for these nine (2x on the entry skin, 8x on the last). See the wardrobe

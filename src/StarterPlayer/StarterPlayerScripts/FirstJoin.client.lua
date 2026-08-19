@@ -1,45 +1,25 @@
 --[[
-	FirstJoin -- the first two minutes of the game, guided (Phase 6.3).
+	FirstJoin -- Modern guided first-time player experience (Phase 6.3 + Phase 18.23).
 
-	Zones 1 and 2 were designed as a tutorial stretch and then nothing ever told the player that.
-	A new arrival landed in Forest with twenty-odd buttons, no idea that DNA comes from hitting the
-	creatures walking past, and an EVOLVE button that says "not enough DNA" until they work out why.
-
-	Three beats, and they are the roadmap's own: a camera pan that shows the street, an arrow that
-	names the next thing to do, and the first evolve -- which `EvolveReveal` already celebrates, so
-	this file gets out of the way rather than adding a second card on top of it.
-
-	=========================================================================================
-	WHAT DECIDES WHETHER THIS RUNS
-	=========================================================================================
-	`data.TutorialDone`, a real field in the save, flipped by the SERVER on the first evolve. Not
-	"is this player at stage 1": a rebirth resets StageIndex to 1, so that test would replay the
-	whole sequence for a veteran every time they reset. And not a client-side "I have finished"
-	report, because a client that can say that can say it having never played.
-
-	=========================================================================================
-	THE THREE THINGS THAT WOULD LEAVE A PLAYER STUCK
-	=========================================================================================
-	1. A SCRIPTABLE CAMERA THAT IS NEVER GIVEN BACK. Everything the pan touches is restored in one
-	   block that runs whether the pan finished, errored, or was skipped -- and the restore is the
-	   `Custom` camera type plus the humanoid as subject, i.e. the state the engine sets up itself,
-	   not a CFrame this file guessed. A failure halfway through otherwise leaves that player
-	   looking at scenery with no way out but a rejoin.
-	2. A GUIDE THAT WILL NOT LET GO. Any input at all skips the pan. Nobody who already knows this
-	   game should have to watch three seconds of it, and a player who is pressing keys is telling
-	   you exactly that.
-	3. HEARTBEAT, NEVER RENDERSTEPPED. `RenderStepped:Wait()` never returns on a client that is not
-	   rendering, and the whole sequence would hang inside its own pcall with no error anywhere --
-	   see HatchReveal's header, which is where that cost an hour.
+	Features:
+	  - Cinematic smooth camera pan showing the starting Forest and player character
+	  - Marching 3D neon chevron trail leading directly to the nearest creature
+	  - Overhead animated floating target beacon and bounding highlight
+	  - Pulsing UI glow halo and directional bouncing arrow pointing directly at the EVOLVE button
+	  - Responsive floating guide banner with animated step progression (● ○ ○) and audio cues
 --]]
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local RS = game:GetService("ReplicatedStorage")
 
 local GameConfig = require(RS:WaitForChild("Modules"):WaitForChild("GameConfig"))
 local UITheme = require(RS.Modules:WaitForChild("UITheme"))
+local CardKit = require(RS.Modules:WaitForChild("HUD"):WaitForChild("CardKit"))
+local IconLibrary = require(RS.Modules:WaitForChild("IconLibrary"))
+local SoundLibrary = require(RS.Modules:WaitForChild("SoundLibrary"))
 
 local player = Players.LocalPlayer
 local Remotes = RS:WaitForChild("Remotes")
@@ -47,14 +27,51 @@ local Remotes = RS:WaitForChild("Remotes")
 local STEP = RunService.Heartbeat
 
 local PAN_TIME = 3.4
-local ARROW_BOB = 10          -- pixels the arrow travels up and down
-local DONE_BANNER_TIME = 4.0
+local ARROW_BOB = 12
+local DONE_BANNER_TIME = 4.2
+local CLIMB_BEAT_TIME = 7.0
 
 local state = {
 	data = nil,
-	panned = false,           -- once per session, not once per payload
+	panned = false,
 	running = false,
 }
+
+-- ============================================================================
+-- THE STEP TABLE
+-- ============================================================================
+local STEPS = {
+	fight = {
+		key = "fight",
+		icon = "\u{2694}\u{FE0F}",
+		headline = "Attack a creature",
+		subline = "Click one to fight it and earn XP",
+		tone = { UITheme.Color.Lavender, UITheme.Color.Purple },
+	},
+	evolve = {
+		key = "evolve",
+		icon = "\u{2B50}",
+		headline = "You are ready to EVOLVE!",
+		subline = "Press the shiny EVOLVE button",
+		tone = { UITheme.Color.Sunny, UITheme.Color.Orange },
+	},
+	done = {
+		key = "done",
+		icon = "\u{1F389}",
+		headline = "Evolved!",
+		subline = "Keep fighting -- new zones open as you grow",
+		tone = { UITheme.Color.Mint, UITheme.Color.Green },
+	},
+	climb = {
+		key = "climb",
+		icon = "\u{26F0}\u{FE0F}",
+		headline = "Climb to the next terrace",
+		subline = "Tougher creatures, higher XP drops",
+		tone = { UITheme.Color.Aqua, UITheme.Color.Blue },
+	},
+}
+
+local DOT_ORDER = { "fight", "evolve", "climb" }
 
 -- ============================================================================
 -- THE CAMERA PAN
@@ -71,8 +88,6 @@ local function panCamera()
 		skipped = true
 	end)
 
-	-- Framed off the CHARACTER's own facing rather than off world axes: the spawn faces down the
-	-- Forest street, and a pan written against +Z would be looking at a wall the day that changes.
 	local here = root.Position
 	local facing = root.CFrame.LookVector
 	local startAt = here + Vector3.new(0, 62, 0) - facing * 78
@@ -83,21 +98,16 @@ local function panCamera()
 		local t0 = os.clock()
 		while os.clock() - t0 < PAN_TIME and not skipped do
 			local a = (os.clock() - t0) / PAN_TIME
-			-- eased in and out, so it settles into the over-the-shoulder shot instead of stopping
 			local eased = a < 0.5 and 2 * a * a or 1 - (-2 * a + 2) ^ 2 / 2
 			local at = startAt:Lerp(endAt, eased)
-			-- looks at the player the whole way down, which is what makes it read as an introduction
-			-- to a character rather than a flyover of some trees
-			cam.CFrame = CFrame.lookAt(at, (player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-				or root).Position + Vector3.new(0, 2, 0))
+			local targetPos = (player.Character and player.Character:FindFirstChild("HumanoidRootPart") or root).Position + Vector3.new(0, 2, 0)
+			cam.CFrame = CFrame.lookAt(at, targetPos)
 			STEP:Wait()
 		end
 	end)
 
 	conn:Disconnect()
 
-	-- THE RESTORE, on every path. Custom + the humanoid is the state the engine builds for itself;
-	-- handing back a CFrame this file invented would leave the camera subtly wrong forever.
 	cam.CameraType = Enum.CameraType.Custom
 	if humanoid then
 		cam.CameraSubject = humanoid
@@ -108,44 +118,20 @@ local function panCamera()
 end
 
 -- ============================================================================
--- THE GUIDE
+-- THE GUIDE GUI
 -- ============================================================================
--- Its own ScreenGui: MainUI is at Luau's 200-register ceiling (see its header) and none of this is
--- HUD state. `ResetOnSpawn = false` because dying during the tutorial is the most likely moment of
--- all to still need it.
 local gui = Instance.new("ScreenGui")
 gui.Name = "FirstJoinGuide"
 gui.ResetOnSpawn = false
-gui.DisplayOrder = 110        -- over the HUD, under the zone-transition wipe (500)
+gui.DisplayOrder = 110
 gui.Parent = player:WaitForChild("PlayerGui")
 
--- ============================================================================
--- ...AND IT GETS OUT OF THE WAY OF A PANEL (15.20)
--- ============================================================================
--- `DisplayOrder` beats `ZIndex` ACROSS ScreenGuis, and it does so absolutely: this gui is at 110
--- and `EvolutionLabUI` never sets one at all, so it is at 0. No ZIndex a panel can choose will ever
--- put it over this banner. Photographed on both clients of the two-client run: "⚔️ Click a creature
--- to attack it" sat across the trade window covering BOTH offer column headers, and across the
--- trade picker's header.
---
--- Lowering `DisplayOrder` is the wrong fix -- the 110 is deliberate, because the arrow points at
--- the EVOLVE button and the banner has to clear the HUD it is talking about. What is actually true
--- is that a panel is a MODAL surface: while one is open the guide is both wrong and in the way.
---
--- So the whole gui is disabled rather than each piece hidden. One watcher, and none of the
--- visibility logic below it has to learn about panels -- including the two one-shot timed banners
--- (`TutorialDone` and the climb beat), which set `Visible` once and would otherwise each need
--- their own guard.
+local trailSuspended = false
 task.spawn(function()
 	local mainGui = player.PlayerGui:WaitForChild("EvolutionLabUI", 30)
-	if not mainGui then
-		warn("[FirstJoin] EvolutionLabUI never appeared -- the guide cannot yield to panels")
-		return
-	end
+	if not mainGui then return end
 	while true do
 		local panelOpen = false
-		-- direct children only: `registerPanel` stamps `HudPanel` on the panel itself, and every
-		-- one of them is parented straight to the ScreenGui
 		for _, child in ipairs(mainGui:GetChildren()) do
 			if child:GetAttribute("HudPanel") and child.Visible then
 				panelOpen = true
@@ -153,72 +139,207 @@ task.spawn(function()
 			end
 		end
 		gui.Enabled = not panelOpen
+		trailSuspended = panelOpen
 		task.wait(0.15)
 	end
 end)
 
+-- ============================================================================
+-- THE FLOATING BANNER CARD
+-- ============================================================================
 local banner = Instance.new("Frame")
 banner.Name = "Banner"
 banner.AnchorPoint = Vector2.new(0.5, 0)
-banner.Position = UDim2.new(0.5, 0, 0, 132)
-banner.Size = UDim2.new(0, 520, 0, 64)
-banner.BackgroundColor3 = UITheme.Color.Purple
-banner.BorderSizePixel = 0
+banner.Position = UDim2.new(0.5, 0, 0, 128)
+banner.Size = UDim2.new(0, 560, 0, 104)
+banner.BackgroundTransparency = 1
 banner.Visible = false
+banner.ZIndex = 2
 banner.Parent = gui
-do
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, 16)
-	c.Parent = banner
-	local s = Instance.new("UIStroke")
-	s.Thickness = 4
-	s.Color = UITheme.Color.Outline
-	s.Parent = banner
+
+local card, setCardTone = CardKit.Card(banner, {
+	name = "Card",
+	size = UDim2.new(1, 0, 1, 0),
+	colors = STEPS.fight.tone,
+	radius = 22,
+	studTile = 26,
+	studTransparency = 0.86,
+	zIndex = 2,
+})
+
+pcall(UITheme.DropShadow, card, UDim.new(0, 22))
+
+local iconChip = Instance.new("Frame")
+iconChip.Name = "IconChip"
+iconChip.AnchorPoint = Vector2.new(0, 0.5)
+iconChip.Position = UDim2.new(0, 14, 0.5, 0)
+iconChip.Size = UDim2.new(0, 72, 0, 72)
+iconChip.BackgroundColor3 = CardKit.WHITE
+iconChip.BackgroundTransparency = 0.80
+iconChip.BorderSizePixel = 0
+iconChip.ZIndex = 4
+iconChip.Parent = card
+CardKit.Corner(iconChip, 999)
+CardKit.Stroke(iconChip, CardKit.INK, 3)
+
+local iconImage = Instance.new("ImageLabel")
+iconImage.Name = "IconImage"
+iconImage.AnchorPoint = Vector2.new(0.5, 0.5)
+iconImage.Position = UDim2.new(0.5, 0, 0.5, 0)
+iconImage.Size = UDim2.new(0, 48, 0, 48)
+iconImage.BackgroundTransparency = 1
+iconImage.ScaleType = Enum.ScaleType.Fit
+iconImage.Visible = false
+iconImage.ZIndex = 5
+iconImage.Parent = iconChip
+
+local iconGlyph = Instance.new("TextLabel")
+iconGlyph.Name = "IconGlyph"
+iconGlyph.AnchorPoint = Vector2.new(0.5, 0.5)
+iconGlyph.Position = UDim2.new(0.5, 0, 0.5, 0)
+iconGlyph.Size = UDim2.new(0, 48, 0, 48)
+iconGlyph.BackgroundTransparency = 1
+iconGlyph.Font = UITheme.Font.Display
+iconGlyph.TextScaled = true
+iconGlyph.Text = ""
+iconGlyph.TextColor3 = CardKit.WHITE
+iconGlyph.ZIndex = 5
+iconGlyph.Parent = iconChip
+CardKit.Stroke(iconGlyph, CardKit.INK, 3)
+
+local headline = CardKit.Text(card, {
+	name = "Headline",
+	text = STEPS.fight.headline,
+	size = UDim2.new(1, -170, 0, 36),
+	position = UDim2.new(0, 96, 0, 16),
+	textSize = 24,
+	xAlign = "Left",
+	zIndex = 4,
+	strokeThickness = 3,
+})
+
+local subline = CardKit.Text(card, {
+	name = "Subline",
+	text = STEPS.fight.subline,
+	size = UDim2.new(1, -170, 0, 26),
+	position = UDim2.new(0, 96, 0, 54),
+	textSize = 17,
+	color = UITheme.Color.Cream,
+	xAlign = "Left",
+	zIndex = 4,
+	strokeThickness = 2,
+})
+
+local dotStrip = Instance.new("Frame")
+dotStrip.Name = "Dots"
+dotStrip.AnchorPoint = Vector2.new(1, 0.5)
+dotStrip.Position = UDim2.new(1, -18, 0.5, 0)
+dotStrip.Size = UDim2.new(0, 20, 0, 60)
+dotStrip.BackgroundTransparency = 1
+dotStrip.ZIndex = 4
+dotStrip.Parent = card
+
+local dotLayout = Instance.new("UIListLayout")
+dotLayout.FillDirection = Enum.FillDirection.Vertical
+dotLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+dotLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+dotLayout.Padding = UDim.new(0, 6)
+dotLayout.Parent = dotStrip
+
+local dots = {}
+for i = 1, #DOT_ORDER do
+	local dot = Instance.new("Frame")
+	dot.Name = "Dot" .. i
+	dot.Size = UDim2.new(0, 12, 0, 12)
+	dot.BackgroundColor3 = CardKit.WHITE
+	dot.BackgroundTransparency = 0.5
+	dot.BorderSizePixel = 0
+	dot.ZIndex = 5
+	dot.Parent = dotStrip
+	CardKit.Corner(dot, 999)
+	CardKit.Stroke(dot, CardKit.INK, 2)
+	dots[i] = dot
 end
 
-local bannerText = Instance.new("TextLabel")
-bannerText.Size = UDim2.new(1, -24, 1, -14)
-bannerText.Position = UDim2.new(0.5, 0, 0.5, 0)
-bannerText.AnchorPoint = Vector2.new(0.5, 0.5)
-bannerText.BackgroundTransparency = 1
-bannerText.Font = UITheme.Font.Display
-bannerText.TextScaled = true
-bannerText.TextColor3 = UITheme.Color.White
-bannerText.TextStrokeColor3 = UITheme.Color.Outline
-bannerText.TextStrokeTransparency = 0
-bannerText.Text = ""
-bannerText.Parent = banner
+local function paint(key)
+	local def = STEPS[key] or STEPS.fight
+	setCardTone(def.tone)
+	headline.Text = def.headline
+	subline.Text = def.subline
 
--- The arrow is a label, not an image: an asset id is one more thing that can be moderated away, and
--- a glyph cannot fail to load. It is pinned to the EVOLVE button's live AbsolutePosition rather than
--- to a coordinate, so the responsive pass can move that button without stranding it.
--- BESIDE THE BUTTON, NOT ABOVE IT, and the capture is what settled that. Above is the obvious place
--- and it is occupied: the evolve frame stacks a stage label, then the DNA/XP progress bar, then the
--- button, so a 64 px arrow hanging over the button covers the bar -- it hid the very "120 / 120 DNA"
--- that explains why the player is being told to press. To the left there is nothing between the
--- evolve frame and the left-hand tile column, so the arrow points across empty screen.
+	local asset = IconLibrary.Resolve(def.icon)
+	if asset then
+		iconImage.Image = asset
+		iconImage.Visible = true
+		iconGlyph.Visible = false
+	else
+		iconGlyph.Text = def.icon or ""
+		iconGlyph.Visible = true
+		iconImage.Visible = false
+	end
+
+	local reached = 0
+	if key == "done" then
+		reached = #DOT_ORDER
+	else
+		for i, name in ipairs(DOT_ORDER) do
+			if name == key then
+				reached = i
+				break
+			end
+		end
+	end
+	for i, d in ipairs(dots) do
+		d.BackgroundTransparency = (i <= reached) and 0 or 0.6
+		d.BackgroundColor3 = (i == reached) and UITheme.Color.Sunny or CardKit.WHITE
+	end
+end
+
+local paintedKey = nil
+local function paintIfChanged(key)
+	if key == paintedKey then return end
+	paintedKey = key
+	paint(key)
+	if key == "evolve" or key == "done" then
+		SoundLibrary.PlayLocal("levelUp", { volume = 0.45 })
+	end
+end
+
+-- ============================================================================
+-- 2D ARROW & PULSING UI HALO FOR EVOLVE BUTTON
+-- ============================================================================
 local arrow = Instance.new("TextLabel")
 arrow.Name = "Arrow"
 arrow.AnchorPoint = Vector2.new(1, 0.5)
-arrow.Size = UDim2.new(0, 64, 0, 64)
+arrow.Size = UDim2.new(0, 76, 0, 76)
 arrow.BackgroundTransparency = 1
 arrow.Font = UITheme.Font.Display
 arrow.TextScaled = true
-arrow.Text = "➡️"
+arrow.Text = "\u{27A1}\u{FE0F}"
 arrow.TextColor3 = UITheme.Color.White
-arrow.TextStrokeColor3 = UITheme.Color.Outline
+arrow.TextStrokeColor3 = CardKit.INK
 arrow.TextStrokeTransparency = 0
 arrow.Visible = false
+arrow.ZIndex = 4
 arrow.Parent = gui
+CardKit.Stroke(arrow, CardKit.INK, 4)
 
--- IgnoreGuiInset IS DELIBERATELY LEFT FALSE, and it is the one line here that was measured wrong
--- first. The reasoning that fails: "MainUI ignores the inset, so match it." Matching makes the two
--- render alike but breaks the arithmetic, because the two quantities this file mixes do NOT share an
--- origin -- `AbsolutePosition` is reported below the topbar, while a Position OFFSET inside an
--- inset-ignoring ScreenGui is measured from the very top of the screen. Copying `true` put the arrow
--- exactly one inset (58 px, measured) above the button, which looks like a layout bug and is really a
--- unit mismatch. Left false, the offset and the AbsolutePosition it is computed from share an origin
--- and the arrow lands where the arithmetic says.
+-- Pulsing Target Halo over the evolve button
+local buttonHalo = Instance.new("Frame")
+buttonHalo.Name = "ButtonHalo"
+buttonHalo.BackgroundTransparency = 1
+buttonHalo.BorderSizePixel = 0
+buttonHalo.Visible = false
+buttonHalo.ZIndex = 3
+buttonHalo.Parent = gui
+
+local haloStroke = Instance.new("UIStroke")
+haloStroke.Thickness = 4.5
+haloStroke.Color = UITheme.Color.Sunny
+haloStroke.Transparency = 0.2
+haloStroke.Parent = buttonHalo
+CardKit.Corner(buttonHalo, 14)
+
 gui.IgnoreGuiInset = false
 
 local function findEvolveButton()
@@ -227,23 +348,11 @@ local function findEvolveButton()
 end
 
 -- ============================================================================
--- POINTING AT SOMETHING IN THE WORLD (9.10)
+-- 3D WORLD BEACON MARKER & HIGHLIGHT
 -- ============================================================================
--- The banner could always say "click a creature"; it could never say WHICH. On a street with
--- fourteen of them walking past, an instruction with no target is still a wall of text -- the row's
--- own complaint. So the guide gets one marker it can hang over any object, and one Highlight to
--- pick that object out of the crowd.
---
--- ONE OF EACH, RE-ADORNED, never one per target. Roblox draws about 31 Highlights at once and
--- CreatureService already rents fourteen of them to the creatures nearest the player (see its
--- outline pool); a guide that created its own per candidate would quietly push that budget over and
--- take outlines off the creatures it is pointing at.
---
--- The marker is a BillboardGui rather than a beam or a part: it is always the right way up, it
--- cannot be walked behind, and it needs no per-frame CFrame maths on the client.
 local marker = Instance.new("BillboardGui")
 marker.Name = "GuideMarker"
-marker.Size = UDim2.new(0, 96, 0, 96)
+marker.Size = UDim2.new(0, 100, 0, 100)
 marker.AlwaysOnTop = true
 marker.LightInfluence = 0
 marker.Enabled = false
@@ -256,48 +365,129 @@ markerLabel.Font = UITheme.Font.Display
 markerLabel.TextScaled = true
 markerLabel.Text = "\u{2B07}\u{FE0F}"
 markerLabel.TextColor3 = UITheme.Color.White
-markerLabel.TextStrokeColor3 = UITheme.Color.Outline
+markerLabel.TextStrokeColor3 = CardKit.INK
 markerLabel.TextStrokeTransparency = 0
 markerLabel.Parent = marker
+CardKit.Stroke(markerLabel, CardKit.INK, 4)
 
 local pointHL = Instance.new("Highlight")
 pointHL.Name = "GuideHighlight"
-pointHL.FillTransparency = 0.72
+pointHL.FillTransparency = 0.70
 pointHL.FillColor = UITheme.Color.Sunny
 pointHL.OutlineColor = UITheme.Color.White
 pointHL.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 pointHL.Enabled = false
 pointHL.Parent = gui
 
--- `height` is how far above the target's own top the marker floats, so it clears a Swarmer and a
--- Guardian alike without being told how big either is.
+-- ============================================================================
+-- 3D CHEVRON TRAIL
+-- ============================================================================
+local CHEVRON_COUNT = 8
+local CHEVRON_GAP = 7
+local CHEVRON_START = 9
+local CHEVRON_ARRIVED = 14
+local CHEVRON_SPEED = 9
+
+local trailFolder = Instance.new("Folder")
+trailFolder.Name = "FirstJoinTrail"
+trailFolder.Parent = workspace
+
+local chevrons = {}
+do
+	for i = 1, CHEVRON_COUNT do
+		local p = Instance.new("Part")
+		p.Name = "Chevron" .. i
+		p.Size = Vector3.new(3.2, 3.2, 3.2)
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.CastShadow = false
+		p.Locked = true
+		p.Material = Enum.Material.Neon
+		p.Color = UITheme.Color.Sunny
+		p.Transparency = 1
+		p.Parent = trailFolder
+
+		local mesh = Instance.new("SpecialMesh")
+		local okMesh = pcall(function() mesh.MeshType = Enum.MeshType.Pyramid end)
+		if not okMesh then
+			mesh.MeshType = Enum.MeshType.Brick
+		end
+		mesh.Scale = Vector3.new(1, 1, 1)
+		mesh.Parent = p
+
+		chevrons[i] = p
+	end
+end
+
+local function hideTrail()
+	for _, p in ipairs(chevrons) do
+		p.Transparency = 1
+	end
+end
+
+local function updateTrail(toPos, tone)
+	if trailSuspended or not toPos then
+		hideTrail()
+		return
+	end
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not root then
+		hideTrail()
+		return
+	end
+
+	local from = root.Position
+	local flat = Vector3.new(toPos.X - from.X, 0, toPos.Z - from.Z)
+	local dist = flat.Magnitude
+	if dist < CHEVRON_ARRIVED then
+		hideTrail()
+		return
+	end
+	local dir = flat.Unit
+
+	local phase = (os.clock() * CHEVRON_SPEED) % CHEVRON_GAP
+	for i, p in ipairs(chevrons) do
+		local along = CHEVRON_START + (i - 1) * CHEVRON_GAP + phase
+		if along >= dist - 2 then
+			p.Transparency = 1
+		else
+			local at = from + dir * along + Vector3.new(0, 3.4, 0)
+			p.CFrame = CFrame.lookAt(at, at + dir) * CFrame.Angles(-math.pi / 2, 0, 0)
+			local fade = (i - 1) / CHEVRON_COUNT
+			p.Transparency = 0.12 + fade * 0.55
+			if tone then
+				p.Color = tone
+			end
+		end
+	end
+end
+
 local function pointAt(target, height)
 	if not target then
 		marker.Enabled = false
 		pointHL.Enabled = false
 		pointHL.Adornee = nil
 		marker.Adornee = nil
-		return
+		return nil
 	end
 	local adornee = target
 	if target:IsA("Model") then
 		adornee = target.PrimaryPart or target:FindFirstChildWhichIsA("BasePart")
 	end
-	if not adornee then return end
+	if not adornee then return nil end
 	local _, size = pcall(function() return target:IsA("Model") and select(2, target:GetBoundingBox()) or target.Size end)
 	local top = (typeof(size) == "Vector3" and size.Y or 6) * 0.5
 	marker.Adornee = adornee
-	marker.StudsOffsetWorldSpace = Vector3.new(0, top + (height or 5), 0)
+	marker.StudsOffsetWorldSpace = Vector3.new(0, top + (height or 5) + math.sin(os.clock() * 4) * 0.8, 0)
 	marker.Enabled = true
 	pointHL.Adornee = target
 	pointHL.Enabled = true
+	return adornee.Position
 end
 
--- The nearest LIVE creature. Two traps, both already paid for elsewhere in this game and both silent
--- if ignored: `workspace.Creatures` holds loose `Part`s (`DeathBurst`) as well as rigs, so anything
--- that assumes a Model errors on a bare part; and a creature's health is a replicated ATTRIBUTE, not
--- a Humanoid -- asking for `Humanoid.Health` reports zero live creatures in a world holding hundreds,
--- which reads exactly like an empty street rather than like a wrong question.
 local function nearestCreature()
 	local char = player.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -316,10 +506,6 @@ local function nearestCreature()
 	return best
 end
 
--- The nearest way UP. The flights live in `WorldShell` rather than in the zone folder, because
--- `TerraceRamp` is in ZoneBuilder's ALWAYS_LOADED set -- walkable ground that is allowed to stream
--- out is a hole to fall through. Looking for them in the zone finds nothing and looks exactly like
--- the ramps never having been built.
 local function nearestRamp()
 	local char = player.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -336,46 +522,25 @@ local function nearestRamp()
 end
 
 -- ============================================================================
--- WHAT THE PLAYER IS BEING ASKED TO DO
+-- RUNTIME GUIDE LOOP
 -- ============================================================================
--- Two steps, and which one is showing is derived from the save every tick rather than remembered.
--- A remembered step gets out of step with the world the first time something else moves the numbers
--- -- an offline payout, a code, a gift -- and then the guide is confidently wrong.
 local function stepFor(data)
 	if not data then return nil end
 	local step = GameConfig.GetEvolveStep(data)
 	if step.isMax then return nil end
-	-- XP alone, because XP alone is what the server checks now -- see DNAService.HandleEvolve. The
-	-- DNA half of this test would have told a new player they were not ready while the button they
-	-- are being pointed at was already green.
 	if (data.XP or 0) >= step.xpCost then
 		return "evolve"
 	end
 	return "fight"
 end
 
-local function textFor(which, data)
-	if which == "evolve" then
-		return "⭐ You are ready! Press EVOLVE"
-	end
-	-- ONE HINT, BECAUSE THERE IS ONE GATE. This used to branch between "attack" and "collect DNA"
-	-- depending on which of the two requirements was short, and the DNA branch is now unreachable
-	-- and would be a lie if it fired: an evolve costs XP and nothing else.
-	return "⚔️ Click a creature to attack it"
-end
-
--- Forward-declared: `runGuide` calls this and Lua binds an upvalue where a function is WRITTEN, so
--- without the name in scope here the call below would resolve to a nil global.
 local runClimbBeat
 
 local function runGuide()
 	if state.running then return end
 	state.running = true
-	-- Set on every run, not once at build time. The completion line below repaints this banner green
-	-- and never puts it back, so a guide that ever restarts -- a player who quits mid-tutorial and
-	-- returns in the same session -- would be given its instructions in the colour that means
-	-- "finished". A one-way write to shared state is a bug waiting for a second caller.
-	banner.BackgroundColor3 = UITheme.Color.Purple
+	paintedKey = nil
+	paintIfChanged("fight")
 
 	task.spawn(function()
 		local ok, err = pcall(function()
@@ -384,33 +549,34 @@ local function runGuide()
 				local which = stepFor(state.data)
 				if which then
 					banner.Visible = true
-					bannerText.Text = textFor(which, state.data)
+					paintIfChanged(which)
 				else
 					banner.Visible = false
 				end
 
-				-- the arrow belongs to the evolve step only: pointing at a button the player cannot
-				-- press yet is an instruction to do something that will fail
 				local btn = which == "evolve" and findEvolveButton() or nil
 				if btn then
 					local pos, size = btn.AbsolutePosition, btn.AbsoluteSize
-					-- the bob runs along the axis it points down, so it reads as nudging the player
-					-- toward the button rather than bouncing beside it
-					local bob = math.abs(math.sin((os.clock() - t0) * 3.4)) * ARROW_BOB
-					arrow.Position = UDim2.new(0, pos.X - 8 - bob, 0, pos.Y + size.Y * 0.5)
+					local bob = math.abs(math.sin((os.clock() - t0) * 3.6)) * ARROW_BOB
+					arrow.Position = UDim2.new(0, pos.X - 10 - bob, 0, pos.Y + size.Y * 0.5)
 					arrow.Visible = true
+
+					-- Pulsing halo around the EVOLVE button
+					buttonHalo.Position = UDim2.new(0, pos.X - 4, 0, pos.Y - 4)
+					buttonHalo.Size = UDim2.new(0, size.X + 8, 0, size.Y + 8)
+					haloStroke.Transparency = 0.15 + 0.45 * math.abs(math.sin((os.clock() - t0) * 4))
+					buttonHalo.Visible = true
 				else
 					arrow.Visible = false
+					buttonHalo.Visible = false
 				end
 
-				-- AND THE OTHER HALF OF THE INSTRUCTION (9.10). "Click a creature" names the verb;
-				-- the marker names the noun. Re-targeted every tick rather than locked on: the chosen
-				-- creature is walking, can be killed by somebody else, and can stream out -- a guide
-				-- pinned to one target ends up pointing at nothing and telling the player to hit it.
 				if which == "fight" then
-					pointAt(nearestCreature(), 6)
+					local at = pointAt(nearestCreature(), 6)
+					updateTrail(at, UITheme.Color.Sunny)
 				else
 					pointAt(nil)
+					updateTrail(nil)
 				end
 				STEP:Wait()
 			end
@@ -418,18 +584,16 @@ local function runGuide()
 
 		banner.Visible = false
 		arrow.Visible = false
+		buttonHalo.Visible = false
 		pointAt(nil)
+		updateTrail(nil)
 		state.running = false
 		if not ok then
 			warn("[FirstJoin] guide failed: " .. tostring(err))
 		end
 
-		-- The evolve itself is already celebrated by EvolveReveal's "New X Discovered!" card, so this
-		-- adds one line rather than a second card: what to do NEXT, which is the one thing that card
-		-- cannot say.
 		if state.data and state.data.TutorialDone then
-			banner.BackgroundColor3 = UITheme.Color.Green
-			bannerText.Text = "🎉 Evolved! Keep fighting -- new zones open as you grow"
+			paintIfChanged("done")
 			banner.Visible = true
 			task.delay(DONE_BANNER_TIME, function()
 				banner.Visible = false
@@ -439,48 +603,26 @@ local function runGuide()
 	end)
 end
 
--- ============================================================================
--- THE FOURTH BEAT: CLIMB (9.10)
--- ============================================================================
--- attack -> reward -> evolve are the first three and were already here. The row asks for a fourth,
--- and it is the one piece of this world nobody discovers on their own: the terraces carry the
--- stronger creatures and the shard drops, and the flights up them stand 400+ studs off the street.
--- A player who is never told looks at a valley and assumes that is the game.
---
--- SHOWN ONCE, AFTER THE EVOLVE, and driven by nothing that persists. There is no save field for it
--- and there should not be: a field means a migration and a repair for every existing save (6.3's
--- `TutorialDone` needed exactly that), for a banner that costs nothing if it is occasionally missed.
--- A session flag is the honest weight for a one-line hint.
-local CLIMB_BEAT_TIME = 7.0
-
 runClimbBeat = function()
-	if state.climbShown then return end
-	state.climbShown = true
+	paintIfChanged("climb")
+	banner.Visible = true
+	local t0 = os.clock()
 	task.spawn(function()
-		local ramp = nearestRamp()
-		-- No flight within range is a normal answer, not a failure: the arena and the Colosseum have
-		-- no terraces at all. Say nothing rather than pointing at the horizon.
-		if not ramp then return end
-		banner.BackgroundColor3 = UITheme.Color.Aqua
-		bannerText.Text = "\u{26F0}\u{FE0F} Climb up there -- tougher creatures, better drops"
-		banner.Visible = true
-		pointAt(ramp, 10)
-		local t0 = os.clock()
-		-- the pointer is kept alive on its own loop rather than left adorned: the ramp is persistent
-		-- geometry, but the player is walking, and a marker that stops updating while its target
-		-- streams in and out flickers
 		while os.clock() - t0 < CLIMB_BEAT_TIME do
+			local at = pointAt(nearestRamp(), 10)
+			updateTrail(at, UITheme.Color.Aqua)
 			STEP:Wait()
 		end
 		banner.Visible = false
 		pointAt(nil)
+		updateTrail(nil)
 	end)
 end
 
 -- ============================================================================
--- WIRING
+-- BOOTSTRAP
 -- ============================================================================
-Remotes:WaitForChild("DataUpdate").OnClientEvent:Connect(function(data)
+local function onData(data)
 	if type(data) ~= "table" then return end
 	state.data = data
 	if data.TutorialDone then return end
@@ -490,4 +632,14 @@ Remotes:WaitForChild("DataUpdate").OnClientEvent:Connect(function(data)
 		task.spawn(panCamera)
 	end
 	runGuide()
-end)
+end
+
+Remotes:WaitForChild("DataUpdate").OnClientEvent:Connect(onData)
+
+local getRemote = Remotes:FindFirstChild("GetData") or Remotes:WaitForChild("GetData", 10)
+if getRemote then
+	task.spawn(function()
+		local d = getRemote:InvokeServer()
+		if d then onData(d) end
+	end)
+end

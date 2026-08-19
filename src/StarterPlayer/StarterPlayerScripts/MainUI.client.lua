@@ -3215,9 +3215,29 @@ potionScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 potionScroll.Parent = inventoryPanel
 
 local potionListLayout = Instance.new("UIListLayout")
-potionListLayout.Padding = UDim.new(0, 6)
+potionListLayout.Padding = UDim.new(0, 8)
 potionListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 potionListLayout.Parent = potionScroll
+
+-- ROOM FOR THE OUTLINE ON ALL FOUR SIDES, which is not optional now that the cards have one. A
+-- `ScrollingFrame` clips its descendants by default and a `UIStroke` is drawn OUTSIDE the frame it
+-- belongs to, so a card sized flush to the canvas loses its left and right rim down the whole list
+-- -- the fault `ScrollingPanelBuilder` carries the same padding for, photographed there as cards
+-- with no right border.
+--
+-- THE TWO SIDES ARE NOT EQUAL, and that is the fix the second capture asked for. The scrollbar is
+-- drawn over the frame's own right edge whatever the padding is, so a symmetric 6 put the card's
+-- right rim underneath it -- visible on the capture as a pale bar cutting the top row's outline.
+-- 14 on the right is the 6 of bar plus the 4 of stroke plus 4 of daylight; the left keeps 6,
+-- because there is nothing on that edge to clear.
+do
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, 4)
+	pad.PaddingBottom = UDim.new(0, 10)
+	pad.PaddingLeft = UDim.new(0, 6)
+	pad.PaddingRight = UDim.new(0, 14)
+	pad.Parent = potionScroll
+end
 
 -- WHAT AN EMPTY SHELF SAYS. Nine greyed rows reading x0 is a price list, not an inventory: it
 -- tells a player who owns nothing that the screen is broken rather than that they have not bought
@@ -3233,76 +3253,134 @@ potionEmptyLabel.ZIndex = inventoryPanel.ZIndex + UITheme.Z.Content
 potionEmptyLabel.Parent = inventoryPanel
 themeLabel(potionEmptyLabel, 26, Color3.fromRGB(168, 176, 194))
 
+-- ===== THE SHELF SPEAKS THE REBIRTH PANEL'S CARD LANGUAGE NOW (2026-08-17) =====
+--
+-- The owner's note was two faults in one sentence: "make it look like the rebirth panel, and the
+-- potions are all blue". They have the same cause. These rows were built with `styleCard` -- the
+-- OLD surface kit, all lip and gloss and a single flat fill -- while the Rebirth, Zone, Store and
+-- Gifts panels were rebuilt on `ScrollingPanelBuilder`, whose card is an ink-outlined, studded,
+-- two-stop gradient. One flat fill per row is also exactly what made the shelf read as a blue
+-- block: the three DNA bottles are the first three rows and they shared one colour to the byte.
+--
+-- So the row is redrawn with `Modules.HUD.CardKit` -- the builder's card, extracted so a panel that
+-- is not a builder panel can still draw one (see that file for why this shelf cannot simply BECOME
+-- a builder panel: the tab strip is right-aligned inside three sibling frames and converting one
+-- tears it). And the gradient comes from `potion.colors`, which is the kind's hue washed by the
+-- size, so DNA/XP/Luck/Health are four hues and Small/Medium/Large are three strengths of each.
+--
+-- WRAPPED IN A `do` BLOCK, not written flat. This file is at Luau's 200-register ceiling and one
+-- more top-level local silently deletes the entire HUD -- the reason the Fusion, Season and tab
+-- blocks are all wrapped too. A local inside a block frees its register at the block's end;
+-- `potionRows` stays outside because `refreshInventoryPanel` reads it.
 local potionRows = {}
-for i, potion in ipairs(GameConfig.Potions) do
-	local row = Instance.new("Frame")
-	row.Name = "Potion_" .. potion.id
-	row.Size = UDim2.new(1, -10, 0, 62)
-	row.LayoutOrder = i
-	row.Parent = potionScroll
-	styleCard(row, potion.color, UDim.new(0, 14), 3)
+do
+	local CardKit = require(RS.Modules:WaitForChild("HUD"):WaitForChild("CardKit"))
+	-- Read LIVE off the scroll frame rather than computed from the panel's 20. `potionScroll` is a
+	-- direct child of a `styleCard` surface, so its ZIndex was already lifted to Content the instant
+	-- it was parented; a card authored against the un-lifted 20 would be painted under the panel's
+	-- own body and the shelf would render as an empty white sheet.
+	local baseZ = potionScroll.ZIndex + 1
+	-- The USE button's green, and the pair a row wears when you hold none of that bottle. Owning
+	-- nothing still LISTS every bottle -- that list doubles as the reference for what the shop can
+	-- hand over -- so the greyed row has to stay legible rather than disappear.
+	local USE_GREEN = { Color3.fromRGB(120, 255, 170), Color3.fromRGB(20, 200, 100) }
+	local EMPTY_GREY = { Color3.fromRGB(196, 200, 214), Color3.fromRGB(140, 146, 166) }
 
-	local icon = UITheme.IconSlot(row, {
-		name = "Icon", icon = potion.sizeEmoji, maxTextSize = 30,
-		size = UDim2.new(0, 46, 1, -10), position = UDim2.new(0, 8, 0, 5),
-	})
+	for i, potion in ipairs(GameConfig.Potions) do
+		-- 62 -> 72, AND THE SECOND NUMBER WAS MEASURED RATHER THAN CHOSEN. The card's outline is 4 px
+		-- drawn OUTSIDE its bounds and the studs need somewhere to read as texture, so the row had to
+		-- grow; the question was how far. The shelf is 326 tall against a 4/10 padding, i.e. 312 of
+		-- window, so a row plus its 8 px gap divides into it 3.9 times at 72 and only 3.6 at the 78
+		-- this was first written at -- and a capture at 78 showed three rows and a sliver where the
+		-- old shelf showed four. 3.9 is also better than a flat 4.0 would be: the part-row at the
+		-- bottom edge is the only thing on screen that says the list continues.
+		local card, setCardColors = CardKit.Card(potionScroll, {
+			name = "Potion_" .. potion.id,
+			size = UDim2.new(1, -8, 0, 72),
+			layoutOrder = i,
+			colors = potion.colors,
+			radius = 12,
+			zIndex = baseZ,
+		})
 
-	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Name = "NameLabel"
-	-- 26 -> 24 and y 6 -> 4, to hand four pixels down to the sub-label below (15.16). This label is
-	-- capped at 22px of text, so 24 is still more box than it can use.
-	nameLabel.Size = UDim2.new(1, -250, 0, 24)
-	nameLabel.Position = UDim2.new(0, 56, 0, 4)
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-	nameLabel.Text = potion.emoji .. " " .. potion.shortName
-	nameLabel.Parent = row
-	themeLabel(nameLabel, 22)
+		-- The per-SIZE bottle drawing (test tube / alembic / jar), not the kind's. The kind is what
+		-- the card is coloured, so repeating it in the picture would waste the one slot that can say
+		-- which of the three sizes this is at a glance. `IconSlot` defaults its ZIndex to the absolute
+		-- `Z.Content`, which inside a card sitting at 24-odd is UNDERNEATH it -- so it is passed
+		-- explicitly here. CardKit does not lift its children the way styleCard does; a kit that
+		-- silently renumbered what you put in it is what made the stud sheet cover the text.
+		UITheme.IconSlot(card, {
+			name = "Icon",
+			icon = potion.sizeEmoji,
+			maxTextSize = 32,
+			size = UDim2.new(0, 54, 0, 54),
+			position = UDim2.new(0, 10, 0.5, -27),
+			zIndex = baseZ + 2,
+		})
 
-	local subLabel = Instance.new("TextLabel")
-	subLabel.Name = "SubLabel"
-	-- TWO LINES, AND THE BOX IS SIZED FOR TWO (15.16). This started as "wider, and on ONE line":
-	-- the box was widened from -224 to -186 and `TextWrapped` was set false. **Neither half of that
-	-- worked.** The wrapping flag was set BEFORE `themeLabel`, and `themeLabel` sets `TextScaled`,
-	-- which turns wrapping back on -- measured live, a fresh label goes false -> true the instant
-	-- `TextScaled` is assigned, and only an assignment placed after it sticks. And the width was
-	-- never enough anyway: measured at the 14px floor, the four longest strings need **300, 305,
-	-- 310 and 320px** on one line against the **288** this box actually gets, so switching wrapping
-	-- off would have truncated the "  •  20 min" tail rather than fixing anything.
-	--
-	-- It cannot get wider -- the count sits at -168 and the button at -100 -- so it gets taller.
-	-- Wrapped at 288 those strings need 28px; the box is 30, sitting between the name label (which
-	-- gave up 4px above) and the row's own 62, so there is clearance at both ends. This is the DNA
-	-- bottles' row too, and they still take one line and sit at the top of it.
-	subLabel.Size = UDim2.new(1, -186, 0, 30)
-	subLabel.Position = UDim2.new(0, 56, 0, 28)
-	subLabel.BackgroundTransparency = 1
-	subLabel.TextXAlignment = Enum.TextXAlignment.Left
-	subLabel.Text = ("%s  \u{2022}  %d min"):format(potion.effectText, potion.minutes)
-	subLabel.Parent = row
-	themeLabel(subLabel, 17, UITheme.Color.Cream)
+		CardKit.Text(card, {
+			name = "NameLabel",
+			text = potion.shortName,
+			size = UDim2.new(1, -234, 0, 24),
+			position = UDim2.new(0, 74, 0, 6),
+			textSize = 22,
+			zIndex = baseZ + 2,
+			strokeThickness = 4,
+		})
 
-	local countLabel = Instance.new("TextLabel")
-	countLabel.Name = "CountLabel"
-	countLabel.Size = UDim2.new(0, 62, 1, -10)
-	countLabel.Position = UDim2.new(1, -168, 0, 5)
-	countLabel.BackgroundTransparency = 1
-	countLabel.Text = "x0"
-	countLabel.Parent = row
-	themeLabel(countLabel, 26)
+		-- TWO LINES, AND THE BOX IS SIZED FOR TWO -- 15.16's finding, kept, because the strings did
+		-- not get shorter. Measured at 15 px the four longest need more than the 308 this box gets on
+		-- one line, and Luck's "+120% egg, pet, character and mutation luck  •  20 min" needs nearly
+		-- 400. What changed is that asking for wrapping now WORKS: `themeLabel` used to assign
+		-- `TextScaled` after the flag was set and turn it back on, and `CardKit.Text` never touches
+		-- TextScaled at all.
+		CardKit.Text(card, {
+			name = "SubLabel",
+			text = ("%s  \u{2022}  %d min"):format(potion.effectText, potion.minutes),
+			size = UDim2.new(1, -234, 0, 34),
+			position = UDim2.new(0, 74, 0, 31),
+			textSize = 15,
+			color = Color3.fromRGB(244, 247, 255),
+			wrapped = true,
+			yAlign = "Top",
+			zIndex = baseZ + 2,
+			strokeThickness = 3,
+		})
 
-	local useBtn = Instance.new("TextButton")
-	useBtn.Name = "UseButton"
-	useBtn.Size = UDim2.new(0, 92, 0, 42)
-	useBtn.Position = UDim2.new(1, -100, 0.5, -21)
-	useBtn.Text = "USE"
-	useBtn.Parent = row
-	styleButton(useBtn, UITheme.Color.Green, UDim.new(1, 0))
-	useBtn.MouseButton1Click:Connect(function()
-		Remotes.UsePotion:FireServer(potion.id)
-	end)
+		-- A COUNT IS AN OBJECT, NOT A WORD IN THE SENTENCE. "x6" drawn as loose white text on the
+		-- gradient sat at the same weight as the effect line beside it and read as part of it. The
+		-- capsule gives it an edge to sit against, which is what every other quantity on this HUD has.
+		local _, countLabel = CardKit.Pill(card, {
+			name = "Count",
+			text = "x0",
+			size = UDim2.new(0, 52, 0, 32),
+			position = UDim2.new(1, -152, 0.5, -16),
+			textSize = 22,
+			zIndex = baseZ + 2,
+		})
 
-	potionRows[potion.id] = { row = row, countLabel = countLabel, useBtn = useBtn }
+		local _, useHandle = CardKit.Button(card, {
+			name = "UseButton",
+			text = "USE",
+			size = UDim2.new(0, 92, 0, 42),
+			position = UDim2.new(1, -100, 0.5, -21),
+			colors = USE_GREEN,
+			textSize = 24,
+			zIndex = baseZ + 2,
+			callback = function()
+				Remotes.UsePotion:FireServer(potion.id)
+			end,
+		})
+
+		potionRows[potion.id] = {
+			card = card,
+			setCardColors = setCardColors,
+			countLabel = countLabel,
+			useHandle = useHandle,
+			owned = potion.colors,
+			empty = EMPTY_GREY,
+		}
+	end
 end
 
 -- No opener: the Inventory tile was removed from the left column. `inventoryPanel` stays built and
@@ -3326,8 +3404,11 @@ local function refreshInventoryPanel()
 		local refs = potionRows[potion.id]
 		local count = held[potion.id] or 0
 		refs.countLabel.Text = "x" .. count
-		refs.useBtn.Visible = count > 0
-		UITheme.SetColor(refs.row, count > 0 and potion.color or UITheme.Color.Locked)
+		-- GREYED, NOT HIDDEN. A button that vanishes takes the row's only affordance with it and the
+		-- card stops saying what it would do; `SetEnabled` also guards the click, so a stale card
+		-- between DataUpdates cannot fire `UsePotion` for a bottle already drunk.
+		refs.useHandle.SetEnabled(count > 0)
+		refs.setCardColors(count > 0 and refs.owned or refs.empty)
 	end
 
 	-- ONE LINE IN THE HEADER BAND, not three rows in ninety pixels of white -- see the note where the
@@ -4588,6 +4669,11 @@ Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 	refreshInventoryPanel()
 	refreshCharacterPanel()
 	if hudRefs.refreshAurasPanel then hudRefs.refreshAurasPanel() end
+	-- Guarded like the Auras line above rather than called bare, and for the same reason: both are
+	-- published by sibling modules under `Modules.HUD`, so a require that is ever reordered or a
+	-- module that fails to load shows up as a stale panel instead of taking this whole handler --
+	-- and with it every other panel's refresh -- down on a nil call.
+	if hudRefs.refreshRelicsPanel then hudRefs.refreshRelicsPanel() end
 
 	-- LAST, and that is load-bearing: the card reads `hudRefs.seasonClaimCount()`, which is the
 	-- number `refreshSeasonPanel` wrote a few lines up. Called before it, the count is 0 on the one
@@ -4862,6 +4948,119 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		celebratePurchase(payload.message, payload.color or Color3.fromRGB(120, 226, 168))
 	elseif payload.kind == "bossDefeated" then
 		celebratePurchase("👑 " .. payload.name .. " defeated!\n+" .. formatNumber(payload.amount) .. " DNA", UITheme.Color.Gold)
+	elseif payload.kind == "relic" then
+		-- ===== THE RELIC TOAST (17.6) =====
+		--
+		-- `RelicService` fires this from two places -- a chest opening and a forge press -- and the
+		-- range inside one kind is wider than anything else in this handler: the same payload covers
+		-- "your fourth Melon Slice" and "the single Mythic in the game, which you will see once".
+		-- Announcing both the same way is the mistake `character` was caught making above, where every
+		-- unlock in the game came out as one flat line. So the branch splits on the payload rather
+		-- than on the kind, and the split is deliberately narrow: **a FIRST Legendary or Mythic** gets
+		-- the middle of the screen, and everything else -- every duplicate, every forge, and the first
+		-- copy of the eleven relics below Legendary -- gets a toast.
+		--
+		-- WHY THE LINE IS AT "NEW *AND* LEGENDARY+" AND NOT AT EITHER HALF. `isNew` alone would put a
+		-- first Lucky Carrot on the same card as the Heart of the Lab, and there are five Commons: the
+		-- big card would be most players' first relic experience and then never mean anything again.
+		-- Rarity alone is worse -- the Mythic is a single relic, so a lucky player who rolls it twice
+		-- would get the full celebration for a duplicate that does nothing but feed a future forge.
+		-- Both together is the honest test for "this will not happen again": three of the fifteen
+		-- relics can reach it, once each per save.
+		--
+		-- ONE `local` PER LINE AND ALL OF THEM INSIDE THIS BRANCH. This file is at Luau's 200-register
+		-- ceiling and a top-level local here silently deletes the whole HUD -- see the header, and the
+		-- Season Pass note where a bare `do ... end` was not enough. Everything below is scoped to the
+		-- handler's own function, which has registers to spare, and `IconLibrary` is reached through a
+		-- require expression rather than a hoisted module reference for the same reason `UITheme`
+		-- re-exports `HasIcon`.
+		local relic = GameConfig.RelicsByKey[payload.relicKey or ""]
+		local rarity = GameConfig.RelicRarityByKey[payload.rarity or ""]
+
+		-- THE SOUND IS ALREADY PLAYING AND THIS IS NOT A SECOND ONE. `SoundLibrary.PlayNotify` ran at
+		-- the top of the handler and, per the new `relic = "hatch"` row, started the hatch chime at its
+		-- flat 1.0 pitch -- because that function is handed a payload it does not read the rarity out
+		-- of. This re-plays the SAME cached 2D instance (one per name, restarted rather than layered)
+		-- with the rarity's pitch applied, in the same frame, so what the player hears is one sting
+		-- that got heavier as the tier went up: 1.30 for a Common, 0.68 for the Mythic. See the long
+		-- note over NOTIFY_SOUND for why the pitch is applied here rather than in that table.
+		SoundLibrary.PlayHatch(payload.rarity)
+
+		if payload.isNew and (payload.rarity == "Legendary" or payload.rarity == "Mythic") then
+			-- THE DEEP SWATCH, NOT THE BRIGHT ONE, AND THAT IS THE OPPOSITE OF THE TOAST BELOW.
+			-- `celebratePurchase` hands its colour straight to `styleCard` with no lift, while
+			-- `showNotification` pushes whatever it is given to full saturation first. The two rarities
+			-- that can reach this card are the palest in the ladder -- Legendary is a cream gold at
+			-- luminance ~0.85, which is a hair off the 0.86 cut where this kit flips its ink dark --
+			-- so filling a 330x74 card with `.color` would put 21 px of haloed white text on the one
+			-- surface in the game sitting on that boundary. `.deep` is the same hue with the
+			-- saturation a big fill needs, and it lands both tiers squarely in the white-ink band.
+			--
+			-- TWO LINES, AND THE SECOND ONE IS JUST THE NAME. Measured rather than guessed, the same
+			-- way the offline card above was: the label is 300x56 wrapped and `themeLabel` floors at
+			-- 14 px, so a third row does not shrink to fit, it pins at the floor and clips. The relic's
+			-- own `effectText` reads "+36% DNA from every source" -- 45 characters once the name is in
+			-- front of it, which is half again the 29 that card measured as safe. The number belongs in
+			-- `RelicsPanel`, on the socket, where it stays readable for as long as the relic is worn;
+			-- this card's job is to say WHAT DROPPED, loudly, once.
+			celebratePurchase(("\u{1F52E} %s RELIC!\n%s"):format(
+				(payload.rarity or ""):upper(),
+				(relic and relic.name) or payload.relicKey or "Relic"),
+				(rarity and rarity.deep) or UITheme.Color.Lavender)
+		else
+			-- THE SERVER'S OWN WORDING, NOT A SECOND COPY OF IT. `RelicService` already writes the two
+			-- sentences this path needs -- "Rare relic! Ancient Femur", "Melon Slice  ·  copy 4",
+			-- "Golden Apple forged to Lv.3!" -- and it is the side that knows whether a merge happened,
+			-- so rebuilding them here would be two authors for one string and a `merged` branch that
+			-- adds nothing. Same call as the `reward` branch above, for the same reason.
+			--
+			-- The auto-equip is the one fact the message does NOT carry, and it is the one a player
+			-- cannot otherwise discover without opening the panel: `HandleOpenChest` slides a first
+			-- copy into a free socket, so the relic is ALREADY paying out. A reward that is silently
+			-- live reads as a reward that did nothing.
+			local text = "\u{1F52E} " .. (payload.message or (relic and relic.name) or "Relic")
+			if payload.equipped then
+				text = text .. "  \u{00B7}  equipped"
+			end
+			showNotification(text, (rarity and rarity.color) or UITheme.Color.Lavender, notifRank)
+
+			-- ===== THE CHIP CARRIES THE RELIC'S OWN DRAWING =====
+			--
+			-- Fifteen relics have real art banked in `IconLibrary` (the 2026-08-17 upload) and this is
+			-- the first surface outside the panel that can show it. It cannot arrive the normal way:
+			-- `showNotification` splits a LEADING EMOJI off the text and resolves it, and a relic's key
+			-- is not an emoji -- `IconLibrary.Resolve` would answer nil for "amethyst", and the id it
+			-- would have to carry instead is 33 characters, past the 8-byte head the splitter accepts.
+			--
+			-- So the toast is raised with 🔮 (mapped -> `orb`), which guarantees the chip is built as
+			-- an ImageLabel rather than a glyph TextLabel, and the drawing is then swapped in. That is
+			-- a supported move, not a poke at private state: `iconSlot` subscribes its drop shadow to
+			-- the icon's `Image` property precisely so a later swap stays in step -- see its own
+			-- comment, "SetIcon can swap the drawing; the shadow has to follow it". The orb is also the
+			-- correct FALLBACK on its own for a relicKey this client has never heard of, which is what
+			-- an older client sees after a relic is added to the config.
+			--
+			-- `IconLibrary.Id` IS THE RIGHT DOOR AND `Resolve` IS NOT. `Resolve` is the emoji map;
+			-- `Id` is the asset table it reads out of, keyed by the same names `relic.icon` holds, and
+			-- its values are complete "rbxassetid://..." strings -- so this assigns one straight to
+			-- `Image` with no concatenation. The ids in there for these fifteen are the IMAGE ids
+			-- pulled out of the owner's Decals, never the Decal ids: a Decal id in `ImageLabel.Image`
+			-- renders nothing at all and reports no error.
+			--
+			-- Found by name off `notifFrame` rather than returned, because `showNotification` returns
+			-- nothing and giving it a return value is a change to a function twenty other call sites
+			-- share. The card is the one it just built: `Seq` is bumped and stamped into the name
+			-- inside that call, and eviction runs BEFORE the new card is parented, so the newest can
+			-- never be the one that was destroyed. Every step is guarded -- a missing chip means the
+			-- toast simply keeps the orb.
+			local card = notifFrame:FindFirstChild("Notif" .. tostring(notifFrame:GetAttribute("Seq") or 0))
+			local chip = card and card:FindFirstChild("Chip")
+			local slot = chip and chip:FindFirstChild("Icon")
+			local art = relic and require(RS.Modules.IconLibrary).Id[relic.icon]
+			if art and slot and slot:IsA("ImageLabel") then
+				slot.Image = art
+			end
+		end
 	elseif payload.kind == "error" then
 		showNotification("❌ " .. payload.message, Color3.fromRGB(200, 60, 60), notifRank)
 	end

@@ -161,6 +161,50 @@ local ID = {
 	wormhole     = "rbxassetid://83004249894908",
 	xp           = "rbxassetid://90055084700953",
 	zone         = "rbxassetid://77905538933584",   -- store
+
+	-- ========================================================================
+	-- THE 2026-08-17 UPLOAD, AND THE ONE THING THAT MAKES IT NON-OBVIOUS
+	-- ========================================================================
+	--
+	-- These arrived in the owner's Toolbox as **Decal** assets, and a Decal id put into
+	-- `ImageLabel.Image` DOES NOT RENDER -- measured, not assumed: nine of them were probed live and
+	-- every one came back `IsLoaded = false` while a known-good Image id in the same probe came back
+	-- true. A Decal is a wrapper; the id below each is the IMAGE INSIDE it, pulled with
+	-- `InsertService:LoadAsset(decalId)` and read off the `Decal.Texture` of the model it returns.
+	--
+	-- **So never paste a Toolbox id straight into this table.** The number the Toolbox pane shows and
+	-- the number that renders are different numbers, and the failure is silent -- a blank square, no
+	-- warning, nothing in the output. Run the LoadAsset probe (see `HANDOFF-LOG.md` for the snippet).
+	--
+	-- The food and junk items are the RELIC art, banked ahead of the feature. They have no emoji
+	-- mapping and no caller yet, deliberately: `RelicsPanel` still owns no schema, and a drawing with
+	-- a name is not a design. When relics exist, the art is already here and already verified.
+	amethyst     = "rbxassetid://114856404123259",  -- the purple crystal
+	apple_gold   = "rbxassetid://134181389232174",
+	bone         = "rbxassetid://118569577828216",
+	bullet       = "rbxassetid://99203026125033",
+	carrot       = "rbxassetid://101201784811109",
+	chicken_leg  = "rbxassetid://76457217153613",
+	donut        = "rbxassetid://84237544547078",
+	fat          = "rbxassetid://106959573928371",
+	glasses      = "rbxassetid://79739587595333",
+	gold_pieces  = "rbxassetid://100608064980367",
+	ice_cream    = "rbxassetid://85934511398769",
+	meat         = "rbxassetid://102437076121625",
+	pizza        = "rbxassetid://82255332030872",
+	scroll       = "rbxassetid://105872367758963",
+	watermelon   = "rbxassetid://83492622609213",
+
+	-- Chrome that DOES have callers, wired below.
+	pet_dog      = "rbxassetid://116115997044622",  -- the Pets tab and tile
+	portal       = "rbxassetid://135230134031189",
+	potion_purple = "rbxassetid://117409864519201", -- the Luck bottle, now that Luck is violet
+	potion_white = "rbxassetid://78117226639199",
+	swords       = "rbxassetid://115197317627143",  -- crossed pair, unlike the single `sword`
+	tools        = "rbxassetid://86418694686311",
+	touch        = "rbxassetid://135788107581617",
+	trade        = "rbxassetid://140143138808728",  -- the Trade panels and the trade toast
+	trophy       = "rbxassetid://82857133407630",
 }
 IconLibrary.Id = ID
 
@@ -217,7 +261,13 @@ local BY_EMOJI = {
 	["\u{2697}"]  = "potion",
 	["\u{1F95A}"] = "egg",       -- 🥚
 	["\u{1F423}"] = "egg",       -- 🐣
-	["\u{1F43E}"] = "paw",       -- 🐾
+	-- 🐾 IS THE PETS SHELF, AND IT IS A DOG NOW (2026-08-17). The paw print is a correct drawing of
+	-- the glyph and a weak drawing of the THING: at the 19 px the Inventory tab strip renders it, two
+	-- toe pads and a heel read as a smudge, and it sat next to a potion bottle and a crystal orb --
+	-- both of which are pictures of objects. The owner's new art is a dog, which is what a pet is.
+	-- `paw` keeps its row: it is still the right icon for a footprint, and deleting an id that other
+	-- surfaces could want costs nothing to keep.
+	["\u{1F43E}"] = "pet_dog",   -- 🐾
 
 	-- navigation and screens
 	["\u{1F4D2}"] = "book",      -- 📒
@@ -323,7 +373,11 @@ local BY_EMOJI = {
 	["\u{2620}"]  = "skull",
 	["\u{2728}"]  = "sparkle",   -- ✨ the season track's shard face, and "NEW FORM"
 	["\u{1F52E}"] = "orb",       -- 🔮 the Mystery Potions shop
-	["\u{1F91D}"] = "handshake", -- 🤝 "Trade complete!"
+	-- 🤝 IS TRADING, AND IT GETS THE TRADE ARROWS (2026-08-17). The handshake is a picture of the
+	-- MOMENT a trade closes; every surface that draws this glyph -- the Trade modal, the picker, the
+	-- invite prompt and the "Trade complete!" toast -- is about the EXCHANGE, which is two arrows
+	-- swapping. It also read as a single blob at tab size, the same fault the paw had.
+	["\u{1F91D}"] = "trade",     -- 🤝
 	["\u{1F3E0}"] = "home",      -- 🏠 the arena's Back portal
 	["\u{2744}\u{FE0F}"] = "snow",    -- ❄️ the "Frostbloom" season
 	["\u{2744}"]  = "snow",

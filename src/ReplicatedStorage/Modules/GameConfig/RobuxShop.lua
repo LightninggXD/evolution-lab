@@ -204,6 +204,9 @@ function GameConfig.GetXPMult(data)
 	-- time: the weekend's double XP reached the creature kill AND the boss kill by being written
 	-- once, in the one function both of them already went through.
 	return GameConfig.GetPotionMult(data, "xp") * GameConfig.GetPassMult(data, "xpMult")
+		-- ...and the relics, for the third time the extraction pays for itself: two relic rows carry
+		-- an XP line and neither the creature kill nor the boss kill had to learn that relics exist.
+		* GameConfig.GetRelicMult(data, "xpMult")
 		* GameConfig.GetEventMult("xpMult")
 end
 

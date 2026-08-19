@@ -1408,6 +1408,35 @@ local NOTIFY_RANK = {
 	bossDefeated = 2,  robuxPurchase = 2,   dailyReward = 2,     playtimeGift = 2,
 	offline = 2,       reward = 2,          questComplete = 2,   stageMastery = 2,
 	fuse = 2,          spin = 2,            bossRevive = 2,
+	-- RELIC IS A 2, AND THE ARGUMENT IS ABOUT THE ORDINARY ONE RATHER THAN THE MYTHIC.
+	--
+	-- This table is keyed by KIND, not by payload, so the number has to be chosen for the message
+	-- that actually reaches this stack -- and the loudest relic moments never do. A first Legendary
+	-- or a first Mythic is drawn by `celebratePurchase`, which is its own layer at ZIndex 80, one at
+	-- a time, above the stack entirely; nothing here can evict it and it does not need a rank. What
+	-- this row governs is everything else: the first Common through Epic of each relic, every
+	-- duplicate, and every forge.
+	--
+	-- WHY NOT 1. Rank 1 is "repeatable but deliberate" -- an upgrade bought, a potion drunk, things
+	-- the player can do again in the next ten seconds and usually does. A relic arrives on a
+	-- fifteen-minute chest timer or on a 40-diamond press, and ELEVEN of the fifteen first copies
+	-- land in this branch: a first copy is permanent, moves the "7 / 15" line in `RelicsPanel`, and
+	-- is never announced again. That is the rank-2 test as written above -- "none of these will be
+	-- said again" -- and it is the same test that put `fuse` and `spin` on this rung, which are the
+	-- two events this one most resembles: a roll with a rarity on it, resolved once.
+	--
+	-- WHY NOT 3, WHICH IS THE INTERESTING HALF. Rank 3 is not a general "important" bucket, it is
+	-- the answer to something the player just pressed, and `error` is only undroppable because it is
+	-- ALONE up there. The eviction sort is (rank, then seq) with the front of the list destroyed, so
+	-- ties inside a rank are broken by AGE -- four relic toasts at rank 3 would make the older
+	-- refusal beneath them the first thing thrown away, which is precisely the failure this table
+	-- was written to stop. A payout cannot be allowed to outrank a refusal.
+	--
+	-- FLOODING IS NOT A RISK AT 2. The rate limit is the chest itself: one free chest per fifteen
+	-- minutes, plus whatever the player chooses to buy, plus a forge press that costs three spare
+	-- copies and scaled DNA. Nothing here fires on a timer the way `crit` and `diamond` did, so
+	-- sharing a rung with zone unlocks and evolves costs those nothing in practice.
+	relic = 2,
 	upgrade = 1,       diamondUpgrade = 1,  potion = 1,
 	crit = 0,          diamond = 0,
 }

@@ -10,44 +10,193 @@ local SeasonPassService = require(script.Parent.SeasonPassService)
 -- function that knows what that is. No cycle -- DNAService requires PlayerDataService and PetService
 -- and neither of those reaches back here.
 local DNAService = require(script.Parent.DNAService)
+-- Both added 2026-08-17 for the two new wheel segments, and both are CALLS INTO THE OWNING SERVICE
+-- rather than reimplementations. `RelicService.GiveChest` is the seam that file's own header names
+-- for exactly this ("a future boss drop or hidden passage"); `PetService.GrantWheelPet` is the door
+-- onto `insertPet`, which is the one place in the game a pet is created.
+--
+-- NEITHER IS A CYCLE, and it is worth stating which way the arrows point because a require loop here
+-- would break the receipt handler rather than fail loudly. `RelicService` requires GameConfig and
+-- PlayerDataService and nothing else. `PetService` requires GameConfig, PlayerDataService,
+-- SeasonPassService and AnnounceService -- and is ALREADY in this file's require graph anyway, since
+-- `DNAService` above requires it. Nothing in either reaches back to this file.
+local RelicService = require(script.Parent.RelicService)
+local PetService = require(script.Parent.PetService)
 
 local RobuxShopService = {}
+
+-- The wheel's own remote, created on demand like every other one added since the place was last
+-- saved by hand. See the long note over `notifySpin` for why the reveal does not ride on `Notify`.
+local function ensureRemote(name)
+	local r = Remotes:FindFirstChild(name)
+	if not r then
+		r = Instance.new("RemoteEvent")
+		r.Name = name
+		r.Parent = Remotes
+	end
+	return r
+end
+
+local SpinResult = ensureRemote("SpinResult")
 
 -- ===== THE LUCKY SPIN, GRANTED SERVER-SIDE OFF THE PLAYER'S OWN LUCK =====
 --
 -- The client never sees the wheel turn until the server has already decided. That ordering is the
 -- whole security model of a paid gamble: if the client picked the segment and told the server, every
--- spin would be a jackpot within a day of launch.
+-- spin would be a jackpot within a day of launch. The animation the player watches is a LIE THAT
+-- ARRIVES AT A PREDETERMINED TRUTH -- it is handed the winning index and works backwards to a
+-- rotation that lands there, which is how every case-opener and prize wheel worth copying is built.
 --
 -- DNA is SCALED and everything else is not, for exactly the reasons the grant block below states --
 -- a DNA figure is authored in stage-one clicks and has to be converted to where the buyer stands,
 -- while diamonds, shards and potions are fixed-size objects that do not ride the stage curve.
+--
+-- ===== EVERY SEGMENT THE ROLL CAN RETURN MUST BE PAYABLE HERE =====
+--
+-- This function and `GameConfig.SpinWheel` are one thing wearing two files. A row the roll can
+-- produce and this cannot pay is not a bug that throws -- it is a player who watched the wheel stop
+-- on a prize and received nothing, silently, with the money already gone. So the twelve rows map
+-- onto exactly five branches plus the two below them, and adding a row means adding its branch in
+-- the same edit or the row does not go in.
+--
+-- Returns the segment AND a `detail` table the reveal quotes: the actual DNA figure after scaling,
+-- the pet's real species, the potion's real name. The client cannot compute any of those -- scaling
+-- needs the save and the pet is rolled here -- and a reveal that says "Mystery Pet" where the player
+-- actually got a Trilobite is a worse reveal than one that names it.
 local function applySpin(player, data)
 	local segment = GameConfig.RollSpin(DNAService.GetLuckPercent(data))
+	local detail = {}
 
 	if segment.dna then
-		data.DNA += GameConfig.ScaleReward(segment.dna, data)
+		-- kept, not recomputed: this is the number that actually landed in the save, and it is the
+		-- number the card should read
+		local paid = GameConfig.ScaleReward(segment.dna, data)
+		data.DNA += paid
+		detail.dna = paid
 	end
 	if segment.diamonds then
 		data.Diamonds = (data.Diamonds or 0) + segment.diamonds
+		detail.diamonds = segment.diamonds
 	end
 	if segment.shards then
 		data.EvolutionShards = (data.EvolutionShards or 0) + segment.shards
+		detail.shards = segment.shards
 	end
 	if segment.potions then
 		GameConfig.AddPotions(data, segment.potionId, segment.potions)
+		local potion = GameConfig.GetPotion(segment.potionId)
+		detail.potion = potion and potion.shortName or nil
+		detail.potions = segment.potions
+	end
+	-- Banked UNOPENED, which is the whole point of `GiveChest` existing separately from opening one.
+	-- The reveal on this wheel is "you won a chest"; what is inside it is the Relic Forge's reveal,
+	-- and stacking the two would spend the forge's moment on a wheel that has already had one.
+	--
+	-- It re-fetches the same cached save table this function was handed -- same object, so the write
+	-- lands where we expect -- and pushes to the client itself. That extra push is a few hundred
+	-- bytes and it is not worth an argument to `GiveChest` to suppress: the caller below pushes again
+	-- straight after and a duplicate DataUpdate is idempotent on the client.
+	if segment.relicChests then
+		RelicService.GiveChest(player, segment.relicChests)
+		detail.relicChests = segment.relicChests
+	end
+	if segment.pet then
+		local petDef, why = PetService.GrantWheelPet(data)
+		if petDef then
+			detail.petKey = petDef.key
+			detail.petName = petDef.name
+			detail.petEmoji = petDef.emoji
+			detail.petRarity = petDef.rarity
+		else
+			-- A FULL BAG MUST NOT MEAN AN EMPTY SPIN. The player has already paid -- Robux, 25 Shards,
+			-- or their one free spin of the day -- and `GrantWheelPet` refuses rather than silently
+			-- dropping the pet precisely so this branch can exist. 25 Shards is the substitute because
+			-- it is a real row on this same wheel at a comparable weight, so nobody is being fobbed
+			-- off with a token, and because shards are the one currency a player with 200 pets
+			-- certainly still wants (they buy more spins).
+			--
+			-- `detail.substituted` carries the reason to the reveal, which says so out loud. A prize
+			-- quietly swapped for a different prize is how a player concludes the wheel is rigged.
+			data.EvolutionShards = (data.EvolutionShards or 0) + 25
+			detail.shards = 25
+			detail.substituted = (why == "full") and "Pet inventory full" or "No pet available"
+		end
 	end
 
-	return segment
+	return segment, detail
 end
 
-local function notifySpin(player, segment)
-	Remotes.Notify:FireClient(player, {
-		kind = "spin",
-		segmentKey = segment.key,
-		emoji = segment.emoji,
-		name = segment.name,
-	})
+-- ===== ONE PRESS, A CHAIN OF SPINS =====
+--
+-- `respin` is a segment that pays another spin, so a press is not one roll any more, it is a LIST of
+-- rolls terminated by the first non-respin. Rolled to the end here, server-side, before the client
+-- is told anything -- the client is then handed the finished list and plays it as a sequence of
+-- animations. It must never be handed one segment at a time and asked to come back for the next: a
+-- client that stopped asking after the respin would have been paid for a spin it never watched, and
+-- one that asked twice would want paying twice.
+--
+-- Bounded by `GameConfig.SpinMaxChain` -- see the note there for why a fuse rather than a balance
+-- number. On the last allowed iteration a respin is REPLACED by the wheel's first segment rather
+-- than dropped, so even the impossible case pays something.
+local function rollSpinChain(player, data)
+	local chain = {}
+	local cap = GameConfig.SpinMaxChain or 12
+
+	for i = 1, cap do
+		local segment, detail = applySpin(player, data)
+
+		if segment.respin and i == cap then
+			-- the fuse blowing. Pay the commonest row instead and stop; `applySpin` has already been
+			-- run for the respin, which grants nothing, so there is nothing to unwind.
+			local fallback = GameConfig.SpinWheel[1]
+			local paid = fallback.dna and GameConfig.ScaleReward(fallback.dna, data) or 0
+			data.DNA += paid
+			table.insert(chain, { segment = fallback, detail = { dna = paid } })
+			break
+		end
+
+		table.insert(chain, { segment = segment, detail = detail })
+		if not segment.respin then break end
+	end
+
+	return chain
+end
+
+-- ===== TELLING THE CLIENT, ON ITS OWN REMOTE =====
+--
+-- This used to fire `Remotes.Notify` with `kind = "spin"` and MainUI drew a toast. It now fires a
+-- dedicated `SpinResult` and `SpinReveal.client.lua` draws the wheel, and the reason for a separate
+-- remote rather than a richer notify is not tidiness:
+--
+--   1. `Notify` IS A TOAST BUS. `SoundLibrary.PlayNotify` plays a sound for every `kind` in its
+--      table -- `spin` maps to `purchase` -- and MainUI's handler draws a card for it. Both of those
+--      would fire the instant the server paid out, i.e. roughly five seconds before the wheel
+--      actually stops on the prize, announcing the answer over the top of its own suspense.
+--   2. A CHAIN IS NOT A NOTIFICATION. The payload is now an ordered list of spins with a detail
+--      table each; that is a shape the twenty-branch notify handler has no business growing.
+--
+-- **MainUI's `kind == "spin"` branch is therefore now dead code**, deliberately and in exactly the
+-- way `crit` and `machine` in `SoundLibrary.NOTIFY_SOUND` are dead: nothing sends that kind any more.
+-- It is left alone rather than deleted because that file is at Luau's register ceiling and a branch
+-- nobody reaches costs nothing. If the wheel ever needs a silent fallback again, sending `spin`
+-- brings the old toast straight back.
+local function notifySpin(player, chain)
+	local spins = {}
+	for _, entry in ipairs(chain) do
+		table.insert(spins, {
+			-- THE INDEX IS THE WHOLE POINT OF THIS PAYLOAD. The client lands the pointer by position
+			-- in `GameConfig.SpinWheel`, and it is computed here off the same table rather than
+			-- matched by key on the far side -- a client running an older GameConfig would otherwise
+			-- silently animate to the wrong pod. `GetSpinIndex` returns nil for a key this build has
+			-- never heard of and the client treats nil as "do not animate, just show the card".
+			index = GameConfig.GetSpinIndex(entry.segment.key),
+			key = entry.segment.key,
+			emoji = entry.segment.emoji,
+			name = entry.segment.name,
+			detail = entry.detail,
+		})
+	end
+	SpinResult:FireClient(player, { spins = spins })
 end
 
 local function getProductByPurchaseId(productId)
@@ -117,9 +266,9 @@ local function processReceipt(receiptInfo)
 	if product.grantSeasonPremium then
 		SeasonPassService.GrantPremium(player)
 	end
-	local spinSegment
+	local spinChain
 	if product.grantSpin then
-		spinSegment = applySpin(player, data)
+		spinChain = rollSpinChain(player, data)
 	end
 	-- A COUNT, not an event, and deliberately NOT put through ScaleReward: a revive is one fixed-size
 	-- object like a potion bottle, not a currency riding the stage curve.
@@ -156,8 +305,8 @@ local function processReceipt(receiptInfo)
 	PlayerDataService.PushToClient(player)
 	-- The spin announces ITSELF, and only itself. Firing the generic "Purchased!" card as well would
 	-- stack two celebrations on one click and bury the one the player actually paid to see.
-	if spinSegment then
-		notifySpin(player, spinSegment)
+	if spinChain then
+		notifySpin(player, spinChain)
 	elseif not announced then
 		Remotes.Notify:FireClient(player, { kind = "robuxPurchase", name = product.name })
 	end
@@ -182,15 +331,22 @@ end
 -- spin, which is this same wheel reached by a different trigger and must not become a second copy
 -- of the grant logic. And while every productId is still 0 there is no way to make a real receipt
 -- arrive, so without a public entry point the paid path could only be READ, never run -- which the
--- ROADMAP does not accept as verification. Grants and announces one spin; returns the segment.
+-- ROADMAP does not accept as verification.
+--
+-- Grants and announces one PRESS, which since the `respin` segment landed is a chain of one or more
+-- spins rather than a single roll. It still returns the segment the press finally paid out on -- the
+-- LAST link, never the respins on the way there -- because that is what its two callers
+-- (`SpendShardSpin` and `RewardService.HandleFreeSpin`) mean by "what did I win", and because both
+-- of them are tested by reading that return value rather than by watching a screen.
 function RobuxShopService.GrantSpin(player)
 	local data = PlayerDataService.Get(player)
 	if not data then return nil end
-	local segment = applySpin(player, data)
+	local chain = rollSpinChain(player, data)
 	PlayerDataService.UpdateLeaderstats(player)
 	PlayerDataService.PushToClient(player)
-	notifySpin(player, segment)
-	return segment
+	notifySpin(player, chain)
+	local last = chain[#chain]
+	return last and last.segment or nil
 end
 
 -- ===== THE SAME WHEEL, PAID FOR IN EVOLUTION SHARDS (9.4) =====
@@ -238,13 +394,10 @@ end
 function RobuxShopService.Init()
 	MarketplaceService.ProcessReceipt = processReceipt
 
-	-- created on demand, like every remote added since the place was last saved by hand
-	local shardSpin = Remotes:FindFirstChild("SpinWithShards")
-	if not shardSpin then
-		shardSpin = Instance.new("RemoteEvent")
-		shardSpin.Name = "SpinWithShards"
-		shardSpin.Parent = Remotes
-	end
+	-- created on demand, like every remote added since the place was last saved by hand. `SpinResult`
+	-- is made at module load rather than here, because `notifySpin` closes over it and a receipt can
+	-- in principle arrive before `Init` runs.
+	local shardSpin = ensureRemote("SpinWithShards")
 	shardSpin.OnServerEvent:Connect(function(player)
 		RobuxShopService.SpendShardSpin(player)
 	end)

@@ -2176,7 +2176,25 @@ decorationBuilders.MirrorUniverse = function(model, zone, cx)
 
 	-- SIGNATURE: the inverted world overhead. A single reflective ceiling plane high above turns
 	-- the whole platform into its own reflection -- the cheapest possible "mirror universe".
-	newPart({ Name = "MirrorCeiling", Size = Vector3.new(PLATFORM_WIDTH - 30, 2, PLATFORM_DEPTH - 30), Position = Vector3.new(cx, 118, 0), Color = Color3.fromRGB(196, 204, 228), Material = Enum.Material.Glass, Reflectance = 0.85, Transparency = 0.25, CanCollide = false, Parent = model })
+	--
+	-- ===== IT WAS READING AS A LID OF WATER (2026-08-17) =====
+	--
+	-- Reported as "ovde neka voda ima gore na mirror zoni", and the capture is unambiguous: the whole
+	-- frame is washed pale blue-white, the character included. At **Transparency 0.25** this is a
+	-- 95%-opaque pane the size of the entire platform hanging 118 studs up, so any camera pitched even
+	-- slightly upward -- which is most of them, because the player is looking at a body that is 13
+	-- studs tall at the top stage -- fills with it. Reflectance 0.85 makes that worse rather than
+	-- better: the sheet is not just solid, it is BRIGHT, so it blows out everything behind it.
+	--
+	-- 0.25 -> 0.78 and 118 -> 140. Both halves matter and they fix different things. The transparency
+	-- is what stops it being a ceiling; the height is what stops it being a ceiling you can READ as
+	-- one -- at 118 it sits close enough to the terraces to look attached to the world, and at 140 it
+	-- is clearly sky. Still under the 180-stud boundary wall, so it does not poke out of the box.
+	--
+	-- REFLECTANCE IS UNTOUCHED at 0.85, because it is the entire feature. A transparent pane still
+	-- reflects; what changes is that you now see the reflection INSTEAD OF the pane. That is what the
+	-- line above always meant by "the inverted world overhead".
+	newPart({ Name = "MirrorCeiling", Size = Vector3.new(PLATFORM_WIDTH - 30, 2, PLATFORM_DEPTH - 30), Position = Vector3.new(cx, 140, 0), Color = Color3.fromRGB(196, 204, 228), Material = Enum.Material.Glass, Reflectance = 0.85, Transparency = 0.78, CanCollide = false, Parent = model })
 
 	-- MID: shattered panes leaning on the floor, catching light at broken angles
 	for _ = 1, 20 do

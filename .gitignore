@@ -38,3 +38,6 @@ tools/manifest.json
 /temp.py
 /temp_*.txt
 /temp_*.json
+
+# Scratch from the Studio<->disk reconciliation: manifests, pulled copies, receiver logs
+tools/_*

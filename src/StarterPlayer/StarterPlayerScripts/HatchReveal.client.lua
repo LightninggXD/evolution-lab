@@ -275,7 +275,9 @@ local function play(payload)
 		-- 4. THE PET RISES. Built from the key the server sent, at the tier it sent, so what comes
 		-- out of the egg is the actual thing that was added to the inventory.
 		if def then
-			local model, body, pieces = PetModel.Build(def, payload.tier or "Normal", { scale = 1.5 })
+			-- `fx`: the hatch is the one moment the pet is the only thing on screen, so the mesh
+			-- species get the sparkle rig they shipped with here even though the podium copies do not
+			local model, body, pieces = PetModel.Build(def, payload.tier or "Normal", { scale = 1.5, fx = true })
 			for _, d in ipairs(model:GetDescendants()) do
 				if d:IsA("BasePart") then
 					d.CanCollide = false

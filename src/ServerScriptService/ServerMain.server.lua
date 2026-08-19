@@ -20,6 +20,7 @@ local RebirthShrine = require(ServerScriptService.RebirthShrine)
 local SplicerService = require(ServerScriptService.SplicerService)
 local RewardService = require(ServerScriptService.RewardService)
 local PotionService = require(ServerScriptService.PotionService)
+local RelicService = require(ServerScriptService.RelicService)
 local PassService = require(ServerScriptService.PassService)
 local RobuxShopService = require(ServerScriptService.RobuxShopService)
 local PlaytimeGiftService = require(ServerScriptService.PlaytimeGiftService)
@@ -87,6 +88,11 @@ RebirthService.Init()
 RebirthShrine.Init()
 RewardService.Init()
 PotionService.Init()
+-- ANYWHERE AFTER PlayerDataService, and that is the whole constraint. RelicService wires four
+-- remotes and reads nothing at init time -- no world furniture, no prompts, no other service. It
+-- sits here beside PotionService because a relic and a potion are the same KIND of thing to this
+-- file (a consumable-ish inventory owned by the player), not because anything requires it to.
+RelicService.Init()
 -- before RobuxShopService: both take a Robux purchase path, and PassService owns the one that has
 -- to be answered on join (a pass is permanent and is read by the stat functions on the first click,
 -- where a developer product is a one-off receipt that can arrive whenever)

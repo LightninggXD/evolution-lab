@@ -21,13 +21,26 @@ return function(GameConfig)
 -- `data.Potions` is a table keyed by potion id ('dna_s'), and `data.PotionBoosts` is keyed by KIND
 -- ('dna'). Both are string-keyed on purpose: a table whose only keys are integers is a sparse array
 -- and Roblox silently drops those crossing a RemoteEvent -- the bug that ate EquippedCharacters.
+-- ===== ONE HUE PER KIND, AND `deep` IS HALF OF IT (2026-08-17) =====
+--
+-- Every bottle used to carry a single flat `color`, and the shelf was read back as "they are all
+-- blue" -- which was true of the first screen of it: the three DNA sizes are the first three rows,
+-- they shared one colour exactly, and a player scrolling past them saw one blue block. A kind now
+-- carries a PAIR, and the card is a gradient between them, so a row has a top and a bottom rather
+-- than a wash. The per-size shade below is the other half of the same fix.
+--
+-- HEALTH IS THE GREEN ONE AND LUCK IS THE PURPLE ONE, which is a swap: luck used to own green on
+-- the strength of its clover. Green is the colour a health bar is in every game ever made and the
+-- owner asked for it by name, so health takes it and luck moves to the violet it shares with the
+-- rest of the game's "chance" surfaces. The clover ICON does not move -- it is still the luck
+-- bottle's picture, now on a violet card, which is the same arrangement the XP star has on gold.
 GameConfig.PotionKinds = {
-	{ key = "dna",  name = "DNA",  emoji = "\u{1F9EC}", imageId = "rbxassetid://75203508047474", color = Color3.fromRGB(96, 200, 255),  blurb = "DNA from every source" },
-	{ key = "xp",   name = "XP",   emoji = "\u{2B50}",  imageId = "rbxassetid://73470472846526", color = Color3.fromRGB(255, 206, 92),  blurb = "Evolution XP" },
+	{ key = "dna",  name = "DNA",  emoji = "\u{1F9EC}", imageId = "rbxassetid://75203508047474", color = Color3.fromRGB(120, 212, 255), deep = Color3.fromRGB(30, 118, 232),  blurb = "DNA from every source" },
+	{ key = "xp",   name = "XP",   emoji = "\u{2B50}",  imageId = "rbxassetid://73470472846526", color = Color3.fromRGB(255, 222, 120), deep = Color3.fromRGB(240, 150, 20),  blurb = "Evolution XP" },
 	-- NOT the blue bottle: that is DNA's, and the two kinds sat side by side in the shop wearing the
-	-- same picture. There is no green bottle in the art, so Luck takes its own emoji's drawing --
-	-- which is green, and is what every other Luck surface in the game already shows.
-	{ key = "luck", name = "Luck", emoji = "\u{1F340}", imageId = "rbxassetid://140260937065697", color = Color3.fromRGB(126, 226, 132), blurb = "egg, pet, character and mutation luck" },
+	-- same picture. There is no violet bottle in the art either, so Luck takes its own emoji's
+	-- drawing -- the clover, which is what every other Luck surface in the game already shows.
+	{ key = "luck", name = "Luck", emoji = "\u{1F340}", imageId = "rbxassetid://140260937065697", color = Color3.fromRGB(198, 152, 255), deep = Color3.fromRGB(118, 58, 220), blurb = "egg, pet, character and mutation luck" },
 	-- ===== THE FOURTH KIND (11.8) =====
 	--
 	-- Nine potions become twelve without a single new potion being written, because the loop below
@@ -39,17 +52,38 @@ GameConfig.PotionKinds = {
 	-- twenty minutes is not a consumable, it is a different game. `healthMult` is its own column on
 	-- the sizes table so the numbers can be gentle (1.5 / 2 / 2.5) while the table still refuses to
 	-- let a new size skip it.
-	{ key = "health", name = "Health", emoji = "\u{2764}\u{FE0F}", imageId = "rbxassetid://138146402871393", color = Color3.fromRGB(255, 104, 118), blurb = "max health, and faster regeneration" },
+	-- ===== HEALTH IS THE ONE HUE THAT HAD TO DODGE THE BUTTON (2026-08-17) =====
+	--
+	-- Green health is what was asked for and it is the right answer -- but the shelf's USE button is
+	-- also green (`120,255,170 -> 20,200,100`, the Rebirth panel's READY pair), and the first draft
+	-- put a mint button on a mint card. Photographed: on the Small Health row the two were near
+	-- enough the same colour that the button read as a panel of the card rather than a control.
+	--
+	-- The fix is the CARD's, not the button's, because the button is shared: one action colour across
+	-- twelve rows is the thing that makes "the green one is the one you press" learnable, and a green
+	-- that goes teal on one kind teaches nothing. So health takes a deeper forest ramp, and the button
+	-- is then the brightest and most saturated object on the row at both ends of it -- lighter than
+	-- the card at the bottom, more saturated at the top.
+	{ key = "health", name = "Health", emoji = "\u{2764}\u{FE0F}", imageId = "rbxassetid://138146402871393", color = Color3.fromRGB(116, 214, 140), deep = Color3.fromRGB(14, 120, 66), blurb = "max health, and faster regeneration" },
 }
 
 -- Luck is an ADDITIVE percentage everywhere else in the game (upgrades give +2 a level, pets give
 -- luckAdd), so a luck potion has to add too -- a multiplier on a stat that starts at zero does
 -- nothing at all for a new player, which is exactly who buys the first one.
+--
+-- `wash` IS THE OTHER HALF OF THE COLOUR FIX. The kind decides the hue; the size decides how much
+-- of it there is. A Small bottle is the hue washed most of the way toward white and a Large is the
+-- hue at full strength, so the three DNA rows are three visibly different blues rather than one
+-- blue printed three times -- and the ordering carries meaning, because a stronger card IS the
+-- stronger potion. It is a lerp factor toward white and nothing else reads it, so a fourth size
+-- added later only has to pick a number between 0 and 1.
 GameConfig.PotionSizes = {
-	{ key = "s", name = "Small",  emoji = "\u{1F9EA}", minutes = 5,  mult = 2, luckAdd = 25,  healthMult = 1.5, regenMult = 3, costMult = 1 },
-	{ key = "m", name = "Medium", emoji = "\u{2697}\u{FE0F}", minutes = 10, mult = 3, luckAdd = 55,  healthMult = 2.0, regenMult = 5, costMult = 2.8 },
-	{ key = "l", name = "Large",  emoji = "\u{1F36F}", minutes = 20, mult = 5, luckAdd = 120, healthMult = 2.5, regenMult = 8, costMult = 7 },
+	{ key = "s", name = "Small",  emoji = "\u{1F9EA}", minutes = 5,  mult = 2, luckAdd = 25,  healthMult = 1.5, regenMult = 3, costMult = 1, wash = 0.38 },
+	{ key = "m", name = "Medium", emoji = "\u{2697}\u{FE0F}", minutes = 10, mult = 3, luckAdd = 55,  healthMult = 2.0, regenMult = 5, costMult = 2.8, wash = 0.18 },
+	{ key = "l", name = "Large",  emoji = "\u{1F36F}", minutes = 20, mult = 5, luckAdd = 120, healthMult = 2.5, regenMult = 8, costMult = 7, wash = 0 },
 }
+
+local POTION_WHITE = Color3.fromRGB(255, 255, 255)
 
 -- The nine, built from the two lists above so a size or an effect can never be added to one and
 -- forgotten in the other.
@@ -66,6 +100,17 @@ for _, kind in ipairs(GameConfig.PotionKinds) do
 			emoji = kind.emoji,
 			sizeEmoji = size.emoji,
 			color = kind.color,
+			-- The gradient the card is painted with, top to bottom: the kind's light stop and its deep
+			-- stop, both washed by the size. Computed HERE rather than at the panel, because three
+			-- surfaces draw a potion (the shelf, the shop tile and the boost toast) and a colour ramp
+			-- recomputed at each of them is three chances to drift.
+			--
+			-- `deep` is guarded rather than required: a kind written without one is a kind that shows
+			-- a flat card, which is the old look and not a crash.
+			colors = {
+				kind.color:Lerp(POTION_WHITE, size.wash),
+				(kind.deep or kind.color):Lerp(POTION_WHITE, size.wash),
+			},
 			minutes = size.minutes,
 			seconds = size.minutes * 60,
 			-- Each kind carries exactly the field it acts through and nils the rest: luck is additive

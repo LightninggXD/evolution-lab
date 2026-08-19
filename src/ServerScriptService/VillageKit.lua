@@ -572,6 +572,95 @@ local function addStall(model, base, accent, title, wares)
 end
 
 -- The village well: a cobbled rim, a roof on two posts, a bucket on a rope.
+-- ===== THE OTHER SHOP SHELL: A TIMBER MARKET KIOSK =====
+--
+-- `addStall` above is a white panel-and-glass kiosk and it is right for a potion dispenser. The
+-- Fusion Lab and the Upgrade Emporium get this one instead -- the timber kiosk model in
+-- `ServerStorage.Models.PetStallKiosk`: a striped awning on four posts, a plank counter you walk
+-- up to and a lantern hung off the corner. It is a shop with a shopkeeper's side and a customer's
+-- side, which is what those two counters actually are.
+--
+-- WHY THE GAME CARRIES TWO SHELLS. It is information: from the far end of the street a timber
+-- awning is a Fusion Lab or an Emporium and a white slab is a Mystery counter, before either sign
+-- is close enough to read.
+--
+-- SCALE. The model ships 12.4 x 11 x 13.4 studs and a late-chain character stands about 30, so at
+-- 1x it is a doll's house. 5.5x puts the awning ridge at ~62 and the counter rail at ~19, which is
+-- the same read `addStall` has at SHOP_SCALE -- see the note there for why the shop has to be the
+-- tallest thing on the street.
+local WOOD_KIOSK_SCALE = 5.5
+
+-- Returns the counter, same as `addStall`: it is what a caller hangs a ProximityPrompt on.
+local function addWoodKiosk(model, base, accent, title, wares)
+	local template = ServerStorage:FindFirstChild("Models")
+		and ServerStorage.Models:FindFirstChild("PetStallKiosk")
+	-- An inserted model can simply be missing, and a shop with no shell is a shop nobody finds --
+	-- so the fallback is the shell that is built out of parts and cannot go anywhere.
+	if not template then
+		return addStall(model, base, accent, title, wares)
+	end
+
+	local F = WOOD_KIOSK_SCALE
+	local DECK = Color3.fromRGB(112, 78, 46)
+	local COUNTER = Color3.fromRGB(139, 94, 54)
+
+	-- The deck goes down first and the kiosk stands on it. The model's floor is its own y = 0 and
+	-- the ground under a shop is not flat in every biome, so without this the front posts hang.
+	newPart({ Name = "StallDeck", Size = Vector3.new(14 * F, 1.6, 15 * F), CFrame = base * CFrame.new(0, 0.8, 0), Color = DECK, Material = Enum.Material.WoodPlanks, Parent = model })
+
+	local kiosk = template:Clone()
+	kiosk.Name = "ShopKiosk"
+	kiosk:ScaleTo(F)
+	kiosk.Parent = model
+	-- the template's pivot is its own base centre, and the model faces +Z -- which is the customer
+	-- side of `base` for every shop in the game (see the forecourt pads at +Z below)
+	kiosk:PivotTo(base * CFrame.new(0, 1.6, 0))
+	for _, d in ipairs(kiosk:GetDescendants()) do
+		if d:IsA("BasePart") then
+			-- inserted geometry arrives unanchored and shadow-casting: unanchored is a shop that
+			-- falls through the world on the first physics step, and this is a spot where players
+			-- stand still and look at things
+			d.Anchored = true
+			d.CastShadow = false
+		end
+	end
+
+	-- The counter cap, laid along the model's own counter rail (3.1 in template units). Prompts
+	-- hang on this: a prompt needs one part, and it should be the one the player is standing at.
+	local counter = newPart({ Name = "StallCounter", Size = Vector3.new(9.4 * F, 0.5 * F, 1.3 * F), CFrame = base * CFrame.new(0, 1.6 + 3.35 * F, 6.1 * F), Color = COUNTER, Material = Enum.Material.Wood, Parent = model })
+
+	-- The timber has no accent colour of its own, and the zone's is what tells one shop from the
+	-- next on a dark street -- so it arrives as light rather than as paint, exactly as it does on
+	-- the panel kiosk.
+	local function strip(name, size, cf, bright, range)
+		local p = newPart({ Name = name, Size = size, CFrame = cf, Color = accent, Material = Enum.Material.Neon, CanCollide = false, CastShadow = false, Parent = model })
+		if bright then addLight(p, accent, range or 24, bright) end
+		return p
+	end
+	strip("StallCounterLight", Vector3.new(9.4 * F, 0.16 * F, 0.22 * F), base * CFrame.new(0, 1.6 + 3.1 * F, 6.78 * F), 1, 26)
+	strip("StallPlinthLight", Vector3.new(14.2 * F, 0.4, 0.6), base * CFrame.new(0, 1.7, 7.5 * F))
+
+	-- the forecourt: two lit treads leading up to the counter, so the ground in front of the shop
+	-- says "walk here" the way the panel kiosk's pads do. Cut to two and to half the depth the
+	-- panel kiosk uses: this shell is 68 studs wide against that one's 83, and three full-width
+	-- pads in front of it read as a runway rather than as a doorstep.
+	for i = 0, 1 do
+		newPart({ Name = "StallPad", Size = Vector3.new((11 - i * 1.6) * F, 0.3, 2.2 * F), CFrame = base * CFrame.new(0, 0.2, (9.4 + i * 2.6) * F), Color = i % 2 == 0 and Color3.fromRGB(228, 214, 190) or accent, Material = i % 2 == 0 and Enum.Material.SmoothPlastic or Enum.Material.Neon, Transparency = i % 2 == 0 and 0 or 0.55, CanCollide = false, CastShadow = false, Parent = model })
+	end
+
+	-- three wares standing on the counter, in the colours the panel kiosk shelves them in
+	for i, c in ipairs(wares or {}) do
+		if i <= 3 then
+			newPart({ Name = "StallWare", Shape = Enum.PartType.Ball, Size = Vector3.new(1.1 * F, 1.1 * F, 1.1 * F), CFrame = base * CFrame.new((-3.2 + (i - 1) * 3.2) * F, 1.6 + 4.2 * F, 5.6 * F), Color = c, Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
+		end
+	end
+
+	-- clear of the awning (top ~62), the same way the panel kiosk's board clears its canopy
+	makeSign(model, title, base * CFrame.new(0, 1.6 + 12.4 * F, 3 * F), UDim2.new(24 * 2.6, 0, 7 * 2.6, 0), { maxDistance = 640 })
+
+	return counter
+end
+
 local function addWell(model, base, zone)
 	local tones = stoneTones(zone)
 	for i = 0, 11 do
@@ -603,6 +692,10 @@ return {
 
 	addLamp = addLamp,
 	addStall = addStall,
+
+	addWoodKiosk = addWoodKiosk,
 	addWell = addWell,
 	SHOP_SCALE = SHOP_SCALE,
+
+	WOOD_KIOSK_SCALE = WOOD_KIOSK_SCALE,
 }

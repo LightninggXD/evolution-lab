@@ -69,9 +69,27 @@ GameConfig.BaseJumpPower = 44
 -- where it used to run 1.0 -> 9.0. A late-stage player was tall enough that a whole platform read
 -- as a small room, and every prop beside them looked like furniture in a doll's house. The growth
 -- is still monotonic and every evolve is still visible; it is the top of the curve that came down.
+--
+-- ===== AND 60 -> 52 (2026-08-17, same day, second report) =====
+--
+-- "i dalje previsoko skacem". Measured on the live character rather than argued about: a max-stage
+-- body was sitting at exactly `MaxJumpPower`, so the cap IS the jump for anyone past roughly stage
+-- eight and the only number worth moving is this one.
+--
+--   60 -> 9.17 studs of apex, 0.61 s of air
+--   52 -> 6.89 studs of apex, 0.53 s of air
+--
+-- **6.89 is chosen against the tallest thing a player must get on top of, which is the 6-stud
+-- podium** -- see the list in `BaseJumpPower`'s note above (plaza deck 3, podium 6, shop steps 2).
+-- It clears that by 0.89 studs and clears everything else by a lot, and it is the lowest cap that
+-- still does. Going further means a player cannot mount their own podium, which is a bug rather
+-- than a tuning choice, so **52 is the floor: do not lower this without first lowering the podium.**
+--
+-- The 26-stud terrace riser in `ZoneTerrain` is untouched and is now 19 studs clear rather than 17.
+-- Nothing else in the game reads this.
 GameConfig.SpeedScaleExponent = 0.82
 GameConfig.MaxWalkSpeed = 150
-GameConfig.MaxJumpPower = 60
+GameConfig.MaxJumpPower = 52
 
 -- How much of the size a character actually gets back as pace. Shared by walk and jump so a giant
 -- that covers ground quickly can also still clear its own shop steps.
