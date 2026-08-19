@@ -793,6 +793,147 @@ carry colour and depth.
 
 ---
 
+## Phase 19 — Launch hygiene · *opened 2026-08-19 · ship before the 4 September publish*
+
+**Opened by the owner with one instruction: research what the market rewards, find the bugs, and
+plan the game to launch modern and go viral.** The research is in `docs/VIRAL-PLAN.md`; the phases
+below are what it asks for, and the three decisions she took on 2026-08-19 are what shaped them:
+**soft launch on 4 September** (publish without a push, use two weeks as the real test, relaunch
+when the numbers are good), **all three social directions phased** rather than one bet, and **full
+modernisation** — the core loop is in scope, not only additions.
+
+**The session opened on something worse than a bug, and it is the reason 19.0 exists.** The
+standing hash sweep found ten files disagreeing with Studio, and a provenance run — hashing every
+historical revision of each path — MISSED on seven. Studio was holding a full session of work that
+had never been on disk in any commit, in an unsaved session that a Studio restart would have taken.
+See the Changelog for what it was and how it came back.
+
+**One rule this phase paid for, and it retires a line in two memory notes.** The HTTP bridge was
+never one-way. `HttpService:PostAsync` was always available; what refused a POST was
+`python -m http.server`, which answers **501 Unsupported method**. `tools/recv_server.py` is the
+other half of the bridge: it writes a POSTed body to a repo-confined path and returns
+`"<length> <rolling-hash>"` for the Luau side to check against its own before trusting the write.
+**13 files, 461 KB, all matched on the first attempt.** Hand-transcribed diffs are no longer the
+recovery path.
+
+| ID | | Task | Check | Verified how |
+|---|---|---|---|---|
+| 19.0 | `[x]` | **`src/` and Studio had diverged in BOTH directions, and neither copy was safe to keep.** Pull every divergent file into a quarantine folder and commit it before deciding anything; then merge per file on evidence, not on which side was opened last | A full sweep reporting every file identical | **done 2026-08-19**: 117 of 117 byte-identical, the first fully clean sweep since the drift opened. Studio was newer on six files plus three modules in no commit at all; disk was newer on five. Detail in the Changelog |
+| 19.1 | `[ ]` | **Banked Relic Chests can never be opened — this is paid content that pays nothing.** The Lucky Wheel's `relic` segment (weight **5**, so ~1 in 20 of every 99 R$ spin, 25-shard spin and free daily spin) calls `RelicService.GiveChest`, which does `data.RelicChests += 1`, and `SpinReveal` tells the player *"1 Relic Chest — open it in the Forge."* **`HandleOpenChest`'s `"banked"` branch is sent by nothing**: the only two `OpenRelicChest:FireServer` calls send `"free"` and `"diamonds"`. The panel never reads or displays the count, and `RelicChests` is not in `defaultData()`. Worse, an unknown `source` falls through to the **free-timer** branch, so the only players who can spend these are the ones crafting the call by hand | Land the relic segment, see a count in the Forge, open it, see the count fall and a relic arrive. Control: the free timer must NOT have fired | — |
+| 19.2 | `[ ]` | **One error in the spin reveal kills the Lucky Wheel for the rest of the session while the server keeps charging.** `draining` is cleared only on the drain loop's normal exit, and the five builders run **outside** the `pcall` — which wraps the animation only, inside a different `task.spawn`. Any error there strands `draining == true`: every later `SpinResult` is queued and the drain returns immediately. The player pays Robux, shards or their free daily, the server grants normally, and **the client shows nothing at all** — the notify fallback was deliberately removed. Unrecoverable without a rejoin | Throw on purpose inside `buildWheel`, then fire three more results and see all three render | — |
+| 19.3 | `[ ]` | **The new-player tutorial can silently never run.** `FirstJoin` falls back to `Remotes.GetData:InvokeServer()` and **there is no `RemoteFunction` and no `OnServerInvoke` anywhere in the game** — `luaremotes` finds it, and it is dead code that also blocks the thread for 10 s. What it existed to catch is real: if `PushToClient` lands before `FirstJoin` reaches its `DataUpdate` connect — after 7 `WaitForChild`s, 5 `require`s and a ScreenGui plus 8 chevron Parts — `state.data` stays nil, `runGuide()` never fires, and the pan, banner, arrow and trail never appear. It self-heals only on the next push. Fix it the way the rest of the client already works (a re-push, or a `StringValue` like `LiveEvents`), not with a new remote | Win the race on purpose and see the guide run; `luaremotes` clean | — |
+| 19.4 | `[ ]` | **`CardKit.Button` throws the first time a colourless button is re-enabled.** `Card`/`Button` default a missing `opts.colors` at construction but `baseColors` captures the **raw** value, so the button renders, greys correctly on `SetEnabled(false)`, and then indexes nil in `SetGradient` on the way back. All six current callers pass `colors`; this is a brand-new kit being adopted across three files, and disabled→enabled is the path the next caller will take. Same file: `Pill` uses `opts.transparency or 0.18`, so an explicit `0` silently becomes `0.18` | Build a button with no `colors`, disable it, enable it | — |
+| 19.5 | `[ ]` | **Two `FirstJoin` faults that only show on the device a new player is actually on.** `findEvolveButton()` does a **recursive** `FindFirstChild` over the whole HUD **every Heartbeat** while the evolve step is live — hoist it and re-resolve only when nil or reparented. And `marker` (a BillboardGui) and `pointHL` (a Highlight) are parented to the ScreenGui but are not `GuiObject`s, so `gui.Enabled = false` does not hide them: open any panel and the creature stays outlined with a beacon over it, behind the panel | A capture with the Store open showing no outline and no beacon | — |
+| 19.6 | `[ ]` | **The Gemini compaction of `FirstJoin` dropped 391 lines, almost all of them the design comments this project keeps on purpose.** 19.0 proved disk was the descendant and pushed it, so the running file is right and this is documentation debt, not a defect. The 915-line Studio copy is preserved at `git show ea70c71:tools/_studio_pull/FirstJoin.client.lua` and is the source to restore from | The comments are back and the file still hashes identical to Studio after the push | — |
+| 19.7 | `[ ]` | **`DailyPanel` fires `BuyResource` and no server listens** (`luaremotes`, second finding). The panel is required by nothing, so this is dead code recovered from Studio in 19.0 rather than a live break — decide whether the panel is finished or deleted, and do not leave a third daily surface beside `DailyRewardsPanel` and the old one | `luaremotes` clean | — |
+| 19.8 | `[ ]` | **Finish the Phase 18 grey-UI pass**, because the UI is the first thing a soft-launch cohort sees: rows **18.6**, **18.7**, **18.8**, **18.10** and **18.12** are all still open. 18.12 must move the game-pass column into `ShopPanel` *before* the old panels are deleted — the pass storefront lives only in the old one | Each row's own check | — |
+| 19.9 | `[ ]` | **The Splicer is 260 studs from where it is meant to be.** Live console this session: `preferred spot was occupied; machine moved 260 studs to (120, 30)`. It is a machine the player has to find, and a placement search only knows the world that existed when it ran | The machine stands at its authored spot with a capture | — |
+| 19.10 | `[ ]` | **Two documents actively lie about trading and will mislead the next cold agent.** `TradeService`'s own header and this file's Phase 8 preamble both say nothing can reach it. `ServerMain` requires it, calls `Init()`, and all seven remotes exist; row 8.6 is `[x]` further down this same file | Both texts match the code | — |
+| 19.11 | `[ ]` 👤 | **The launch gates, all owner-only.** Game **icon + thumbnail** (6.5) — this one gates every number in the plan, because click-through is read as a quality signal; **group id** (5.5), which switches on a reward tree that is already built; **one real Robux purchase** (1.7 / 2.11 / 3.8 / 11.12); **streaming radii** (0.4); and **save + republish**, which 16.9 and 15.10 have both been owed for days | Each row's own check | — |
+
+---
+
+## Phase 20 — Instrumentation · *ship before 4 September — it is the point of a soft launch*
+
+**A soft launch you cannot measure is just a quiet launch.** The game emits nothing today: no
+`AnalyticsService`, no funnel, no economy events. Roblox's June 2026 discovery update grades
+**D1, D2–7 and D8–28 as three separate signals** alongside session quality and spend, and the
+Creator Analytics dashboard is where those are read. Benchmarks a simulator is judged against:
+**D1 35% good / 40%+ excellent, D7 18% / 20%+**, with over 80% of lifetime revenue coming from
+players who survive week one.
+
+| ID | | Task | Check |
+|---|---|---|---|
+| 20.1 | `[ ]` | **Onboarding funnel** — `LogOnboardingFunnelStepEvent` for joined → loading done → first swing → first kill → first evolve → tutorial done → first zone change → first egg. This turns "the FTUE is fine" into the step number where the cohort actually leaves | Every step non-zero in the dashboard within 24 h |
+| 20.2 | `[ ]` | **Economy events** — `LogEconomyEvent` on every source and sink of DNA, Diamonds and Shards, and on every product and pass. It is how a sink nobody uses and a faucet that inflates become visible instead of argued about | Both directions appear for all three currencies |
+| 20.3 | `[ ]` | **Custom events** for the moments the later phases are about: trade opened / completed, friend in server, world-boss contribution, mutation rolled, spin taken, chest opened | Each fires once in a scripted session |
+| 20.4 | `[ ]` | **Session-end state** — did the session end with a bar over 80%, a claimable reward, or a running timer? Unfinished business is the D2 return driver, and this is the only way to know whether the game produces any | A distribution, not a single number |
+| 20.5 | `[ ]` | **Baseline in the first 72 h**, written into this file as the number every later phase is compared against | D1 / D2–7 / session length / play-through rate recorded |
+
+---
+
+## Phase 21 — The first ten minutes, and the daily hook · *before 4 September if it fits, else launch week*
+
+Cheap, no new systems. The FTUE is already better tuned than most — the first evolve costs **1 XP,
+not 50**, so time-to-first-evolve is 10–20 s after the loading wipe, and the camera pan is 3.4 s
+against the 15 s that costs 5% of a cohort. These rows are the gaps around it.
+
+| ID | | Task |
+|---|---|---|
+| 21.1 | `[ ]` | **Trading is fully built and invisible.** All seven remotes are live and `TradePanel` is 1,011 lines, but the only door is knowing to click another player. Give it an HUD tile and a prompt over nearby players |
+| 21.2 | `[ ]` | **The daily ladder stops after day 7.** Loop it at a higher tier, and show the day-7 reward from day 1 as the thing being climbed towards |
+| 21.3 | `[ ]` | **A persistent daily playtime ladder** beside the session one. The session gifts correctly reward long sittings and stay; a player with three 20-minute sessions is served by nothing |
+| 21.4 | `[ ]` | **Guarantee unfinished business at session end** — a bar over 80%, a pending reward, or a running timer. Measured by 20.4 |
+| 21.5 | `[ ]` | **Audit the Day-3 wall.** Chart what is genuinely new at 2–3 hours. Today it is zone 2 and the first boss key; the terraces are the next new verb and they are rebirth-gated, far past hour 3 |
+| 21.6 | `[ ]` | **A starter pack** at 49–99 R$, shown once to players who have never spent. ~95% of players who spend once spend again, and the game has 19 products and nothing aimed at the first purchase. 👤 needs a product id |
+
+---
+
+## Phase 22 — Co-play · *weeks 1–2 after launch*
+
+**The cheapest algorithmic win in the plan, and Evolution Lab's biggest single miss: there is no
+reason today for two players to be on the same server.** Sessions with friends are **1.9× longer**;
+a player who adds one friend in week one has **3× the 30-day retention** and a community joiner
+**4×**. Co-play is one of the three signals Roblox names by name.
+
+| ID | | Task |
+|---|---|---|
+| 22.1 | `[ ]` | **Friends-in-server bonus** — +X% DNA per friend present, capped, drawn as a live HUD pill that says how many and how much |
+| 22.2 | `[ ]` | **Invite reward** — `FriendInviteButton` already opens the prompt. Pay for the *join*, not the click, and pay both sides |
+| 22.3 | `[ ]` | **Make the group real.** `RobloxGroupId` is **0**, so the +10% DNA, the daily group chest and the Like / Favourite rewards all ship against no group. It is also the guild substitute Roblox gives away free, and the 4× number attaches to it |
+| 22.4 | `[ ]` | **The world boss leaves the arena.** The Colosseum giant already tracks contributors and pays everyone who damaged it; it is behind a teleport into a separate room on a 30-minute timer. Put it — or a sibling — in the hub, visible from spawn, with a countdown on the HUD and a live contribution board |
+| 22.5 | `[ ]` | **Party support** — up to six friends land in one server; give a party a visible treatment and a shared bonus |
+
+---
+
+## Phase 23 — The flex economy · *weeks 2–4*
+
+**Grow a Garden's engine, on the Splicer that already exists.** Mutations there are multiplicative
+value multipliers — ×10 to ×135 — and **two on one item multiply rather than add**, which is what
+produces the outlier screenshots that travel. Zero grief risk, and it is the answer to the game's
+missing flex surface: nothing today lets one player see what another has.
+
+| ID | | Task |
+|---|---|---|
+| 23.1 | `[ ]` | **Mutations become multiplicative value multipliers**, stacking multiplicatively rather than additively |
+| 23.2 | `[ ]` | **A mutation is visible from across the map.** The rented-Highlight pool and the VFX attach rules already exist. A mutation nobody can see is not a flex |
+| 23.3 | `[ ]` | **Server-wide announce for the top tier**, through `AnnounceService` and `RarityBeam`, rate-limited by the existing `KIND_COOLDOWN` |
+| 23.4 | `[ ]` | **Mutated creatures become the tradable prestige object.** Trading is pets-only because DNA is stage-scaled and has no agreed value between two players; a mutation is a fixed multiplier, so it does |
+| 23.5 | `[ ]` | **The Journal becomes an index with completion rewards.** `StatsService` already publishes "0.3% of players own this" and nothing makes it worth anything |
+| 23.6 | `[ ]` | **A live window makes mutations more likely** — the difference between an event that is a multiplier and an event worth logging in for |
+
+---
+
+## Phase 24 — The Vivarium · *weeks 4–8 · the big swing*
+
+**This changes what genre this game is, and that is stated plainly rather than discovered later.**
+The reference loop is acquire → grow → **defend → steal**, and its virality is built on other
+people's reactions — including clips of children crying after losing something. Highest ceiling,
+highest risk. **Build it in two switchable stages, soft first.**
+
+| ID | | Task |
+|---|---|---|
+| 24.1 | `[ ]` | **The plot.** Every player gets a display in the hub with slots that scale with rebirths, showing their best creatures and a **visible passive DNA/second**. This alone is the flex surface, and it is worth shipping even if the steal never does |
+| 24.2 | `[ ]` | **The lock** — 60 s, +10 s per rebirth, visible from a distance. The numbers are the reference's because they are proven |
+| 24.3 | `[ ]` | **Soft steal, the default.** What a thief takes is the **income stream, not the save item**: carrying a specimen out diverts a share of that plot's passive DNA for a window, and the original never leaves the owner's collection. All the drama, none of the permanent loss |
+| 24.4 | `[ ]` | **The steal is a designed clip** — speed drops hard, items disable, the owner is notified instantly, anyone can hit the thief to drop it, and it lands in the kill feed. Roblox Moments is a first-party feed now |
+| 24.5 | `[ ]` | **Anti-grief, non-negotiable** — a new-player immunity window, one steal per target per N minutes, a per-thief cooldown, nothing stealable below a rebirth threshold, and an opt-out that costs the contested bonus rather than being free |
+| 24.6 | `[ ]` | **Hard steal, behind a config flag** — only if 24.3's numbers justify it, and only as one line that can be turned off without a code change |
+
+---
+
+## Phase 25 — Live ops and the real push · *from week 6, ongoing*
+
+| ID | | Task |
+|---|---|---|
+| 25.1 | `[ ]` | **A content calendar, not a backlog** — small weekly, large monthly. Every reference game's engagement is a function of its update cadence |
+| 25.2 | `[ ]` | **Limited-time events with an exclusive character.** The frame is built and holds three windows; this is the engine of both engagement and revenue in every game in the reference set |
+| 25.3 | `[ ]` | **Rotating weekend offers** with a visible timer |
+| 25.4 | `[ ]` | **The v1.0 relaunch** — icon and thumbnail tested against each other, codes seeded to creators, Moments clips cut from 23.3 and 24.4, timed to a live event window |
+| 25.5 | `[ ]` | **Re-measure against 20.5** and write both numbers here |
+
+---
+
 ## 👤 Owner action checklist
 
 Collect these once; each one blocks agents until it exists.
