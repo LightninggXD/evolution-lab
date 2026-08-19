@@ -556,7 +556,9 @@ return function(hud)
 		equipButton.Visible = owned
 		if equipped then
 			equipButton.Text = "\u{2713} Wearing it"
-			setButtonColor(equipButton, UITheme.Color.Locked)
+			-- Same receipt-not-refusal split as the Auras row and Stage Mastery (18.6): inert is
+			-- right, grey is not. The skin the player chose is the proudest thing on this screen.
+			setButtonColor(equipButton, UITheme.DoneShade(UITheme.Color.Green))
 			-- dimmed AND dead. A greyed-out button that still fires a remote and still answers with a
 			-- toast is worse than one that does nothing: it says the press failed rather than that
 			-- there was nothing to press.

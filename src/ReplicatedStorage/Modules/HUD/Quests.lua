@@ -213,7 +213,13 @@ return function(hud)
 			r.wear.Visible = isOwned
 			if isWorn then
 				UITheme.SetText(r.wear, "\u{2713} Wearing")
-				UITheme.SetColor(r.wear, UITheme.Color.Locked)
+				-- WORN IS A RECEIPT, NOT A REFUSAL (18.6). The button is correctly inert -- there is
+				-- nothing to press on the aura you are already wearing -- but `Color.Locked` is the
+				-- kit's swatch for "you cannot have this", and it was painting the ONE row on this
+				-- panel the player had actually achieved in the same grey as the rows they have not
+				-- found yet. Pale green of the tick's own hue instead, the same split the Season
+				-- track, the Daily board, Stage Mastery and the pass shop all now use.
+				UITheme.SetColor(r.wear, UITheme.DoneShade(UITheme.Color.Green))
 				r.wear.Active = false
 				r.wear.AutoButtonColor = false
 			else

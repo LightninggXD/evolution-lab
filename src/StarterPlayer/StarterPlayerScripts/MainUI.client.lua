@@ -1421,7 +1421,12 @@ local function refreshMasteryPanel()
 				refs.buyButton.Text = "✓"
 				setButtonColor(refs.buyButton, UITheme.Color.Green)
 				refs.stroke.Color = OUTLINE_COLOR
-				setButtonColor(refs.row, UITheme.Color.Locked)
+				-- A MASTERED STAGE IS A RECEIPT (18.6). This row and the "Reach X to unlock" row
+				-- below it were painted the same `Color.Locked`, so the fourteen stages the player
+				-- had PAID diamonds for looked identical to the six they cannot touch yet -- and on
+				-- a maxed save that is the whole list going grey at once. Pale green of the tick's
+				-- own hue instead; grey stays where it means a refusal, one row down.
+				setButtonColor(refs.row, UITheme.DoneShade(UITheme.Color.Green))
 			elseif i > reached then
 				refs.statusLabel.Text = "Reach " .. stage.name .. " to unlock"
 				refs.buyButton.Text = "🔒"

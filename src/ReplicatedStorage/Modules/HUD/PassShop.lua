@@ -177,7 +177,14 @@ return function(hud)
 				if owned[pass.key] then
 					button.Text = "OWNED"
 					button.AutoButtonColor = false
-					UITheme.SetColor(button, UITheme.Color.Locked)
+					-- ...AND OWNED IS A RECEIPT, NOT A REFUSAL (18.6). `Color.Locked` is the swatch
+					-- this kit uses for "you cannot press this", and it was doing double duty here
+					-- for "you already bought this" -- so a shop where the player had spent the most
+					-- was the greyest screen in the game. `DoneShade` keeps the hue exactly and
+					-- lifts it pale, which is the same three-state split 18.3 made on the Daily
+					-- board and 18.6 made on the Season track: full chroma to buy, pale of its own
+					-- colour once held, grey only when it genuinely cannot be had.
+					UITheme.SetColor(button, UITheme.DoneShade(UITheme.Color.Green))
 				else
 					button.Text = "R$ " .. pass.price
 					button.AutoButtonColor = true
