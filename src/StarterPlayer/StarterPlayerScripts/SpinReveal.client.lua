@@ -40,6 +40,37 @@ local TURNS = 5
 local SPIN_POWER = 3.0
 local JITTER_ARC = 0.32
 
+-- ===== THE WHEEL IS A PIE NOW, AND ROTATION IS WHY IT HAD TO BE (19.13) =====
+--
+-- `GuiObject.Rotation` pivots on the element's CENTRE and ignores `AnchorPoint`. Every radial piece
+-- on this wheel -- the twelve prize pods, the twelve boundary pegs, the twenty-four rim bulbs --
+-- was built as a bar anchored (0.5, 1) at the hub and given `Rotation = theta`, which is the
+-- construction that reads correctly and renders wrong: each bar spun about its own midpoint, a
+-- point 106 px above the hub, so all twelve landed in ONE place as a fan of overlapping rectangles
+-- offset up-and-left of the disc. That is exactly what Kristina photographed -- "radi, vrti se, ali
+-- su kartice spojene". The pegs give it away independently: they came out on a circle of radius
+-- ~half their own length, centred half a length above the hub, which is only possible under a
+-- centre pivot.
+--
+-- THE FIX IS STRUCTURAL, not a number: a piece may only carry `Rotation` if its own centre IS the
+-- hub. So every radial element is now a full-diameter bar centred on the wheel, with the half that
+-- points inward masked off by a `UIGradient` transparency step at t = 0.5. `radialBar` is the only
+-- constructor allowed to place one, and nothing else in this file sets `Rotation` on an off-centre
+-- frame.
+--
+-- Once the pieces sit where they are told, a rectangle per prize is the wrong shape anyway: a
+-- 0.165-wide card spanning hub to rim overlaps its neighbours everywhere inside r = 0.30, because
+-- near the hub a fixed width subtends an arc far wider than 360/12. A sector cannot be drawn in one
+-- frame, so each prize is filled by a fan of STRIPS_PER_SEG same-coloured bars -- they overlap each
+-- other, which is the point, and the seam where a fan overshoots its neighbour is covered by the
+-- ink divider that every real carnival wheel has anyway.
+local PIE_R = 0.462          -- outer radius of the pie, in fractions of the wheel's side
+local STRIPS_PER_SEG = 9     -- fan density: 9 closes the gap at PIE_R with 30-degree sectors
+local STRIP_W = 0.032        -- one fan bar's width; must exceed PIE_R * (arc / STRIPS_PER_SEG)
+local DIV_W = 0.040          -- ink divider; must exceed STRIP_W so the fan's overshoot is buried
+local ICON_R = 0.265         -- where the prize glyph sits, measured from the hub
+local TEXT_R = 0.400         -- where its caption sits -- further out, because there is more room there
+
 local BIG_WINS = {
 	jackpot = true, vault = true, relic = true, pet = true, dna_flood = true,
 }
@@ -199,6 +230,57 @@ end
 -- ============================================================================
 -- DRAWING THE WHEEL WITH LED CHASER RIM
 -- ============================================================================
+
+-- The ONE way a rotating radial piece may be built. `holder` is the full square of the parent, so
+-- its centre is the parent's centre and `Rotation` therefore turns about the hub; `bar` is a full
+-- diameter of it, and the caller masks the inward half. `lengthScale` is the radius the visible
+-- half reaches, in fractions of the parent's side.
+local function radialBar(parent, angleDeg, widthScale, lengthScale, zIndex)
+	local holder = Instance.new("Frame")
+	holder.Name = "Spoke"
+	holder.AnchorPoint = Vector2.new(0.5, 0.5)
+	holder.Position = UDim2.fromScale(0.5, 0.5)
+	holder.Size = UDim2.fromScale(1, 1)
+	holder.BackgroundTransparency = 1
+	holder.Rotation = angleDeg
+	holder.ZIndex = zIndex
+	holder.Parent = parent
+
+	local bar = Instance.new("Frame")
+	bar.Name = "Bar"
+	bar.AnchorPoint = Vector2.new(0.5, 0.5)
+	bar.Position = UDim2.fromScale(0.5, 0.5)
+	bar.Size = UDim2.fromScale(widthScale, lengthScale * 2)
+	bar.BackgroundColor3 = WHITE
+	bar.BorderSizePixel = 0
+	bar.ZIndex = zIndex
+	bar.Parent = holder
+
+	return holder, bar
+end
+
+-- Colour along the OUTWARD half and a hard transparency step at the hub. t = 0 is the rim, t = 0.5
+-- is the centre; everything past it is the same bar pointing into the opposite sector and must not
+-- draw. The object's own `BackgroundTransparency` still multiplies through the visible half -- that
+-- is what the win flash animates, since a `ColorSequence` cannot be tweened.
+local function maskOutward(bar, colors)
+	local g = Instance.new("UIGradient")
+	g.Rotation = 90
+	g.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, colors[1]),
+		ColorSequenceKeypoint.new(0.5, colors[2]),
+		ColorSequenceKeypoint.new(1, colors[2]),
+	})
+	g.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.499, 0),
+		NumberSequenceKeypoint.new(0.501, 1),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	g.Parent = bar
+	return g
+end
+
 local function buildWheel(root)
 	-- Outer decorative golden bezel with LED bulbs
 	local outerBezel = Instance.new("Frame")
@@ -214,15 +296,16 @@ local function buildWheel(root)
 	CardKit.Gradient(outerBezel, { Color3.fromRGB(255, 235, 120), Color3.fromRGB(200, 130, 20) }, 90)
 	CardKit.Stroke(outerBezel, INK, 6)
 
-	-- 24 LED Light bulbs around the rim for dynamic chasing effects
+	-- 24 LED bulbs around the rim. Same centre-pivot rule as everything else: the bulb rides a
+	-- full-square holder, so it orbits the bezel's centre instead of spinning where it stands.
 	local bulbs = {}
 	local NUM_BULBS = 24
 	for b = 1, NUM_BULBS do
 		local bulbPeg = Instance.new("Frame")
 		bulbPeg.Name = "BulbPeg" .. b
-		bulbPeg.AnchorPoint = Vector2.new(0.5, 1)
+		bulbPeg.AnchorPoint = Vector2.new(0.5, 0.5)
 		bulbPeg.Position = UDim2.fromScale(0.5, 0.5)
-		bulbPeg.Size = UDim2.fromScale(0.032, 0.492)
+		bulbPeg.Size = UDim2.fromScale(1, 1)
 		bulbPeg.Rotation = (b - 1) * (360 / NUM_BULBS)
 		bulbPeg.BackgroundTransparency = 1
 		bulbPeg.ZIndex = 3
@@ -230,9 +313,9 @@ local function buildWheel(root)
 
 		local bulb = Instance.new("Frame")
 		bulb.Name = "Bulb"
-		bulb.AnchorPoint = Vector2.new(0.5, 0)
-		bulb.Position = UDim2.fromScale(0.5, 0.008)
-		bulb.Size = UDim2.fromScale(1, 0.065)
+		bulb.AnchorPoint = Vector2.new(0.5, 0.5)
+		bulb.Position = UDim2.fromScale(0.5, 0.5 - 0.462)
+		bulb.Size = UDim2.fromScale(0.034, 0.034)
 		bulb.BackgroundColor3 = Color3.fromRGB(255, 240, 160)
 		bulb.BorderSizePixel = 0
 		bulb.ZIndex = 4
@@ -268,66 +351,82 @@ local function buildWheel(root)
 	for i, seg in ipairs(segments) do
 		local theta = (i - 1) * arc
 
+		-- One sector = one transparent full-square container, so the win animation can scale the
+		-- whole wedge about the hub with a single UIScale. `Theta`/`Arc` ride on it as attributes
+		-- because the flash fan is built later, from `revealPod`, which has only the container.
 		local pod = Instance.new("Frame")
 		pod.Name = "Pod" .. i
-		pod.AnchorPoint = Vector2.new(0.5, 1)
+		pod.AnchorPoint = Vector2.new(0.5, 0.5)
 		pod.Position = UDim2.fromScale(0.5, 0.5)
-		pod.Size = UDim2.fromScale(0.165, 0.425)
-		pod.Rotation = theta
-		pod.BackgroundColor3 = WHITE
-		pod.BorderSizePixel = 0
+		pod.Size = UDim2.fromScale(1, 1)
+		pod.BackgroundTransparency = 1
 		pod.ZIndex = 5
 		pod.Parent = wheel
+		pod:SetAttribute("Theta", theta)
+		pod:SetAttribute("Arc", arc)
+
+		local podScale = Instance.new("UIScale")
+		podScale.Parent = pod
 
 		local colors = seg.colors or { Color3.fromRGB(170, 170, 190), Color3.fromRGB(120, 120, 140) }
-		CardKit.Corner(pod, 16)
-		CardKit.Gradient(pod, colors, 90)
-		CardKit.Stroke(pod, INK, 4)
-		CardKit.Studs(pod, 18, 0.88, 16, 5)
+		for k = 1, STRIPS_PER_SEG do
+			local phi = theta - arc * 0.5 + (k - 0.5) * (arc / STRIPS_PER_SEG)
+			local _, bar = radialBar(pod, phi, STRIP_W, PIE_R, 5)
+			maskOutward(bar, colors)
+		end
 
-		iconInto(pod, seg.emoji, UDim2.fromScale(0.80, 0.32), UDim2.fromScale(0.5, 0.22), 6)
+		-- The caption and the glyph ride their own centred holder at the sector's mid-angle.
+		local face = Instance.new("Frame")
+		face.Name = "Face"
+		face.AnchorPoint = Vector2.new(0.5, 0.5)
+		face.Position = UDim2.fromScale(0.5, 0.5)
+		face.Size = UDim2.fromScale(1, 1)
+		face.BackgroundTransparency = 1
+		face.Rotation = theta
+		face.ZIndex = 8
+		face.Parent = pod
 
-		local label = CardKit.Text(pod, {
+		iconInto(face, seg.emoji, UDim2.fromScale(0.085, 0.085),
+			UDim2.fromScale(0.5, 0.5 - ICON_R), 9)
+
+		-- Outward of the glyph on purpose: tangential room grows with radius, and this is the piece
+		-- that has to stay legible. At TEXT_R a sector is ~0.207 of the disc wide before the divider
+		-- takes its share, so the box is 0.155 and two 15px lines are the worst case.
+		local label = CardKit.Text(face, {
 			name = "Short",
 			text = seg.short or seg.name or "",
-			size = UDim2.fromScale(1.05, 0.14),
-			position = UDim2.fromScale(0.5, 0.42),
+			size = UDim2.fromScale(0.155, 0.075),
+			position = UDim2.fromScale(0.5, 0.5 - TEXT_R),
 			textSize = 15,
 			xAlign = "Center",
-			zIndex = 6,
+			zIndex = 9,
 			strokeThickness = 2.5,
 			truncate = false,
+			wrapped = true,
 		})
 		label.AnchorPoint = Vector2.new(0.5, 0.5)
-		label.TextWrapped = true
 
 		pods[i] = pod
 	end
 
-	-- Boundary pegs between pods
-	for i = 1, n do
-		local peg = Instance.new("Frame")
-		peg.Name = "Peg" .. i
-		peg.AnchorPoint = Vector2.new(0.5, 1)
-		peg.Position = UDim2.fromScale(0.5, 0.5)
-		peg.Size = UDim2.fromScale(0.028, 0.485)
-		peg.Rotation = (i - 0.5) * arc
-		peg.BackgroundTransparency = 1
-		peg.ZIndex = 7
-		peg.Parent = wheel
-
-		local dot = Instance.new("Frame")
-		dot.Name = "Dot"
-		dot.AnchorPoint = Vector2.new(0.5, 0)
-		dot.Position = UDim2.fromScale(0.5, 0)
-		dot.Size = UDim2.fromScale(1, 0.055)
-		dot.BackgroundColor3 = Color3.fromRGB(255, 235, 130)
-		dot.BorderSizePixel = 0
-		dot.ZIndex = 7
-		dot.Parent = peg
-		CardKit.Corner(dot, 9999)
-		CardKit.Stroke(dot, INK, 2)
+	-- Ink dividers on the sector boundaries. Wider than a fan bar, which is the whole job: a fan
+	-- overshoots its sector by half a bar and the divider is what buries the seam.
+	for j = 1, n do
+		local _, bar = radialBar(wheel, (j - 0.5) * arc, DIV_W, PIE_R, 6)
+		maskOutward(bar, { INK, INK })
 	end
+
+	-- One ring closes the scalloped ends of the fan bars into a circle.
+	local rim = Instance.new("Frame")
+	rim.Name = "Rim"
+	rim.AnchorPoint = Vector2.new(0.5, 0.5)
+	rim.Position = UDim2.fromScale(0.5, 0.5)
+	rim.Size = UDim2.fromScale(PIE_R * 2 + 0.012, PIE_R * 2 + 0.012)
+	rim.BackgroundTransparency = 1
+	rim.ZIndex = 7
+	rim.Parent = wheel
+	CardKit.Corner(rim, 9999)
+	CardKit.Stroke(rim, INK, 5)
 
 	return wheel, pods, arc, bulbs
 end
@@ -352,15 +451,30 @@ local function buildFurniture(root)
 	CardKit.Studs(hub, 16, 0.82, 9999, 9)
 	iconInto(hub, "\u{1F3A1}", UDim2.fromScale(0.68, 0.68), UDim2.fromScale(0.5, 0.5), 10)
 
-	-- Physical Animated Pointer (Ratchet Flapper)
+	-- ===== THE FLAPPER PIVOTS ON ITS PIN, AND THAT COSTS ONE EXTRA FRAME =====
+	--
+	-- `wobblePointer` writes `Rotation` on this, and rotation turns about an element's CENTRE. The
+	-- old flapper was a 0.11 x 0.125 box anchored near its top, so every tick swung it about its own
+	-- waist -- the tip and the pin travelled in opposite directions, which is not how a ratchet
+	-- moves. `pointer` is now empty scaffolding whose centre IS the pivot, and `flap` hangs in its
+	-- lower half carrying the geometry the old box had.
 	local pointer = Instance.new("Frame")
 	pointer.Name = "Pointer"
-	pointer.AnchorPoint = Vector2.new(0.5, 0.15)
+	pointer.AnchorPoint = Vector2.new(0.5, 0.5)
 	pointer.Position = UDim2.fromScale(0.5, 0.045)
-	pointer.Size = UDim2.fromScale(0.11, 0.125)
+	pointer.Size = UDim2.fromScale(0.11, 0.25)
 	pointer.BackgroundTransparency = 1
 	pointer.ZIndex = 11
 	pointer.Parent = root
+
+	local flap = Instance.new("Frame")
+	flap.Name = "Flap"
+	flap.AnchorPoint = Vector2.new(0.5, 0)
+	flap.Position = UDim2.fromScale(0.5, 0.5)
+	flap.Size = UDim2.fromScale(1, 0.5)
+	flap.BackgroundTransparency = 1
+	flap.ZIndex = 11
+	flap.Parent = pointer
 
 	local stem = Instance.new("Frame")
 	stem.Name = "Stem"
@@ -370,7 +484,7 @@ local function buildFurniture(root)
 	stem.BackgroundColor3 = Color3.fromRGB(255, 80, 95)
 	stem.BorderSizePixel = 0
 	stem.ZIndex = 11
-	stem.Parent = pointer
+	stem.Parent = flap
 	CardKit.Corner(stem, 8)
 	CardKit.Gradient(stem, { Color3.fromRGB(255, 120, 130), Color3.fromRGB(230, 40, 60) }, 90)
 	CardKit.Stroke(stem, INK, 4)
@@ -384,7 +498,7 @@ local function buildFurniture(root)
 	tip.BackgroundColor3 = Color3.fromRGB(255, 80, 95)
 	tip.BorderSizePixel = 0
 	tip.ZIndex = 11
-	tip.Parent = pointer
+	tip.Parent = flap
 	CardKit.Corner(tip, 4)
 	CardKit.Gradient(tip, { Color3.fromRGB(255, 120, 130), Color3.fromRGB(230, 40, 60) }, 90)
 	CardKit.Stroke(tip, INK, 4)
@@ -397,7 +511,7 @@ local function buildFurniture(root)
 	pin.BackgroundColor3 = Color3.fromRGB(255, 230, 120)
 	pin.BorderSizePixel = 0
 	pin.ZIndex = 12
-	pin.Parent = pointer
+	pin.Parent = flap
 	CardKit.Corner(pin, 9999)
 	CardKit.Stroke(pin, INK, 2)
 
@@ -637,17 +751,53 @@ local function revealPod(pod, big)
 	local scale = pod:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
 	scale.Parent = pod
 
+	-- Modest, because the sector now reaches PIE_R: 1.25 would push it out over the golden bezel.
 	TweenService:Create(scale,
 		TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-		{ Scale = big and 1.25 or 1.15 }):Play()
+		{ Scale = big and 1.06 or 1.04 }):Play()
 
-	local stroke = pod:FindFirstChildOfClass("UIStroke")
-	if stroke then
-		TweenService:Create(stroke, TweenInfo.new(0.45), {
-			Thickness = big and 10 or 6,
-			Color = big and Color3.fromRGB(255, 235, 100) or WHITE,
-		}):Play()
+	-- A won sector cannot be "brightened" in place: its colour lives in a UIGradient, gradients
+	-- multiply the frame's own colour, and a ColorSequence is not tweenable. So the win is a second
+	-- fan laid over the first in white or gold, faded in and out by BackgroundTransparency -- which
+	-- the mask leaves free on the outward half. Built here rather than at wheel time so eleven
+	-- losing sectors never pay for it, and destroyed after, so a re-spin needs no cleanup.
+	local theta = pod:GetAttribute("Theta") or 0
+	local arcDeg = pod:GetAttribute("Arc") or 30
+
+	local flash = Instance.new("Frame")
+	flash.Name = "Flash"
+	flash.AnchorPoint = Vector2.new(0.5, 0.5)
+	flash.Position = UDim2.fromScale(0.5, 0.5)
+	flash.Size = UDim2.fromScale(1, 1)
+	flash.BackgroundTransparency = 1
+	flash.ZIndex = 7
+	flash.Parent = pod
+
+	local bars = {}
+	for k = 1, STRIPS_PER_SEG do
+		local phi = theta - arcDeg * 0.5 + (k - 0.5) * (arcDeg / STRIPS_PER_SEG)
+		local _, bar = radialBar(flash, phi, STRIP_W, PIE_R, 7)
+		bar.BackgroundColor3 = big and GOLD or WHITE
+		bar.BackgroundTransparency = 1
+		maskOutward(bar, { WHITE, WHITE })
+		bars[k] = bar
 	end
+
+	task.spawn(function()
+		for pulse = 1, big and 3 or 2 do
+			for _, bar in ipairs(bars) do
+				TweenService:Create(bar, TweenInfo.new(0.14), { BackgroundTransparency = 0.42 }):Play()
+			end
+			task.wait(0.16)
+			if not flash.Parent then return end
+			for _, bar in ipairs(bars) do
+				TweenService:Create(bar, TweenInfo.new(0.20), { BackgroundTransparency = 1 }):Play()
+			end
+			task.wait(0.22)
+			if not flash.Parent then return end
+		end
+		flash:Destroy()
+	end)
 end
 
 -- Held from the moment a shell exists until the animation thread takes ownership of it, so the

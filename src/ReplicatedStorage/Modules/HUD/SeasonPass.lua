@@ -166,33 +166,56 @@ return function(hud)
 	sideCard.Parent = trackPage
 	styleCard(sideCard, UITheme.Color.Lavender, UDim.new(0, 18), 4)
 
-	local levelLabel = Instance.new("TextLabel")
-	levelLabel.Size = UDim2.new(1, -20, 0, 64)
-	levelLabel.Position = UDim2.new(0, 10, 0, 14)
-	levelLabel.BackgroundTransparency = 1
-	levelLabel.Text = "Level 1"
-	levelLabel.Parent = sideCard
-	themeLabel(levelLabel, 42)
+	-- ===== THE SECOND BAR IS GONE, AND THE ONE THAT WENT IS THIS ONE (19.13) =====
+	--
+	-- 18.6 already answered "ovde imaju 2 progres bara sta ce mi" by taking the analogue reading off
+	-- the RAIL and keeping the bar here, on the argument that the bar is the only one of the two
+	-- carrying text. She looked at the result and said the opposite -- *"ovaj levo ne treba"* -- and
+	-- she is right for a reason the first pass missed: the rail is the surface a player actually
+	-- reads the season on, because it runs under the sixty rewards and tells you which of them you
+	-- have passed. A 186 x 30 green bar in the corner competes with it and reports the same journey
+	-- at a tenth of the resolution.
+	--
+	-- So the level card stops being a second instrument and becomes a READOUT: a caption, the level
+	-- as one large numeral, and the XP as text in a `Cloud` well. Nothing animates along a track
+	-- here any more -- the board does that. Note this also gives a register back rather than costing
+	-- one, which matters (see the ProgressBar note this replaced: the file is at Luau's 200-local
+	-- ceiling and the two bar handles were two of them).
+	local levelCaption = Instance.new("TextLabel")
+	levelCaption.Name = "LevelCaption"
+	levelCaption.Size = UDim2.new(1, -20, 0, 22)
+	levelCaption.Position = UDim2.new(0, 10, 0, 16)
+	levelCaption.BackgroundTransparency = 1
+	levelCaption.Text = "SEASON LEVEL"
+	levelCaption.Parent = sideCard
+	themeLabel(levelCaption, 15, UITheme.Color.Cream)
 
-	-- THIS FILE IS AT LUAU'S 200-REGISTER CEILING. ProgressBar returns (background, fill, label) and
-	-- the background was being bound to a local that nothing ever reads -- one wasted register out of
-	-- two hundred, and it was the one that tipped the count over: adding any local anywhere above
-	-- this point made the WHOLE script fail to compile, reported here rather than at the new line.
-	-- Dropped via select() so the slot is never allocated. Keep an eye on this when adding UI.
-	local xpBarFill, xpBarLabel = select(2, UITheme.ProgressBar(sideCard, {
-		name = "SeasonXP",
-		size = UDim2.new(1, -24, 0, 30),
-		position = UDim2.new(0.5, 0, 0, 84),
-		anchorPoint = Vector2.new(0.5, 0),
-		color = UITheme.Color.Green,
-		text = "0 / " .. SEASON.xpPerLevel,
-		maxTextSize = 18,
-		zIndex = sideCard.ZIndex + UITheme.Z.Content,
-	}))
+	local levelLabel = Instance.new("TextLabel")
+	levelLabel.Size = UDim2.new(1, -20, 0, 74)
+	levelLabel.Position = UDim2.new(0, 10, 0, 38)
+	levelLabel.BackgroundTransparency = 1
+	levelLabel.Text = "1"
+	levelLabel.Parent = sideCard
+	themeLabel(levelLabel, 58)
+
+	-- `Cloud` is the kit's inset token and the well is what makes this read as a readout rather than
+	-- as a fourth chip: it is the only sunken surface on the page. Dark ink on it, which drops its
+	-- halo automatically -- the luminance branch in `themeLabel` owns that decision, so a colour
+	-- change here can never reintroduce the black-blob bug.
+	local xpReadout = Instance.new("TextLabel")
+	xpReadout.Name = "SeasonXP"
+	xpReadout.Size = UDim2.new(1, -24, 0, 36)
+	xpReadout.Position = UDim2.new(0.5, 0, 0, 118)
+	xpReadout.AnchorPoint = Vector2.new(0.5, 0)
+	xpReadout.Text = "0 / " .. SEASON.xpPerLevel .. " XP"
+	xpReadout.ZIndex = sideCard.ZIndex + UITheme.Z.Content
+	xpReadout.Parent = sideCard
+	styleCard(xpReadout, UITheme.Color.Cloud, UDim.new(0, 12), 3)
+	themeLabel(xpReadout, 17, UITheme.Color.Ink)
 
 	local premiumStatus = Instance.new("TextLabel")
-	premiumStatus.Size = UDim2.new(1, -20, 0, 92)
-	premiumStatus.Position = UDim2.new(0, 10, 0, 128)
+	premiumStatus.Size = UDim2.new(1, -20, 0, 100)
+	premiumStatus.Position = UDim2.new(0, 10, 0, 168)
 	premiumStatus.BackgroundTransparency = 1
 	premiumStatus.TextWrapped = true
 	premiumStatus.Text = ""
@@ -682,9 +705,8 @@ return function(hud)
 		-- counted in the same pass, for the same reason: the header chip and the board must agree
 		local collected = 0
 
-		levelLabel.Text = "Level " .. level
-		xpBarFill.Size = UDim2.new(need > 0 and (into / need) or 1, 0, 1, 0)
-		xpBarLabel.Text = (level >= SEASON.maxLevel)
+		levelLabel.Text = tostring(level)
+		xpReadout.Text = (level >= SEASON.maxLevel)
 			and "MAX LEVEL"
 			or ("%d / %d XP"):format(into, need)
 
