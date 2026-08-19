@@ -1140,134 +1140,20 @@ hudRefs.panelClose = panelClose
 -- "the main shop is the only panel that closes by setting Visible = false".
 panelClose(shopFrame)
 
--- ===== Zones panel =====
-local zonesPanel = Instance.new("Frame")
-zonesPanel.Name = "ZonesPanel"
-zonesPanel.Size = UDim2.new(0, 430, 0, 480)
-zonesPanel.Position = PANEL_ANCHOR
-zonesPanel.ZIndex = 20
-zonesPanel.Visible = false
-zonesPanel.Parent = screenGui
-styleCard(zonesPanel, PANEL_SHELL, UDim.new(0, 22), 5)
-registerPanel(zonesPanel)
-panelClose(zonesPanel)
-
--- Converted to the shared accent band (17.x). It was a bare 32 px label at (18, 10) with the list
--- starting at 58 and a 14 px margin -- one of nine panels still doing that, each with its own
--- content top (56 to 106) and its own margin (14 / 18 / 20 / 22). The band is what makes them read
--- as one application; see the geometry note in UITheme.PanelHeader. Aqua matches the Zones tile in
--- the HUD, which is the button that opens this -- a panel whose accent disagrees with the tile that
--- opened it reads as a different screen.
-UITheme.PanelHeader(zonesPanel, {
-	title = "🗺️ Zones",
-	subtitle = "Later zones pay more income",
-	accent = UITheme.Color.Aqua,
-})
-
-local zonesScroll = Instance.new("ScrollingFrame")
-zonesScroll.Name = "ZonesScroll"
--- 94 is the band's bottom edge (top 14 + height 68 + gap 12), written out rather than captured --
--- this file is at Luau's 200-local cap. -110 is that 94 plus a matching 16 px bottom margin.
-zonesScroll.Size = UDim2.new(1, -32, 1, -110)
-zonesScroll.Position = UDim2.new(0, 16, 0, 94)
-zonesScroll.BackgroundTransparency = 1
-zonesScroll.BorderSizePixel = 0
-zonesScroll.ScrollBarThickness = 6
-zonesScroll.CanvasSize = UDim2.new(0, 0, 0, #GameConfig.Zones * 74)
-zonesScroll.Parent = zonesPanel
-
-local zonesListLayout = Instance.new("UIListLayout")
-zonesListLayout.Padding = UDim.new(0, 6)
-zonesListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-zonesListLayout.Parent = zonesScroll
-
-local zoneRows = {}
-
-for i, zone in ipairs(GameConfig.Zones) do
-	local row = Instance.new("Frame")
-	row.Name = zone.key
-	row.LayoutOrder = i
-	row.Size = UDim2.new(1, 0, 0, 68)
-	row.Parent = zonesScroll
-	-- ===== PASTEL THE ZONE, DO NOT PAINT IT RAW (17.x) =====
-	--
-	-- `zone.accentColor` is the zone's WORLD colour -- it paints terrain, and terrain is allowed to
-	-- be near-black (Forest is a deep pine, Ocean a midnight navy, Moon a dead grey). Handed
-	-- straight to a UI row it made a list of twenty near-black bars on a white panel, which is the
-	-- thing this pass exists to remove.
-	--
-	-- Blended 62% toward white, the hue survives -- Forest still reads green, Volcano still reads
-	-- red, and the twenty are still tellable apart -- while every row lands in the same light band
-	-- as the panel it sits on. This is a UI decision made in the UI; GameConfig keeps the true
-	-- colour for the world, which is the only place it is correct.
-	styleCard(row, zone.accentColor:Lerp(UITheme.Color.White, 0.62), UDim.new(0, 14), 4)
-
-	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Size = UDim2.new(0.62, 0, 0, 30)
-	nameLabel.Position = UDim2.new(0, 12, 0, 6)
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-	nameLabel.Text = zone.emoji .. " " .. zone.name
-	nameLabel.Parent = row
-	themeLabel(nameLabel, 24, Color3.fromRGB(46, 34, 66))
-	-- DRAW THE ZONE, DO NOT SPELL IT (10.20). All twenty zones have art now, and this row was the
-	-- single biggest place still rendering a platform emoji -- twenty of them, stacked, in one
-	-- scrolling list, which is exactly where four different emoji fonts are most obvious.
-	-- `IconifyLabel` strips the leading glyph and puts the drawing where it was; it returns false
-	-- and leaves the label alone for anything unmapped, so this is safe on a zone added later.
-	UITheme.IconifyLabel(nameLabel)
-
-	local statusLabel = Instance.new("TextLabel")
-	statusLabel.Name = "StatusLabel"
-	statusLabel.Size = UDim2.new(0.62, 0, 0, 22)
-	statusLabel.Position = UDim2.new(0, 12, 1, -30)
-	statusLabel.BackgroundTransparency = 1
-	statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-	statusLabel.Text = "Locked"
-	statusLabel.Parent = row
-	-- dark ink, because the row under it is pastel now -- and themeLabel drops the near-black halo
-	-- on that branch, which is the half that must never be left behind
-	themeLabel(statusLabel, 17, Color3.fromRGB(88, 78, 112))
-
-	local goButton = Instance.new("TextButton")
-	goButton.Name = "GoButton"
-	goButton.Size = UDim2.new(0, 96, 0, 46)
-	goButton.Position = UDim2.new(1, -108, 0.5, -23)
-	goButton.Text = "\u{1F512}"
-	goButton.Parent = row
-	styleButton(goButton, UITheme.Color.Locked, UDim.new(1, 0))
-	-- THE PADLOCK IS DRAWN, THE WORD "Go" IS NOT (10.20). A locked row shows an icon and an
-	-- unlocked one shows a word, so this button carries both an ImageLabel and its own text and
-	-- shows exactly one of them at a time -- see `UITheme.ShowIconOrText`. Built here so
-	-- the slot exists before the first refresh; a slot created lazily would leave the very first
-	-- draw of a fresh save showing the glyph.
-	do
-		local slot = UITheme.IconSlot(goButton, {
-			name = "LockIcon", icon = "\u{1F512}",
-			size = UDim2.new(0, 26, 0, 26), position = UDim2.new(0.5, 0, 0.5, 0),
-			anchorPoint = Vector2.new(0.5, 0.5), zIndex = goButton.ZIndex + UITheme.Z.Content,
-		})
-		if slot then goButton.Text = "" end
-	end
-
-	goButton.MouseButton1Click:Connect(function()
-		Remotes.TeleportToZone:FireServer(zone.key)
-	end)
-
-	zoneRows[zone.key] = { statusLabel = statusLabel, goButton = goButton }
-	zonesScroll.CanvasSize = UDim2.new(0, 0, 0, i * 74)
-end
-
--- ===== THE NEW PANEL DESIGN OWNS THIS BUTTON NOW (18.16) =====
+-- ===== THE ONLY TELEPORT DOOR (18.16, and 18.12 made it the only one) =====
 --
 -- `StarterPlayerScripts.UIComponents.ZonePanel` -- the same twenty-one zones and the same
--- `TeleportToZone` remote, drawn in the card design. `zonesPanel` above is still built and still
--- refreshed; it is simply no longer what this tile opens, which is deliberate for one commit so
--- the old panel can be compared against the new one before it is deleted.
+-- `TeleportToZone` remote, drawn in the card design, plus one state the old list never had ("you
+-- are here", on the zone you are standing in).
 --
--- REQUIRED INSIDE THE HANDLER, NOT AT THE TOP OF THE FILE. This file is at 166 of Luau's 200
--- top-level registers ([[evolution-lab-mainui-register-limit]]) and a top-level `local` for each of
--- the four new panels is four registers spent to save a table lookup on a button press.
+-- A 430 x 480 `zonesPanel` used to be built at this point in the file and refreshed on every
+-- payload with nothing able to open it. 18.12 deleted it; the note that used to sit here said that
+-- was "deliberate for one commit so the old panel can be compared against the new one", which it
+-- was, for three days. See the store block further down for what an orphan of the same shape cost.
+--
+-- REQUIRED INSIDE THE HANDLER, NOT AT THE TOP OF THE FILE. This file is at Luau's 200 top-level
+-- register cap ([[evolution-lab-mainui-register-limit]]) and a top-level `local` for each of the
+-- four new panels is four registers spent to save a table lookup on a button press.
 zonesButton.MouseButton1Click:Connect(function()
 	local ZonePanel = require(script.Parent.UIComponents.ZonePanel)
 	ZonePanel.Init(screenGui)
@@ -2215,192 +2101,23 @@ require(RS.Modules:WaitForChild("HUD"):WaitForChild("PetRelease"))(hudRefs)
 -- MOVED OUT (18.9) to `ReplicatedStorage.Modules.HUD.PetFusion` -- 392 lines, unchanged.
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("PetFusion"))(hudRefs)
 
-local function refreshZonesPanel()
-	if not currentData then return end
-	local unlockedLookup = {}
-	for _, k in ipairs(currentData.UnlockedZones) do unlockedLookup[k] = true end
-	for _, zone in ipairs(GameConfig.Zones) do
-		local refs = zoneRows[zone.key]
-		if refs then
-			if unlockedLookup[zone.key] then
-				refs.statusLabel.Text = "Unlocked" .. (zone.incomeBonusPct > 0 and (" · +" .. zone.incomeBonusPct .. "% income") or "")
-				UITheme.ShowIconOrText(refs.goButton, false, "Go")
-				setButtonColor(refs.goButton, Color3.fromRGB(60, 190, 100))
-			else
-				-- BOTH REASONS, and the one actually in the way first.
-			--
-			-- This row used to print the stage requirement alone. A zone also needs the PREVIOUS
-			-- zone's boss defeated (GameConfig.IsZoneUnlocked), so a Bacteria player would read
-			-- "Desert -- Requires: Bacteria" with "🧬 Bacteria" in the top bar and conclude the
-			-- panel was broken. ZoneService already answers the press with the right reason; the
-			-- list was the only thing lying about it.
-				local reqStage = GameConfig.Stages[zone.unlockStageIndex]
-				local stageOk = (currentData.StageIndex or 1) >= zone.unlockStageIndex
-				local bossKey = zone.requiresBossKey
-				local bossDone = true
-				if bossKey then
-					bossDone = false
-					for _, k in ipairs(currentData.DefeatedBosses or {}) do
-						if k == bossKey then
-							bossDone = true
-							break
-						end
-					end
-				end
-				if not stageOk then
-					refs.statusLabel.Text = "Requires: " .. (reqStage and reqStage.name or "?")
-				elseif not bossDone then
-					local prev = GameConfig.GetZoneByKey(bossKey)
-					refs.statusLabel.Text = "Beat the " .. ((prev and prev.name) or bossKey) .. " boss"
-				else
-					refs.statusLabel.Text = "Requires: " .. (reqStage and reqStage.name or "?")
-				end
-				UITheme.ShowIconOrText(refs.goButton, true, "\u{1F512}")
-				setButtonColor(refs.goButton, UITheme.Color.Locked)
-			end
-		end
-	end
-end
-
--- ===== Rebirth panel =====
-local rebirthPanel = Instance.new("Frame")
-rebirthPanel.Name = "RebirthPanel"
--- 392 -> 416: the 20 px ladder bar plus its gaps, added below the info card (11.16)
-rebirthPanel.Size = UDim2.new(0, 430, 0, 454)
-rebirthPanel.Position = PANEL_ANCHOR
-rebirthPanel.ZIndex = 20
-rebirthPanel.Visible = false
-rebirthPanel.Parent = screenGui
-styleCard(rebirthPanel, PANEL_SHELL, UDim.new(0, 22), 5)
-registerPanel(rebirthPanel)
-panelClose(rebirthPanel)
-
--- Converted to the shared accent band (17.x). Every child below moved down 38 -- the band's 94 less
--- the 56 the info card used to start at -- and the panel grew by the same 38 so the bottom-anchored
--- action button keeps its gap. Lavender is the pastel of the Rebirth tile's purple; the panel and
--- the button that opens it have to agree.
-UITheme.PanelHeader(rebirthPanel, {
-	title = "♻️ Rebirth",
-	subtitle = "Reset progress for a permanent multiplier",
-	accent = UITheme.Color.Lavender,
-})
-
--- the two readouts get real cards rather than bare text on the shell, so the panel has the
--- same stacked-card rhythm as Zones/Pets instead of reading as a dialog box
-local rebirthInfoCard = Instance.new("Frame")
-rebirthInfoCard.Name = "InfoCard"
-rebirthInfoCard.Size = UDim2.new(1, -32, 0, 64)
-rebirthInfoCard.Position = UDim2.new(0, 16, 0, 94)
-rebirthInfoCard.Parent = rebirthPanel
-styleCard(rebirthInfoCard, UITheme.Color.Purple, UDim.new(0, 14), 4)
-
-local rebirthInfoLabel = Instance.new("TextLabel")
-rebirthInfoLabel.Name = "InfoLabel"
-rebirthInfoLabel.Size = UDim2.new(1, -24, 1, -16)
-rebirthInfoLabel.Position = UDim2.new(0, 12, 0, 8)
-rebirthInfoLabel.BackgroundTransparency = 1
-rebirthInfoLabel.TextXAlignment = Enum.TextXAlignment.Left
-rebirthInfoLabel.TextYAlignment = Enum.TextYAlignment.Top
-rebirthInfoLabel.TextWrapped = true
-rebirthInfoLabel.Text = "Rebirths  0 / 4"
-rebirthInfoLabel.Parent = rebirthInfoCard
-themeLabel(rebirthInfoLabel, 19, UITheme.Color.Cream)
-
--- ===== THE CLIMB TO THE NEXT RUNG, DRAWN (11.16) =====
+-- ===== THE ONLY REBIRTH DOOR (18.12) =====
 --
--- The card below states it in words -- "You are Stage 12 -- 3 stages to go" -- and words are the
--- wrong shape for a distance. This is the one thing on the panel a player checks repeatedly during
--- a run, and until now checking it meant reading a sentence.
+-- `UIComponents.RebirthPanel` -- four rungs, each naming both the reset it charges and the permanent
+-- multiplier it pays. It asks `CanRebirthNow` and `GetNextRebirthTier`, the same two functions the
+-- server and the shrine use, so it can never offer a rung `HandleRebirth` will refuse.
 --
--- IT MEASURES THE RUN, NOT THE LADDER. The obvious other candidate was `Rebirths / MaxRebirths`,
--- and that is the same mistake as a bar per Journal stage: four rungs is four, and a four-step bar
--- says less than the "0 / 4" already printed above it. The stage climb is 1..20, it resets to 1 on
--- every rebirth, and it is what the player actually moves along -- so the bar is
--- (stage - 1) / (required stage - 1), which is 0 the moment a rebirth drops you back to Stage 1 and
--- exactly 1 when the button lights up.
+-- From 18.16 until 18.12 this file ALSO built a 430 px rebirth panel for the same job, still
+-- refreshed on every payload and opened by nothing. That was deliberate for one commit so the two
+-- could be compared in Play; it then sat there for three days, which is how long the equivalent
+-- orphan on the store went unnoticed before 19.12 found 2,041 R$ behind it.
 --
--- One local, not three: the fill and the label are reached by name in the refresh. This file is at
--- Luau's 200-register cap.
-local rebirthLadderBar = UITheme.ProgressBar(rebirthPanel, {
-	name = "LadderBar",
-	size = UDim2.new(1, -32, 0, 20),
-	position = UDim2.new(0, 16, 0, 164),
-	color = UITheme.Color.Purple,
-	radius = UDim.new(1, 0),
-	thickness = 3,
-	text = "",
-	maxTextSize = 16,
-	zIndex = rebirthPanel.ZIndex + UITheme.Z.Content,
-})
-
-local rebirthReqCard = Instance.new("Frame")
-hudRefs.rebirthReqCard = rebirthReqCard
-rebirthReqCard.Name = "ReqCard"
-rebirthReqCard.Size = UDim2.new(1, -32, 0, 176)
--- 132 -> 154, clearing the ladder bar above it. The panel grew by the same 24 (see its Size), so
--- nothing below this moved relative to the bottom edge.
-rebirthReqCard.Position = UDim2.new(0, 16, 0, 192)
-rebirthReqCard.Parent = rebirthPanel
-styleCard(rebirthReqCard, UITheme.Color.Gold, UDim.new(0, 14), 4)
-
-local rebirthReqLabel = Instance.new("TextLabel")
-hudRefs.rebirthReqLabel = rebirthReqLabel
-rebirthReqLabel.Name = "ReqLabel"
-rebirthReqLabel.Size = UDim2.new(1, -24, 1, -16)
-rebirthReqLabel.Position = UDim2.new(0, 12, 0, 8)
-rebirthReqLabel.BackgroundTransparency = 1
-rebirthReqLabel.TextXAlignment = Enum.TextXAlignment.Left
-rebirthReqLabel.TextYAlignment = Enum.TextYAlignment.Top
-rebirthReqLabel.TextWrapped = true
-rebirthReqLabel.Text = "Reach Universe God to rebirth."
-rebirthReqLabel.Parent = rebirthReqCard
-themeLabel(rebirthReqLabel, 18)
-
--- ===== THE FOUR RUNGS, DRAWN, BECAUSE AT 4/4 THIS CARD WAS AN EMPTY AMBER BOX (18.4) =====
---
--- Her capture of the finished panel: a purple header, a purple stat card, then a 398 x 176 amber
--- slab carrying two sentences and about 100 px of nothing, over a grey "ALL REBIRTHS COMPLETE"
--- button. The endgame's own screen was telling the player there was nothing left -- which is exactly
--- backwards, because a finished ladder is the largest thing anybody in this game ever does.
---
--- The card keeps its job in the two live states (what the next milestone costs and what it pays).
--- What changes is the third: when the ladder is spent, the sentence is hidden and these rows take
--- the whole card, one per rebirth, each naming the stage it was gated behind and the two permanent
--- multipliers it left behind. Nothing here reads or writes the ladder -- the numbers come out of
--- `GameConfig.GetRebirthDamageMult` / `GetRebirthIncomeMult` with a synthetic `{ Rebirths = n }`,
--- the same two functions the live branches already call, so a fifth rung (17.14) needs no edit here.
---
--- COLOUR, WHICH IS THE OTHER HALF OF THE ROW. The panel was one hue plus a grey. Each rung takes a
--- kit pastel of its own -- Aqua, Mint, Lavender, Gold, an escalation ending on the trophy colour --
--- at FULL chroma on the rank disc and at `UITheme.DoneShade` on the row behind it. That is the kit's
--- own three-state separation and this is the "spent" case of it: same hue, a third of the chroma,
--- never the refusal grey. Four bright rows on the gold card is where the extra "nijanse" come from,
--- and none of them is a new colour.
---
--- INSIDE AN IIFE with one handle on `hudRefs`, per the register-cap rule at the top of the file.
--- MOVED OUT (18.9) to `ReplicatedStorage.Modules.HUD.RebirthRungs` -- 95 lines, unchanged.
-require(RS.Modules:WaitForChild("HUD"):WaitForChild("RebirthRungs"))(hudRefs)
-
-local rebirthActionButton = Instance.new("TextButton")
-rebirthActionButton.Name = "ActionButton"
-rebirthActionButton.Size = UDim2.new(1, -32, 0, 58)
-rebirthActionButton.Position = UDim2.new(0, 16, 1, -74)
-rebirthActionButton.Text = "REBIRTH"
-rebirthActionButton.Parent = rebirthPanel
-styleButton(rebirthActionButton, UITheme.Color.Locked, UDim.new(1, 0))
-
--- The new panel design owns this button now (18.16) -- see the note on `zonesButton` for why the
--- require is inside the handler. `RebirthPanel` asks `CanRebirthNow` and `GetNextRebirthTier`, the
--- same two functions this panel's own refresh does, so the two can never disagree about whether a
--- rung is available.
+-- The require is INSIDE the handler on purpose: this file is at Luau's 200-register cap, and a
+-- top-level local per panel is a register spent to save one table lookup on a button press.
 rebirthButton.MouseButton1Click:Connect(function()
 	local RebirthPanel = require(script.Parent.UIComponents.RebirthPanel)
 	RebirthPanel.Init(screenGui)
 	RebirthPanel.Toggle()
-end)
-
-rebirthActionButton.MouseButton1Click:Connect(function()
-	Remotes.Rebirth:FireServer()
 end)
 
 -- ===== THE REBIRTH BEACON: AN ARROW THAT ONLY EXISTS WHEN THERE IS SOMETHING TO PRESS =====
@@ -2426,119 +2143,27 @@ end)
 -- MOVED OUT (18.9) to `ReplicatedStorage.Modules.HUD.RebirthBeacon` -- 81 lines, unchanged.
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("RebirthBeacon"))(hudRefs)
 
--- ===== THE REBIRTH PANEL ANSWERS SIX QUESTIONS, IN ORDER =====
+-- ===== THE BEACON STILL NEEDS TO KNOW, AND IT IS THE ONLY THING THAT DOES (18.12) =====
 --
--- how many have I done, which is next, where am I now, what do I get, what do I lose, how far off
--- am I. It used to answer one and a half of those -- a Shard count and "a checkpoint exists every
--- 5 stages" -- which is why a rebirth read as a punishment: the panel listed a price and never once
--- named the thing being bought.
+-- The 430 x 454 rebirth panel that used to be built above was deleted with the other two orphans.
+-- The ladder is `UIComponents.RebirthPanel` now and it asks `CanRebirthNow` for itself, on open and
+-- on every payload -- so 115 lines of refresh went with the panel.
 --
--- Everything here derives from GameConfig.CanRebirthNow / GetNextRebirthTier, the same two
--- functions the server and the shrine use, so the button can never offer something HandleRebirth
--- will refuse.
-local function refreshRebirthPanel()
+-- What did NOT move with it is the arrow. `HUD/RebirthBeacon` is a HUD element rather than a panel
+-- element -- it points AT the tile, from outside it -- and the only thing that has ever told it
+-- whether to shine is the deleted panel's refresh. Deleting that block without this one leaves the
+-- beacon permanently dark: no error, no warning, and the one moment in the game worth interrupting
+-- for stops announcing itself. That is the 19.12 shape again, so it is written down here.
+--
+-- One question, asked with the same function the new panel and `HandleRebirth` both use, so the
+-- arrow and the ladder can never disagree about whether a rung is available. The extra parentheses
+-- are load-bearing: `CanRebirthNow` returns `ready, why` and `setRebirthReady` takes one argument.
+-- A `hudRefs` field rather than a top-level local, per the register rule at the top of this file.
+hudRefs.refreshRebirthReady = function()
 	if not currentData then return end
-	local data = currentData
-	local done = data.Rebirths or 0
-	local nextTier = GameConfig.GetNextRebirthTier(data)
-	local ready, why = GameConfig.CanRebirthNow(data)
-
-	-- WHAT IS PERMANENT. Stated as the totals carried right now, not as a per-run rate: after a
-	-- reset that takes the stage, the zones and the collection, "you permanently hit for x3.5" is
-	-- the only framing in which the trade reads as a gain.
-	-- "8 / 4" IS NOT A COUNTER, IT IS A BUG REPORT. Saves from before the ladder existed hold more
-	-- rebirths than the ladder has rungs (the owner's test save has eight) and they keep every point
-	-- of it -- so past the cap the denominator is dropped rather than printing a fraction that reads
-	-- as broken arithmetic.
-	local counter = (done > GameConfig.MaxRebirths)
-		and ("Rebirths  %d"):format(done)
-		or ("Rebirths  %d / %d"):format(done, GameConfig.MaxRebirths)
-	rebirthInfoLabel.Text = string.format(
-		"%s\n\u{2694}\u{FE0F}  x%.2f Damage  \u{2022}  \u{1F9EC}  x%.2f Income   (permanent)",
-		counter, GameConfig.GetRebirthDamageMult(data), GameConfig.GetRebirthIncomeMult(data))
-
-	if ready then
-		local reqStageIndex = GameConfig.GetRebirthTierStageIndex(nextTier)
-		local afterData = { Rebirths = done + 1 }
-		rebirthReqLabel.Text = string.format(
-			"REBIRTH %d IS READY.\nTakes you to  \u{2694}\u{FE0F} x%.2f Damage  \u{2022}  \u{1F9EC} x%.2f Income, forever.\n\nResets: stage, zones, upgrades, DNA, XP and your skins.\nKeeps: pets, diamonds, shards, mastery and everything above.",
-			nextTier, GameConfig.GetRebirthDamageMult(afterData), GameConfig.GetRebirthIncomeMult(afterData))
-		rebirthActionButton.Text = string.format("REBIRTH %d  \u{2022}  STAGE %d", nextTier, reqStageIndex)
-		setButtonColor(rebirthActionButton, UITheme.Color.Purple)
-		rebirthActionButton.Active = true
-	elseif why == "done" then
-		-- The ladder is four rungs and it ENDS. A save from before this rule can hold more than four
-		-- and keeps every point of it -- there is simply nothing left to spend.
-		--
-		-- The sentence is kept but goes UNSEEN in this state (`setRebirthRungs` hides it): the four
-		-- rung rows say the same thing with the numbers in it, and a sentence over four rows is what
-		-- put 100 px of nothing on this card in the first place. It stays authored so the card is
-		-- never blank if the rung block ever fails to build.
-		rebirthReqLabel.Text = string.format(
-			"All %d Rebirths complete.\nEverything they paid for is permanent and stays with you.",
-			GameConfig.MaxRebirths)
-		-- ===== GOLD, NOT `Locked` (18.4) =====
-		--
-		-- "puno je sivo i monotono", and this button is the sentence it was aimed at: the proudest
-		-- line in the game was grey text on a grey slab. Grey is the kit's REFUSAL swatch -- locked,
-		-- unaffordable, cannot press -- and it is genuinely right for the `stage` branch below, where
-		-- the button is a control the player is not allowed to use yet. It is wrong here, because
-		-- nothing is being refused: there is no fifth rung to want. `Color.Gold` is the kit's trophy
-		-- colour and is used nowhere as an action, so it cannot be misread as "press me"; `Active`
-		-- stays false and the button still does nothing when clicked, which is the behaviour that
-		-- actually matters. White ink over the 4 px halo, same as the gold card above it -- Gold is
-		-- luminance 0.78, under UITheme's 0.86 light-surface cut, so the ink does not want to flip.
-		rebirthActionButton.Text = string.format("\u{1F3C6}  ALL %d REBIRTHS COMPLETE", GameConfig.MaxRebirths)
-		setButtonColor(rebirthActionButton, UITheme.Color.Gold)
-		rebirthActionButton.Active = false
-	else
-		-- HOW FAR OFF, in stages, because that is the unit the player moves in. Naming the creature
-		-- as well as the number is what makes it a destination rather than a threshold.
-		local reqStageIndex = GameConfig.GetRebirthTierStageIndex(nextTier)
-		local reqStage = GameConfig.Stages[reqStageIndex]
-		local togo = reqStageIndex - (data.StageIndex or 1)
-		rebirthReqLabel.Text = string.format(
-			"Rebirth %d unlocks at  %s %s  (Stage %d).\nYou are Stage %d \u{2014} %d %s to go.\n\nEach of the %d Rebirths is used ONCE, in order: stages 5, 10, 15 and 20.",
-			nextTier, reqStage.emoji, reqStage.name, reqStageIndex,
-			data.StageIndex or 1, togo, togo == 1 and "stage" or "stages", GameConfig.MaxRebirths)
-		rebirthActionButton.Text = string.format("LOCKED  \u{2022}  %d MORE %s",
-			togo, togo == 1 and "STAGE" or "STAGES")
-		setButtonColor(rebirthActionButton, UITheme.Color.Locked)
-		rebirthActionButton.Active = false
+	if hudRefs.setRebirthReady then
+		hudRefs.setRebirthReady((GameConfig.CanRebirthNow(currentData)))
 	end
-
-	-- The req card holds prose in the two live states and the spent-rung block in the third; one call
-	-- owns both halves so they can never both be on. See the block over the rungs.
-	if hudRefs.setRebirthRungs then hudRefs.setRebirthRungs(why == "done") end
-
-	-- ===== THE LADDER BAR (11.16) =====
-	-- Computed here rather than in each of the three branches above, because all three want the same
-	-- number and only the wording differs. `ready` and `done` both read FULL: at `ready` the climb is
-	-- literally finished and the button below is lit, and at `done` there is no further rung -- a bar
-	-- that sat at 90% in either state would be describing a distance that does not exist.
-	do
-		local stage = data.StageIndex or 1
-		local frac, text
-		if ready or why == "done" then
-			frac = 1
-			text = (why == "done") and "Ladder complete" or ("Stage %d \u{2014} ready"):format(stage)
-		else
-			local reqStageIndex = GameConfig.GetRebirthTierStageIndex(nextTier)
-			-- from Stage 1, which is where every run starts and where a rebirth puts you back
-			frac = math.clamp((stage - 1) / math.max(1, reqStageIndex - 1), 0, 1)
-			text = ("Stage %d / %d"):format(stage, reqStageIndex)
-		end
-		-- THROUGH `SetProgress`, NOT `bar.Fill` (18.1). The fill is a child of the bar's `InnerBody`
-		-- now, so that the pill's own clip trims it at the curved ends instead of the bar clipping a
-		-- square hole and leaving two dark crescents. A direct index would throw here -- "Fill is not
-		-- a valid member of Frame" -- inside the one refresh this panel has. `SetProgress` does the
-		-- recursive lookup; `false` keeps this instant, which is what the direct write was.
-		UITheme.SetProgress(rebirthLadderBar, frac, false)
-		rebirthLadderBar.Label.Text = text
-	end
-
-	-- and tell the HUD tile whether to shine -- see the Rebirth beacon block
-	if hudRefs.setRebirthReady then hudRefs.setRebirthReady(ready) end
 end
 
 -- ===== shared bits for the two "claim a reward" boards (Daily + Playtime) =====
@@ -3466,116 +3091,55 @@ require(RS.Modules:WaitForChild("HUD"):WaitForChild("RelicsPanel"))(hudRefs)
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("InventoryTabs"))(hudRefs)
 
 
--- ===== Robux Shop panel =====
--- ===== THREE COLUMNS, BECAUSE THIS IS THE SCREEN THAT TAKES THE MONEY (16.8) =====
+-- ===== THE STORE HAS ONE DOOR NOW, AND IT IS A FUNCTION (18.12) =====
 --
--- 448 x 500 gave the grid 416 of width, which is two 192 cells and no room for a third, and 338 of
--- height, which is 1.9 rows of 180. Measured live: canvas 1,726 against a 338 window -- **the shop
--- showed a fifth of itself**, and the twenty products below the fold were reached by scrolling a
--- list whose first screen looks complete. Every other panel in this file is sized to its content;
--- this one was sized to the smallest thing it could get away with.
+-- What used to be built here: a 640 x 640 `RobuxPanel` carrying a product grid (`HUD/ProductTiles`)
+-- and a pass tab (`HUD/PassShop`). `UIComponents.ShopPanel` has done both jobs since 19.12, and the
+-- Robux TILE stopped opening this panel back in 18.11.
 --
--- 640 x 640 is arithmetic, not taste: the grid then has 608 of width and three cells plus their two
--- 10 px gaps is 596, so a column fits with 12 px of slack rather than the 0 an exact 628 would have
--- left (a grid that wraps on a rounding drops to two columns and nothing reports it). Height 640
--- puts 478 in the window, 2.5 rows, and turns 9 rows of 2 into 6 rows of 3.
+-- IT WAS NOT UNREACHABLE FROM EVERYTHING, and that is the part worth writing down, because it is
+-- what makes deleting it a fix rather than a tidy-up. FOUR doors still opened it: the `+` on the DNA
+-- pill, the `+` on the Diamond pill, the Auto Hatch button in the egg panel when the pass is not
+-- owned, and the in-world "Robux Shop" counter in every Upgrade Emporium
+-- (`GameConfig.ShopKinds.upgrades`). **The game was shipping two different Robux stores, and which
+-- one a player saw depended on which button they pressed.** It also means 19.12's "no player could
+-- reach the passes" was true of the TILE and not of the game -- the egg panel and the kiosk both
+-- opened this panel on its pass tab. The revenue bug was real; the count of doors was not zero.
 --
--- Nothing inside had to move. Both scrolls and the tab row are sized `(1, -32)` off the panel, so
--- they follow it, and `registerPanel` fits the whole thing to the viewport from the AUTHORED size --
--- on a 848 x 420 phone that is a scale of 0.59, which is exactly what that machinery is for.
-local robuxPanel = Instance.new("Frame")
-hudRefs.robuxPanel = robuxPanel
-robuxPanel.Name = "RobuxPanel"
-robuxPanel.Size = UDim2.new(0, 640, 0, 640)
-robuxPanel.Position = PANEL_ANCHOR
-robuxPanel.ZIndex = 20
-robuxPanel.Visible = false
-robuxPanel.Parent = screenGui
-styleCard(robuxPanel, PANEL_SHELL, UDim.new(0, 22), 5)
-registerPanel(robuxPanel)
-panelClose(robuxPanel)
-
--- THE COUNTDOWN MOVES OUT OF THE TITLE. It used to be appended to it -- the refresh loop wrote
--- "Robux Shop   ⭐ pick resets in 3h 04m" into the title label every second, which meant the panel's
--- name changed length continuously and the leading 🛍️ had to be dropped to make room for a clause
--- that is not the panel's name. A subtitle is where a sentence about the contents belongs, so the
--- title is now a constant and `refreshRobuxShop` writes to `Header.Subtitle`.
+-- So the replacement is not "delete the panel", it is "give the four doors somewhere to go". All
+-- four called `toggleOnly(robuxPanel)` -- an instance, reached from three different files. They call
+-- this instead. A `hudRefs` field and not a top-level local: a table field costs no register.
 --
--- Reached by path rather than by a handle for the usual reason: this file is at the 200-local cap.
-UITheme.PanelHeader(robuxPanel, {
-	title = "🛍️ Robux Shop",
-	-- 15.23: a constant, and it stays a constant. The subtitle used to be overwritten every push
-	-- with a countdown to the daily "pick" -- see refreshRobuxShop for why that clock is gone.
-	subtitle = "Packs, potions and passes",
-	accent = UITheme.Color.Green,
-	maxTextSize = 30,
-})
-
--- A SCROLLING FRAME, NOT A FRAME. Seventeen products in a 448 x 500 panel is nine rows of two,
--- about 1,400 px of cards in roughly 350 px of space: as a plain Frame everything below the third
--- row simply did not exist as far as the player was concerned. The class is the only thing that
--- changed here -- Visible still toggles the same way the tab code expects.
-local robuxGrid = Instance.new("ScrollingFrame")
-hudRefs.robuxGrid = robuxGrid
-robuxGrid.Name = "RobuxGrid"
-robuxGrid.Size = UDim2.new(1, -32, 1, -80)
-robuxGrid.Position = UDim2.new(0, 16, 0, 64)
-robuxGrid.BackgroundTransparency = 1
-robuxGrid.BorderSizePixel = 0
-robuxGrid.ScrollBarThickness = 6
-robuxGrid.AutomaticCanvasSize = Enum.AutomaticSize.Y
-robuxGrid.CanvasSize = UDim2.new(0, 0, 0, 0)
-robuxGrid.Parent = robuxPanel
-
--- THE FIRST ROW'S RIBBON WAS BEING CUT IN HALF (11.13). Every value ribbon hangs 6 px ABOVE its own
--- card (`Position = 0.5, 0, 0, -6`), which is what makes it read as a ribbon rather than a caption --
--- and a ScrollingFrame clips at canvas y = 0, so on the top row those 6 px were simply gone. Nine
--- rows of tiles were fine and the two the player sees first were not. A top pad on the canvas gives
--- the overhang somewhere to be; the grid layout is untouched.
--- In an IIFE, not a top-level local and not a `do` block: registers are function-scoped in Luau, so
--- a `do ... end` would still take one of the twenty this file has left.
-;(function()
-	local pad = Instance.new("UIPadding")
-	pad.PaddingTop = UDim.new(0, 10)
-	pad.Parent = robuxGrid
-end)()
-
-local robuxLayout = Instance.new("UIGridLayout")
-robuxLayout.CellSize = UDim2.new(0, 192, 0, 180)
-robuxLayout.CellPadding = UDim2.new(0, 10, 0, 12)
-robuxLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-robuxLayout.SortOrder = Enum.SortOrder.LayoutOrder
-robuxLayout.Parent = robuxGrid
-
--- ===== THE PRODUCT TILES =====
+-- `passKey` is optional and is a SCROLL HINT, nothing more. The passes sort after the products in
+-- the new store (`LayoutOrder` 1000+), so a door opened BY a pass -- Auto Hatch is the only one --
+-- would otherwise drop the player at the top of seventeen product cards with no sign that the thing
+-- they pressed for exists below the fold. It never changes what is sold, or what is buyable.
 --
--- Inside an immediately-called function for the reason stated at the pass shop below: this file is
--- at Luau's 200-local register cap, and the tiles need per-card handles to update later. Everything
--- kept alive escapes as one function on hudRefs.
--- MOVED OUT (18.9) to `ReplicatedStorage.Modules.HUD.ProductTiles` -- 181 lines, unchanged.
-require(RS.Modules:WaitForChild("HUD"):WaitForChild("ProductTiles"))(hudRefs)
-
--- ===== THE PASS SHOP: A SECOND TAB, NOT A SECOND PANEL =====
---
--- Two reasons it is a tab. From the player's side a pass and a product are the same decision --
--- "spend Robux" -- and splitting them across two entry points halves the chance either is seen.
--- And this file is at Luau's 200-LOCAL REGISTER CAP: a new panel needs several more top-level
--- locals and there are none to give. Everything below is inside an immediately-called function and
--- escapes only as a function on `hudRefs`, which costs one register no matter how much it holds.
--- A plain `do ... end` block is NOT enough -- that has deleted this whole HUD twice.
--- MOVED OUT (18.9) to `ReplicatedStorage.Modules.HUD.PassShop` -- 170 lines, unchanged.
-require(RS.Modules:WaitForChild("HUD"):WaitForChild("PassShop"))(hudRefs)
+-- `SetOpen(true)` and not `Toggle()`: every one of these four is a player asking for the store by
+-- name, at the moment they came up short. The old `toggleOnly` could close it on a double press,
+-- which is right for a HUD tile and wrong for all four of these.
+hudRefs.openStore = function(passKey)
+	local ShopPanel = require(script.Parent.UIComponents.ShopPanel)
+	-- Handed the live ACCESSOR and not a snapshot: the payload is replaced wholesale on every push,
+	-- so a cached table would freeze a pass card's OWNED state at whatever the first one said.
+	ShopPanel.SetDataSource(hudRefs.getData)
+	ShopPanel.Init(screenGui)
+	ShopPanel.SetOpen(true)
+	if passKey then ShopPanel.Focus("Pass_" .. passKey) end
+end
 
 -- ===== THE `+` ON THE CURRENCY CAPSULES =====
 --
--- Twenty lines, and the highest-leverage conversion change in this file: the shop was reachable
--- only from a tile in the right-hand column, i.e. never at the moment a player discovers they are
--- short. The `+` sits on the number that just came up short.
+-- Twenty lines, and the highest-leverage conversion change in this file: the store is otherwise
+-- reachable only from a tile in the right-hand column, i.e. never at the moment a player discovers
+-- they are short. The `+` sits on the number that just came up short.
 --
--- It has to be built HERE, after robuxPanel exists, rather than beside the pills 2,500 lines up:
--- `robuxPanel` is a local declared later in the file, so a closure written up there could not see
--- it. Inside an immediately-called function, like everything else added to this file -- the register
--- cap does not care that these are only two small buttons.
+-- STILL BUILT HERE, THOUGH THE REASON IT HAD TO BE IS GONE (18.12). The note used to read "it has
+-- to be built HERE, after `robuxPanel` exists, because a closure written beside the pills 2,500
+-- lines up could not see a local declared later in the file". There is no panel to be after: the
+-- module reads `hud.openStore` from inside its own click handler, so it resolves the field at press
+-- time and this require would work anywhere. Left where it is because moving it would be a diff
+-- with no reason behind it.
 -- MOVED OUT (18.9) to `ReplicatedStorage.Modules.HUD.CurrencyPlus` -- 27 lines, unchanged.
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("CurrencyPlus"))(hudRefs)
 
@@ -4672,22 +4236,18 @@ Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 	SoundLibrary.SetAmbience(data.CurrentZone)
 
 	refreshUI()
-	refreshZonesPanel()
 	refreshPetsPanel()
 	if hudRefs.refreshFusionPanel then hudRefs.refreshFusionPanel() end
 	if hudRefs.refreshSeasonPanel then hudRefs.refreshSeasonPanel() end
-	if hudRefs.refreshPassShop then hudRefs.refreshPassShop() end
 	if hudRefs.refreshAudioPanel then hudRefs.refreshAudioPanel(data) end
 	if hudRefs.refreshCodes then hudRefs.refreshCodes(data) end
 	if hudRefs.refreshSpins then hudRefs.refreshSpins() end
 	-- the odds move with luck, and luck moves with a potion, a pet swap or a bought upgrade -- all
 	-- of which arrive as a DataUpdate and none of which the panel could see on its own
 	if hudRefs.refreshEggPanel then hudRefs.refreshEggPanel() end
-	-- the DNA tiles are priced in the player's own stage, so they move when the player does
-	if hudRefs.refreshRobuxShop then hudRefs.refreshRobuxShop() end
 	-- the store's pass cards read `data.Passes`, which is rewritten the moment a purchase lands
 	if hudRefs.refreshStorePanel then hudRefs.refreshStorePanel() end
-	refreshRebirthPanel()
+	hudRefs.refreshRebirthReady()
 	refreshRewardPanel()
 	refreshMasteryPanel()
 	refreshInventoryPanel()
@@ -5123,7 +4683,6 @@ local ProximityPromptService = game:GetService("ProximityPromptService")
 local shopPanels = {
 	pets = petsPanel,
 	mastery = masteryPanel,
-	robux = robuxPanel,
 }
 
 
@@ -5200,6 +4759,14 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt, playerWhoTrigger
 	end
 	if which == "group" or prompt.Name == "ChestPrompt" then
 		if hudRefs.showGroupRewards then hudRefs.showGroupRewards() end
+		return
+	end
+	-- THE KIOSK IS A DOOR TO THE STORE, and after 18.12 the store is not a panel in this file -- so
+	-- it cannot come out of `shopPanels`, which maps a name to an INSTANCE. This is the "Robux Shop"
+	-- half of the Upgrade Emporium's two counters, and it was one of the four doors still opening the
+	-- deleted `robuxPanel`. Handled before the table lookup rather than by putting a fake entry in it.
+	if which == "robux" then
+		if hudRefs.openStore then hudRefs.openStore() end
 		return
 	end
 	local panel = shopPanels[which]

@@ -141,7 +141,7 @@ is a false positive. More than 13 means something new; the list below says which
 | File | Line | Name |
 |---|---|---|
 | `MainUI.client.lua` | 710 | `animatePanel` |
-| `MainUI.client.lua` | 3750 | `nextStageDef` |
+| `MainUI.client.lua` | 3433 | `nextStageDef` |  <!-- 3750 -> 3433 when 18.12 deleted the three orphan panels -->
 | `LoadingScreen.client.lua` | 208, 231 | `modules`, `bar` |
 | `SoundLibrary.lua` | 334 | `flatCache` |
 | `StatsService.lua` | 70 | `publish` |

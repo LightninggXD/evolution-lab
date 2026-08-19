@@ -131,7 +131,7 @@ of both engagement and revenue.**
 | **G7** | **Daily ladder does not loop.** 7 days, then it stops escalating. Playtime gifts reset every rejoin, so there is no *daily* playtime ladder. | D8–28 has no daily hook of growing value. |
 | **G8** | **`GameConfig.RobloxGroupId = 0`** (`Rewards.lua:29`) — the +10% DNA, the group chest and the whole community reward tree ship against no group. | Owner-blocked, and it is also the guild substitute Roblox gives you for free. |
 | **G9** | **Icon + thumbnail do not exist** (row 6.5). | Icons don't affect ranking directly but they set CTR, and CTR is read as a quality signal. Top-of-genre play-through rate is ~3.6%. This is the single gate on every other number in this plan. |
-| **G10** | **~600 lines of dead panels** (`zonesPanel`, `rebirthPanel`, `robuxPanel` — row 18.12) still built and refreshed on every `DataUpdate`, opened by nothing. Plus `InventoryPotionsTab.lua`, required by nothing. | Wasted frame time on exactly the low-end device a new player is on. |
+| **G10** | ~~**~600 lines of dead panels** (`zonesPanel`, `rebirthPanel`, `robuxPanel` — row 18.12) still built and refreshed on every `DataUpdate`, opened by nothing.~~ **CLOSED 2026-08-20:** 437 lines and 1,956 instances removed, HUD 12,316 → 10,360 descendants. The estimate was close and the diagnosis was half right — `robuxPanel` was opened by four things, not by nothing; see 18.12. Plus `InventoryPotionsTab.lua`, required by nothing. | Wasted frame time on exactly the low-end device a new player is on. |
 | **G11** | **Two documents actively lie.** `ROADMAP.md:309-311` and `TradeService.lua:4-19` both say trading is unwired. It is fully wired. | The next cold agent will believe them. |
 
 ---

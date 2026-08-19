@@ -315,4 +315,42 @@ function ShopPanel.Toggle()
 	if panel then panel.Toggle() end
 end
 
+--- Open (or close) the store outright, for the doors that are a request rather than a toggle.
+---
+--- 18.12 gave the four doors that used to open the deleted `RobuxPanel` -- the two currency `+`
+--- buttons, the egg panel's Auto Hatch button, and the in-world kiosk counter -- a single way in.
+--- Every one of them is a player asking for the store by name at the moment they came up short, so
+--- none of them wants `Toggle`, which would close it again on a second press.
+function ShopPanel.SetOpen(open)
+	if panel then panel.SetOpen(open and true or false) end
+end
+
+--- Scroll an already-open store to one card, by the `Name` it was built with.
+---
+--- ONLY EVER A SCROLL. It cannot open the panel, change what is listed, or change what is buyable
+--- -- a caller that gets the name wrong leaves the store exactly where `SetOpen` put it, which is
+--- the top. That matters because the one caller today is the Auto Hatch button, i.e. a path a
+--- player who owns nothing takes.
+---
+--- WHY IT IS NEEDED AT ALL: the nine passes sort after the seventeen products (`LayoutOrder`
+--- 1000+), so a door opened BY a pass lands on the products with its own subject below the fold.
+---
+--- DEFERRED BY ONE FRAME, and that is the whole trick. `Builder.SetOpen` rewinds `CanvasPosition`
+--- to zero AFTER it runs the refresh -- deliberately, so a panel reopened at the bottom of its own
+--- list does not stay there -- so a scroll written in the same tick is overwritten by the rewind
+--- that follows it. `AbsolutePosition` also needs a layout pass to be true of a frame that was
+--- hidden a moment ago; both are answered by waiting for the same heartbeat.
+function ShopPanel.Focus(cardName)
+	if not (panel and cardName) then return end
+	task.defer(function()
+		local card = panel.Scroll:FindFirstChild(cardName)
+		if not (card and panel.IsOpen()) then return end
+		-- measured against the scroll's own frame rather than the canvas origin, because the canvas
+		-- has a top pad and a list layout between the two and neither is this file's business
+		local y = (card.AbsolutePosition.Y - panel.Scroll.AbsolutePosition.Y) + panel.Scroll.CanvasPosition.Y
+		-- 12 px of air above the card, and never a negative canvas position
+		panel.Scroll.CanvasPosition = Vector2.new(0, math.max(0, y - 12))
+	end)
+end
+
 return ShopPanel

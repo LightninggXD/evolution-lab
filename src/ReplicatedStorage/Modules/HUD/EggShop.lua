@@ -20,7 +20,10 @@ local setButtonColor, PANEL_SHELL = UIKit.setButtonColor, UIKit.PANEL_SHELL
 
 return function(hud)
 	local PANEL_ANCHOR, panelClose, registerPanel = hud.PANEL_ANCHOR, hud.panelClose, hud.registerPanel
-	local robuxPanel, screenGui, toggleOnly = hud.robuxPanel, hud.screenGui, hud.toggleOnly
+	-- `hud.robuxPanel` was the third name on this line until 18.12 deleted the panel behind it; the
+	-- one place that used it now calls `hud.openStore` at press time. `toggleOnly` stays -- this
+	-- module still owns a panel of its own.
+	local screenGui, toggleOnly = hud.screenGui, hud.toggleOnly
 
 	-- ===== NO HUD TILE OF ITS OWN (11.18), BUT A DOOR AGAIN (12.8) =====
 	--
@@ -384,8 +387,17 @@ return function(hud)
 		if not (hud.getData() and GameConfig.OwnsPass(hud.getData(), "AutoHatch")) then
 			-- Sends them to the shop rather than doing nothing at all: this is the one control in
 			-- the panel a player can press without owning what it needs.
-			if hud.selectRobuxTab then hud.selectRobuxTab(true) end
-			toggleOnly(robuxPanel)
+			--
+			-- ===== AND IT NAMES THE PASS IT WANTS (18.12) =====
+			--
+			-- This used to be `selectRobuxTab(true)` + `toggleOnly(hud.robuxPanel)` -- the old
+			-- 640 x 640 store had a Passes tab and this asked for it. That panel is deleted;
+			-- `UIComponents.ShopPanel` is one list with the nine passes sorted after the seventeen
+			-- products (`LayoutOrder` 1000+), so opening it bare would land the player at the top
+			-- of the products with the thing they actually pressed for below the fold. The key is
+			-- a SCROLL HINT and nothing else -- it cannot change what is sold or what is buyable,
+			-- and `PassService` re-checks ownership server-side however the card was reached.
+			if hud.openStore then hud.openStore("AutoHatch") end
 			return
 		end
 		local remote = Remotes:FindFirstChild("SetAutoHatch")

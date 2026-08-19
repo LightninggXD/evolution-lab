@@ -13,8 +13,7 @@ local UIKit = require(RS.Modules:WaitForChild("UIKit"))
 local styleButton = UIKit.styleButton
 
 return function(hud)
-	local diamondPill, dnaPill, robuxPanel = hud.diamondPill, hud.dnaPill, hud.robuxPanel
-	local toggleOnly = hud.toggleOnly
+	local diamondPill, dnaPill = hud.diamondPill, hud.dnaPill
 
 	local function addPlus(pill, tone)
 		-- the pill is a horizontal UIListLayout of Icon (40 wide) + Value; the value gives up the room
@@ -30,9 +29,21 @@ return function(hud)
 		plus.Parent = pill
 		styleButton(plus, tone, UDim.new(1, 0))
 		plus.MouseButton1Click:Connect(function()
-			toggleOnly(robuxPanel)
-			-- always the Packs tab: `+` on a currency is a request for that currency, never for a pass
-			if hud.selectRobuxTab then hud.selectRobuxTab(false) end
+			-- ===== THROUGH `openStore`, NOT AT A PANEL (18.12) =====
+			--
+			-- This used to be `toggleOnly(hud.robuxPanel)` plus `selectRobuxTab(false)` -- a handle
+			-- on an instance MainUI built, and a request for that instance's Packs tab. Both are
+			-- gone with the panel. `UIComponents.ShopPanel` is one scrolling list with the products
+			-- first, so "always the Packs tab" is now the default rather than an instruction: a `+`
+			-- on a currency is a request for that currency, never for a pass, and no pass hint is
+			-- passed here for exactly that reason.
+			--
+			-- Read at PRESS time, not captured as an upvalue at build time. MainUI does assign
+			-- `openStore` before this module is required, so an upvalue would work today -- and
+			-- that is the whole argument against it. The old line broke the moment the instance it
+			-- named stopped existing; a field read on press is indifferent to require order, which
+			-- is the property that was missing when this was `toggleOnly(robuxPanel)`.
+			if hud.openStore then hud.openStore() end
 		end)
 	end
 

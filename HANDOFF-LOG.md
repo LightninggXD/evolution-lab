@@ -350,3 +350,298 @@ Added the new icons to the repository, updating the \uploaded.json\ mapping and 
 - \obux\ (\bxassetid://79711214319288\) - Skipped; its emoji mapping was missing or uncertain.
 
 **Rules broken:** none.
+
+---
+
+## 📅 Handoff — Claude, 2026-08-17 (Items + Relics panels in the Rebirth card language)
+
+Owner's note: *"ovo treba napraviti da izgleda kao rebirth panel, i potions da imaju vise boja
+ovde su svi plavi, nek plavi bude za DNA, zeleni health, zuti xp itd, i relics panel isto tako mi
+treba doradjen."* Two faults with one cause and one placeholder to finish.
+
+**`Modules/HUD/CardKit.lua` (new, 245 lines).** The `ScrollingPanelBuilder` card — ink outline,
+stud sheet, two-stop gradient, FredokaOne with a black halo — extracted so a panel that is not a
+builder panel can draw one. The Inventory and Relics panels cannot simply BECOME builder panels:
+they are `registerPanel`'d frames sharing one tab strip that is right-aligned inside all three, so
+converting one tears it. Draws a card, a button, a label and a count pill; knows nothing about
+scrolling, headers or overlays. Written against raw Instances, never `UIKit.styleCard`, so no
+surface inherits both stacking schemes.
+
+**`GameConfig/Potions.lua` — twelve gradients where there were four flat fills.** A kind now carries
+`color` + `deep`, a size carries `wash` (a lerp toward white), and each potion gets a `colors` pair.
+DNA blue, XP gold, **Luck violet, Health green** (a swap — luck used to own green on the strength of
+its clover; the clover icon stays, on violet). Small/Medium/Large are three strengths of the hue, so
+the three DNA rows are no longer one blue printed three times.
+
+**Health's ramp is deeper than first drawn, and that was a measured fix.** The shelf's USE button is
+green (the Rebirth panel's READY pair) and the first draft put a mint button on a mint card — see
+the capture. The card moved, not the button: one action colour across twelve rows is what makes
+"green is the one you press" learnable.
+
+**The potion shelf** is redrawn on CardKit: 62 → 72 px rows (3.9 in the 312 px window — 78 showed
+three and a sliver where the old shelf showed four), count as a dark pill, USE greyed-not-hidden via
+`SetEnabled`, sub-label wrapping that actually sticks (15.16 could not make it stick because
+`themeLabel` assigns `TextScaled` after the flag; `CardKit.Text` never touches it). Asymmetric
+scroll padding, 6 left / 14 right, because the scrollbar is drawn over the frame's right edge
+whatever the padding is and a symmetric 6 put the card's rim under it. The whole block is wrapped in
+a `do` — MainUI is at Luau's 200-register ceiling.
+
+**`HUD/RelicsPanel.lua`** — still no `GameConfig.Relics`, no remote, no refresh; the founding note
+stands. What replaced the pale tray and three grey labels: a "Relic Forge" hero card, four empty
+108 px sockets, one line. A socket is not a relic. Not six greyed "Locked" rows — that is the price
+list the Potions panel already carries a note against.
+
+**Evidence (live, in Studio — `Evolution Lab BETA V0.2`):**
+- All four files pushed and verified **byte-identical to `src/`** by length + rolling sum:
+  `MainUI` 275,239 / 1018896480 · `RelicsPanel` 11,504 / 1054176369 ·
+  `Potions` 11,774 / 1562533875 · `CardKit` 10,031 / 2098284297. All four `loadstring` clean.
+- Play started; server console clean (no errors). Twelve cards built at `z=25` over a `z=24` scroll,
+  all 72 px, twelve distinct gradient pairs read back off the live `UIGradient`s.
+- State probe: owned rows carry their hue with `AutoButtonColor = true`; `x0` rows (xp_m, xp_l,
+  luck_l) carry `196,200,214 → 140,146,166` with the button grey and `AutoButtonColor = false`.
+- `SubLabel` on `luck_l`: `wrapped=true scaled=false fits=true`, bounds 30 in a 34 box at 234 wide —
+  the longest string in the set, on two lines. 15.16's wrapping bug is genuinely dead.
+- Four captures: DNA rows, XP rows incl. the two greyed ones, Health rows, and the Relics panel.
+
+**Not verified:** nothing on a real server (Studio has one), and no capture of the Pets tab — it was
+not touched. Potion counts came from the owner's existing save, not granted: the sandbox `require`
+returns a fresh `PlayerDataService` instance, so its `Cache` is empty and live data cannot be
+written from an `execute_luau` probe. Worth knowing for the next session.
+
+**Rules broken:** none.
+
+---
+
+## 📅 Handoff — Claude, 2026-08-17 (Store redesign, and the new icon upload)
+
+Owner: *"robux ima ikonu obicnog shopa kad se otvori (crveni cart) treba da se zameni za robux
+ikonu, a ovaj shop treba da se nabudzi da ima dizajn kao ovi novi paneli"*, then *"ubacila sam jos
+neke iteme koji ce biti relics, imas novu ikonu za trade, i za pets... u ovom storeu trebaju slikice
+da se vidi sta je sta"*.
+
+### ⚠️ READ THIS BEFORE PASTING ANY TOOLBOX ID
+
+**A Decal id in `ImageLabel.Image` does not render.** The owner's new art arrived as **Decal**
+assets; every id in `IconLibrary` is an **Image**. Probed live: nine Decal ids all came back
+`IsLoaded = false` while a known-good Image id in the same probe came back `true`. The failure is
+silent — a blank square, no warning, nothing in the output.
+
+The image inside a Decal is recovered like this (Edit mode):
+
+```lua
+local m = game:GetService("InsertService"):LoadAsset(DECAL_ID)
+for _, d in ipairs(m:GetDescendants()) do if d:IsA("Decal") then print(d.Texture) end end
+m:Destroy()
+```
+
+All 24 ids added this session went through that probe. **The number the Toolbox shows and the
+number that renders are different numbers.**
+
+### What changed
+
+**`IconLibrary`** — 24 new rows. Fifteen are the food/junk art banked for RELICS (`bone`, `pizza`,
+`donut`, `carrot`, `ice_cream`, `chicken_leg`, `meat`, `watermelon`, `apple_gold`, `fat`, `glasses`,
+`bullet`, `gold_pieces`, `scroll`, `amethyst`) — **no emoji mapping and no caller, deliberately**:
+`RelicsPanel` still owns no schema and a drawing with a name is not a design. Nine have callers:
+`trade`, `pet_dog`, `portal`, `potion_purple`, `potion_white`, `swords`, `tools`, `touch`, `trophy`.
+
+Two remappings: **🐾 → `pet_dog`** and **🤝 → `trade`**. Both were blobs at tab size, and both were
+pictures of the wrong noun — a footprint is not a pet, a handshake is the moment a trade closes
+rather than the exchange. `paw` and `handshake` keep their rows; they are just no longer wired.
+
+**`ShopPanel`** — three faults, one omission. It was a straight port of the product ladder that
+skipped every signal the old grid had:
+
+1. **No icons.** It read `product.imageId`, a field **no row in `RobuxProducts` has** — they carry
+   `emoji`. So `Icon` was always `""` and twenty products drew as twenty blank cards. Now through
+   `IconLibrary.Resolve(product.emoji)`, which is what `ProductTiles` always did.
+2. **No filter.** It listed all twenty, **including `BossRevive`, which is `delisted`** — a
+   withdrawn product whose row survives only so a retried receipt still resolves — and the two
+   Catalysts, which belong on the fusion panel. The store was selling something the game had
+   stopped selling. `ProductTiles`' 11.7 predicate is copied, not re-reasoned. **17 cards now.**
+3. **No ribbon.** `product.ribbon` was read by nothing and the derived bonus was a grey third line
+   of body text. Gold for the authored "BEST VALUE", violet for the derived "+N% BONUS".
+
+Header icon: the hard-coded shopping basket → `IconLibrary.Resolve("🛍️")`, the Robux logo. Header
+accent violet → green, matching the HUD tile that opens it. Card colour is keyed off the **grant**
+rather than `tierGroup`, because the wheel, both potion bundles and the season pass have no group
+and all four were falling into one lavender that meant nothing. Green is reserved and appears on no
+card — every BUY button is green, the lesson the potion shelf paid for earlier today.
+
+**`ScrollingPanelBuilder`** — two optional card fields, both off by default, so the other four
+panels built on this file are untouched:
+- `Ribbon = { Text, Colors }`, drawn as the first item of the text stack rather than as a 6 px
+  overhang (which the old grid needed a canvas pad to stop the ScrollingFrame clipping) or a corner
+  badge (which would fight the button column on a row card).
+- `IconPlate`, a dark inset well behind the icon. Photographed: a pale-blue DNA helix on a blue DNA
+  card read as a watermark. That is not fixable per card — the icon is blue *because* DNA is blue,
+  and so is the card.
+
+**Evidence (live, in Studio — `Evolution Lab BETA V0.2`):**
+- Three files byte-identical to `src/`, all `loadstring` clean: `IconLibrary` 24,130 / 1610644969 ·
+  `ShopPanel` 10,562 / 280535399 · `ScrollingPanelBuilder` 24,090 / 1932895347.
+- Store built live: header icon `79711214319288` (`IsLoaded = true`), **17 cards** (20 − 3 filtered),
+  ribbons read back as `+24% / +48% / +77% / BEST VALUE` on DNA and `+9% / +23% / +37% / BEST VALUE`
+  on Diamonds — all derived from `GetTierBonusPct`, none authored except the three `BEST VALUE`s.
+- `Resolve` probes: 🐾 → `116115997044622`, 🤝 → `140143138808728`, 🛍️ → `79711214319288`.
+- Captures: the store before (blank cards, basket logo) and after (plate + icon + ribbon + Robux
+  logo), and the Pets panel showing the dog in its header and on the slot counter.
+
+**Not verified / known gaps:**
+- **The Inventory tab strip still draws raw emoji glyphs** (`🐾 Pets`, `🧪 Potions`, `🔮 Relics`).
+  Those captions go through `themeLabel`, never `IconifyLabel`, so the new dog does not reach them.
+  Worth doing; not touched this session.
+- Off-screen card icons report `IsLoaded = false` — that is Roblox not decoding what it is not
+  drawing, not a bad id. The three on screen loaded, and the ids are the same ones the old grid used.
+- No purchase was prompted. `PromptRobuxPurchase` is unchanged and still fires the product KEY.
+- The relic art has no consumer yet, by design.
+
+**Rules broken:** none.
+
+---
+
+## 📅 Handoff — Claude, 2026-08-20 (18.12 + 19.8: the three orphan panels, and the four doors)
+
+### 18.12 / 19.8 — the old Zones, Rebirth and Robux panels are deleted, and the store has one door
+
+- **Date:** 2026-08-20
+- **Status set in ROADMAP.md:** `[x]` on **18.12** and `[x]` on **19.8** (18.12 was the last of its
+  five rows; 18.6 / 18.7 / 18.8 / 18.10 closed 2026-08-17–19)
+- **Files changed:**
+  - `src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua` (−437 lines, −21.6 KB)
+  - `src/StarterPlayer/StarterPlayerScripts/UIComponents/ShopPanel.lua` (+`SetOpen`, +`Focus`)
+  - `src/ReplicatedStorage/Modules/HUD/CurrencyPlus.lua`
+  - `src/ReplicatedStorage/Modules/HUD/EggShop.lua`
+  - `ROADMAP.md`, `docs/VIRAL-PLAN.md` (G10), `src/SYNC.md` (luanames baseline line number)
+
+### ⚠️ THE FINDING: `robuxPanel` WAS NOT OPENED BY NOTHING. IT HAD FOUR DOORS.
+
+18.12's premise — *"still constructed and still refreshed; only their buttons were repointed"* — was
+true of `zonesPanel` and `rebirthPanel` and **false of `robuxPanel`**. 18.11 repointed the Robux
+**tile** at the new `ShopPanel`. It did not touch:
+
+1. the `+` on the DNA capsule (`HUD/CurrencyPlus`) → `toggleOnly(hud.robuxPanel)`
+2. the `+` on the Diamond capsule (same file, same line)
+3. the egg panel's **Auto Hatch** button when the pass is not owned (`HUD/EggShop` line 387) →
+   `selectRobuxTab(true)` + `toggleOnly(hud.robuxPanel)`
+4. the in-world **"🛍️ Robux Shop"** counter in every Upgrade Emporium
+   (`GameConfig.ShopKinds.upgrades.counters`), routed through `MainUI`'s `shopPanels.robux`
+
+**The game was shipping two different Robux stores, and which one a player saw depended on which
+button they pressed.** Deleting the panel without finding these four would have made three of them
+no-ops and one of them an error.
+
+**This also corrects 19.12 in one detail.** 19.12 recorded *"2,041 R$ of storefront that no player
+could reach"*. Doors 3 and 4 both opened the old panel **on its pass tab**. The passes were
+unreachable from the *tile*, not from the game. The revenue bug was real — the door a player
+actually presses did not lead there — but the count of doors was never zero, and the next agent
+should not inherit the stronger claim.
+
+**The rule, one turn on from 19.12's.** 19.12 wrote *"repointing a door is a DELETION of everything
+behind the old one"*. The corollary this row paid for: **repointing one door is not repointing the
+door.** What has to be enumerated is every *caller* of the thing being orphaned. `grep` for the
+instance name across all of `src/` is what finds them — three of these four were in other files or
+reached through a config table, so nothing in `MainUI` itself named them.
+
+### What was built
+
+`MainUI` no longer builds `zonesPanel` (430×480, 21 rows), `rebirthPanel` (430×454) or `robuxPanel`
+(640×640, product grid + pass tab). Their four doors now call one **`hudRefs.openStore(passKey)`** —
+a table field, so no register — which requires `UIComponents.ShopPanel`, hands it the live accessor,
+and calls the new `ShopPanel.SetOpen(true)`.
+
+`passKey` is a **scroll hint and nothing else**, for the one door opened *by* a pass (Auto Hatch).
+The passes sort after the seventeen products at `LayoutOrder` 1000+, so opening the store bare from
+that button lands the player on the products with the thing they pressed for below the fold.
+
+**The trap in `Focus`, and it is a line written to fix a different bug.**
+`ScrollingPanelBuilder.SetOpen` rewinds `CanvasPosition` to zero **after** it runs the refresh —
+deliberately, so a panel reopened at the bottom of its own list does not stay there. A scroll
+written in the same tick is therefore silently overwritten. `Focus` defers one frame, which also
+gives `AbsolutePosition` the layout pass it needs on a frame that was hidden a moment ago.
+
+### 🔦 THE ONE THING THAT WOULD HAVE GONE DARK WITHOUT A WORD
+
+`HUD/RebirthBeacon` — the pulsing arrow that points at the Rebirth tile when a rung is available —
+is a **HUD** element, not a panel element. The only thing that has ever told it whether to shine is
+`refreshRebirthPanel`, i.e. the deleted panel's own refresh. Deleting that block and nothing else
+leaves `beaconGui.Enabled` at its constructed `false` **forever**: no error, no warning, and the one
+moment in the game worth interrupting for stops announcing itself.
+
+115 lines of `refreshRebirthPanel` collapse to a 5-line `hudRefs.refreshRebirthReady` that asks
+`GameConfig.CanRebirthNow` and does nothing else. The extra parentheses in
+`setRebirthReady((CanRebirthNow(currentData)))` are load-bearing — that function returns
+`ready, why`.
+
+### Evidence (live, in Studio — `Evolution Lab BETA V0.2`, placeId 102217824272435)
+
+- **Hash sweep clean at both ends of the session:** 116 files match `src/` byte for byte, 0
+  mismatches, 0 only-on-disk. All four changed files pushed over the `tools/recv_server.py` bridge
+  and re-hashed identical: MainUI 263,675/990087416 · ShopPanel 18,997/707365230 · CurrencyPlus
+  2,646/1505668955 · EggShop 19,992/1045388687. **All four `loadstring` clean.**
+- **Registers:** `MainUI` 160 → **144** top-level registers (`tools/luaregs.py`, before-file taken
+  from `git show HEAD:`). Headroom under Luau's 200 cap 40 → **56**.
+- **In Play:** `ZonesPanel`, `RebirthPanel`, `RobuxPanel`, `RobuxGrid` and `PassScroll` are **all
+  absent** from the live `PlayerGui` (searched recursively). HUD = **10,360 descendants** against
+  the 12,316 18.12 measured — the 1,956 instances that row named, exactly.
+- **Replacements draw:** `ZonePanel` builds **21** zone cards (Forest/Desert/Ocean all `GO`);
+  `RebirthPanel` reads **`REBIRTH — COMPLETE`** with four `DONE` rungs against a save at
+  `Rebirths = 4 / StageIndex = 20`.
+- **The Auto Hatch door, end to end:** `SetOpen(true)` + `Focus("Pass_AutoHatch")` put that card
+  **12.0 px from the top of a 365 px window** (the authored 12 px of air), canvas Y **2937** of a
+  3668 maximum, with `Pass_AutoHatch@12 Pass_DNA2x@167 Pass_Damage2x@322` in view. **Captured.**
+- **Pass ownership, re-measured through the changed file** (19.12's check, unchanged): **9/9 read
+  `OWNED`** at rgb(214, 238, 224) with `AutoButtonColor = false` when the save carries the passes;
+  **0/9** with `Passes = {}`. Prices intact on the control: 99 / 149 / 149 / 199 / 199 / 199 / 249 /
+  299 / 499.
+- **Both `+` doors still built:** `PlusButton` present and visible on `DNAPill` and `DiamondPill`,
+  32×32 — so `CurrencyPlus` loaded cleanly without `hud.robuxPanel`. Correctly still none on the
+  Shard pill.
+- **The beacon feeder ran rather than threw** — this is the control that matters. `beaconGui.Enabled
+  = false` and `CanRebirthNow` returns `false, "done"` on the same live save, so the two agree; and
+  **every panel refreshed on the lines *after* `hudRefs.refreshRebirthReady()` holds live values**
+  (Mastery 686 descendants with its buy buttons reading the owned tick, Inventory 394, Character
+  2,730, Reward 529). A nil field there would have unwound the whole `DataUpdate` handler and left
+  all four stale.
+- **Lints:** `luascope` clean on all 116 · `luanames` **13 of 13**, the documented baseline, no new
+  name (`MainUI`'s `nextStageDef` moved 3750 → 3433 and `src/SYNC.md` was updated) · `luaremotes`
+  **58 remotes, every one with a speaker and a listener** · `luastruct` clean.
+- Console at boot: no MainUI error, no warning. (`[PassService] STUDIO TEST MODE` and the Assistant
+  plugin-version notice are both expected.)
+
+### Not verified
+
+- **No real mouse press reached any of the four doors.** MCP mouse input does not reach this Play
+  session (the same wall 19.1 hit). The store was driven through a fresh `require` of the same
+  source, not through `hudRefs.openStore` itself, which lives inside `MainUI`'s closure.
+- **The probe VM does NOT share the client's module cache** — measured, and worth writing down: a
+  stub `getData` set from `execute_luau` survived four seconds of server payloads without
+  `refreshStorePanel` replacing it. So `require(PlayerScripts.UIComponents.ShopPanel)` from a probe
+  returns a *second* copy of the module with its own `panel` upvalue. It builds a second
+  `StoreOverlay` into the same `ScreenGui`. Harmless in a Play session that is thrown away, but any
+  count taken after that probe is 836 descendants high — the 10,360 above was read **before** it.
+- **The beacon's *true* branch was not re-measured.** The test save is at 4/4 so `CanRebirthNow` can
+  only answer `false, "done"`, and a save write to plant a fixture is refused by the harness. The
+  code inside `RebirthBeacon` is untouched; what is unproven is only that a `true` reaches it.
+- **The in-world kiosk was not pressed.** The `which == "robux"` branch was added by reading
+  `GameConfig.ShopKinds.upgrades.counters` and `shopPanels`; no ProximityPrompt was triggered.
+- `HUD/ProductTiles`, `HUD/PassShop` and `HUD/RebirthRungs` are now **required by nothing** and were
+  deliberately left on disk. An unrequired ModuleScript costs nothing at runtime, and they are the
+  files `ShopPanel` and `UIComponents/RebirthPanel` were ported from. `docs/CODEMAP.md` still lists
+  all three without a caller column entry; that is now accurate rather than stale.
+- Per-zone and per-product **card art still does not exist**, so both new lists still fall back to
+  the builder's collapsed no-icon gutter. Unchanged by this row, and still worth doing.
+
+### Rules broken
+
+None.
+
+### Open questions for review
+
+- `openStore` is `SetOpen(true)` and not `Toggle()`. The old `toggleOnly(robuxPanel)` toggled, so
+  pressing the in-world kiosk twice used to close the panel; it now re-opens it. Deliberate — the
+  other three doors are all "I just came up short" — but the kiosk is the one where a toggle was
+  arguably right.
+- `ShopPanel.Focus` takes a card **Name** (`"Pass_" .. key`). If a pass key is ever renamed, the
+  Auto Hatch door degrades silently to "opens at the top" rather than erroring. That is the safe
+  failure and it is why it was built as a hint, but it is a string coupling.
