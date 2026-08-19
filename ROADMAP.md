@@ -948,6 +948,62 @@ highest risk. **Build it in two switchable stages, soft first.**
 
 ---
 
+## Phase 26 — The exclusives have no door · *opened 2026-08-20 by the owner*
+
+**Her question, on a screenshot of the Journal's two locked rows: _"kako se uopste otkljucaju ovi
+event i vip likovi"_ — and the honest answer is that one of them unlocks by doing nothing and the
+other unlocks by an accident of ownership that no surface in the game ever mentions.** Her three
+instructions: the event skin must sit **at the end of a quest ladder** and not be too easy, VIP must
+be **paid for in Robux**, and the exclusives must **stand on display somewhere near the start of the
+game**. She asked for the market to be researched first, so it was.
+
+### What the market actually does (researched 2026-08-20)
+
+- **Nobody at the top hands the headline exclusive to anyone who logs in.** Pet Simulator 99 runs
+  each event as its own area with **event quests that must be completed in order** — the documented
+  examples are grinds, not gestures ("break 150 Clover Coin Piles", "break 50 Clover Coin Pots") —
+  and the limited Huges are what the ladder pays out at the end. Murder Mystery 2's summer event
+  pays an **event currency from daily quests** which is then **spent on an Event Reward Track**.
+  Forsaken gates its **milestone skins on every 25 levels with that character** and says outright
+  they exist to "showcase player experience".
+- **What makes a limited item worth owning is that the window is shut afterwards.** Steal a
+  Brainrot has released **24 limited characters** and its developers have confirmed they will not be
+  reintroduced "in any capacity"; MM2 removes the seasonal lobby, the boxes, the quests and the
+  reward track together when the window closes. **Evolution Lab already gets this half right** —
+  `GameConfig.EventCharacters` has carried the rule "these are NEVER taken back" since 12.13, and
+  `SyncEventCharacters` heals a rebirth so the receipt survives. The half it gets wrong is that
+  there is nothing to earn: `EventService.GrantRewards` writes the skin into `data.EventCharacters`
+  for **anyone who is online**, and the blurb says so out loud — *"for everyone who shows up"*.
+- **VIP perks in this market are advertised at the player, not discovered by them.** The pattern is
+  an exclusive skin plus a visible badge, and the badge exists so that people who have not bought it
+  can see it. Evolution Lab's nine-skin VIP wardrobe is already correctly gated on the Robux pass
+  (`SyncVipCharacter`, granted and revoked with ownership) — **so the owner's second instruction is
+  already satisfied in code and satisfied nowhere in the UI.** The Journal draws nine ringed
+  portraits with damage multipliers under them and never says the word "buy".
+
+### The three faults this phase closes
+
+1. An event skin costs **nothing but presence**, against a market where it costs an ordered ladder.
+2. The VIP wardrobe is **paid content with no storefront** — no surface anywhere converts a look at
+   it into a purchase.
+3. Neither set is **displayed**. The one thing every game in the reference list does with a limited
+   or paid character is stand it where the people who do not own it have to walk past it.
+
+| ID | | Task | Check |
+|---|---|---|---|
+| 26.1 | `[ ]` | **The event ladder.** `GameConfig.EventQuests[eventKey]` — an ordered board of four rungs per event, reusing the four counters `SeasonPassService.Track` already feeds (`creatures`, `bosses`, `eggs`, `fuse`), each rung paying Diamonds or DNA and **only the last one paying the character**. Progress lives in `data.EventQuests[eventKey] = { window, progress, claimed }` bucketed by the **window's start timestamp**, so each occurrence is its own board — which is exactly right for ColosseumClash, whose champion rotates weekly and should have to be re-earned. `EventService.GrantRewards` stops granting the skin on login | a save online for the whole window with an untouched ladder owns no skin; the same save with four rungs claimed owns it |
+| 26.2 | `[ ]` | **The ladder needs a surface**, and the Season panel's Quests tab is already the quest board. The live event's ladder draws above the daily and weekly ones, in the event's own colour, with the skin drawn as the final prize and the window's countdown on the header. It disappears when the window closes — the market's urgency comes from the board going away, not from a label saying "limited" | Quests tab during a live window shows four rungs and the prize; outside one, nothing |
+| 26.3 | `[ ]` | **A locked event slot in the Journal says `?` and nothing else.** It must name its event, say what the ladder asks and how long is left, or the whole ladder is invisible to the person who has not opened the Season panel today | a locked event portrait names the event and its window |
+| 26.4 | `[ ]` | **The VIP wardrobe has no storefront.** A locked VIP portrait gets a Robux door — the same `PromptRobuxPurchase` the Season card uses — and the row header says what the pass costs. This is the row that turns an existing, correct, invisible piece of monetisation into revenue | clicking a locked VIP portrait opens the Robux prompt for the VIP pass |
+| 26.5 | `[ ]` | **The Exhibit** — the owner's *"da stoje likovi izlozeni negde na pocetku igre"*. A pedestal row near spawn in `HubPlaza`: the nine VIP skins (real catalog bundles, so they can be worn by a display rig) and the event skins, each on a plinth with a sign saying how it is earned, and **unowned ones silhouetted** rather than hidden. Locked-but-visible is the whole mechanism — it is what every game in the research does with the thing you cannot buy today | walk spawn and the two sets are standing there, silhouetted, each naming its price or its ladder |
+
+**Sequencing note:** 26.1 is the only row with a save-shape change, so it goes first and alone. 26.2
+and 26.3 are readers of what it writes. 26.4 is independent of all of them and is the cheapest
+revenue row in the file. 26.5 is a world build and should be the last thing touched before a
+rebuild, not the first.
+
+---
+
 ## 👤 Owner action checklist
 
 Collect these once; each one blocks agents until it exists.
@@ -992,6 +1048,7 @@ Gathered 2026-08-07/08 while writing this plan.
 
 ## Changelog
 
+- **2026-08-20 (fourth row of the session)** — **Phase 26 opened, from a question rather than a bug.** The owner asked how the event and VIP characters unlock at all. They unlock by logging in and by an invisible pass respectively, which is one row of dead design and one row of unsold inventory. The market was researched before anything was written: PS99 gates its limited pets behind ordered event quests, MM2 behind an event currency spent on a reward track, Forsaken behind per-character milestones — and Steal a Brainrot's 24 limited characters are permanently retired, which is the part this game already had right. Five rows written, none started.
 - **2026-08-20 (third row of the session)** — **19.13 and 19.14, both opened by screenshots and both closed with one.** The Lucky Wheel's twelve prizes were stacked in a single fan because `Rotation` pivots on an element's centre, not its `AnchorPoint` — a fact already in the notes and applied nowhere on that file. The wheel is a genuine twelve-sector pie now, built from centred full-diameter bars with their inward halves masked off, and `radialBar` is the only constructor in the file allowed to place a rotating piece. The Season Pass lost the last of its duplicate progress bars: 18.6 removed the wrong one, and the level card is a readout rather than a second instrument. Both files pushed over the bridge and verified byte-identical (`SeasonPass` 463675222, `SpinReveal` 1963966826), both `loadstring` clean, and the session's opening sweep found **114 of 116 files already identical** to Studio — the two that differed were the two being pushed.
 - **2026-08-20 (second row of the session)** — **19.6 closed, and it was not documentation debt.**
   `FirstJoin` is back to 1,042 lines and 338 comment lines from 674 and 60 — a merge onto the
