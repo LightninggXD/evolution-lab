@@ -645,3 +645,115 @@ None.
 - `ShopPanel.Focus` takes a card **Name** (`"Pass_" .. key`). If a pass key is ever renamed, the
   Auto Hatch door degrades silently to "opens at the top" rather than erroring. That is the safe
   failure and it is why it was built as a hint, but it is a string coupling.
+
+---
+
+### 19.6 — the FirstJoin comments are back, and they were hiding two deleted guards
+
+- **Date:** 2026-08-20
+- **Status set in ROADMAP.md:** `[x]`
+- **Files changed:**
+  - `src/StarterPlayer/StarterPlayerScripts/FirstJoin.client.lua` (674 → 1,042 lines, 60 → 338
+    comment lines)
+  - `tools/codediff.py` (new)
+  - `ROADMAP.md` (19.6, the tooling-traps list, the changelog), `src/SYNC.md`
+
+### ⚠️ THE ROW'S PREMISE WAS WRONG: THIS WAS NOT DOCUMENTATION DEBT
+
+19.6 reads *"almost all of them the design comments this project keeps on purpose… this is
+documentation debt, not a defect"*. The 18.23 compaction had also deleted **two guards** from
+`runClimbBeat`:
+
+```lua
+if state.climbShown then return end
+state.climbShown = true
+local ramp = nearestRamp()
+if not ramp then return end          -- ← this one is live
+```
+
+Without the second one the fourth tutorial beat shows **"Climb to the next terrace — Tougher
+creatures, higher XP drops" for a full seven seconds wherever the player happens to be standing**,
+and `pointAt(nil)` / `updateTrail(nil)` then correctly draw no beacon and no trail. An instruction
+with no target, on the screen a brand-new player sees in their first two minutes.
+
+**It is not theoretical.** Measured live: `WorldShell` holds **124 `TerraceRamp`s**; the
+**EventArena at (0, −4, 1400) is 1,006 studs from the nearest**, past `nearestRamp`'s own 900-stud
+cut-off. A player whose first evolve lands them in the arena gets exactly that banner.
+
+`state.climbShown` was restored as insurance rather than as a fix — today the only caller is the
+`task.delay` in the completion branch and `onData` returns early once `TutorialDone` is set, so it
+cannot currently fire twice. A one-shot hint should say so in its own body rather than depend on
+that staying true.
+
+### 🔧 THE TOOL THIS PAID FOR — `tools/codediff.py`
+
+**391 changed lines is exactly the cover a deleted line of code hides under**, and *"almost all of
+them comments"* is a claim nobody can check by reading. `codediff.py` strips comments and blank
+lines from two revisions and diffs what is left. On this pair the answer was **five lines**, and the
+guards were obvious.
+
+`--quarantine` sweeps all twelve files 19.0 rescued into `tools/_studio_pull/` against `src/`.
+**Eleven are code-identical and only `FirstJoin` diverged** — which is what turns this from a
+worry about every compacted file into an isolated incident, and it is reassurance the row could not
+have given without the tool.
+
+### What was built
+
+A **merge onto the compacted descendant, not a revert.** 19.0 established that the 674-line copy is
+the descendant — it holds real 18.23 work (the sound cue, the evolve halo, the vertical pips, the
+bobbing marker) — so every restored comment was checked against the code beside it. Four would have
+been lies if copied back verbatim and were corrected:
+
+| restored claim | old file said | code actually says |
+|---|---|---|
+| banner text sizes | headline 26 px / subline 18 px | **24 / 17** |
+| what the arrow would cover | the "120 / 120 DNA" bar | **XP** — `stepFor` tests XP alone |
+| the step pips | "a row of pips", horizontal | **a vertical column** |
+| arrow size in the overlap argument | 64 px | **76 px** |
+
+Three blocks are written new rather than restored, because 18.23 added things the old file had no
+note for: the pulsing evolve halo (why a ring and not a fill, why re-fitted every frame), the sound
+cue (why on the two achievement beats and neither instruction beat), and the marker's bob (why a
+sine and not a tween).
+
+### Evidence (live, in Studio)
+
+- **Code-only diff against the previous `src/` revision: `removed 0, added 5`** — the five guard
+  lines above and nothing else. Everything else in a 368-line growth is comment.
+- Pushed and re-hashed **byte-identical: 51,130 / 888389944**, `loadstring` **clean**.
+- **Quarantine sweep:** DailyRewardsPanel 437→437, EggPlaza 616→616, ExtraProps 120→120, HatchReveal
+  911→911, PetFollowService 106→106, PetModel 237→237, VillageKit 334→334, ZoneBuilder 1251→1251 —
+  **all `removed 0 added 0`**.
+- **In Play, everything the restored comments describe is true of the running file:**
+  `FirstJoinGuide` `DisplayOrder = 110`, `IgnoreGuiInset = false`, five children — `Banner`, `Arrow`,
+  `ButtonHalo`, `GuideMarker` (a `BillboardGui`) and `GuideHighlight` (a `Highlight`), which is
+  exactly the pair the `pointAt` comment says `gui.Enabled` cannot reach. `FirstJoinTrail` holds
+  **8** parts, `Chevron1` has `MeshType = Pyramid` (the probe the header claims), `Transparency = 1`
+  from birth, `CanQuery` and `CanTouch` both **false**. Three pips.
+- **Control on the normal path:** nearest ramp to spawn is **514 studs**, so the restored
+  `if not ramp` guard passes and the climb beat still runs where it should.
+- Lints: `luastruct` and `luascope` clean; `luanames` **13 of 13** baseline (`runGuide` moved
+  371 → 869, `src/SYNC.md` updated). Clean boot, no MainUI or FirstJoin error in the console.
+
+### Not verified
+
+- **The guard's STOP branch was not watched.** Doing it properly means putting a player in the
+  EventArena and completing a first evolve there; it is reasoned from the 1,006-stud measurement and
+  four lines of code instead.
+- **No first-join sequence was played end to end.** The test save has `TutorialDone = true`, so the
+  banner, the camera pan and all four beats were verified structurally — every instance built, with
+  the properties the comments claim — rather than by watching them run.
+- `tools/_studio_pull/DailyPanel.lua`, `FirstJoin_backup_18_22.lua`, `_RewardFresh.lua` and
+  `_VipSkinBuilder.lua` have no `src/` counterpart and were skipped by the sweep. `DailyPanel` is
+  the dead file 19.7 was about; the other three live only in `ServerStorage`.
+
+### Rules broken
+
+None.
+
+### Open questions for review
+
+- Restoring the guards is a behaviour change inside a row scoped as documentation. I took it because
+  restoring a comment that describes behaviour the code no longer has would be writing a lie, and
+  because the `not ramp` case is a real player-facing fault. Say if you would rather that had been
+  split into its own row.

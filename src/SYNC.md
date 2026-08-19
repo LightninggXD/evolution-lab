@@ -145,7 +145,7 @@ is a false positive. More than 13 means something new; the list below says which
 | `LoadingScreen.client.lua` | 208, 231 | `modules`, `bar` |
 | `SoundLibrary.lua` | 334 | `flatCache` |
 | `StatsService.lua` | 70 | `publish` |
-| `FirstJoin.client.lua` | 371 | `runGuide` |
+| `FirstJoin.client.lua` | 869 | `runGuide` |  <!-- 371 -> 566 in the 18.23 compaction, -> 869 when 19.6 restored the comments -->
 | `HatchReveal.client.lua` | 82 | `bestDist` |
 | `RarityBeam.client.lua` | 174 | `toastSeq` |
 | `PanelFocus.client.lua` | 190 | `ensure` |
