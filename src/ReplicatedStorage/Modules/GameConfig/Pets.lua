@@ -882,6 +882,12 @@ function GameConfig.GetLuckPercent(data)
 		+ megaAdd
 		+ GameConfig.GetPotionLuckAdd(data)
 		+ GameConfig.GetPassAdd(data, "luckAdd")
+		-- Relics add points like everything else in this sum. `Relics` is loaded AFTER this part, and
+		-- that is fine and not luck: the name is resolved off `GameConfig` when this function RUNS,
+		-- not when it is written, and nothing calls it at load time. Adding rather than multiplying
+		-- is not a style choice here -- luck starts at zero, so a relic that multiplied it would be
+		-- worth exactly nothing to the player opening their first chest.
+		+ GameConfig.GetRelicAdd(data, "luckAdd")
 		+ GameConfig.GetEventAdd("luckAdd")
 end
 

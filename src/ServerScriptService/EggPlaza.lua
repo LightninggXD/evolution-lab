@@ -890,29 +890,37 @@ local function buildEggPlaza(shop, zone, cx, eggs)
 	-- ---- the deck: planks laid ON the ground. No dais and no stairs -- the reference stall is
 	-- something you walk onto without noticing, and four rises of stair in front of a shop is three
 	-- more decisions than buying an egg deserves.
-	newPart({ Name = "StallDeck", Size = Vector3.new(deckW, 1.2, DECK_DEPTH), Position = Vector3.new(cx, 0.6, DECK_Z), Color = STALL_WOOD_DARK, Material = Enum.Material.Wood, Parent = shop })
+	newPart({ Name = "StallDeck", Size = Vector3.new(deckW, 1.2, 40), Position = Vector3.new(cx, 0.6, PLAZA_Z), Color = STALL_WOOD_DARK, Material = Enum.Material.Wood, Parent = shop })
 	-- individual boards, so it reads as carpentry instead of one brown rectangle
 	local boards = math.max(6, math.floor(deckW / 9))
 	local boardW = deckW / boards
 	for i = 0, boards - 1 do
-		newPart({ Name = "StallPlank", Size = Vector3.new(boardW - 0.8, 0.5, DECK_DEPTH - 1),
-			Position = Vector3.new(cx - deckW / 2 + boardW * (i + 0.5), PLAZA_DECK_TOP, DECK_Z),
+		newPart({ Name = "StallPlank", Size = Vector3.new(boardW - 0.8, 0.5, 39),
+			Position = Vector3.new(cx - deckW / 2 + boardW * (i + 0.5), PLAZA_DECK_TOP, PLAZA_Z),
 			Color = i % 2 == 0 and STALL_PLANK or STALL_WOOD, Material = Enum.Material.Wood, CanCollide = false, Parent = shop })
 	end
 	-- the glowing lip around the edge -- the one piece of neon the stall keeps, because it is what
 	-- says "this patch of ground is a shop" from fifty studs out
-	for _, dz in ipairs({ -DECK_DEPTH / 2, DECK_DEPTH / 2 }) do
-		newPart({ Name = "StallTrim", Size = Vector3.new(deckW + 2, 0.7, 1.8), Position = Vector3.new(cx, PLAZA_DECK_TOP, DECK_Z + dz), Color = accent, Material = Enum.Material.Neon, CanCollide = false, Parent = shop })
+	for _, dz in ipairs({ -20, 20 }) do
+		newPart({ Name = "StallTrim", Size = Vector3.new(deckW + 2, 0.7, 1.8), Position = Vector3.new(cx, PLAZA_DECK_TOP, PLAZA_Z + dz), Color = accent, Material = Enum.Material.Neon, CanCollide = false, Parent = shop })
 	end
 	for _, side in ipairs({ -1, 1 }) do
-		newPart({ Name = "StallTrim", Size = Vector3.new(1.8, 0.7, DECK_DEPTH), Position = Vector3.new(cx + side * halfW, PLAZA_DECK_TOP, DECK_Z), Color = accent, Material = Enum.Material.Neon, CanCollide = false, Parent = shop })
+		newPart({ Name = "StallTrim", Size = Vector3.new(1.8, 0.7, 40), Position = Vector3.new(cx + side * halfW, PLAZA_DECK_TOP, PLAZA_Z), Color = accent, Material = Enum.Material.Neon, CanCollide = false, Parent = shop })
 	end
 
-	-- ---- the row of kiosks the eggs stand in front of. See buildKioskRow: this replaced a counter
-	-- slab, a tilted plank board and nothing else, which read as a fence from every angle but one.
-	buildKioskRow(shop, cx, #eggs)
-	-- The two end posts stay, and they are no longer holding a board up: they are what the lanterns
-	-- hang off, and they book-end the row at the ends of the deck where the kiosks stop.
+	-- ---- the counter the eggs stand behind, and the leaning display board above it. The board is
+	-- TILTED BACK ~12 degrees like a market stall's panel; upright it is a wall, and a wall is
+	-- exactly what this used to be.
+	--
+	-- THE KIOSK MODEL WAS TRIED HERE AND TAKEN BACK OUT. Three of them in a row behind the eggs is
+	-- a market, and this is not a market -- it is three eggs on podiums, and the stalls stood in
+	-- front of the thing they were meant to be selling. The kiosk went to the Fusion and Diamond
+	-- counters instead, which are single shops with a shopkeeper's side and a customer's side and
+	-- are the shape the model actually is. See `ShopKiosks`.
+	newPart({ Name = "StallCounter", Size = Vector3.new(deckW, 2.4, 9), Position = Vector3.new(cx, 2, backZ + 4.5), Color = STALL_WOOD_DARK, Material = Enum.Material.Wood, Parent = shop })
+	local boardCF = CFrame.new(cx, 13, backZ) * CFrame.Angles(math.rad(-12), 0, 0)
+	newPart({ Name = "StallBoard", Size = Vector3.new(deckW, 22, 1.6), CFrame = boardCF, Color = STALL_WOOD, Material = Enum.Material.Wood, Parent = shop })
+	newPart({ Name = "StallBoardCap", Size = Vector3.new(deckW + 3, 2, 2.8), CFrame = boardCF * CFrame.new(0, 11.6, 0), Color = STALL_WOOD_DARK, Material = Enum.Material.Wood, CanCollide = false, Parent = shop })
 	for _, side in ipairs({ -1, 1 }) do
 		newPart({ Name = "StallPost", Size = Vector3.new(2.8, 27, 2.8), Position = Vector3.new(cx + side * (halfW - 1.4), 13.5, backZ + 1), Color = STALL_WOOD_DARK, Material = Enum.Material.Wood, Parent = shop })
 		newPart({ Name = "StallPostCap", Shape = Enum.PartType.Ball, Size = Vector3.new(4.2, 4.2, 4.2), Position = Vector3.new(cx + side * (halfW - 1.4), 27.4, backZ + 1), Color = STALL_WOOD, Material = Enum.Material.Wood, CanCollide = false, Parent = shop })
@@ -934,24 +942,15 @@ local function buildEggPlaza(shop, zone, cx, eggs)
 	-- 10.2, not 7.6: the shells top out around 19-20 studs and the panel's lower half was sitting
 	-- right behind the middle egg's crown, so from dead-on the word was half eaten. This lands the
 	-- panel at ~23 and its text clear of everything on the counter.
-	-- Hung across the middle kiosk's awning rather than on a board, and upright rather than tilted:
-	-- there is no board any more, and a sign leaning off a canopy reads as a sign that fell.
-	--
-	-- IT IS AT AWNING HEIGHT AND NOT ABOVE THE ROOF. Clearing the roofline (34) put it exactly where
-	-- the middle egg's featured-pet billboard draws -- and a BillboardGui always wins in screen
-	-- space, so the word EGGS was covered by a Draco from the one angle the stall is read from. At 27
-	-- it reads as the stall's fascia, which is where a market stall's name goes anyway.
-	local signCF = CFrame.new(cx, SIGN_Y, KIOSK_FRONT_Z + 1.5)
+	local signCF = boardCF * CFrame.new(0, 10.2, 1.6)
 	-- Proportion matters here and it is not free to pick: a SurfaceGui TextLabel with TextScaled
 	-- fits by whichever axis binds first, and on a 5:1 panel that is always the HEIGHT -- so the
 	-- word came out as a small line floating in a wide white bar. About 3:1 is where the text
 	-- actually fills the panel, which is the proportion the reference sign uses.
-	-- 33 wide, not 40: on a 120-stud plank board it was a banner across the back, on a 39-stud
-	-- kiosk it is that kiosk's own fascia, and at 40 it hid the whole middle stall behind itself.
-	newPart({ Name = "StallSignFrame", Size = Vector3.new(33, 12, 1.2), CFrame = signCF,
+	newPart({ Name = "StallSignFrame", Size = Vector3.new(40, 14, 1.2), CFrame = signCF,
 		Color = Color3.fromRGB(28, 38, 58), Material = Enum.Material.SmoothPlastic,
 		CanCollide = false, Parent = shop })
-	local signFace = newPart({ Name = "StallSignFace", Size = Vector3.new(29, 8.6, 1.2),
+	local signFace = newPart({ Name = "StallSignFace", Size = Vector3.new(35.5, 10, 1.2),
 		CFrame = signCF * CFrame.new(0, 0, 0.5), Color = Color3.fromRGB(248, 250, 252),
 		Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = shop })
 

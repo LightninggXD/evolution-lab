@@ -9,6 +9,7 @@ local RS = game:GetService("ReplicatedStorage")
 
 local UITheme = require(RS.Modules.UITheme)
 local UIKit = require(RS.Modules:WaitForChild("UIKit"))
+local IconLibrary = require(RS.Modules:WaitForChild("IconLibrary"))
 
 local themeLabel, styleCard = UIKit.themeLabel, UIKit.styleCard
 
@@ -97,18 +98,57 @@ return function(hud)
 			-- for free, and the stroke is then matched to the glyph's own transparency: an outline
 			-- left opaque under a dimmed label draws the word in outline only, the trap the `+1`
 			-- popup and the notification fade both already carry notes about.
+			-- ===== AND THE GLYPH BECOMES A DRAWING (2026-08-17) =====
+			--
+			-- These three captions were the last emoji in the HUD still rendering as FONT. Every other
+			-- surface -- the panel headers, the tiles, the toasts, the shop rows -- goes through
+			-- `IconifyLabel` or `IconSlot` and gets the game's own art; this strip did not, so the
+			-- three shelves of one cupboard were labelled in a different visual language from the
+			-- panels they open, and the emoji rendered at whatever the player's device decided.
+			--
+			-- `IconifyLabel` CANNOT BE USED HERE and refuses by design: it takes a LEFT-aligned label
+			-- and hangs the icon off its left edge, and a centred one has no fixed left edge to hang
+			-- anything off -- the text starts wherever its own width puts it. This caption is centred.
+			-- So the pair is laid out by hand: a fixed icon column, then the word beside it.
+			--
+			-- 12 / 24 / 42 is arithmetic on the 112 px tab. The icon is 24 at x = 12, the word starts at
+			-- 42, and the longest of the three ("Potions") measures ~62 px at 19 px of FredokaOne, so it
+			-- ends at 104 with 8 to spare. Left-aligned rather than centred in the remainder, so the
+			-- three words start at the same x down the strip -- three captions each centred in its own
+			-- leftover space would step left and right by a few pixels per tab and read as misaligned.
+			local art = IconLibrary.Resolve(def.text)
+			local caption = art and IconLibrary.StripLeading(def.text) or def.text
+
+			if art then
+				local glyph = Instance.new("ImageLabel")
+				glyph.Name = "Glyph"
+				glyph.Size = UDim2.new(0, 24, 0, 24)
+				glyph.Position = UDim2.new(0, 12, 0.5, -12)
+				glyph.BackgroundTransparency = 1
+				glyph.Image = art
+				glyph.ScaleType = Enum.ScaleType.Fit
+				-- matched to the caption's own fade, or the dimmed tab keeps a full-brightness icon
+				-- beside a ghosted word -- the mismatch this file already carries a note about for the
+				-- text stroke, one element along.
+				glyph.ImageTransparency = tab.TextTransparency
+				glyph.ZIndex = tab.ZIndex + UITheme.Z.Content
+				glyph.Parent = tab
+			end
+
 			local cap = Instance.new("TextLabel")
 			cap.Name = "Label"
-			cap.Size = UDim2.new(1, -10, 1, 0)
-			cap.Position = UDim2.new(0.5, 0, 0.5, 0)
-			cap.AnchorPoint = Vector2.new(0.5, 0.5)
+			cap.Size = art and UDim2.new(1, -46, 1, 0) or UDim2.new(1, -10, 1, 0)
+			cap.Position = art and UDim2.new(0, 42, 0, 0) or UDim2.new(0, 5, 0, 0)
 			cap.BackgroundTransparency = 1
-			cap.Text = def.text
+			cap.Text = caption
 			cap.TextColor3 = tab.TextColor3
 			cap.TextTransparency = tab.TextTransparency
 			cap.ZIndex = tab.ZIndex + UITheme.Z.Content
 			cap.Parent = tab
 			themeLabel(cap, 19)
+			-- AFTER themeLabel, which sets TextScaled and would otherwise stomp the alignment on a
+			-- label it thinks it owns. Same ordering trap the potion sub-label paid for.
+			cap.TextXAlignment = art and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center
 			local capStroke = cap:FindFirstChildOfClass("UIStroke")
 			if capStroke then capStroke.Transparency = cap.TextTransparency end
 			tab.Text = ""

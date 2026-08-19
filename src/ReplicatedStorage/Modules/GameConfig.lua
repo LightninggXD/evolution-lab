@@ -37,6 +37,11 @@ for _, part in ipairs({
 	"Helpers",
 	"Characters",
 	"Codes",
+	-- LAST, and it is the safe position rather than an arbitrary one. `Relics` reads `GetPassAdd`
+	-- and the rarity/stat conventions the earlier parts establish, and nothing above it reads
+	-- `GameConfig.Relics` at load time -- so appending is the only move that cannot produce the
+	-- silent nil this list's header warns about.
+	"Relics",
 }) do
 	require(script:WaitForChild(part))(GameConfig)
 end

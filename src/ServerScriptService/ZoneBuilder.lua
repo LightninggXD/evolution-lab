@@ -290,6 +290,11 @@ end
 local ZoneGate = require(script.Parent.ZoneGate)
 local PORTAL_CLEAR_HALF = ZoneGate.PORTAL_CLEAR_HALF
 
+-- The hand-placed set dressing -- one statue here, a treehouse there. It is a table rather than
+-- parts left in the world because the version guard above destroys the Zones folder outright, and
+-- anything hand-placed inside a zone model does not come back from that. See `ExtraProps`.
+local ExtraProps = require(script.Parent.ExtraProps)
+
 -- ===== BOUNDARY CLIFFS, GROUND DRESSING AND GUARDIAN TITANS =====
 -- Everything below runs for all twenty zones and takes every colour from the zone itself, so no
 -- biome is left as a bare coloured rectangle ringed by a black slab. Three jobs:
@@ -1074,7 +1079,10 @@ end
 -- by blending toward black. "Blend toward the ink colour, then darken" cancels on the pale mint end
 -- of the ramp and gives two sizes the same grey -- take hue and saturation from the tint and SET the
 -- value, which is the rule the world look pass paid for.
-local function buildMysteryOddsBoard(model, base, S, color)
+-- `cf` overrides where the board hangs. The timber kiosk is a different building from the panel
+-- kiosk -- taller, deeper, and with an awning where the other one has a flat fascia -- so the one
+-- spot that was measured off the panel kiosk's geometry is the one thing this cannot assume.
+local function buildMysteryOddsBoard(model, base, S, color, cf)
 	local odds = GameConfig.GetMysterySizeOdds()
 	if #odds == 0 then return nil end
 
@@ -1083,7 +1091,7 @@ local function buildMysteryOddsBoard(model, base, S, color)
 		Size = Vector3.new(1, 1, 1),
 		-- where the old odds sign hung: clear of the counter's bottles below and of the canopy
 		-- fascia above, on the street side of the stall so it is read from the forecourt
-		CFrame = base * CFrame.new(0, 18.4 * S, 15 * S),
+		CFrame = cf or base * CFrame.new(0, 18.4 * S, 15 * S),
 		Transparency = 1,
 		CanCollide = false,
 		Parent = model,
@@ -1275,10 +1283,26 @@ local function buildZoneShop(model, zone, cx, shopKey, shopDef, base)
 	local function vs(x, y, z) return Vector3.new(x * S, y * S, z * S) end
 
 	local color = shopDef.color or vivid(zone.accentColor)
-	local counter = VillageKit.addStall(model, base, color, shopDef.title, {
+
+	-- WHICH SHELL THIS SHOP IS BUILT IN.
+	--
+	-- All fifteen of them are the timber market kiosk (`VillageKit.addWoodKiosk`): a counter you
+	-- walk up to with a shopkeeper's side and a customer's side, which is what every one of these
+	-- shops is. The white panel kiosk it replaced is still in VillageKit and is still what
+	-- `addWoodKiosk` falls back to if the model is ever missing -- but nothing picks it on purpose
+	-- any more. Fusion and Upgrades moved first and the Mystery counter followed, because one
+	-- street with two shop shells in it read as two different games.
+	local wares = {
 		color, color:Lerp(Color3.new(1, 1, 1), 0.4), color:Lerp(Color3.new(0, 0, 0), 0.3),
 		color:Lerp(Color3.new(1, 1, 1), 0.7), color,
-	})
+	}
+	local counter = VillageKit.addWoodKiosk(model, base, color, shopDef.title, wares)
+
+	-- The machinery below is placed in RAW STUDS off the shop's base point rather than through
+	-- `at`, which multiplies by the panel kiosk's SHOP_SCALE. The timber kiosk is its own building
+	-- with its own floor height (1.6), counter top (~21.4) and counter line (z 33.5), and every
+	-- fixture is measured off those three numbers.
+	local function raw(x, y, z) return base * CFrame.new(x, y, z) end
 
 	local function addPrompt(parent, actionText, objectText, attrs)
 		local prompt = Instance.new("ProximityPrompt")
@@ -1308,12 +1332,15 @@ local function buildZoneShop(model, zone, cx, shopKey, shopDef, base)
 		-- back into a fantasy market. This is the same silhouette -- a lit column you walk up to,
 		-- standing behind the counter -- built as a machine: a metal base, a glass tube with the
 		-- brew suspended in it, a light ring at the foot and a capped head under the canopy.
-		newPart({ Name = "DispenserBase", Size = vs(11, 2.4, 11), CFrame = at(0, 3.85, 1), Color = Color3.fromRGB(41, 45, 58), Material = Enum.Material.Metal, Parent = model })
-		newPart({ Name = "DispenserRing", Shape = Enum.PartType.Cylinder, Size = vs(0.8, 13, 13), CFrame = at(0, 5.2, 1) * CFrame.Angles(0, 0, math.rad(90)), Color = color, Material = Enum.Material.Neon, CanCollide = false, CastShadow = false, Parent = model })
-		local tube = newPart({ Name = "DispenserTube", Shape = Enum.PartType.Cylinder, Size = vs(13, 8.6, 8.6), CFrame = at(0, 11.8, 1) * CFrame.Angles(0, 0, math.rad(90)), Color = Color3.fromRGB(228, 236, 248), Material = Enum.Material.Glass, Transparency = 0.82, CanCollide = false, Parent = model })
-		newPart({ Name = "DispenserCap", Size = vs(10.4, 1.8, 10.4), CFrame = at(0, 19.3, 1), Color = Color3.fromRGB(41, 45, 58), Material = Enum.Material.Metal, CanCollide = false, Parent = model })
+		-- Standing on the kiosk's floor behind the counter, which is where the shopkeeper's machine
+		-- belongs. Its head stops at 30 -- the awning's underside is at ~48 -- so the column reads
+		-- whole from the forecourt instead of disappearing into the roof.
+		newPart({ Name = "DispenserBase", Size = Vector3.new(20, 5, 20), CFrame = raw(0, 4.1, -6), Color = Color3.fromRGB(41, 45, 58), Material = Enum.Material.Metal, Parent = model })
+		newPart({ Name = "DispenserRing", Shape = Enum.PartType.Cylinder, Size = Vector3.new(1.6, 23, 23), CFrame = raw(0, 7, -6) * CFrame.Angles(0, 0, math.rad(90)), Color = color, Material = Enum.Material.Neon, CanCollide = false, CastShadow = false, Parent = model })
+		local tube = newPart({ Name = "DispenserTube", Shape = Enum.PartType.Cylinder, Size = Vector3.new(23, 15, 15), CFrame = raw(0, 18, -6) * CFrame.Angles(0, 0, math.rad(90)), Color = Color3.fromRGB(228, 236, 248), Material = Enum.Material.Glass, Transparency = 0.82, CanCollide = false, Parent = model })
+		newPart({ Name = "DispenserCap", Size = Vector3.new(18, 3, 18), CFrame = raw(0, 30.5, -6), Color = Color3.fromRGB(41, 45, 58), Material = Enum.Material.Metal, CanCollide = false, Parent = model })
 
-		local brew = newPart({ Name = "Brew", Shape = Enum.PartType.Cylinder, Size = vs(10.5, 7.2, 7.2), CFrame = at(0, 11, 1) * CFrame.Angles(0, 0, math.rad(90)), Color = color, Material = Enum.Material.Neon, Transparency = 0.12, CanCollide = false, CastShadow = false, Parent = model })
+		local brew = newPart({ Name = "Brew", Shape = Enum.PartType.Cylinder, Size = Vector3.new(19, 12.6, 12.6), CFrame = raw(0, 17.4, -6) * CFrame.Angles(0, 0, math.rad(90)), Color = color, Material = Enum.Material.Neon, Transparency = 0.12, CanCollide = false, CastShadow = false, Parent = model })
 		-- 60 is the engine's ceiling on PointLight.Range, so this is as far as the brew can throw
 		-- light however big the shop gets
 		addLight(brew, color, math.min(24 * S, 60), 1.6)
@@ -1333,11 +1360,12 @@ local function buildZoneShop(model, zone, cx, shopKey, shopDef, base)
 		-- The counter's top face is at y 9.9 and they are seated on it rather than on a number that
 		-- happened to match the old wooden counter.
 		for i, size in ipairs(GameConfig.PotionSizes) do
-			-- taller bottle per size, so the three sizes are readable off the counter itself
-			local h = 3.2 + i * 1.3
+			-- taller bottle per size, so the three sizes are readable off the counter itself, and
+			-- seated on the timber counter's top face (21.4) rather than on the panel kiosk's
+			local h = 5 + i * 2
 			local tint = Color3.fromRGB(120, 240, 190):Lerp(Color3.fromRGB(255, 108, 168), (i - 1) / math.max(#GameConfig.PotionSizes - 1, 1))
-			newPart({ Name = "MysteryBottle_" .. size.key, Shape = Enum.PartType.Cylinder, Size = vs(h, 2.6 + i * 0.3, 2.6 + i * 0.3), CFrame = at((i - 2) * 6.5, 9.9 + h / 2, 9.4) * CFrame.Angles(0, 0, math.rad(90)), Color = tint, Material = Enum.Material.Glass, Transparency = 0.2, CanCollide = false, Parent = model })
-			newPart({ Name = "MysteryCork", Shape = Enum.PartType.Cylinder, Size = vs(1.3, 1.3, 1.3), CFrame = at((i - 2) * 6.5, 10.6 + h, 9.4) * CFrame.Angles(0, 0, math.rad(90)), Color = Color3.fromRGB(41, 45, 58), Material = Enum.Material.Metal, CanCollide = false, Parent = model })
+			newPart({ Name = "MysteryBottle_" .. size.key, Shape = Enum.PartType.Cylinder, Size = Vector3.new(h, 4 + i * 0.7, 4 + i * 0.7), CFrame = raw((i - 2) * 12, 21.4 + h / 2, 33.5) * CFrame.Angles(0, 0, math.rad(90)), Color = tint, Material = Enum.Material.Glass, Transparency = 0.2, CanCollide = false, Parent = model })
+			newPart({ Name = "MysteryCork", Shape = Enum.PartType.Cylinder, Size = Vector3.new(2, 2, 2), CFrame = raw((i - 2) * 12, 22.4 + h, 33.5) * CFrame.Angles(0, 0, math.rad(90)), Color = Color3.fromRGB(41, 45, 58), Material = Enum.Material.Metal, CanCollide = false, Parent = model })
 		end
 
 		addPrompt(tube, "Buy Mystery Potion", cost .. " DNA", { MysteryCost = cost })
@@ -1354,19 +1382,29 @@ local function buildZoneShop(model, zone, cx, shopKey, shopDef, base)
 		-- 12.8 MADE IT A BOARD RATHER THAN A PARAGRAPH -- see buildMysteryOddsBoard above, which is
 		-- the egg stall's odds strip wearing this shop's colour. The text form it replaces is still
 		-- in GameConfig (`GetMysteryOddsText`) for any future sign that wants one line of it.
-		buildMysteryOddsBoard(model, base, S, color)
+		-- 41, not 50: the odds board is 22 studs tall and hangs 30 studs nearer the camera than the
+		-- shop's title board, so at the same height as the other shops' taglines it drew across the
+		-- bottom of "MYSTERY POTIONS" from the forecourt.
+		buildMysteryOddsBoard(model, base, S, color, raw(0, 41, 46))
 
 	elseif shopKey == "fusion" then
 		-- two pods with a beam between them: the fusion is the only thing this counter does, and a
-		-- machine that visibly joins two things is a clearer sign than any amount of text
+		-- machine that visibly joins two things is a clearer sign than any amount of text.
+		-- Inside the timber kiosk they stand on its floor behind the counter, which is where a
+		-- machine the shopkeeper works is; on the panel kiosk they stand on the plinth as before.
+		local podX, podZ = 21, -4
+		local podY, podD = 19, 20
+		local footD, footY, footT = 17, 6, 5
+		local knobY = 30
+		local beamL, beamD = 22, 3.4
 		for _, sx in ipairs({ -1, 1 }) do
-			newPart({ Name = "FusionPodBase", Shape = Enum.PartType.Cylinder, Size = vs(2, 9, 9), CFrame = at(sx * 9, 4, 2) * CFrame.Angles(0, 0, math.rad(90)), Color = Color3.fromRGB(58, 54, 72), Material = Enum.Material.Metal, Parent = model })
-			local glass = newPart({ Name = "FusionPod", Shape = Enum.PartType.Ball, Size = vs(11, 11, 11), CFrame = at(sx * 9, 10.4, 2), Color = color, Material = Enum.Material.Glass, Transparency = 0.55, CanCollide = false, Parent = model })
+			newPart({ Name = "FusionPodBase", Shape = Enum.PartType.Cylinder, Size = Vector3.new(footT, footD, footD), CFrame = raw(sx * podX, footY, podZ) * CFrame.Angles(0, 0, math.rad(90)), Color = Color3.fromRGB(58, 54, 72), Material = Enum.Material.Metal, Parent = model })
+			local glass = newPart({ Name = "FusionPod", Shape = Enum.PartType.Ball, Size = Vector3.new(podD, podD, podD), CFrame = raw(sx * podX, podY, podZ), Color = color, Material = Enum.Material.Glass, Transparency = 0.55, CanCollide = false, Parent = model })
 			addLight(glass, color, math.min(22 * S, 60), 1.6)
 			pulseForever(glass, 0.62, 2.4)
-			VillageKit.addKnob(model, (at(sx * 9, 16.6, 2)).Position, 3.4 * S, Color3.fromRGB(244, 247, 252))
+			VillageKit.addKnob(model, raw(sx * podX, knobY, podZ).Position, 3.4 * S, Color3.fromRGB(244, 247, 252))
 		end
-		local beam = newPart({ Name = "FusionBeam", Shape = Enum.PartType.Cylinder, Size = vs(18, 2.2, 2.2), CFrame = at(0, 10.4, 2), Color = Color3.fromRGB(255, 246, 200), Material = Enum.Material.Neon, Transparency = 0.15, CanCollide = false, CastShadow = false, Parent = model })
+		local beam = newPart({ Name = "FusionBeam", Shape = Enum.PartType.Cylinder, Size = Vector3.new(beamL, beamD, beamD), CFrame = raw(0, podY, podZ), Color = Color3.fromRGB(255, 246, 200), Material = Enum.Material.Neon, Transparency = 0.15, CanCollide = false, CastShadow = false, Parent = model })
 		pulseForever(beam, 0.5, 1.3)
 		addLight(beam, color, math.min(26 * S, 60), 2)
 
@@ -1375,7 +1413,9 @@ local function buildZoneShop(model, zone, cx, shopKey, shopDef, base)
 		-- thing written on its sign, and the HUD carried a shortcut it should never have needed.
 		addPrompt(counter, "Open Pet Fusion", "\u{1F43E} Fuse duplicates", { ShopPanel = "fusion" })
 		makeSign(model, ("\u{1F9EC} PET FUSION\nBring %d of the same pet\nand fuse them into the next tier"):format(GameConfig.FuseRequirement or 3),
-			at(0, 18.2, 15), UDim2.new(23 * S, 0, 4.8 * S, 0), { maxDistance = 360 })
+			-- out in front of the awning, not under it: tucked in at 44/26 the board drew across the
+			-- timber canopy and half of it was unreadable from the one angle you walk up from
+			raw(0, 50, 46), UDim2.new(23 * S, 0, 4.8 * S, 0), { maxDistance = 360 })
 
 	else -- "upgrades"
 		-- ONE SHOP, TWO COUNTERS, one per currency. A single prompt would have had to ask which
@@ -1385,25 +1425,31 @@ local function buildZoneShop(model, zone, cx, shopKey, shopDef, base)
 			{ dx = -9, icon = "\u{1F48E}", tint = Color3.fromRGB(120, 200, 255) },
 			{ dx = 9,  icon = "\u{1F6CD}", tint = Color3.fromRGB(126, 226, 132) },
 		}
+		-- both counters sit ON the counter top, which is a different height and depth in the two
+		-- shells -- see the note by `raw` above
+		local padX, padY, padZ = 16, 21.8, 33.5
+		local padSz  = Vector3.new(18, 1.6, 8)
+		local tokenY = 28
+		local gemSz  = Vector3.new(8, 8, 8)
 		for i, counterDef in ipairs(GameConfig.ShopKinds.upgrades.counters) do
 			local pad = pads[i] or pads[1]
-			local plate = newPart({ Name = "UpgradePad", Size = vs(9, 1.2, 4.4), CFrame = at(pad.dx, 10.5, 9.4), Color = pad.tint, Material = Enum.Material.Neon, Transparency = 0.25, CanCollide = false, Parent = model })
+			local plate = newPart({ Name = "UpgradePad", Size = padSz, CFrame = raw(pad.dx / 9 * padX, padY, padZ), Color = pad.tint, Material = Enum.Material.Neon, Transparency = 0.25, CanCollide = false, Parent = model })
 			addLight(plate, pad.tint, math.min(18 * S, 60), 1.4)
 			pulseForever(plate, 0.6, 2.6)
 			-- the floating token over each pad: a gem for Diamonds, a crate for Robux
 			if i == 1 then
-				local gemFrame = at(pad.dx, 15.4, 9.4) * CFrame.Angles(math.rad(45), 0, math.rad(45))
-				local gem = newPart({ Name = "UpgradeGem", Size = vs(5, 5, 5), CFrame = gemFrame, Color = pad.tint, Material = Enum.Material.Neon, CanCollide = false, Parent = model })
+				local gemFrame = raw(pad.dx / 9 * padX, tokenY, padZ) * CFrame.Angles(math.rad(45), 0, math.rad(45))
+				local gem = newPart({ Name = "UpgradeGem", Size = gemSz, CFrame = gemFrame, Color = pad.tint, Material = Enum.Material.Neon, CanCollide = false, Parent = model })
 				-- spinForever takes the part's own placed frame back, and re-applies ACTIVE_FRAME itself
 				spinForever(gem, gemFrame, 360, 7)
 			else
-				newPart({ Name = "UpgradeCrate", Size = vs(6, 5, 5), CFrame = at(pad.dx, 15, 9.4), Color = pad.tint, Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
-				newPart({ Name = "UpgradeCrateLid", Size = vs(6.8, 1.1, 5.8), CFrame = at(pad.dx, 17.8, 9.4), Color = Color3.fromRGB(244, 247, 252), Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
+				newPart({ Name = "UpgradeCrate", Size = Vector3.new(9, 7.5, 7.5), CFrame = raw(pad.dx / 9 * padX, tokenY - 0.6, padZ), Color = pad.tint, Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
+				newPart({ Name = "UpgradeCrateLid", Size = Vector3.new(10, 1.6, 8.6), CFrame = raw(pad.dx / 9 * padX, tokenY + 4.2, padZ), Color = Color3.fromRGB(244, 247, 252), Material = Enum.Material.SmoothPlastic, CanCollide = false, Parent = model })
 			end
 			addPrompt(plate, counterDef.actionText, counterDef.objectText, { ShopPanel = counterDef.panel })
 		end
 		makeSign(model, "\u{1F48E} UPGRADE EMPORIUM\nStage Mastery for Diamonds\nBundles and boosts for Robux",
-			at(0, 18.2, 15), UDim2.new(23 * S, 0, 4.8 * S, 0), { maxDistance = 360 })
+			raw(0, 50, 46), UDim2.new(23 * S, 0, 4.8 * S, 0), { maxDistance = 360 })
 	end
 
 	return counter
@@ -2257,6 +2303,11 @@ function ZoneBuilder.Build()
 				builder(model, zone, cx)
 			end
 			BiomeDecor.setZoneKey(nil)
+
+			-- AFTER the biome, BEFORE the stall: these are the biggest single objects a zone gets
+			-- after its landmark, so they claim their ground while there is still ground to claim,
+			-- and the stall sweep further down still gets the last word over all of them.
+			ExtraProps.place(model, zone.key, cx)
 
 			-- Pet Shop: 3 eggs (Basic/Better/Premium) on a lit podium plaza in the middle of the
 			-- zone. Each egg has its own ProximityPrompt tagged with an EggKey attribute so

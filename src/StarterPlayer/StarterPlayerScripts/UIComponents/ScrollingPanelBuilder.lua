@@ -296,6 +296,33 @@ function Builder.CreatePanel(options)
 			}
 		end
 
+		-- ===== THE PLATE, AND THE PROBLEM IT SOLVES (2026-08-17) =====
+		--
+		-- Optional, off by default, and the Store is the first caller. A card is a coloured gradient
+		-- and an icon is a flat drawing, so an icon whose art shares the card's hue DISAPPEARS into
+		-- it -- photographed on the DNA packs, where a pale-blue helix sat on a blue card and read as
+		-- a watermark rather than as the product. That is not a colour-picking mistake anyone can fix
+		-- per card either: the DNA icon is blue because DNA is blue, and so is the card.
+		--
+		-- A dark, slightly inset well behind the icon separates the two without touching either. It is
+		-- opt-in rather than automatic because the panels whose art is BRIGHT on a PASTEL card -- the
+		-- rebirth arrows, the zone landscapes -- do not have the problem and a well under those would
+		-- be a box drawn for no reason.
+		if cardOptions.IconPlate then
+			local plate = Instance.new("Frame")
+			plate.Name = "IconPlate"
+			plate.Size = UDim2.new(0, 116, 0, 116)
+			plate.Position = UDim2.new(0, 12, 0.5, 0)
+			plate.AnchorPoint = Vector2.new(0, 0.5)
+			plate.BackgroundColor3 = Color3.fromRGB(18, 20, 46)
+			plate.BackgroundTransparency = 0.62
+			plate.BorderSizePixel = 0
+			plate.ZIndex = 54
+			plate.Parent = card
+			corner(plate, 14)
+			stroke(plate, INK, 3)
+		end
+
 		local cIcon = Instance.new("ImageLabel")
 		cIcon.Name = "Icon"
 		cIcon.Size = UDim2.new(0, 120, 0, 120)
@@ -331,6 +358,55 @@ function Builder.CreatePanel(options)
 		tl.VerticalAlignment = Enum.VerticalAlignment.Center
 		tl.Padding = UDim.new(0, 5)
 		tl.Parent = txtFrame
+
+		-- ===== THE RIBBON (2026-08-17), AND WHY IT IS IN THE STACK RATHER THAN ON THE CORNER =====
+		--
+		-- The old Robux grid hung its "+48% BONUS" ribbon 6 px ABOVE the tile, which is what makes a
+		-- ribbon read as a ribbon -- and it cost that file a bug it still carries a note about: a
+		-- ScrollingFrame clips at canvas y = 0, so the top row's overhang was simply gone until a top
+		-- pad was added to give it somewhere to be. A corner badge has the mirror problem here, because
+		-- these cards are ROWS: the right-hand 170 px is the button column, so a top-right badge either
+		-- overlaps the button or constrains how many buttons a card may have.
+		--
+		-- As the first item of the text stack it needs neither trick. It is auto-width, so it is as
+		-- long as its words and no longer, and the layout centres it over the title like a kicker --
+		-- which is what a "BEST VALUE" flash actually is on a wide card.
+		--
+		-- Optional and absent by default: four of the five panels built on this file have nothing to
+		-- flash, and a nil `Ribbon` builds no instance at all rather than an invisible one.
+		local ribbon, ribbonLabel, ribbonGradient
+		if cardOptions.Ribbon then
+			ribbon = Instance.new("Frame")
+			ribbon.Name = "CardRibbon"
+			ribbon.LayoutOrder = 0
+			ribbon.Size = UDim2.new(0, 0, 0, 24)
+			ribbon.AutomaticSize = Enum.AutomaticSize.X
+			ribbon.BackgroundColor3 = WHITE
+			ribbon.BorderSizePixel = 0
+			ribbon.ZIndex = 55
+			ribbon.Parent = txtFrame
+			corner(ribbon, 6)
+			ribbonGradient = gradient(ribbon, cardOptions.Ribbon.Colors or { Color3.fromRGB(255, 214, 120), Color3.fromRGB(240, 165, 20) })
+			stroke(ribbon, INK, 3, Enum.ApplyStrokeMode.Border)
+
+			local rPad = Instance.new("UIPadding")
+			rPad.PaddingLeft = UDim.new(0, 10)
+			rPad.PaddingRight = UDim.new(0, 10)
+			rPad.Parent = ribbon
+
+			ribbonLabel = Instance.new("TextLabel")
+			ribbonLabel.Name = "Text"
+			ribbonLabel.Size = UDim2.new(0, 0, 1, 0)
+			ribbonLabel.AutomaticSize = Enum.AutomaticSize.X
+			ribbonLabel.BackgroundTransparency = 1
+			ribbonLabel.Text = cardOptions.Ribbon.Text or ""
+			ribbonLabel.Font = Enum.Font.FredokaOne
+			ribbonLabel.TextSize = 16
+			ribbonLabel.TextColor3 = WHITE
+			ribbonLabel.ZIndex = 56
+			stroke(ribbonLabel, BLACK, 2)
+			ribbonLabel.Parent = ribbon
+		end
 
 		local ct = outlinedText(txtFrame, cardOptions.Title or "", 32, 38, 55, 4)
 		ct.Name = "CardTitle"
@@ -471,6 +547,21 @@ function Builder.CreatePanel(options)
 			end,
 			SetVisible = function(on) card.Visible = on and true or false end,
 			SetOrder = function(n) card.LayoutOrder = n end,
+			-- Text and colour only, never "grow one later": a card built without a ribbon has no frame
+			-- to fill, and returning a no-op is the honest answer rather than silently building one
+			-- into a layout whose heights were measured without it.
+			SetRibbon = function(text, colors)
+				if not ribbon then return false end
+				ribbonLabel.Text = text or ""
+				ribbon.Visible = (text or "") ~= ""
+				if colors and ribbonGradient then
+					ribbonGradient.Color = ColorSequence.new({
+						ColorSequenceKeypoint.new(0, colors[1]),
+						ColorSequenceKeypoint.new(1, colors[2]),
+					})
+				end
+				return true
+			end,
 			Destroy = function() card:Destroy() end,
 		}
 	end

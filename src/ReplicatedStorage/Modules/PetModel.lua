@@ -38,6 +38,48 @@ function PetModel.ArchetypeFor(key)
 	return archetypeFor(key)
 end
 
+-- ===== MESH PETS =====
+--
+-- The blocky rig below is still the fallback and still the thing every caller animates, but the
+-- species now WEARS a mesh: `ReplicatedStorage.Assets.PetMeshes` holds 54 finished creature
+-- meshes, and a pet that has one is built as an invisible root with that mesh hung off it instead
+-- of as thirty coloured blocks.
+--
+-- WHY THE ROOT STAYS A PART, AND AN INVISIBLE ONE. Every caller in the game takes
+-- `(model, root, pieces)` back from Build and drives the rig through `Place`, and the follower
+-- client bobs and leans the pieces by their `PetOffset`. Making the mesh the root would have
+-- changed the size the nameplate, the ring and the follower's hover height are all measured from.
+-- An invisible body of exactly the old dimensions keeps every one of those numbers true and costs
+-- one part.
+--
+-- WHICH MESH A SPECIES GETS: its position in `GameConfig.Pets`, wrapped. 140 species over 54
+-- meshes is between two and three species a mesh, and wrapping BY ORDER rather than by a hash of
+-- the key is what keeps the seven pets of one zone -- which are consecutive in that list, and the
+-- only set a player ever sees side by side -- on seven different meshes.
+local meshLib, meshIndex
+
+local function meshFor(key)
+	if meshIndex == nil then
+		meshIndex = {}
+		local assets = game:GetService("ReplicatedStorage"):FindFirstChild("Assets")
+		meshLib = assets and assets:FindFirstChild("PetMeshes")
+		if meshLib then
+			local meshes = {}
+			for _, m in ipairs(meshLib:GetChildren()) do
+				if m:IsA("BasePart") then table.insert(meshes, m) end
+			end
+			table.sort(meshes, function(a, b) return a.Name < b.Name end)
+			if #meshes > 0 then
+				local GameConfig = require(game:GetService("ReplicatedStorage").Modules.GameConfig)
+				for i, def in ipairs(GameConfig.Pets) do
+					meshIndex[def.key] = meshes[((i - 1) % #meshes) + 1]
+				end
+			end
+		end
+	end
+	return meshIndex[key]
+end
+
 --[[
 	def   - a GameConfig pet definition (key, name, emoji, color, rarity)
 	tier  - "Normal" / "Golden" / "Rainbow" / "Celestial"
@@ -61,6 +103,7 @@ function PetModel.Build(def, tier, opts)
 	model.Name = def.key
 
 	local pieces = {}
+	local template = meshFor(def.key)
 
 	-- the offset also goes on the part as a CFrame attribute: the client-side follower has to
 	-- place pets built by the server, and re-deriving these numbers there would let the two
@@ -98,7 +141,64 @@ function PetModel.Build(def, tier, opts)
 	-- ---- body. This is the root: everything else hangs off it, and it is deliberately the
 	-- small part of the silhouette -- the head is what you actually see from behind.
 	local body = block("Body", Vector3.new(1.75, 1.45, 1.65), nil, skin)
-	block("Belly", Vector3.new(1.15, 0.95, 0.2), Vector3.new(0, -0.12, -0.78), belly)
+
+	if template then
+		-- ===== the mesh rig: an invisible root, the creature, and nothing else built =====
+		body.Transparency = 1
+
+		local geom = template:Clone()
+		geom.Name = "Geom"
+		-- NORMALISED, NOT USED AT ITS AUTHORED SIZE. The library ranges from 1.8 to 6.2 studs tall
+		-- and the rig it replaces is 2.9 -- unnormalised, one species would tower over the egg it
+		-- hatched from and the next would vanish into the podium.
+		--
+		-- BY HEIGHT FIRST, and this is the whole difference between the first cut and this one:
+		-- normalising the LONGEST axis meant a long flat creature spent its whole budget on length
+		-- and stood half as tall as a boxy one beside it. Height is what the eye compares. The
+		-- width clamp is there so the two or three genuinely wide meshes do not end up as a metre
+		-- of pet either side of the player.
+		--
+		-- AND THE SCALE GOES ON THE MESH, NOT ONLY ON THE PART. A `SpecialMesh` renders at its own
+		-- `Scale` and ignores the part it hangs on, so resizing the part alone changed the hitbox
+		-- and nothing a player can see -- every species came out at whatever size its author left
+		-- it. The part is still resized with it, because that is what the rig measures from.
+		local fit = math.min(2.7 * scale / geom.Size.Y, 4.2 * scale / math.max(geom.Size.X, geom.Size.Z))
+		geom.Size = geom.Size * fit
+		local special = geom:FindFirstChildWhichIsA("SpecialMesh")
+		if special then
+			special.Scale = special.Scale * fit
+		end
+		geom.Anchored = true
+		geom.CanCollide = false
+		geom.CanQuery = false
+		geom.CanTouch = false
+		geom.CastShadow = false
+		geom.Parent = model
+
+		-- The sparkles the models shipped with are parked in an `Fx` folder by the library build,
+		-- because sixty of these stand on the egg podiums at once and a hundred emitters a pet is
+		-- not a decoration budget. A caller that wants a hero pet -- the hatch reveal, the pet
+		-- actually following you -- asks for them back.
+		local fx = geom:FindFirstChild("Fx")
+		if fx then
+			if opts.fx then
+				for _, e in ipairs(fx:GetChildren()) do e.Parent = geom end
+			end
+			fx:Destroy()
+		end
+
+		-- sat so the creature stands ON the rarity ring rather than hovering over it. The ring is
+		-- at -1.5 * scale and this offset is in world studs (addPiece does no scaling of its own --
+		-- only `block` does), so the scale has to be carried explicitly.
+		addPiece(geom, CFrame.new(0, geom.Size.Y / 2 - 1.45 * scale, 0))
+	else
+		block("Belly", Vector3.new(1.15, 0.95, 0.2), Vector3.new(0, -0.12, -0.78), belly)
+	end
+
+	-- ---- Everything from here to the rarity ring is the BLOCKY rig, and a species with a mesh
+	-- skips all of it: legs, head, face and the archetype's ears and tail are what the mesh is
+	-- instead of. The ring, the crown, the nameplate and the outline below are common to both.
+	if not template then
 
 	-- ---- legs: four stubs. Front pair sits slightly forward of the body so the pet reads as
 	-- leaning into the direction it faces.
@@ -159,6 +259,8 @@ function PetModel.Build(def, tier, opts)
 		block("Tail", Vector3.new(0.55, 0.3, 0.5), Vector3.new(0, -0.2, 1.0), shade)
 	end
 
+	end -- of the blocky rig
+
 	-- ---- rarity, read at a glance from the ring under the pet rather than from a label you have
 	-- to stop and read
 	local ring = Instance.new("Part")
@@ -186,11 +288,19 @@ function PetModel.Build(def, tier, opts)
 	local tierMult = GameConfig.PetTierMultiplier[tier] or 1
 	if tierMult > 1 then
 		local crownColor = GameConfig.PetTierColor[tier] or Color3.fromRGB(255, 215, 60)
+		-- Sits on the head of whichever rig this is: 2.58 is where the blocky head's crown line is,
+		-- and a mesh species is however tall its mesh came out -- `block` multiplies these by scale,
+		-- so the mesh's own height has to be divided back out of it.
+		local crownY = 2.58
+		if template then
+			local geom = model:FindFirstChild("Geom")
+			if geom then crownY = geom.Size.Y / scale - 1.3 end
+		end
 		-- Metal, not Neon (15.31): a fused pet's crown is the tier cue and it reads by its shape, which
 		-- a self-lit material flattens away. Metal keeps the gold and gains an edge to see it by.
-		block("CrownBand", Vector3.new(1.5, 0.24, 1.4), Vector3.new(0, 2.58, -0.2), crownColor, Enum.Material.Metal)
+		block("CrownBand", Vector3.new(1.5, 0.24, 1.4), Vector3.new(0, crownY, -0.2), crownColor, Enum.Material.Metal)
 		for i = -1, 1 do
-			block("CrownSpike", Vector3.new(0.28, 0.44, 0.28), Vector3.new(i * 0.5, 2.85, -0.2), crownColor, Enum.Material.Metal)
+			block("CrownSpike", Vector3.new(0.28, 0.44, 0.28), Vector3.new(i * 0.5, crownY + 0.27, -0.2), crownColor, Enum.Material.Metal)
 		end
 	end
 
