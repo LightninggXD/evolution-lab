@@ -3586,9 +3586,26 @@ require(RS.Modules:WaitForChild("HUD"):WaitForChild("CurrencyPlus"))(hudRefs)
 -- different screen entirely. The store that takes Robux has always been this one.
 robuxButton.MouseButton1Click:Connect(function()
 	local ShopPanel = require(script.Parent.UIComponents.ShopPanel)
+	-- The store sells the nine GAME PASSES as well as the products now (19.12), and a pass card has
+	-- to know whether it is already owned -- so the panel is handed the same live accessor every
+	-- other surface uses. `hudRefs.getData` is a function on purpose: the payload is replaced
+	-- wholesale on every push, so a cached table would freeze at the first one.
+	ShopPanel.SetDataSource(hudRefs.getData)
 	ShopPanel.Init(screenGui)
 	ShopPanel.Toggle()
 end)
+
+-- ...and repainted when a purchase lands, which arrives as a DataUpdate with `data.Passes`
+-- rewritten. Registered on `hudRefs` beside every other refresh rather than polled, and wrapped in
+-- an IIFE like everything else added to this file -- the register cap does not care that it is one
+-- small function.
+;(function()
+	hudRefs.refreshStorePanel = function()
+		local ShopPanel = require(script.Parent.UIComponents.ShopPanel)
+		ShopPanel.SetDataSource(hudRefs.getData)
+		ShopPanel.Refresh()
+	end
+end)()
 
 -- ===== Playtime Gifts panel =====
 -- MOVED OUT (18.22) to `UIComponents.PlaytimeGiftsPanel`, and rebuilt in the new panel design on
@@ -4668,6 +4685,8 @@ Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 	if hudRefs.refreshEggPanel then hudRefs.refreshEggPanel() end
 	-- the DNA tiles are priced in the player's own stage, so they move when the player does
 	if hudRefs.refreshRobuxShop then hudRefs.refreshRobuxShop() end
+	-- the store's pass cards read `data.Passes`, which is rewritten the moment a purchase lands
+	if hudRefs.refreshStorePanel then hudRefs.refreshStorePanel() end
 	refreshRebirthPanel()
 	refreshRewardPanel()
 	refreshMasteryPanel()

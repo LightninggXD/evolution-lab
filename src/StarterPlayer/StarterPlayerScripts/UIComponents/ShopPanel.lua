@@ -19,9 +19,25 @@
 -- the cheapest tier's, so "+48% BONUS" is something this table actually contains. Nothing here says
 -- "most popular" -- that is a claim about other players and nothing in this game measures it.
 --
--- WHAT IS NOT HERE: the game passes, which are a different purchase with a different door
--- (`PromptGamePassPurchase`) and a different question -- "do I already own it" rather than "what
--- does it cost". They keep their own panel.
+-- THE GAME PASSES ARE HERE NOW, AND THE REASON IS A LIVE REVENUE BUG (19.12).
+--
+-- This note used to read "they keep their own panel". They did -- `RobuxPanel`, built by
+-- `HUD/PassShop` into `hud.robuxGrid` -- and when 18.11 repointed the Robux HUD tile at THIS file,
+-- that panel stopped being opened by anything. Nothing errored, nothing warned, and every property
+-- on it still read correct: it is simply an orphan. Measured on the live client, the nine passes
+-- were sitting in `RobuxPanel.PassScroll` with `Visible = false` and no door in the game --
+-- **2,041 R$ of storefront that no player could reach**, three weeks from launch.
+--
+-- They still are a different purchase and the difference is kept: the door is
+-- `PromptGamePassPurchase` (the server holds the pass id, same rule as the products above), and
+-- the question is "do I already own it" rather than "what does it cost", so an owned pass shows a
+-- pale-green OWNED button rather than a price -- 18.6's rule that a receipt is not a refusal. That
+-- state has to be re-read on every payload, which is what `panel.OnRefresh` below is for; the
+-- product cards need nothing of the kind, which is why this file had no refresh hook until now.
+--
+-- The passes sort AFTER the products (`LayoutOrder` 1000+) rather than interleaved: a pass is a
+-- permanent multiplier and a product is a one-off grant, and mixing the two ladders is what makes
+-- a store hard to read.
 --
 -- ===== THE THREE THINGS THE 2026-08-17 PASS FIXED, ALL OF THEM THE SAME OMISSION =====
 --
@@ -67,6 +83,15 @@ local ROBUX = { Color3.fromRGB(120, 255, 170), Color3.fromRGB(20, 200, 100) }
 -- they are two different claims: one is the shop pointing at its best deal, the other is arithmetic.
 local RIBBON_BEST = { Color3.fromRGB(255, 226, 130), Color3.fromRGB(240, 165, 20) }
 local RIBBON_BONUS = { Color3.fromRGB(214, 176, 255), Color3.fromRGB(140, 70, 230) }
+
+-- The pass wash and the OWNED fill. Gold, because a pass is the permanent purchase on this screen
+-- and nothing else here is gold; and a pale green for OWNED that is the same `DoneShade` answer the
+-- Season track, Stage Mastery and the Auras row all reached in 18.6 -- a thing already bought is a
+-- receipt, and painting it in the kit's refusal grey is what made the old pass column read as a
+-- wall of dead rows.
+local WASH_PASS = { Color3.fromRGB(255, 214, 120), Color3.fromRGB(228, 150, 20) }
+local OWNED_FILL = { Color3.fromRGB(214, 238, 224), Color3.fromRGB(150, 205, 175) }
+local RIBBON_PASS = { Color3.fromRGB(255, 226, 130), Color3.fromRGB(240, 165, 20) }
 
 -- ===== ONE HUE PER THING-YOU-RECEIVE, NOT PER PRICE TIER =====
 --
@@ -117,6 +142,39 @@ end
 -- (a receipt with no product row is a player charged for nothing) and neither may be sold here.
 local function inStore(product)
 	return product.productId ~= nil and not product.delisted and product.panel == nil
+end
+
+-- Set by `Init`, read by the refresh: pass key -> the card's button handle. A table rather than a
+-- rebuild, because a rebuild throws the scroll position away every time a payload lands.
+local passButtons = {}
+-- Which passes the player already holds, as the callback sees it. The button's own `enabled` flag
+-- cannot carry this (see `paintPassButton`), so the guard lives here -- and it is a guard against
+-- prompting a second purchase for something already owned, not a security boundary: `PassService`
+-- re-checks ownership itself, because a client can fire any remote it likes.
+local ownedKeys = {}
+
+--- The one place that decides what a pass button says and what colour it is, so the build and the
+--- refresh cannot disagree about it. `owned` comes from `data.Passes`, which `PassService` caches
+--- and fails CLOSED on an API error -- so an unreadable ownership check shows a price, never a
+--- free OWNED.
+local function paintPassButton(handle, pass, owned)
+	if owned then
+		handle.SetPrice("OWNED")
+		-- INERT WITHOUT `SetEnabled(false)`, AND THAT IS NOT A STYLE CHOICE. The builder's
+		-- `SetEnabled` reads `enabled and (colors or bOpt.Colors) or DISABLED`, so on the disabled
+		-- branch the colour argument is unreachable -- measured: passing `OWNED_FILL` there paints
+		-- rgb(178,178,190), the kit's refusal grey. That is 18.6's bug with the kit enforcing it.
+		-- So the button stays "enabled" to keep its fill, `AutoButtonColor` is cleared so it does
+		-- not pretend to depress, and `ownedKeys` below is what actually stops the purchase.
+		handle.SetEnabled(true, OWNED_FILL)
+		handle.SetColors(OWNED_FILL)
+		handle.Instance.AutoButtonColor = false
+	else
+		handle.SetPrice("R$ " .. tostring(pass.price or "?"))
+		handle.SetEnabled(true, ROBUX)
+		handle.SetColors(ROBUX)
+		handle.Instance.AutoButtonColor = true
+	end
 end
 
 function ShopPanel.Init(screenGui)
@@ -187,7 +245,70 @@ function ShopPanel.Init(screenGui)
 		end
 	end
 
+	-- ===== THE PASSES =====
+	for i, pass in ipairs(GameConfig.GamePasses) do
+		-- A pass with no real id cannot be prompted for and must not be drawn: an unbuyable card on
+		-- the screen the game earns on is worse than a missing one. Every pass has had a real id
+		-- since 2.11, so this is a guard rather than a filter.
+		if pass.passId and pass.passId ~= 0 then
+			local card = panel.AddCard({
+				Name = "Pass_" .. pass.key,
+				LayoutOrder = 1000 + i,
+				Title = pass.name,
+				Subtitle = pass.desc or "",
+				Ribbon = { Text = "GAME PASS", Colors = RIBBON_PASS },
+				Icon = IconLibrary.Resolve(pass.emoji) or "",
+				IconPlate = true,
+				BackgroundColors = WASH_PASS,
+				Buttons = {
+					{
+						Name = "Buy",
+						Price = "R$ " .. tostring(pass.price or "?"),
+						Icon = "",
+						Colors = ROBUX,
+						-- the KEY, never the pass id, for the same reason the products above send a
+						-- key: the server looks the id up, so a tampered client can only ever name a
+						-- pass that exists
+						Callback = function()
+							if ownedKeys[pass.key] then return end
+							Remotes.PromptGamePassPurchase:FireServer(pass.key)
+						end,
+					},
+				},
+			})
+			passButtons[pass.key] = card.Button
+		end
+	end
+
+	-- Ownership is the one thing on this panel that changes while the game is running -- a purchase
+	-- lands as a `DataUpdate` with `data.Passes` rewritten -- so it is repainted rather than rebuilt.
+	panel.OnRefresh(function()
+		local data = ShopPanel.getData and ShopPanel.getData()
+		local owned = (data and data.Passes) or {}
+		for _, pass in ipairs(GameConfig.GamePasses) do
+			local handle = passButtons[pass.key]
+			local has = owned[pass.key] == true
+			ownedKeys[pass.key] = has
+			if handle then paintPassButton(handle, pass, has) end
+		end
+	end)
+	panel.Refresh()
+
 	return panel
+end
+
+--- Set by MainUI so the refresh above can read the live save. A FUNCTION, not a table: the payload
+--- is replaced wholesale on every push, so a cached copy would be frozen at the first one -- or nil,
+--- which is exactly the window a new player is looking at the screen in.
+function ShopPanel.SetDataSource(fn)
+	ShopPanel.getData = fn
+	if panel then panel.Refresh() end
+end
+
+--- Repaint the pass buttons against the current payload. Safe before `Init` -- a purchase can land
+--- while the store has never been opened, and there is nothing to repaint then.
+function ShopPanel.Refresh()
+	if panel then panel.Refresh() end
 end
 
 function ShopPanel.Toggle()
