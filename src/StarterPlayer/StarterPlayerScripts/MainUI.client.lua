@@ -2307,6 +2307,23 @@ local DAY7_W = 200
 
 local rewardCells = {} -- [dayIndex] = { frame, dayLabel, headerPill, plinth, iconLabel, amountLabel, bonusLabel, checkmark, strokeInst, idleColor, isToday }
 
+-- The second line of a day card ("potion x1  shards x3  diamonds x2"), shared by the builder and by
+-- `refreshRewardPanel`, and shared on purpose: since 21.2 the numbers on these cards are a function
+-- of the week the player is on, so the refresh has to be able to rewrite a line the builder wrote,
+-- and two copies of this formatting would drift the first time either was touched.
+--
+-- The shard glyph is a STAR here, not a second gem. Day 7 pays 3 Shards and 2 Diamonds and both
+-- lines read `\u{1F48E} x3  \u{1F48E} x2`, so the one card the whole week climbs towards advertised
+-- two diamond payouts of different sizes -- the same confusion the daily toast was fixed for, left
+-- standing on the board itself. `\u{1F31F}` is what the HUD shard pill and that toast already use.
+local function dailyBonusText(reward)
+	local parts = {}
+	if reward.potions then table.insert(parts, "\u{1F9EA} x" .. reward.potions) end
+	if reward.shards then table.insert(parts, "\u{1F31F} x" .. reward.shards) end
+	if reward.diamonds then table.insert(parts, "\u{1F48E} x" .. reward.diamonds) end
+	return table.concat(parts, "  ")
+end
+
 -- one day of the board. `big` is the Day 7 hero column on the right: same anatomy, gold
 -- shell, everything scaled up so it reads as the prize you are streaking towards.
 local function buildDayCell(dayIndex, size, position, big)
@@ -2453,12 +2470,10 @@ local function buildDayCell(dayIndex, size, position, big)
 	bonusLabel.Size = UDim2.new(1, -12, 0, big and 32 or 22)
 	bonusLabel.Position = UDim2.new(0, 6, 1, big and -54 or -28)
 	bonusLabel.BackgroundTransparency = 1
-	local bonusParts = {}
-	if reward.potions then table.insert(bonusParts, "\u{1F9EA} x" .. reward.potions) end
-	if reward.shards then table.insert(bonusParts, "\u{1F48E} x" .. reward.shards) end
-	if reward.diamonds then table.insert(bonusParts, "\u{1F48E} x" .. reward.diamonds) end
-	bonusLabel.Text = table.concat(bonusParts, "  ")
-	bonusLabel.Visible = #bonusParts > 0
+	-- week one's numbers, and only for the frames before the first DataUpdate: `refreshRewardPanel`
+	-- rewrites both value lines at the player's own tier (21.2)
+	bonusLabel.Text = dailyBonusText(reward)
+	bonusLabel.Visible = bonusLabel.Text ~= ""
 	bonusLabel.Parent = frame
 	-- DARK INK, THE SAME ONE THE LINE ABOVE USES, AND IT IS A FIX RATHER THAN A MATCH (18.3). This
 	-- label was the one thing on the card still taking `themeLabel`'s white default, which meant a
@@ -2470,6 +2485,45 @@ local function buildDayCell(dayIndex, size, position, big)
 	themeLabel(bonusLabel, big and 22 or 17, Color3.fromRGB(24, 18, 38))
 
 	local checkmark = claimTick(frame, big and 44 or 36, big and 26 or 22)
+
+	-- ===== THE HERO CARD SAYS HOW FAR AWAY IT IS (21.2) =====
+	--
+	-- Day 7 has been drawn from day 1 since 18.3, which is half of what this row asks for: the prize
+	-- is visible from the first login. What the card never said is where the player STANDS against
+	-- it -- a gold column reading "23.00K DNA" on a Tuesday is a number, not a climb.
+	--
+	-- It goes in the one gap on the hero column nothing else owns: the plinth ends at y = 244 and
+	-- the amount line starts at 280, so 248..276 is empty here. On a small tile the same gap is TWO
+	-- pixels (plinth ends 126, amount starts 128), which is why only the hero gets one.
+	--
+	-- Purple with white ink -- the bottom banner's own pair -- and it keeps that pair in all three
+	-- states. The tile under it is Gold, turns Green on the day it is claimable and DoneShade gold
+	-- once collected; a pill that tracked its tile would vanish into two of those three.
+	-- `= nil` is not decoration: `luanames` binds names with a regex that runs from `local` to the
+	-- next `=`, so a bare forward declaration swallows the next few lines of source and every local
+	-- inside them stops counting as declared. That is the whole of the `goalPill` warning it printed.
+	local goalLabel = nil
+	if big then
+		local goalPill = Instance.new("Frame")
+		goalPill.Name = "GoalPill"
+		goalPill.Size = UDim2.new(1, -20, 0, 28)
+		goalPill.Position = UDim2.new(0.5, 0, 0, 248)
+		goalPill.AnchorPoint = Vector2.new(0.5, 0)
+		goalPill.ZIndex = frame.ZIndex + UITheme.Z.Badge
+		goalPill.Parent = frame
+		styleCard(goalPill, UITheme.Color.Purple, UDim.new(1, 0), 2)
+
+		goalLabel = Instance.new("TextLabel")
+		goalLabel.Name = "GoalLabel"
+		goalLabel.Size = UDim2.new(1, -12, 1, -6)
+		goalLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+		goalLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+		goalLabel.BackgroundTransparency = 1
+		goalLabel.Text = "\u{1F3AF} 6 DAYS TO GO"
+		goalLabel.ZIndex = goalPill.ZIndex + UITheme.Z.Content
+		goalLabel.Parent = goalPill
+		themeLabel(goalLabel, 17)
+	end
 
 	local claimButton = claimOverlay(frame)
 	claimButton.MouseButton1Click:Connect(function()
@@ -2487,6 +2541,8 @@ local function buildDayCell(dayIndex, size, position, big)
 		-- the day chip changes colour with the state, the plinth has to follow the tile's fill or it
 		-- stops being the same object, and `idleThickness` keeps the hero's 5 px rim off a literal.
 		headerPill = headerPill, plinth = plinth,
+		-- nil on the six small cells, and every reader tests it: only the hero has a goal pill
+		goalLabel = goalLabel,
 		idleColor = idleColor, idleThickness = big and 5 or 4, isToday = false,
 	}
 end
@@ -2576,14 +2632,27 @@ local function refreshRewardPanel()
 	local canClaim = today > lastDay
 	local streak = data.RewardStreak or 0
 
-	rewardStreakLine.Text = "🔥 Streak: " .. streak .. " day" .. (streak == 1 and "" or "s")
-
 	local upcomingStreak = streak
 	if canClaim then
 		upcomingStreak = (today == lastDay + 1) and (streak + 1) or 1
 	end
 	if upcomingStreak < 1 then upcomingStreak = 1 end
-	local rewardIndex = ((upcomingStreak - 1) % #GameConfig.DailyRewards) + 1
+
+	-- ===== THE BOARD IS DRAWN AT THE WEEK THE PLAYER IS ON (21.2) =====
+	--
+	-- Off `upcomingStreak` rather than `streak`, because the board's job is to show what TODAY pays:
+	-- a player who finished week one last night is on week two the moment the next claim is due, and
+	-- a board still quoting week one's numbers would under-promise what the server is about to hand
+	-- over. Both come from `GameConfig.GetDailyReward`, the same function `RewardService.HandleClaim`
+	-- grants from, so the card and the payout cannot disagree.
+	local tierIndex, tier = GameConfig.GetDailyTier(upcomingStreak)
+	local rewardIndex = GameConfig.GetDailyReward(upcomingStreak).day
+
+	rewardStreakLine.Text = ("\u{1F525} Streak: %d day%s \u{00B7} %s"):format(
+		streak, streak == 1 and "" or "s", tier.name)
+	if tier.mult > 1 then
+		rewardStreakLine.Text = rewardStreakLine.Text .. (" \u{2014} DNA x%d"):format(tier.mult)
+	end
 
 	local claimedUpTo = canClaim and (rewardIndex - 1) or rewardIndex
 	local todayIndex = canClaim and rewardIndex or nil
@@ -2618,6 +2687,12 @@ local function refreshRewardPanel()
 			local isToday = (d == todayIndex)
 			cell.isToday = isToday
 			cell.checkmark.Visible = isClaimed
+			-- what THIS day pays in THIS week. The labels were authored once at build time off the
+			-- week-one row, which is correct exactly until the first Monday of a second week (21.2).
+			local paid = GameConfig.GetDailyReward(upcomingStreak, d)
+			cell.amountLabel.Text = formatNumber(paid.dna) .. " DNA"
+			cell.bonusLabel.Text = dailyBonusText(paid)
+			cell.bonusLabel.Visible = cell.bonusLabel.Text ~= ""
 			-- state reads off the shell colour, not transparency: fading the card would
 			-- eat the outline and the gradient that make it look moulded.
 			local fill = cell.idleColor
@@ -2663,6 +2738,32 @@ local function refreshRewardPanel()
 		end
 	end
 
+	-- ===== AND THE HERO PILL SAYS HOW FAR AWAY IT IS (21.2) =====
+	--
+	-- Three things it can be, and they are three different jobs. A countdown while the week is
+	-- running; the claim itself on the day it lands; and once day 7 is collected it stops being a
+	-- countdown and becomes the ONE moment the loop is worth advertising -- the player has just
+	-- taken the biggest reward on the board and the next thing they see is that next week's is
+	-- bigger. That is the whole of "loop it at a higher tier" made visible on one card.
+	local heroCell = rewardCells[#GameConfig.DailyRewards]
+	if heroCell and heroCell.goalLabel then
+		if heroCell.isToday then
+			heroCell.goalLabel.Text = "\u{1F3AF} CLAIM IT TODAY!"
+		elseif claimedUpTo >= #GameConfig.DailyRewards then
+			if tierIndex < #GameConfig.DailyTiers then
+				local nextTier = GameConfig.DailyTiers[tierIndex + 1]
+				heroCell.goalLabel.Text = ("\u{2B06} %s: DNA x%d"):format(nextTier.name, nextTier.mult)
+			else
+				heroCell.goalLabel.Text = ("\u{1F525} TOP TIER x%d"):format(tier.mult)
+			end
+		else
+			-- `todayIndex` when there is a claim waiting, `claimedUpTo` when today is already taken:
+			-- both are "the last day of this week that is behind you", and 7 minus it is the climb
+			local togo = #GameConfig.DailyRewards - (todayIndex or claimedUpTo)
+			heroCell.goalLabel.Text = ("\u{1F3AF} %d DAY%s TO GO"):format(togo, togo == 1 and "" or "S")
+		end
+	end
+
 	if rewardBadge then
 		rewardBadge.Visible = canClaim
 	end
@@ -2673,6 +2774,25 @@ local function refreshRewardPanel()
 	else
 		local nextDay = (streak % #GameConfig.DailyRewards) + 1
 		rewardBannerLabel.Text = "Come back tomorrow for Day " .. nextDay .. "!"
+		-- ONE NIGHT A WEEK THIS LINE HAS SOMETHING BETTER TO SAY (21.2). `nextDay == 1` is the
+		-- evening the week closed: tomorrow is day 1 again, and telling a player who has just held a
+		-- seven-day streak to come back for "Day 1" is the exact moment the old loop read as a
+		-- demotion. It is the tier that changes overnight, so it is the tier that goes here.
+		if nextDay == 1 then
+			if tierIndex < #GameConfig.DailyTiers then
+				local nextTier = GameConfig.DailyTiers[tierIndex + 1]
+				rewardBannerLabel.Text = ("Week complete \u{2014} %s starts tomorrow, DNA x%d!"):format(
+					nextTier.name, nextTier.mult)
+			else
+				-- AND THE TOP TIER STILL GETS A SENTENCE (measured, case D). At `Veteran` there is no
+				-- next rung to promise, and the branch above skipped it -- so the one player who HAS
+				-- climbed the whole ladder was the one being told "come back tomorrow for Day 1",
+				-- which is the exact deflation 21.2 was opened against. What is true for them is that
+				-- the multiplier does not go away, so that is what it says.
+				rewardBannerLabel.Text = ("Week complete \u{2014} %s keeps paying DNA x%d!"):format(
+					tier.name, tier.mult)
+			end
+		end
 		setButtonColor(rewardBannerCard, UITheme.Color.Purple)
 	end
 end
@@ -4492,6 +4612,11 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		end
 		if payload.diamonds and payload.diamonds > 0 then
 			text = text .. " +" .. payload.diamonds .. " 💎 Diamonds"
+		end
+		-- the week is named on the toast too, and only when it is worth naming: a x2 that arrives
+		-- silently is a bonus the player never learns they earned (21.2)
+		if payload.tierMult and payload.tierMult > 1 then
+			text = text .. "  (" .. (payload.tierName or "Streak") .. " x" .. payload.tierMult .. ")"
 		end
 		showNotification(text, Color3.fromRGB(255, 180, 60), notifRank)
 	elseif payload.kind == "stageMastery" then

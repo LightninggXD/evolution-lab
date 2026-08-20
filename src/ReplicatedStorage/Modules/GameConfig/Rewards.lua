@@ -1,4 +1,4 @@
--- GameConfig.Rewards -- the seven-day daily board and the group/community rewards.
+-- GameConfig.Rewards -- the seven-day daily board, its week tiers, and the group/community rewards.
 --
 -- ONE OF THE SIXTEEN PARTS OF `GameConfig` (18.9), moved byte for byte. It is handed the
 -- shared config table and writes into it; see the loader in `GameConfig` itself for why
@@ -8,7 +8,8 @@ return function(GameConfig)
 
 -- ===== DAILY REWARDS =====
 -- 7-day cycle. Potions are introduced starting Day 3. Day 6 gives a bonus Shard, Day 7 is
--- the big one (DNA + Potions + Shards). Cycle repeats (day 8 = day 1 again).
+-- the big one (DNA + Potions + Shards). The cycle repeats -- day 8 is day 1 again -- but it repeats
+-- AT A HIGHER TIER since 21.2; the numbers below are week one, see GameConfig.DailyTiers.
 -- Each day's DNA is ~2.2x the previous (even, predictable growth). Potions scale by +1
 -- per day starting Day 3 (1,2,3,4,5), Diamonds by +1 starting Day 6 (1,2) -- no jumps.
 GameConfig.DailyRewards = {
@@ -22,6 +23,70 @@ GameConfig.DailyRewards = {
 	{ day = 6, dna = 10500, potions = 2, potionId = "dna_m", diamonds = 1 },
 	{ day = 7, dna = 23000, potions = 1, potionId = "dna_l", diamonds = 2, shards = 3 },
 }
+
+-- ===== THE WEEK TIERS (21.2) =====
+--
+-- The board loops -- day 8 is day 1 again -- and until this row it looped at the SAME value, so a
+-- player holding a fourteen-day streak was handed 200 DNA on day 8 after 23,000 the night before.
+-- Past day 7 the ladder stopped meaning anything, which is the whole of what 21.2 opens with.
+--
+-- Each completed week now moves the entire board up a tier. `mult` scales **the DNA only**, and
+-- that is a deliberate line rather than an oversight: DNA is the one reward here that runs through
+-- `ScaleReward`, so it is authored in stage-1 clicks and a multiplier on it means the same thing at
+-- stage 1 and at stage 20. Diamonds, Shards and potions are FLAT numbers aimed at fixed sinks -- a
+-- diamond upgrade costs 5/8/15 and never moves -- which is exactly why 1.1 kept them out of
+-- `ScaleReward`. Multiplying those by 8 would buy every permanent upgrade in the game off one month
+-- of logins. So a tier pays them as `bonusDiamonds` instead: a small fixed add on the HERO DAY
+-- ONLY, +3 a week at the top against the 3 the week already pays.
+--
+-- Four tiers and the last one repeats for ever. A ladder with no top is a promise the economy
+-- cannot keep, and by then the daily is worth eight of what it was, which is the point.
+GameConfig.DailyTiers = {
+	{ name = "Week 1",  mult = 1, bonusDiamonds = 0 },
+	{ name = "Week 2",  mult = 2, bonusDiamonds = 1 },
+	{ name = "Week 3",  mult = 4, bonusDiamonds = 2 },
+	{ name = "Veteran", mult = 8, bonusDiamonds = 3 },
+}
+
+-- Which tier a streak stands on: 1-7 is tier 1, 8-14 is tier 2, and anything past the last row
+-- stays on the last row. Returns the index and the row itself.
+function GameConfig.GetDailyTier(streak)
+	local n = math.max(math.floor(tonumber(streak) or 1), 1)
+	local index = math.floor((n - 1) / #GameConfig.DailyRewards) + 1
+	if index > #GameConfig.DailyTiers then index = #GameConfig.DailyTiers end
+	return index, GameConfig.DailyTiers[index]
+end
+
+-- What a streak actually pays, tier applied. ONE function for the server that grants it, the board
+-- that draws it and the welcome-back card that advertises it -- the day-index arithmetic
+-- (`((streak - 1) % 7) + 1`) had been written out by hand in five places before this, and a tier
+-- added to four of them would have been a board that promises what the server does not pay.
+--
+-- `dayIndex` is optional and is what lets the board ask "what would day 3 of THIS week pay" for a
+-- cell that is not today's.
+function GameConfig.GetDailyReward(streak, dayIndex)
+	local n = math.max(math.floor(tonumber(streak) or 1), 1)
+	local tierIndex, tier = GameConfig.GetDailyTier(n)
+	local day = dayIndex or (((n - 1) % #GameConfig.DailyRewards) + 1)
+	local base = GameConfig.DailyRewards[day]
+	local out = {
+		day = day,
+		tier = tierIndex,
+		tierName = tier.name,
+		tierMult = tier.mult,
+		dna = math.floor(base.dna * tier.mult),
+		potions = base.potions,
+		potionId = base.potionId,
+		shards = base.shards,
+		diamonds = base.diamonds,
+	}
+	-- the tier's diamonds land on the hero day and nowhere else: it is the day the week climbs
+	-- towards, and one extra diamond spread across seven cards is invisible on every one of them
+	if day == #GameConfig.DailyRewards and tier.bonusDiamonds > 0 then
+		out.diamonds = (out.diamonds or 0) + tier.bonusDiamonds
+	end
+	return out
+end
 
 -- ===== GROUP & COMMUNITY REWARDS (Phase 5.5) =====
 -- Group membership gives permanent +10% DNA and unlocks a daily chest.

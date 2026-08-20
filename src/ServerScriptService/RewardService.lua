@@ -57,8 +57,10 @@ function RewardService.GetStatus(data)
 		upcomingStreak = 1 -- streak broken by a missed day
 	end
 	if upcomingStreak < 1 then upcomingStreak = 1 end
-	local rewardIndex = ((upcomingStreak - 1) % #GameConfig.DailyRewards) + 1
-	return canClaim, rewardIndex
+	-- through GetDailyReward rather than the modulo written out again: 21.2 gave the board a tier
+	-- and there must be exactly one place that turns a streak into a day
+	local upcoming = GameConfig.GetDailyReward(upcomingStreak)
+	return canClaim, upcoming.day, upcoming.tier
 end
 
 function RewardService.HandleClaim(player)
@@ -78,8 +80,14 @@ function RewardService.HandleClaim(player)
 		data.RewardStreak = 1 -- missed a day, streak resets
 	end
 
-	local rewardIndex = ((data.RewardStreak - 1) % #GameConfig.DailyRewards) + 1
-	local reward = GameConfig.DailyRewards[rewardIndex]
+	-- ===== THE WEEK TIER IS APPLIED HERE, ONCE (21.2) =====
+	--
+	-- `reward` is no longer a row out of `GameConfig.DailyRewards` -- it is a COPY of one with the
+	-- streak's tier already folded in, so every line below (the grant, the telemetry and the toast
+	-- payload) sees the same tiered numbers without any of them having to know a tier exists. The
+	-- board draws itself from the same function, which is what keeps the two honest.
+	local reward = GameConfig.GetDailyReward(data.RewardStreak)
+	local rewardIndex = reward.day
 
 	-- scaled to where the player stands: a flat 23,000 is worth less than one kill from stage 6 on
 	-- (see GameConfig.ScaleReward)
@@ -114,6 +122,11 @@ function RewardService.HandleClaim(player)
 		potions = reward.potions or 0,
 		diamonds = reward.diamonds or 0,
 		streak = data.RewardStreak,
+		-- the toast says which week this was when it is not the first: a x2 that arrives silently
+		-- is a number the player never learns they earned
+		tier = reward.tier,
+		tierName = reward.tierName,
+		tierMult = reward.tierMult,
 	})
 end
 

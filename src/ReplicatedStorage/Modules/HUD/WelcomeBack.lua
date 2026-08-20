@@ -166,7 +166,9 @@ return function(hud)
 			-- the kind of small lie that makes the whole board look broken
 			local continuing = (today == dayNumber(data.LastRewardClaim) + 1)
 			local upcoming = continuing and (streak + 1) or 1
-			local index = ((math.max(upcoming, 1) - 1) % #GameConfig.DailyRewards) + 1
+			-- through the shared helper rather than the modulo written out a fifth time: 21.2 gave the
+			-- board week tiers, and the day index is now one function's job (GameConfig.GetDailyReward)
+			local index = GameConfig.GetDailyReward(math.max(upcoming, 1)).day
 			dailyHead.Text = ("\u{1F381} Daily reward \u{2014} Day %d is ready"):format(index)
 			-- AND THE NOTE HAS TO ASK THE SAME QUESTION THE HEAD DOES (11.28). It used to test only
 			-- `streak > 0`, so a player who missed a day was told "Day 1 is ready" over "4 day streak
