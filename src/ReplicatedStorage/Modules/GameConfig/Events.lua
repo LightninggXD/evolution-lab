@@ -147,7 +147,7 @@ GameConfig.Events = {
 		key = "ColosseumClash",
 		name = "Colosseum Clash",
 		emoji = "\u{2694}\u{FE0F}",
-		blurb = "Double giant loot, and this week's champion skin for everyone who shows up",
+		blurb = "Double giant loot -- finish the event ladder for this week's champion",
 		color = Color3.fromRGB(226, 84, 76),
 		recurring = { wday = GameConfig.Weekday.Sat, hour = 0, hours = 48 },
 		effects = { bossMult = 2 },
@@ -179,11 +179,12 @@ GameConfig.Events = {
 		key = "PrismFest",
 		name = "Prism Festival",
 		emoji = "\u{1F308}",
-		blurb = "+50% luck, and the Prism Herald skin for everyone who shows up",
+		blurb = "+50% luck -- finish the event ladder for the Prism Herald skin",
 		color = Color3.fromRGB(158, 120, 255),
 		fixed = { from = { 2026, 9, 4, 12, 0 }, to = { 2026, 9, 7, 12, 0 } },
 		effects = { luckAdd = 50 },
-		-- Granted while the window is open and NEVER taken back -- see GameConfig.EventCharacters.
+		-- Paid by the LAST RUNG of this event's ladder (26.1) and NEVER taken back afterwards -- see
+		-- GameConfig.EventQuests below and GameConfig.EventCharacters.
 		reward = { characterKey = "event_prism" },
 	},
 }
@@ -345,6 +346,166 @@ function GameConfig.GetRotationInfo(characterKey, now)
 		end
 	end
 	return nil
+end
+
+-- ============================================================================
+-- THE EVENT LADDER (26.1)
+-- ============================================================================
+-- WHY THIS EXISTS AT ALL. Until this row an event skin cost nothing but presence:
+-- EventService granted it to anyone who happened to be online inside the window, and the blurb
+-- said so out loud. Nobody at the top of this genre does that -- Pet Simulator 99 runs event
+-- quests that must be completed IN ORDER and pays the limited Huge at the end of them, MM2 pays an
+-- event currency from daily quests and spends it on a reward track, Forsaken gates its milestone
+-- skins on 25 levels with the character. The skin was already permanent and already survived a
+-- rebirth (see GameConfig.EventCharacters); what it never had was a price.
+--
+-- FOUR RUNGS, AND ONLY THE LAST ONE PAYS THE CHARACTER. The first three pay Diamonds or DNA so the
+-- board is worth opening on the way up, and the fourth is the whole reason the board exists.
+--
+-- IT REUSES THE FOUR COUNTERS SeasonPassService.Track ALREADY FEEDS -- `creatures`, `bosses`,
+-- `eggs`, `fuse`. That is not thrift, it is the only design that cannot drift: a kill either counts
+-- for both boards or for neither, and there is no second set of call sites to forget when a fifth
+-- way to kill something is added. GameConfig.AdvanceEventQuests below is called from inside Track
+-- itself, so the event ladder gained exactly zero new call sites in the gameplay services.
+--
+-- =========================================================================================
+-- PROGRESS RUNS IN PARALLEL. THE CLAIM IS WHAT IS ORDERED.
+-- =========================================================================================
+-- "In order" could mean either "a rung's counter is dead until the one before it is claimed" or
+-- "a rung's BUTTON is dead until the one before it is claimed". The first is wrong here and would
+-- be invisible: the counters are shared with the season board, so a boss killed before rung 2 was
+-- claimed would advance the weekly quest and silently not advance the event -- a player watching
+-- two boards move at different rates has no way to find out why. Order is enforced at the button,
+-- which is the one place a player can see it.
+--
+-- Two rungs on the same counter are therefore cumulative, not additive: Colosseum rung 2 lands at
+-- 15 bosses and rung 4 at 50 bosses TOTAL, not at 65. Same arithmetic the daily and weekly season
+-- quests have always had when they share a counter.
+--
+-- =========================================================================================
+-- HOW THE TARGETS WERE SIZED, AND AGAINST WHAT
+-- =========================================================================================
+-- The only calibrated board in this game is GameConfig.QuestPool's weekly row -- 500 creatures,
+-- 20 bosses, 60 eggs across seven days -- so every target here is quoted as a multiple of it. The
+-- rule is: A LADDER ASKS ROUGHLY TWO TO THREE TIMES A WEEK'S QUEST, INSIDE A WINDOW A THIRD AS
+-- LONG. That is a real weekend of play rather than a gesture, and it is one constant per rung to
+-- move if the owner decides it lands wrong.
+--
+-- The measured rates behind that (11.11's probe, and the boss table two files over): roaming a
+-- dense valley pays 85 kills a minute, and a zone boss respawns in 40-72 s -- so 500 creatures is
+-- about six minutes of ideal farming and 20 bosses about twenty. The existing weekly board is far
+-- easier than it reads, which is exactly why the event ladder is a MULTIPLE of it and not a copy.
+--
+-- THE THEME OF EACH LADDER IS ITS EVENT'S OWN. Colosseum Clash doubles giant loot, so its ladder
+-- ends on bosses; Prism Festival is a luck event, so its ladder ends on eggs. A ladder that asked
+-- for the same four things every time would make the two events one event.
+--
+-- Weekend2x deliberately has NO ladder. It hands over no skin, so there is nothing to put at the
+-- end of one, and an event with no entry here simply has no board -- see GetEventBoard.
+GameConfig.EventQuests = {
+	-- 48-hour window. Ends on bosses because bossMult is what this event turns on.
+	ColosseumClash = {
+		{ key = "cc_1", counter = "creatures", target = 400, emoji = "\u{2694}\u{FE0F}", name = "Defeat 400 creatures", diamonds = 4 },
+		{ key = "cc_2", counter = "bosses",    target = 15,  emoji = "\u{1F451}",        name = "Defeat 15 bosses",     dna = 12000 },
+		{ key = "cc_3", counter = "eggs",      target = 120, emoji = "\u{1F95A}",        name = "Hatch 120 eggs",       diamonds = 8 },
+		{ key = "cc_4", counter = "bosses",    target = 50,  emoji = "\u{1F3C6}",        name = "Defeat 50 bosses",     diamonds = 15, character = true },
+	},
+	-- 72-hour window, and the one event whose skin does not rotate. Ends on eggs because luckAdd is
+	-- what this event turns on, and luck is only ever felt at a hatch.
+	PrismFest = {
+		{ key = "pf_1", counter = "eggs",      target = 60,  emoji = "\u{1F95A}",        name = "Hatch 60 eggs",        diamonds = 4 },
+		{ key = "pf_2", counter = "creatures", target = 750, emoji = "\u{2694}\u{FE0F}", name = "Defeat 750 creatures", dna = 15000 },
+		{ key = "pf_3", counter = "fuse",      target = 12,  emoji = "\u{1F9EC}",        name = "Fuse 12 pets",         diamonds = 8 },
+		{ key = "pf_4", counter = "eggs",      target = 180, emoji = "\u{1F308}",        name = "Hatch 180 eggs",       diamonds = 15, character = true },
+	},
+}
+
+-- Shared, never handed out to be written into. Returned by both readers below instead of a fresh
+-- `{}` because both run on the creature-kill path, and an empty table allocated per kill is the
+-- kind of cost that only shows up as a frame spike on a full server.
+local EMPTY_LADDER = table.freeze({})
+
+function GameConfig.GetEventQuests(eventKey)
+	return GameConfig.EventQuests[eventKey] or EMPTY_LADDER
+end
+
+-- The rung and WHICH RUNG IT IS. The index is not decoration: it is what the claim handler tests
+-- to enforce the order, and returning it here is what stops that handler walking the list a second
+-- time to find out where it already is.
+function GameConfig.GetEventQuestDef(eventKey, questKey)
+	for index, quest in ipairs(GameConfig.GetEventQuests(eventKey)) do
+		if quest.key == questKey then return quest, index end
+	end
+	return nil, nil
+end
+
+-- This save's board for one occurrence of one event, created on first touch and THROWN AWAY the
+-- moment the occurrence changes.
+--
+-- BUCKETED BY `window.startTs`, WHICH IS THE WHOLE OF 26.1'S SAVE DESIGN. It is the same trick
+-- GetQuestPeriod plays with `periodId`: the reset is a comparison against the clock rather than a
+-- scheduled wipe, so it is correct after a restart, correct for a player who was offline when the
+-- window turned over, and impossible to miss. It matters most for ColosseumClash, whose champion
+-- rotates every week -- last weekend's four claims must not hand over this weekend's skin, and
+-- storing the start timestamp is what makes each occurrence its own board rather than a running
+-- total across every weekend the save has ever seen.
+--
+-- IT MUTATES `data`, and callers should know it: reading a board is what creates it. Same contract
+-- as SeasonPassService.GetQuestPeriod, and harmless on the client's replicated copy of the save --
+-- that copy is overwritten by the next DataUpdate anyway.
+--
+-- Returns nil for an event with no ladder authored, which is the state Weekend2x is permanently in.
+function GameConfig.GetEventBoard(data, eventKey, window)
+	if not (data and window and window.startTs) then return nil end
+	if #GameConfig.GetEventQuests(eventKey) == 0 then return nil end
+
+	if type(data.EventQuests) ~= "table" then data.EventQuests = {} end
+	local held = data.EventQuests[eventKey]
+	if type(held) ~= "table" or held.window ~= window.startTs then
+		held = { window = window.startTs, progress = {}, claimed = {} }
+		data.EventQuests[eventKey] = held
+	end
+	-- the stamp above says nothing about what is inside the table it stamps: a save written by a
+	-- build that shaped this differently can hold the right window and the wrong innards, and the
+	-- first write would index nil
+	if type(held.progress) ~= "table" then held.progress = {} end
+	if type(held.claimed) ~= "table" then held.claimed = {} end
+	return held
+end
+
+-- Advance every LIVE event's ladder by `amount` of `counter`, and hand back whatever finished on
+-- this call. Pure over the save and the clock: it grants nothing, replicates nothing and knows no
+-- player -- SeasonPassService.Track, its only caller, does all three.
+--
+-- ONLY LIVE EVENTS ADVANCE, and that is the same rule the rest of this file runs on. An event is
+-- arithmetic on a timestamp; a kill on a Wednesday belongs to no weekend, and letting it bank
+-- progress toward Saturday's board would make the ladder a stock rather than a window.
+function GameConfig.AdvanceEventQuests(data, counter, amount, now)
+	if not data then return EMPTY_LADDER end
+	now = now or GameConfig.EventNow()
+	amount = amount or 1
+
+	local completed
+	for _, live in ipairs(GameConfig.GetActiveEvents(now)) do
+		local board = GameConfig.GetEventBoard(data, live.event.key, live.window)
+		if board then
+			for _, quest in ipairs(GameConfig.GetEventQuests(live.event.key)) do
+				if quest.counter == counter then
+					local before = board.progress[quest.key] or 0
+					if before < quest.target then
+						local after = math.min(before + amount, quest.target)
+						board.progress[quest.key] = after
+						if after >= quest.target then
+							completed = completed or {}
+							table.insert(completed, { event = live.event, window = live.window, quest = quest })
+						end
+					end
+				end
+			end
+		end
+	end
+	-- allocated only when something actually finished: this runs on every creature kill in the game
+	return completed or EMPTY_LADDER
 end
 
 -- Everything that starts at the SOONEST moment anything starts, for the board to count down to when

@@ -183,6 +183,18 @@ local function defaultData()
 		-- An empty table is the right default for every save ever written -- "has earned none" is
 		-- true of all of them -- so unlike TutorialDone (6.3) this one needs no repair beside it.
 		EventCharacters = {},
+		-- The event quest ladders (26.1) -- `EventQuests[eventKey] = { window, progress, claimed }`,
+		-- one board per event, bucketed by the START TIMESTAMP of the occurrence it belongs to.
+		--
+		-- Shaped and RESET by GameConfig.GetEventBoard rather than here, for the same reason `Season`
+		-- and `Quests` above are: which occurrence a save belongs to is decided by the clock at read
+		-- time, so an empty table is the correct starting value and the first touch fills it in. A
+		-- board whose stamp does not match the live window is thrown away and rebuilt, which is what
+		-- makes each weekend of ColosseumClash its own board rather than a running total.
+		--
+		-- It is bounded by the number of events that carry a ladder (two today), NOT by how many
+		-- occurrences the save has lived through -- the stamp is overwritten, never appended to.
+		EventQuests = {},
 		-- Per-player audio levels (4.6): a master fader plus one per SoundGroup, each 0..1, pushed
 		-- onto the groups by SoundLibrary.Init on the client's first data payload. In the SAVE rather
 		-- than in a client-side setting for the obvious reason -- a player who turned the music off did
@@ -431,6 +443,10 @@ function PlayerDataService.Load(player)
 		-- its stamp does not match the current season/period, which covers a save that predates them
 		if type(data.Season) ~= "table" then data.Season = {} end
 		if type(data.Quests) ~= "table" then data.Quests = {} end
+		-- ...and the same for the event ladders, for the same reason: GameConfig.GetEventBoard
+		-- rebuilds any board whose window stamp does not match the live occurrence, so a save from
+		-- before 26.1 needs nothing but a table to write the first one into
+		if type(data.EventQuests) ~= "table" then data.EventQuests = {} end
 		-- the top-level nil-fill above already hands a save from before 4.6 the whole default table;
 		-- this is the guard for one written as something else, and it restores every fader at once
 		-- rather than leaving a half-populated table for the client to index

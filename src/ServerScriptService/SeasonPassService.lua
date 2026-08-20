@@ -110,7 +110,13 @@ end
 -- ===== REWARD PAYOUT =====
 -- One shape for season rewards and quest rewards both, so a new payout field is added in one
 -- place. Mirrors what RewardService grants for the daily board.
-local function grant(data, reward)
+--
+-- EXPORTED SINCE 26.1, and the export is the point rather than a convenience: the event ladder pays
+-- the same reward shape from EventService, and a second implementation of "what a reward table
+-- means" is exactly how one board learns to scale DNA to the player's stage and the other quietly
+-- forgets to. `grant` just below is an alias for it, kept because the two call sites in this file
+-- read better with the short name.
+function SeasonPassService.GrantReward(data, reward)
 	if not reward then return end
 	if reward.dna then
 		-- scaled to the player's stage -- see GameConfig.ScaleReward. The season track had this
@@ -128,6 +134,7 @@ local function grant(data, reward)
 		data.EvolutionShards = (data.EvolutionShards or 0) + reward.shards
 	end
 end
+local grant = SeasonPassService.GrantReward
 
 -- Human-readable line for the toast, built from whatever the reward actually contained.
 -- Season DNA reaches the trillions once ScaleReward is applied, and this file has no formatter of
@@ -154,7 +161,9 @@ end
 
 -- `data` so the DNA line quotes what was actually paid rather than the authored figure -- a toast
 -- saying "+103,000 DNA" after crediting 5.4e10 is a worse readout than no toast at all.
-local function rewardText(reward, data)
+-- Exported alongside GrantReward and for the same reason -- the event ladder's toast has to read
+-- the same as a season quest's, and the DNA line has to quote what was actually paid.
+function SeasonPassService.RewardText(reward, data)
 	local bits = {}
 	if reward.dna then
 		table.insert(bits, ("+%s DNA"):format(shortNumber(GameConfig.ScaleReward(reward.dna, data))))
@@ -168,6 +177,7 @@ local function rewardText(reward, data)
 	if reward.xp then table.insert(bits, ("+%d Season XP"):format(reward.xp)) end
 	return table.concat(bits, "  ")
 end
+local rewardText = SeasonPassService.RewardText
 
 -- ===== PROGRESS =====
 
@@ -227,6 +237,30 @@ function SeasonPassService.Track(player, counter, amount)
 				end
 			end
 		end
+	end
+
+	-- THE EVENT LADDER RIDES THE SAME CALL (26.1), AND THAT IS THE WHOLE INTEGRATION.
+	--
+	-- Four counters, five call sites, one place that knows about all of them -- so the event board
+	-- gained no hook into combat, hatching or fusion, and a sixth way to kill something will feed
+	-- both boards or neither. The alternative was a second Track with its own call sites, which is
+	-- the arrangement where one board silently stops counting and nobody finds out for a weekend.
+	--
+	-- AdvanceEventQuests is pure over the save and the clock: it advances only LIVE events, grants
+	-- nothing and replicates nothing, and hands back whatever crossed its target on this call. Off
+	-- a weekend it walks an empty active-event list and returns a shared frozen table, which is
+	-- what keeps it honest on the creature-kill path.
+	for _, done in ipairs(GameConfig.AdvanceEventQuests(data, counter, amount)) do
+		completedAny = true
+		Remotes.Notify:FireClient(player, {
+			kind = "questComplete",
+			-- the EVENT's emoji rather than the rung's, so a ladder step cannot be mistaken for the
+			-- daily quest that was very likely counting the same kill
+			emoji = done.event.emoji,
+			name = done.quest.name,
+			period = "event",
+			eventKey = done.event.key,
+		})
 	end
 
 	-- A completion always pushes. XP alone pushes too -- that is the entire point of the change --

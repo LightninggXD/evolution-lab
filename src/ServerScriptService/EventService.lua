@@ -41,16 +41,21 @@
 	normal rate while the HUD insists it is doubled. The client never decides what is live.
 
 	=========================================================================================
-	THE SKIN IS A RECEIPT, SO IT IS NEVER TAKEN BACK
+	THE SKIN IS EARNED AT THE TOP OF A LADDER (26.1), AND IS THEN NEVER TAKEN BACK
 	=========================================================================================
-	Granted to anyone online while the window is open, written to `data.EventCharacters` -- a
-	permanent record no reset touches -- and copied into `data.Characters`, which a rebirth wipes.
+	It used to be granted to anyone who happened to be online while the window was open -- the fault
+	Phase 26 was opened on. It is now the last rung of GameConfig.EventQuests: four ordered tasks on
+	the counters SeasonPassService.Track already feeds, claimed through HandleClaimEventQuest.
+
+	What did not change is what happens after. It is written to `data.EventCharacters` -- a permanent
+	record no reset touches -- and copied into `data.Characters`, which a rebirth wipes.
 	GameConfig.SyncEventCharacters is what puts it back afterwards; without that a player who
 	rebirthed in October would silently lose a September skin, and there would be nothing left
 	anywhere to give it back from.
 
-	The grant runs on join and on every poll rather than once, because a player who joins in the
-	middle of a window has to get it too, and it is idempotent so both paths are free.
+	That repair still runs on join and on every poll rather than once, because a rebirth can happen
+	at any moment and it is idempotent, so both paths are free. See EventService.SyncCharacters --
+	which is what this file's old GrantRewards became once it stopped granting anything.
 --]]
 
 local HttpService = game:GetService("HttpService")
@@ -62,6 +67,12 @@ local UITheme = require(RS.Modules.UITheme)
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local AnnounceService = require(script.Parent.AnnounceService)
+-- For the ladder's payout and its toast line only (26.1) -- `GrantReward` / `RewardText`, which are
+-- the season board's own and are exported rather than copied here. A ONE-WAY EDGE: SeasonPassService
+-- requires GameConfig and PlayerDataService and nothing else, so it cannot reach back and there is no
+-- cycle to break. Progress does not come through this require -- it goes the other way, from
+-- SeasonPassService.Track into GameConfig.AdvanceEventQuests, which knows about no service at all.
+local SeasonPassService = require(script.Parent.SeasonPassService)
 
 local EventService = {}
 
@@ -200,42 +211,154 @@ local function notifyGrant(player, entry)
 	})
 end
 
--- Returns the list of characters newly handed to this save. Idempotent: the second call inside the
--- same window returns nothing, which is what lets it run on join AND on every poll.
-function EventService.GrantRewards(player, now)
+-- =========================================================================================
+-- THE SKIN IS NO LONGER HANDED TO WHOEVER IS ONLINE (26.1)
+-- =========================================================================================
+-- This function used to BE the grant: it walked every live event, resolved the occurrence's skin
+-- and wrote it into `data.EventCharacters` for anyone who happened to be logged in. That is the
+-- fault Phase 26 was opened on -- the headline exclusive cost nothing but presence, in a market
+-- where every game at the top of it charges an ordered ladder for exactly this item.
+--
+-- The grant moved to HandleClaimEventQuest, at the top of the ladder. What is left here is the
+-- half that was never about earning anything: HEALING A SAVE WHOSE REBIRTH CLEARED `Characters`
+-- while `EventCharacters` -- the permanent record -- survived it. That still has to run on join and
+-- on every poll, because a rebirth can happen at any moment and there is nothing live to re-grant
+-- an ended event from.
+--
+-- It is deliberately NOT named GrantRewards any more. A function that grants nothing and is called
+-- from the join hook under that name is the shape of defect this project has been bitten by before
+-- (see the note in `GetPetBonus` about a safety net nothing passes): the name is what stops anyone
+-- reading it.
+--
+-- Returns how many characters were put back, so a probe can drive one call and see the repair.
+function EventService.SyncCharacters(player)
 	local data = PlayerDataService.Get(player)
-	if not data then return {} end
-	now = now or EventService.Now()
+	if not data then return 0 end
 
 	data.EventCharacters = data.EventCharacters or {}
-	local granted = {}
+	local restored = GameConfig.SyncEventCharacters(data)
+	if restored > 0 then
+		PlayerDataService.PushToClient(player)
+	end
+	return restored
+end
 
-	for _, live in ipairs(GameConfig.GetActiveEvents(now)) do
-		-- ONE RESOLVER FOR BOTH SHAPES (12.13). This used to read `event.reward.characterKey`
-		-- directly, which cannot express a rotation -- and a rotation resolved at the call site would
-		-- have been a second implementation of "which week is it" living next to the grant, i.e. the
-		-- one place where being a week out hands somebody the wrong skin permanently.
-		local key = GameConfig.GetEventRewardKey(live.event, live.window)
-		local entry = key and GameConfig.GetCharacter(key)
-		-- an unknown key is a config mistake, not a runtime one: it is skipped rather than written,
-		-- because a save holding a key nothing resolves is a body the costume code cannot paint
-		if entry and not data.EventCharacters[key] then
-			data.EventCharacters[key] = true
-			table.insert(granted, entry)
+-- ============================================================================
+-- THE LADDER (26.1)
+-- ============================================================================
+-- The rules are in GameConfig, like every other rule about an event: which rungs exist, what they
+-- ask for, which occurrence a board belongs to and when a board is thrown away are all pure
+-- functions of the save and the clock (GameConfig.EventQuests / GetEventBoard /
+-- AdvanceEventQuests). What is here is the three things a pure function cannot do -- check the
+-- window, pay the reward, and hand over the skin.
+--
+-- PROGRESS IS NOT WIRED HERE EITHER. It rides SeasonPassService.Track, which already fires on all
+-- four counters from the five gameplay call sites, so this file has no hook into combat, hatching
+-- or fusion at all.
+
+local function notify(player, payload)
+	local remotes = RS:FindFirstChild("Remotes")
+	local remote = remotes and remotes:FindFirstChild("Notify")
+	if remote then remote:FireClient(player, payload) end
+end
+
+-- THE WINDOW IS THE DOOR, AND THERE IS NO GRACE PERIOD AFTER IT.
+--
+-- A rung finished at 23:59 on Sunday and not pressed is lost, and that is a decision rather than an
+-- oversight. The board is bucketed by `window.startTs` and only live events advance -- so honouring
+-- a late claim would mean keeping a closed occurrence's board addressable, which is the same shape
+-- as the stale-multiplier bug the header of GameConfig.Events exists to prevent, and it would
+-- contradict the one thing this market agrees on: MM2 removes the seasonal quests, the boxes and
+-- the reward track together when the window shuts. The urgency IS the board going away.
+--
+-- If that lands too hard, it is one condition in this function and one in the panel -- not a save
+-- change -- because `GetEventWindow` still reports the last occurrence's `startTs` all week.
+function EventService.HandleClaimEventQuest(player, eventKey, questKey)
+	local data = PlayerDataService.Get(player)
+	if not data then return false end
+
+	local event = GameConfig.GetEvent(eventKey)
+	if not event then return false end
+
+	local now = EventService.Now()
+	local window = GameConfig.GetEventWindow(event, now)
+	if not (window and window.active) then
+		notify(player, { kind = "error", message = "That event isn't running right now!" })
+		return false
+	end
+
+	local quest, index = GameConfig.GetEventQuestDef(eventKey, questKey)
+	if not quest then return false end
+
+	local board = GameConfig.GetEventBoard(data, eventKey, window)
+	if not board then return false end
+
+	if board.claimed[questKey] then
+		notify(player, { kind = "error", message = "Already claimed that one!" })
+		return false
+	end
+	if (board.progress[questKey] or 0) < quest.target then
+		notify(player, { kind = "error", message = "That step isn't finished yet!" })
+		return false
+	end
+	-- IN ORDER -- see the note over GameConfig.EventQuests for why the order is enforced at the
+	-- button and not at the counter. One step back is enough: rung N cannot be claimed unless N-1
+	-- was, so by induction the whole ladder below it has been.
+	if index > 1 then
+		local previous = GameConfig.GetEventQuests(eventKey)[index - 1]
+		if previous and not board.claimed[previous.key] then
+			notify(player, { kind = "error", message = ("Claim %s %s first!"):format(previous.emoji, previous.name) })
+			return false
 		end
 	end
 
-	-- Always run, not only when something was granted: this is also the path that heals a save whose
-	-- rebirth cleared `Characters` while the record survived.
-	local restored = GameConfig.SyncEventCharacters(data)
+	-- MARKED BEFORE ANYTHING IS PAID, AND NOTHING BETWEEN THEM YIELDS. Same rule 5.1's code
+	-- redemption is built on: the gap between "decide it is allowed" and "record that it happened"
+	-- is the whole of a double-claim exploit, and two claims arriving on the same frame would
+	-- otherwise both pass the check above.
+	board.claimed[questKey] = true
 
-	if #granted > 0 or restored > 0 then
-		PlayerDataService.PushToClient(player)
+	-- The SAME payout the season quests use, exported rather than copied: a second implementation of
+	-- "what a reward table means" is how one board learns to scale DNA and the other forgets to.
+	SeasonPassService.GrantReward(data, quest)
+
+	-- THE SKIN, ON THE LAST RUNG ONLY.
+	--
+	-- Resolved from the window that is being claimed, never from `event.reward` directly -- that is
+	-- 12.13's rule and it is what makes a rotation correct: the board is stamped with this
+	-- occurrence's start, `GetEventRewardKey` reads the same start, so the champion a player earns
+	-- is the champion of the weekend they earned it in, however late in that weekend they press it.
+	local grantedEntry
+	if quest.character then
+		local key = GameConfig.GetEventRewardKey(event, window)
+		local entry = key and GameConfig.GetCharacter(key)
+		-- an unknown key is a config mistake, not a runtime one: it is skipped rather than written,
+		-- because a save holding a key nothing resolves is a body the costume code cannot paint
+		if entry then
+			data.EventCharacters = data.EventCharacters or {}
+			if not data.EventCharacters[key] then
+				data.EventCharacters[key] = true
+				grantedEntry = entry
+			end
+			-- copies it into the working `Characters` table the Journal and the costume read
+			GameConfig.SyncEventCharacters(data)
+		end
 	end
-	for _, entry in ipairs(granted) do
-		notifyGrant(player, entry)
+
+	PlayerDataService.UpdateLeaderstats(player)
+	PlayerDataService.PushToClient(player)
+
+	notify(player, {
+		kind = "reward",
+		message = ("%s %s\n%s"):format(quest.emoji, quest.name,
+			SeasonPassService.RewardText(quest, data)),
+	})
+	-- The character card comes SECOND and on its own, because it is the thing the ladder was for.
+	-- Folding it into the line above would print the weekend's exclusive as one more "+15 diamonds".
+	if grantedEntry then
+		notifyGrant(player, grantedEntry)
 	end
-	return granted
+	return true
 end
 
 -- ============================================================================
@@ -498,10 +621,12 @@ function EventService.Poll()
 
 	wasLive = nowLive
 
-	-- On every poll, not only on a transition: a player who joined mid-window is handled by the join
-	-- hook, but a player already here when the window OPENED is handled only by this.
+	-- On every poll, not only on a transition. This used to be the grant, and the comment here used
+	-- to explain why a player already online when the window OPENED needed it (26.1 moved the grant
+	-- to the ladder). It stays on the poll for the reason that outlived the grant: a rebirth clears
+	-- `Characters` at an arbitrary moment, and this is the only thing that puts the event skins back.
 	for _, player in ipairs(Players:GetPlayers()) do
-		EventService.GrantRewards(player, now)
+		EventService.SyncCharacters(player)
 	end
 
 	if #opened > 0 or #closed > 0 then
@@ -524,6 +649,27 @@ function EventService.Init()
 
 	ensureSign()
 
+	-- The ladder's one door (26.1). Created rather than assumed, like every remote newer than the
+	-- authored Remotes folder -- same helper shape as SeasonPassService and PetService.
+	--
+	-- NO RATE LIMIT, AND IT NEEDS NONE: `board.claimed[questKey]` is set before anything is paid and
+	-- is checked before anything is decided, so a flood of claims for the same rung pays once and
+	-- refuses the rest. A flood across four rungs is four legitimate presses.
+	local remotes = RS:FindFirstChild("Remotes")
+	if remotes then
+		local claim = remotes:FindFirstChild("ClaimEventQuest")
+		if not claim then
+			claim = Instance.new("RemoteEvent")
+			claim.Name = "ClaimEventQuest"
+			claim.Parent = remotes
+		end
+		claim.OnServerEvent:Connect(function(player, eventKey, questKey)
+			if typeof(eventKey) == "string" and typeof(questKey) == "string" then
+				EventService.HandleClaimEventQuest(player, eventKey, questKey)
+			end
+		end)
+	end
+
 	-- SEEDED, NOT EMPTY. Starting with `wasLive = {}` on a server that boots inside a weekend would
 	-- announce "WEEKEND RUSH IS LIVE" to everyone on the first poll -- once per server restart, and
 	-- to players who have been in the middle of it for a day. A transition is a change, and a server
@@ -543,7 +689,7 @@ function EventService.Init()
 				data = PlayerDataService.Get(player)
 			until data or not player.Parent
 			if data then
-				EventService.GrantRewards(player)
+				EventService.SyncCharacters(player)
 			end
 		end)
 	end)

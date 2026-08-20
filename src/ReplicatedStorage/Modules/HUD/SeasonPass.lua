@@ -549,13 +549,310 @@ return function(hud)
 	questLayout.Padding = UDim.new(0, 7)
 	questLayout.Parent = questScroll
 
+
+	-- =====================================================================================
+	-- THE EVENT LADDER (26.2) -- BUILT FOR EVERY EVENT, SHOWN FOR THE LIVE ONES
+	-- =====================================================================================
+	--
+	-- 26.1 built the ladder and left `ClaimEventQuest` a door no client fires. This is the surface.
+	--
+	-- IT IS BUILT ONCE AND HIDDEN, NOT BUILT WHEN THE WINDOW OPENS. A panel constructed at join
+	-- would otherwise have to grow rows at 00:00 Saturday for a player who was already standing in
+	-- it, and "the board appears while you are looking at it" is a whole second code path -- one
+	-- that only runs at the instant nobody is watching for it. Every ladder in `GameConfig` gets
+	-- its rows now; `refreshEvents` decides every second which of them are visible. Two ladders is
+	-- ten instances' worth of rows, so the cost of the ones nobody can see is nothing.
+	--
+	-- TWO LADDERS CAN BE LIVE AT ONCE AND THAT IS THE AUTHORED SCHEDULE, not a hypothetical:
+	-- PrismFest runs 4-7 September 2026 and ColosseumClash opens 00:00 Saturday the 5th, so the
+	-- launch weekend has both boards on. They are ordered by the same `priority` rule
+	-- `GetActiveEvents` sorts by, so the section at the top of this tab is the same event the Forest
+	-- sign and the HUD boost card headline -- three surfaces naming a different "the event" is what
+	-- 12.13 already paid for once.
+	--
+	-- LAYOUT ORDER IS RESERVED IN BLOCKS rather than counted. The daily and weekly rows re-sort
+	-- themselves on every refresh (claimable first), so their `LayoutOrder`s are measured from a
+	-- fixed base; the event sections have to sit ABOVE that base whatever order they end up in, and
+	-- a section only learns its slot at refresh time. Each gets a block of EVENT_SLOT and the
+	-- period bases start after all of them.
+	local EVENT_SLOT = 20   -- a header plus up to 19 rungs; today's ladders are 4
+	local eventSections = {}
+	local eventLadders = 0
+
+	local claimEventRemote
+	-- Created by EventService.Init at server boot, so it is there long before a player can open
+	-- this -- but waited for by name rather than indexed, the same rule the two remotes above run
+	-- on: a FindFirstChild at build time on a remote created by another service is a dead button.
+	task.spawn(function()
+		claimEventRemote = Remotes:WaitForChild("ClaimEventQuest", 30)
+	end)
+
+	for _, event in ipairs(GameConfig.Events) do
+		local ladder = GameConfig.GetEventQuests(event.key)
+		-- Weekend2x has no ladder on purpose -- it hands over no skin, so there is nothing to put at
+		-- the end of one. An event with no rungs gets no section rather than an empty header.
+		if #ladder > 0 then
+			eventLadders += 1
+			local section = { event = event, rungs = {} }
+			eventSections[event.key] = section
+
+			local header = Instance.new("Frame")
+			header.Name = event.key .. "Header"
+			header.Size = UDim2.new(1, -10, 0, 40)
+			header.Visible = false
+			header.ZIndex = questScroll.ZIndex + UITheme.Z.Content
+			header.Parent = questScroll
+			-- THE EVENT'S OWN COLOUR, not a third quest-board palette. The daily band is Aqua and the
+			-- weekly Peach; an event that took a fourth neutral would read as a third period rather
+			-- than as the thing the sign outside is lit up for.
+			styleCard(header, event.color, UDim.new(0, 12), 3)
+
+			local headerLabel = Instance.new("TextLabel")
+			headerLabel.Size = UDim2.new(1, -20, 1, -6)
+			headerLabel.Position = UDim2.new(0, 12, 0, 2)
+			headerLabel.BackgroundTransparency = 1
+			headerLabel.TextXAlignment = Enum.TextXAlignment.Left
+			headerLabel.Text = event.emoji .. " " .. event.name
+			headerLabel.Parent = header
+			themeLabel(headerLabel, 22)
+			section.headerLabel = headerLabel
+			section.header = header
+
+			for i, quest in ipairs(ladder) do
+				local row = Instance.new("Frame")
+				row.Name = event.key .. "_" .. quest.key
+				row.Size = UDim2.new(1, -10, 0, 74)
+				row.Visible = false
+				row.ZIndex = questScroll.ZIndex + UITheme.Z.Content
+				row.Parent = questScroll
+				local rowStroke = styleCard(row, PET_ROW_SHELL, UDim.new(0, 14), 4)
+
+				-- The rung is NUMBERED on the row. The order is the whole mechanic and it is enforced
+				-- at the button, so the board has to say out loud that these four are a sequence --
+				-- without the number, a locked step 3 sitting between two rows that look exactly like
+				-- daily quests is a refusal with no visible cause.
+				local nameLabel = Instance.new("TextLabel")
+				nameLabel.Size = UDim2.new(0, 330, 0, 28)
+				nameLabel.Position = UDim2.new(0, 16, 0, 8)
+				nameLabel.BackgroundTransparency = 1
+				nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+				nameLabel.Text = ("%d. %s %s"):format(i, quest.emoji, quest.name)
+				nameLabel.Parent = row
+				themeLabel(nameLabel, 23)
+
+				local _, barFill, barLabel = UITheme.ProgressBar(row, {
+					name = "Progress",
+					size = UDim2.new(0, 330, 0, 26),
+					position = UDim2.new(0, 16, 1, -34),
+					color = event.color,
+					text = "0 / " .. quest.target,
+					maxTextSize = 17,
+					zIndex = row.ZIndex + UITheme.Z.Content,
+				})
+
+				-- WHAT THIS RUNG PAYS, AND NOT A WORD ABOUT SEASON XP. The daily rows say "N Season XP
+				-- as you go" because `Track` pays theirs pro rata; the event ladder pays none at all
+				-- (the AdvanceEventQuests loop in `Track` grants nothing), so a copied label here
+				-- would promise a bar that never moves. The DNA figure is the AUTHORED one rather
+				-- than the scaled one -- `ScaleReward` is a server function over the save, and the
+				-- toast at the claim prints what actually landed.
+				local payLabel = Instance.new("TextLabel")
+				payLabel.Size = UDim2.new(0, 220, 1, -16)
+				payLabel.Position = UDim2.new(0, 360, 0, 8)
+				payLabel.BackgroundTransparency = 1
+				payLabel.TextXAlignment = Enum.TextXAlignment.Left
+				payLabel.TextWrapped = true
+				payLabel.Text = quest.diamonds
+					and ("Claim: +%d \u{1F48E}"):format(quest.diamonds)
+					or ("Claim: +%s DNA"):format(formatNumber(quest.dna or 0))
+				payLabel.Parent = row
+				themeLabel(payLabel, 18, UITheme.Color.InkSoft)
+
+				-- ===== THE PRIZE IS DRAWN ON THE RUNG THAT PAYS IT =====
+				--
+				-- Only the last rung carries `character`, and it is the whole reason the board exists
+				-- -- a ladder whose top step reads "+15 diamonds" is four chores for fifteen diamonds.
+				--
+				-- BOTH THE CHIP AND THE WORDS ARE REWRITTEN IN `refreshEvents`, and that is not
+				-- tidiness: ColosseumClash's champion ROTATES every week, so the skin this rung pays
+				-- is a function of the window and cannot be known at build time. A name written here
+				-- would be right for one weekend in four.
+				local prizeChip, prizeLabel
+				if quest.character then
+					prizeChip = Instance.new("Frame")
+					prizeChip.Name = "PrizeChip"
+					prizeChip.Size = UDim2.new(0, 46, 0, 46)
+					prizeChip.Position = UDim2.new(1, -148, 0.5, 0)
+					prizeChip.AnchorPoint = Vector2.new(1, 0.5)
+					prizeChip.ZIndex = row.ZIndex + UITheme.Z.Content
+					prizeChip.Parent = row
+					styleCard(prizeChip, event.color, UDim.new(0, 12), 3)
+
+					-- Added AFTER styleCard so `liftChildren` carries it above the InnerBody that
+					-- holds the colour -- authored before it, the glyph draws underneath the fill.
+					prizeLabel = Instance.new("TextLabel")
+					prizeLabel.Name = "PrizeGlyph"
+					prizeLabel.Size = UDim2.new(1, -6, 1, -6)
+					prizeLabel.Position = UDim2.new(0, 3, 0, 3)
+					prizeLabel.BackgroundTransparency = 1
+					prizeLabel.Text = event.emoji
+					prizeLabel.ZIndex = prizeChip.ZIndex + UITheme.Z.Content
+					prizeLabel.Parent = prizeChip
+					themeLabel(prizeLabel, 26)
+				end
+
+				local claimBtn = Instance.new("TextButton")
+				claimBtn.Name = "ClaimButton"
+				claimBtn.Size = UDim2.new(0, 120, 0, 46)
+				claimBtn.Position = UDim2.new(1, -14, 0.5, -23)
+				claimBtn.AnchorPoint = Vector2.new(1, 0)
+				claimBtn.Text = "Claim"
+				claimBtn.Parent = row
+				styleButton(claimBtn, UITheme.Color.Locked, UDim.new(1, 0))
+				claimBtn.MouseButton1Click:Connect(function()
+					if claimEventRemote then
+						claimEventRemote:FireServer(event.key, quest.key)
+					end
+				end)
+
+				table.insert(section.rungs, {
+					quest = quest, row = row, rowStroke = rowStroke,
+					barFill = barFill, barLabel = barLabel, claimBtn = claimBtn,
+					payLabel = payLabel, prizeChip = prizeChip, prizeLabel = prizeLabel,
+				})
+			end
+		end
+	end
+
+	-- Hide a whole section in one place, so the "nothing is running" path and the "this one is not
+	-- one of the live ones" path cannot drift apart.
+	local function hideEventSection(section)
+		section.header.Visible = false
+		for _, refs in ipairs(section.rungs) do
+			refs.row.Visible = false
+		end
+	end
+
+	-- ===== DRAW EVERY LIVE LADDER, AND RETURN HOW MANY RUNGS ARE PRESSABLE =====
+	--
+	-- Called from `refresh` (which owns the tile badge) AND from `updateTimers` (which owns the
+	-- clock). It has to be both: the countdown on the header ticks every second, and the moment a
+	-- window closes the section must go -- the market's urgency comes from the board going away,
+	-- and a board that only goes away on the next DataUpdate stays up handing out refusals.
+	--
+	-- IT READS `GetEventBoard`, WHICH MUTATES THE SAVE IT IS GIVEN. That is the documented contract
+	-- (reading a board is what creates it) and it is harmless here: this is the client's replicated
+	-- copy, overwritten by the next DataUpdate. What it buys is that a window which turned over
+	-- while the player was offline shows zeroes rather than last weekend's finished ladder, without
+	-- this file knowing anything about how the reset works.
+	local function refreshEvents()
+		local data = hud.getData()
+		local claimable = 0
+		local drawn = {}
+
+		if data then
+			local now = GameConfig.EventNow()
+			local slot = 0
+			for _, live in ipairs(GameConfig.GetActiveEvents(now)) do
+				local section = eventSections[live.event.key]
+				local board = section and GameConfig.GetEventBoard(data, live.event.key, live.window)
+				if section and board then
+					slot += 1
+					drawn[live.event.key] = true
+					local base = (slot - 1) * EVENT_SLOT
+					local remaining = math.max(0, live.window.endTs - now)
+
+					section.header.Visible = true
+					section.header.LayoutOrder = base + 1
+					section.headerLabel.Text = ("%s %s  \u{2022}  ends in %dh %02dm")
+						:format(live.event.emoji, live.event.name,
+							remaining // 3600, (remaining % 3600) // 60)
+
+					-- The champion of THIS occurrence, off the window's own start -- the same rule
+					-- the claim handler resolves it by, so the rung names the skin it will actually
+					-- hand over however late in the weekend it is read.
+					local prizeKey = GameConfig.GetEventRewardKey(live.event, live.window)
+					local prize = prizeKey and GameConfig.GetEventCharacter(prizeKey)
+
+					-- The ladder is ORDERED, and the order is enforced at the button (26.1). One
+					-- flag walking down the rungs is the whole of it: everything below the first
+					-- unclaimed rung says which step is owed instead of offering a press the server
+					-- would refuse. That refusal exists and is worded well, but a button whose only
+					-- job is to explain why it did not work is the 18.6 fault again.
+					local locked = false
+					for i, refs in ipairs(section.rungs) do
+						local quest = refs.quest
+						refs.row.Visible = true
+						refs.row.LayoutOrder = base + 1 + i
+
+						local done = board.progress[quest.key] or 0
+						local claimed = board.claimed[quest.key] == true
+						refs.barFill.Size = UDim2.new(math.clamp(done / quest.target, 0, 1), 0, 1, 0)
+						refs.barLabel.Text = ("%d / %d"):format(math.min(done, quest.target), quest.target)
+
+						if refs.prizeChip then
+							-- setButtonColor rather than BackgroundColor3: a styleCard surface draws
+							-- its fill in an `InnerBody` child, so writing the host's own colour is
+							-- the silent no-op 15.28 is about.
+							local tint = prize and prize.color or live.event.color
+							setButtonColor(refs.prizeChip, tint)
+							inkOnCell(refs.prizeLabel, tint)
+							refs.prizeLabel.Text = prize and prize.emoji or live.event.emoji
+							refs.payLabel.Text = prize
+								and ("+%d \u{1F48E} and the\n%s %s skin"):format(quest.diamonds or 0, prize.emoji, prize.name)
+								or ("Claim: +%d \u{1F48E}"):format(quest.diamonds or 0)
+						end
+
+						if claimed then
+							refs.claimBtn.Text = "\u{2705} Done"
+							setButtonColor(refs.claimBtn, UITheme.DoneShade(UITheme.Color.Green))
+							inkOnCell(refs.claimBtn, UITheme.DoneShade(UITheme.Color.Green))
+							refs.rowStroke.Color = OUTLINE_COLOR
+							refs.rowStroke.Thickness = 4
+						elseif locked then
+							refs.claimBtn.Text = ("\u{1F512} Step %d first"):format(i - 1)
+							setButtonColor(refs.claimBtn, UITheme.Color.Locked)
+							inkOnCell(refs.claimBtn, UITheme.Color.Locked)
+							refs.rowStroke.Color = OUTLINE_COLOR
+							refs.rowStroke.Thickness = 4
+						elseif done >= quest.target then
+							claimable += 1
+							refs.claimBtn.Text = "CLAIM!"
+							setButtonColor(refs.claimBtn, UITheme.Color.Green)
+							inkOnCell(refs.claimBtn, UITheme.Color.Green)
+							refs.rowStroke.Color = READY_RIM
+							refs.rowStroke.Thickness = 5
+						else
+							refs.claimBtn.Text = ("\u{1F512} %d left"):format(math.max(quest.target - done, 0))
+							setButtonColor(refs.claimBtn, UITheme.Color.Locked)
+							inkOnCell(refs.claimBtn, UITheme.Color.Locked)
+							refs.rowStroke.Color = OUTLINE_COLOR
+							refs.rowStroke.Thickness = 4
+						end
+
+						if not claimed then locked = true end
+					end
+				end
+			end
+		end
+
+		for key, section in pairs(eventSections) do
+			if not drawn[key] then
+				hideEventSection(section)
+			end
+		end
+		return claimable
+	end
+
 	local questRows = {}   -- [period .. "|" .. key] = refs
 	local periodHeaders = {} -- [period] = label, for the countdown
 	-- [period] = the LayoutOrder of that period's header. The rows below it are re-ordered on every
 	-- refresh (claimable first -- see the sort in `refresh`), so their order is a function of state
 	-- rather than of the order they were built in, and it has to be measured from something fixed.
 	local periodBase = {}
-	local questOrder = 0
+	-- Starts ABOVE every event block, so the daily and weekly bases are fixed whatever the
+	-- events do. See the EVENT_SLOT note above.
+	local questOrder = eventLadders * EVENT_SLOT
 
 	for _, period in ipairs({ "daily", "weekly" }) do
 		local periodDef = GameConfig.QuestPeriods[period]
@@ -662,7 +959,27 @@ return function(hud)
 		end
 	end
 
-	questScroll.CanvasSize = UDim2.new(0, 0, 0, questOrder * 78 + 30)
+	-- ===== THE CANVAS IS THE ENGINE'S PROBLEM NOW, NOT AN ESTIMATE (26.2) =====
+	--
+	-- It was `questOrder * 78 + 30`: one guess per row, evaluated once at build time. That was fine
+	-- while every row on this tab was permanent, and it is wrong the moment a section appears and
+	-- disappears with a window -- off a weekend it would reserve five rows of event ladder that
+	-- nothing draws, and on a weekend with BOTH ladders live it would reserve ten rows too few and
+	-- the bottom of the weekly board would be out of reach.
+	--
+	-- `AutomaticCanvasSize` rather than a computed one off `questLayout.AbsoluteContentSize`, AND
+	-- THAT IS THE WHOLE POINT OF THIS COMMENT. AbsoluteContentSize is measured in SCREEN pixels --
+	-- it has already been through this panel's `UIScale` -- while `CanvasSize` is written in the
+	-- frame's own offset units, which that same scale then multiplies a second time. Every panel in
+	-- the game carries a fit scale clamped to [0.35, 1] (see `registerPanel` in MainUI), so on a
+	-- desktop at 1.0 the two agree and the bug is invisible, and on a phone at 0.5 the canvas comes
+	-- out HALF the height of the board -- the daily and weekly quests simply cannot be scrolled to.
+	-- Photographed at 1.55 while this row was being checked: 1426 of content reported as 2193.
+	--
+	-- The engine computes the automatic size in the frame's own space, and a `UIListLayout` already
+	-- skips invisible children -- which is exactly the sections that are off. The trailing space the
+	-- old `+ 30` bought is bought by `ScrollAffordance`, which recognises this case and pads.
+	questScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 
 	-- Forward-declared because the HUD tile is built at the BOTTOM of this block (it wants the
 	-- panel and `refresh` to exist first) while `refresh` is what owns the badge. A closure that
@@ -910,6 +1227,11 @@ return function(hud)
 		-- IT IS A COUNT, NOT A DOT. "3" is a reason to open the panel; a bare mark is a decoration
 		-- the eye learns to skip after the second session -- which is also why it goes dark the
 		-- moment the last thing is claimed rather than staying lit as an advert for the feature.
+		-- The event rungs are counted into the SAME badge, deliberately. The tile says "there is
+		-- something to press behind this"; splitting a second badge off for a board that exists two
+		-- days a week would leave the tile dark on the weekend, which is the one time it should not be.
+		claimable += refreshEvents()
+
 		lastClaimable = claimable
 		if tileBadge then
 			tileBadge.Visible = claimable > 0
@@ -927,6 +1249,11 @@ return function(hud)
 			label.Text = ("%s %s  \u{2022}  resets in %dh %02dm")
 				:format(def.emoji, def.label, remaining // 3600, (remaining % 3600) // 60)
 		end
+		-- The event ladder's countdown ticks on the same second, and `refreshEvents` is what draws
+		-- it. Redrawing the whole section rather than only its header is what makes the window a door
+		-- the player can watch close: the rows go at the instant the clock says so, not on the next
+		-- DataUpdate. Cheap -- at most two sections of four rows, and only while the panel is open.
+		refreshEvents()
 	end
 
 	task.spawn(function()
@@ -962,9 +1289,14 @@ return function(hud)
 	-- before it offers a row pointing at it. It is the number `refresh` last drew on the badge, so
 	-- the card and the tile can never disagree about what is claimable.
 	hud.seasonClaimCount = function() return lastClaimable end
-	hud.showSeasonPanel = function()
+	-- `tab` is optional and defaults to whichever page was last open, which is what the Welcome Back
+	-- card wants (it points at the pass in general). The Journal's event card passes "quests" (26.3):
+	-- a button that says "open the event board" and lands on the XP track is a press whose result
+	-- contradicts its label. An unknown name would hide both pages, so it is checked rather than
+	-- trusted -- this is reached from another module.
+	hud.showSeasonPanel = function(tab)
 		toggleOnly(panel)
-		setTab(currentTab)
+		setTab(tabs[tab] and tab or currentTab)
 		updateTimers()
 		refresh()
 	end

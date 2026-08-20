@@ -3469,8 +3469,16 @@ local function refreshCharacterPanel()
 		local chosen = isWorn
 		refs.lock.Visible = not isOwned
 		-- a locked disc hides its chance too: the "?" is the whole message, and a percentage under
-		-- something you have never seen is just noise
-		refs.chance.Visible = isOwned
+		-- something you have never seen is just noise.
+		--
+		-- ONE EXCEPTION, AND THE ONLY ONE 26.3 NEEDED IN THIS FILE: an EVENT skin lends that slot to
+		-- its window while it is locked -- "LIVE NOW", or how long until its turn. It is the one entry
+		-- in the panel whose availability is a clock rather than a queue, and five of them sit in a row
+		-- with nothing to say which is being handed out this weekend. JournalGrid.paintEventCells
+		-- writes the text and puts the damage caption back when the skin is finally owned; it runs
+		-- from journalPaintDetail, which is the last thing this function calls, so the two can never
+		-- disagree about one cell.
+		refs.chance.Visible = isOwned or refs.entry.event ~= nil
 		-- the rig if this cell has one, the emoji until it does. Never both, or the glyph sits on
 		-- top of the character it was standing in for.
 		refs.art.Visible = isOwned and refs.rig ~= nil

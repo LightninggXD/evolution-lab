@@ -55,6 +55,33 @@ return function(hud)
 	--
 	-- Guarded on the table being non-empty so removing the last event skin removes the row rather
 	-- than leaving an empty header on the end of the list.
+	-- ===== THE WARDROBE IS THE ONE ROW IN THIS PANEL THAT IS FOR SALE (26.4) =====
+	--
+	-- Nine skins the server already grants and revokes correctly (GameConfig.SyncVipCharacter) and
+	-- which no surface anywhere offered to sell: the Journal drew nine ringed portraits with damage
+	-- multipliers under them and never said the word "buy". The pass row in the Robux shop is two
+	-- panels away and names the wardrobe in one clause of a sentence -- it is not where somebody
+	-- looking at the Korblox Deathspeaker is standing.
+	--
+	-- IT IS A GAME PASS, NOT A DEVELOPER PRODUCT, and that is the one thing about this door that is
+	-- not like the Season card's. `PromptRobuxPurchase` looks its key up in GameConfig.RobuxProducts,
+	-- which does not and must not contain VIP -- a pass is owned forever and is checked with
+	-- UserOwnsGamePassAsync, where a product is consumed through ProcessReceipt. Firing the product
+	-- remote with "VIP" is not an error anywhere: RobuxShopService finds no product and returns, so
+	-- the press would do nothing at all and print nothing. The pass remote is the one ShopPanel's own
+	-- pass tiles fire, and PassService validates the key, refuses id 0 and refuses an owner.
+	--
+	-- The KEY is sent, never the pass id -- the server holds the id, so a tampered client can only
+	-- ever name a pass that exists.
+	local vipPass = GameConfig.GetGamePass("VIP")
+	-- Created on demand by PassService.Init, so it may not have replicated yet when this runs -- the
+	-- same WaitForChild PassShop uses for the same remote.
+	local promptPass = Remotes:WaitForChild("PromptGamePassPurchase", 10)
+	-- The wardrobe row's header, kept so the price can be painted onto it and taken off again when
+	-- the pass lands. Every other row in this panel is earned, and its header is written once at join
+	-- and never touched again.
+	local vipHeader = nil
+
 	local sections = {}
 	for stageIndex, stage in ipairs(GameConfig.Stages) do
 		table.insert(sections, {
@@ -70,6 +97,8 @@ return function(hud)
 		index = #GameConfig.Stages + 1,
 		stage = { emoji = GameConfig.VipCharacter.emoji, name = "VIP Exclusive" },
 		entries = GameConfig.VipCharacters,
+		-- a flag rather than a name test: "VIP Exclusive" is a caption and captions get rewritten
+		vip = true,
 	})
 	if #GameConfig.EventCharacters > 0 then
 		table.insert(sections, {
@@ -105,6 +134,7 @@ return function(hud)
 		header.Text = stage.emoji .. " " .. stage.name
 		header.Parent = row
 		themeLabel(header, 20, Color3.fromRGB(46, 54, 74))
+		if section.vip then vipHeader = header end
 
 		for i, entry in ipairs(entries) do
 			-- THE DISC IS THE CHARACTER'S OWN COLOUR, NOT ITS RARITY'S. Rarity is no longer a thing
@@ -314,6 +344,9 @@ return function(hud)
 			characterCells[entry.key] = {
 				cell = cell, icon = icon, art = art, lock = lock, check = check, chance = damageLabel,
 				strokeInst = cellStroke, entry = entry, rarity = { color = tint, pale = pale },
+				-- what the caption says when it is a caption again: an event disc lends that label to its
+				-- window while it is locked (26.3), and this is the only copy of the string it displaces
+				chanceText = damageLabel.Text,
 			}
 		end
 
@@ -453,7 +486,114 @@ return function(hud)
 	-- button ended up level with the hint and the stacking fell back to tree order
 	equipButton.ZIndex = detail.ZIndex + 4
 
+	-- =====================================================================================
+	-- THE EVENT LADDER, ON THE CARD (26.3)
+	-- =====================================================================================
+	-- 26.1 put a price on an event skin and 26.2 built the board that price is paid on -- inside the
+	-- Season panel's Quests tab, behind a different tile. THE JOURNAL IS WHERE A SKIN NOBODY OWNS IS
+	-- ACTUALLY LOOKED AT, and until this block it answered "how do I get this?" with one sentence
+	-- naming the event: not what the ladder asks, not how far this save already is, not how long the
+	-- window has left. A locked event disc was a "?" with a paragraph under it.
+	--
+	-- IT TAKES THE STAT BOX'S SPACE, AND THAT COSTS NOTHING FOR THIS ONE CASE. dStat quotes
+	-- GetRankDamage(GetEffectiveRank), and GetEffectiveRank on an OFF-LADDER entry is
+	-- GetBestOwnedRank -- so for an unowned event skin both of its rows restate what the player
+	-- already hits for, which is why the disc's own caption says "= best" rather than a figure. The
+	-- VIP skin is off-ladder too and KEEPS its box: its number is that rung MULTIPLIED, i.e. a real
+	-- statement about a real trade. dHint goes with it because the sentence it carried for these five
+	-- entries is the title line below, said shorter.
+	--
+	-- BUILT ONCE, FOR THE LONGEST LADDER IN THE CONFIG. Same argument 26.2's sections are built at
+	-- join under: a card that creates rows when somebody looks at it is a code path that only ever
+	-- runs while somebody is watching. The count is READ (#GetEventQuests) rather than written down,
+	-- so a fifth rung needs no edit in this file -- one more row simply stops being hidden.
+	local ladderMax = 0
+	for _, ev in ipairs(GameConfig.Events) do
+		ladderMax = math.max(ladderMax, #GameConfig.GetEventQuests(ev.key))
+	end
+
+	local ladderBox = Instance.new("Frame")
+	ladderBox.Name = "EventLadder"
+	-- dStat's own corner, and its height plus dHint's: the three are never up at the same time.
+	ladderBox.Size = UDim2.new(1, -24, 0, 118)
+	ladderBox.Position = UDim2.new(0, 12, 0, 294)
+	ladderBox.BackgroundTransparency = 1
+	ladderBox.Visible = false
+	ladderBox.ZIndex = detail.ZIndex + 2
+	ladderBox.Parent = detail
+
+	-- WHICH EVENT AND HOW LONG IS LEFT, in the event's own colour -- the colour its section wears on
+	-- the Quests tab and its sign wears in the Forest, so a player who has seen one recognises the
+	-- other. Painted per redraw, never at build time: which event this card is showing changes with
+	-- the selection and the clock moves under both of them.
+	local ladderTitle = Instance.new("TextLabel")
+	ladderTitle.Name = "Title"
+	ladderTitle.Size = UDim2.new(1, 0, 0, 22)
+	ladderTitle.BackgroundTransparency = 1
+	ladderTitle.TextXAlignment = Enum.TextXAlignment.Left
+	ladderTitle.ZIndex = ladderBox.ZIndex + 1
+	ladderTitle.Parent = ladderBox
+	themeLabel(ladderTitle, 18, Color3.fromRGB(46, 54, 74))
+
+	-- WHAT THE LADDER ASKS. One row per rung, and the rung's own authored name already contains the
+	-- target ("Defeat 400 creatures"), so the left column is the requirement whether or not there is
+	-- a board running to count against it.
+	local ladderRows = {}
+	-- 18, not 19, and the four pixels are not slack: the foot line lands 8 px clear of the button
+	-- under it, and styleButton's lip draws OUTSIDE the button's own frame -- so a gap authored at 4
+	-- renders as nothing at all, which is the rule the HUD tile column already paid for once.
+	local LADDER_ROW_H = 18
+	for i = 1, ladderMax do
+		local nameLabel = Instance.new("TextLabel")
+		nameLabel.Name = ("Rung%dName"):format(i)
+		nameLabel.Size = UDim2.new(1, -70, 0, LADDER_ROW_H)
+		nameLabel.Position = UDim2.new(0, 0, 0, 22 + (i - 1) * LADDER_ROW_H)
+		nameLabel.BackgroundTransparency = 1
+		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+		nameLabel.ZIndex = ladderBox.ZIndex + 1
+		nameLabel.Parent = ladderBox
+		themeLabel(nameLabel, 16, Color3.fromRGB(70, 78, 98))
+
+		-- The progress column, and it is EMPTY unless the window is open ON THIS SKIN rather than
+		-- showing "0 / 400". A zero against a board that cannot move is not a score, it is a false
+		-- start -- nothing the player does today will change it. See paintLadder for the other half of
+		-- that rule, which is the one a rotation makes necessary.
+		local countLabel = Instance.new("TextLabel")
+		countLabel.Name = ("Rung%dCount"):format(i)
+		countLabel.Size = UDim2.new(0, 70, 0, LADDER_ROW_H)
+		countLabel.Position = UDim2.new(1, -70, 0, 22 + (i - 1) * LADDER_ROW_H)
+		countLabel.BackgroundTransparency = 1
+		countLabel.TextXAlignment = Enum.TextXAlignment.Right
+		countLabel.ZIndex = ladderBox.ZIndex + 1
+		countLabel.Parent = ladderBox
+		themeLabel(countLabel, 16, Color3.fromRGB(70, 78, 98))
+
+		ladderRows[i] = { name = nameLabel, count = countLabel }
+	end
+
+	-- The line the rotation makes necessary: WHICH of the four champions this one is, and when its
+	-- own turn comes. Anchored under the last rung the config can hold rather than at the bottom of
+	-- the box, so a shorter ladder does not leave a gap between itself and its own footnote.
+	local ladderFoot = Instance.new("TextLabel")
+	ladderFoot.Name = "Foot"
+	ladderFoot.Size = UDim2.new(1, 0, 0, 20)
+	ladderFoot.Position = UDim2.new(0, 0, 0, 22 + ladderMax * LADDER_ROW_H)
+	ladderFoot.BackgroundTransparency = 1
+	ladderFoot.TextXAlignment = Enum.TextXAlignment.Left
+	ladderFoot.ZIndex = ladderBox.ZIndex + 1
+	ladderFoot.Parent = ladderBox
+	themeLabel(ladderFoot, 15, Color3.fromRGB(126, 134, 156))
+
 	local selectedKey = nil
+	-- WHAT THE GREEN BUTTON IS FOR RIGHT NOW. It equips, except on a locked event skin whose window
+	-- is open, where there is nothing to equip and one thing worth pressing -- the board the rungs
+	-- are claimed on. A single flag rather than a second button: two 52px buttons do not fit under
+	-- this card, and a button that is present-but-dead on 199 of 200 entries is the 18.6 fault.
+	local boardMode = false
+	-- ...and the second thing it is for: a locked VIP portrait, where there is likewise nothing to
+	-- equip and one thing worth pressing. Two flags rather than one enum because they can never both
+	-- be true -- an entry is either `vip` or `event`, never both -- and a flag reads at the branch.
+	local vipDoor = false
 	local bigRig, bigPivot = nil, nil
 
 	-- ===== DARK INK ON A PALE CARD DOES NOT WANT AN OUTLINE (12.6) =====
@@ -488,9 +628,186 @@ return function(hud)
 		st.Thickness = bright and 4 or 0 -- 4 is themeLabel's own non-dark default
 	end
 
+	-- ===== THE FIVE DISCS THAT HAVE SOMETHING TO SAY WHILE THEY ARE STILL LOCKED (26.3) =====
+	--
+	-- Every other locked disc in this panel is a "?" and should stay one: the collection unlocks in
+	-- strict rank order, so the only fact about a locked skin is that it is further up the same
+	-- ladder, and there is nothing a player can do differently on learning it. An event skin is the
+	-- exception and the only one -- it is the entry whose availability is a CLOCK, and the row shows
+	-- five of them side by side with nothing to say which is being handed out this weekend.
+	--
+	-- IT WRITES INTO THE DAMAGE CAPTION'S SLOT, which is empty under a locked cell. MainUI's
+	-- refreshCharacterPanel hides that label for anything unowned and makes this one exception by
+	-- name; see the note there. The caption is put BACK to what the cell was built with once the skin
+	-- is owned, because nothing else in the game ever rewrites that label -- without it a disc earned
+	-- on Sunday would keep a countdown under it for the rest of the save's life.
+	local function paintEventCells()
+		local owned = hud.getData() and hud.getData().Characters or nil
+		local now = GameConfig.EventNow()
+		for key, refs in pairs(characterCells) do
+			local entry = refs.entry
+			if entry.event then
+				if owned and owned[key] then
+					refs.chance.Text = refs.chanceText
+					refs.chance.TextColor3 = Color3.fromRGB(58, 66, 88)
+				else
+					local event = GameConfig.GetEvent(entry.event)
+					local window = event and GameConfig.GetEventWindow(event, now)
+					local mine = (window and window.active
+						and GameConfig.GetEventRewardKey(event, window) == entry.key) or false
+					-- A rotation champion's own turn, which for three of the four is NOT the weekend that
+					-- is running -- the festival has no rotation and falls through to its window's start.
+					local rot = GameConfig.GetRotationInfo(entry.key, now)
+					local soon = (rot and rot.nextStart) or (window and window.nextStart) or nil
+					if mine then
+						refs.chance.Text = ("%s LIVE NOW"):format(event.emoji)
+						refs.chance.TextColor3 = Color3.fromRGB(72, 168, 96)
+					else
+						refs.chance.Text = soon
+							and ("\u{23F3} in %s"):format(GameConfig.FormatDuration(soon - now))
+							or "\u{23F3} not running"
+						refs.chance.TextColor3 = Color3.fromRGB(58, 66, 88)
+					end
+				end
+			end
+		end
+	end
+
+	-- ===== THE LADDER BLOCK, FILLED (26.3) =====
+	--
+	-- Answers two things the caller needs and cannot work out for itself: whether this entry has a
+	-- ladder to draw at all, and whether the window is open ON THIS SKIN right now -- which is the
+	-- one condition under which the card offers a door to the board. An event with no rungs authored
+	-- (Weekend2x hands over no skin, so it has none) draws nothing and the card falls back to the
+	-- sentence it has always shown.
+	--
+	-- PROGRESS IS SHOWN ONLY WHEN THIS SKIN IS THE PRIZE, and that is the rotation's doing rather
+	-- than caution. ColosseumClash is live for one of its four champions at a time; the board's
+	-- counters are running for all of them, but claiming the last rung pays THE WEEKEND'S champion.
+	-- "120 / 400" on the card of a skin this weekend cannot hand over is the loudest thing on it, and
+	-- it would be a promise the claim then refuses -- so those three cards get the requirement, the
+	-- clock, and a foot line saying when their own turn comes.
+	--
+	-- GetEventBoard MUTATES the save it is handed, which is its documented contract (reading a board
+	-- is what creates it). Harmless here for the same reason it is harmless in SeasonPass: this is
+	-- the client's replicated copy and the next DataUpdate overwrites it.
+	local function paintLadder(entry)
+		local event = entry.event and GameConfig.GetEvent(entry.event) or nil
+		local ladder = event and GameConfig.GetEventQuests(event.key) or nil
+		if not (event and ladder and #ladder > 0) then return false, false, nil end
+
+		local now = GameConfig.EventNow()
+		local window = GameConfig.GetEventWindow(event, now)
+		local live = (window and window.active) or false
+		local mine = (live and GameConfig.GetEventRewardKey(event, window) == entry.key) or false
+		local board = (mine and hud.getData())
+			and GameConfig.GetEventBoard(hud.getData(), event.key, window) or nil
+
+		-- THE CLOCK IS ON THE TITLE LINE, not on a line of its own: the card has room for one line per
+		-- fact, and the third fact -- which week of the rotation this champion is -- only exists for
+		-- one of the two events.
+		ladderTitle.Text = live
+				and ("%s %s  \u{2022}  ends in %s"):format(event.emoji, event.name,
+					GameConfig.FormatDuration(window.endTs - now))
+			or (window and window.nextStart)
+				and ("%s %s  \u{2022}  runs in %s"):format(event.emoji, event.name,
+					GameConfig.FormatDuration(window.nextStart - now))
+			or ("%s %s  \u{2022}  not running"):format(event.emoji, event.name)
+		ladderTitle.TextColor3 = event.color
+		inkOnLight(ladderTitle)
+
+		local prizeStep
+		for i, quest in ipairs(ladder) do
+			local refs = ladderRows[i]
+			if quest.character then prizeStep = i end
+			if refs then
+				refs.name.Visible = true
+				refs.count.Visible = true
+				refs.name.Text = ("%d. %s %s"):format(i, quest.emoji, quest.name)
+				local done = board and board.progress[quest.key] or 0
+				if not board then
+					refs.count.Text = ""
+				elseif board.claimed[quest.key] then
+					refs.count.Text = "\u{2705}"
+				else
+					refs.count.Text = ("%d/%d"):format(math.min(done, quest.target), quest.target)
+				end
+				-- a finished rung is worth pointing at even before it is claimed: the claim itself is on
+				-- the other board, so this is the only surface that can say "go and press it"
+				refs.count.TextColor3 = (board and done >= quest.target)
+					and Color3.fromRGB(72, 168, 96) or Color3.fromRGB(70, 78, 98)
+				inkOnLight(refs.count)
+			end
+		end
+		-- the rows a shorter ladder does not reach. Hidden rather than blanked, so an empty row cannot
+		-- keep a stale count from the last entry that was looked at.
+		for i = #ladder + 1, ladderMax do
+			ladderRows[i].name.Visible = false
+			ladderRows[i].count.Visible = false
+		end
+
+		local rot = GameConfig.GetRotationInfo(entry.key, now)
+		if mine then
+			ladderFoot.Text = prizeStep
+				and ("\u{1F381} Step %d hands over this skin"):format(prizeStep)
+				or "\u{1F381} Finish the ladder for this skin"
+		elseif rot and rot.nextStart then
+			ladderFoot.Text = ("\u{1F504} Week %d of %d  \u{2022}  its turn in %s")
+				:format(rot.slot, rot.count, GameConfig.FormatDuration(rot.nextStart - now))
+		elseif rot then
+			ladderFoot.Text = ("\u{1F504} Week %d of %d of the rotation"):format(rot.slot, rot.count)
+		else
+			ladderFoot.Text = ("\u{1F381} All %d steps, inside the window"):format(#ladder)
+		end
+		-- ===== AND THE ONE THAT ONLY A CAPTURE FINDS (26.3) =====
+		--
+		-- This label never changes colour, so it looks like the one line in the block that does not
+		-- need the card's ink helper. It needs it MOST. themeLabel decides the halo from
+		-- UITheme.IsDarkInk, whose cut is 0.45; the subtitle grey it is authored in sits at 0.526, so
+		-- it is handed the full 4 px Color.Outline -- dark ink inside a dark halo, on a pale card,
+		-- which is the blob 15.1 exists to kill and which every property reads clean through. The
+		-- rungs above are authored at 0.306 and drop their stroke at build time, which is exactly why
+		-- this one line came out looking different from the four over it. inkOnLight cuts at 0.62 --
+		-- the number this card is tuned to -- and owns Thickness as well as Transparency.
+		inkOnLight(ladderFoot)
+
+		return true, mine, event.color
+	end
+
+	-- WHAT THE ROW COSTS, ON THE ROW (26.4). A player scrolling the Journal meets these nine as nine
+	-- more locked discs among two hundred; the header is the only place that can say they are a
+	-- different KIND of locked -- not further down a queue but behind a till -- without hanging a
+	-- badge on each of the nine.
+	--
+	-- REPAINTED, NOT WRITTEN AT BUILD TIME, because the pass can land mid-session: PassService grants
+	-- it straight off PromptGamePassPurchaseFinished and pushes a DataUpdate, so a header authored at
+	-- join would still be quoting a price at somebody who has just paid it. The count is read
+	-- (#VipCharacters) for the same reason every other count in this file is -- a tenth bundle must
+	-- not need an edit here.
+	--
+	-- No price at all when the pass has no real id: the door is hidden in that case too, and a header
+	-- advertising a price with no button under it is worse than a header that says nothing.
+	local function paintVipHeader()
+		if not vipHeader then return end
+		local base = ("%s VIP Exclusive"):format(GameConfig.VipCharacter.emoji)
+		if GameConfig.OwnsPass(hud.getData(), "VIP") then
+			vipHeader.Text = base .. "  \u{2022}  all yours"
+		elseif vipPass and (vipPass.passId or 0) > 0 then
+			vipHeader.Text = ("%s  \u{2022}  R$ %s for all %d"):format(base, vipPass.price or "?",
+				#GameConfig.VipCharacters)
+		else
+			vipHeader.Text = base
+		end
+	end
+
 	-- TEXT AND BUTTON ONLY. Called from refreshCharacterPanel, which runs on every DataUpdate --
 	-- which is to say on every creature anyone kills -- so it must never rebuild the figure.
 	local function paintDetail()
+		-- the five event discs' own captions, which are a function of the clock rather than of the
+		-- selection -- above the early return, because they are just as true with nothing picked
+		paintEventCells()
+		-- and the wardrobe row's price, which is a function of the save for the same reason
+		paintVipHeader()
 		local refs = selectedKey and characterCells[selectedKey]
 		local entry = refs and refs.entry
 		if not entry then
@@ -502,6 +819,13 @@ return function(hud)
 			dHint.Text = ""
 			bigMark.Visible = true
 			bigMark.Text = "\u{1F4D2}"
+			-- the three the ladder block takes over (26.3), put back: "nothing picked" is reached from
+			-- a card that may have been showing one, and a frame left visible here would hang over it
+			ladderBox.Visible = false
+			dStat.Visible = true
+			dHint.Visible = true
+			boardMode = false
+			vipDoor = false
 			equipButton.Visible = false
 			-- the empty card is a real state of this panel (it is what it opens as before anything is
 			-- picked), so it gets the same ink treatment as the filled one
@@ -553,8 +877,60 @@ return function(hud)
 		dStatHp.Text = ("\u{2764}\u{FE0F}  +%d%% Max Health"):format(
 			math.floor(GameConfig.GetCharacterHealthPct(entry, hud.getData())))
 
-		equipButton.Visible = owned
-		if equipped then
+		-- ===== THE LADDER TAKES THE CARD OVER FOR A LOCKED EVENT SKIN (26.3) =====
+		--
+		-- Three surfaces move together and are restored together: the stat box and the hint go, the
+		-- ladder block comes up in their place, and the green button stops being an Equip. Nothing else
+		-- in the panel is touched -- and the hint chain below still runs, because it is what an event
+		-- skin whose event has no rungs authored falls back to (paintLadder returns false for those).
+		local ladderShown, ladderDoor, ladderColor = false, false, nil
+		if (not owned) and entry.event then
+			ladderShown, ladderDoor, ladderColor = paintLadder(entry)
+		end
+		ladderBox.Visible = ladderShown
+		dStat.Visible = not ladderShown
+		dHint.Visible = not ladderShown
+		boardMode = ladderDoor
+
+		-- ===== THE SECOND DOOR ON THIS BUTTON (26.4) =====
+		--
+		-- OWNERSHIP OF THE PASS, NOT OF THE SKIN, and the two are not the same test for the length of
+		-- one join. SyncVipCharacter writes all nine into `Characters` off `data.Passes`, and
+		-- PassService fills `Passes` on its own PlayerAdded connection with retries -- so there is a
+		-- window on join where a paying VIP's save says the skin is not owned. `owned` alone would
+		-- offer them a till they have already been through, and PassService would answer the press
+		-- with "You already own VIP!" -- the game accusing its best customer of not having paid.
+		--
+		-- The id guard is ShopPanel's, for the same reason: prompting on id 0 opens a dialog that
+		-- cannot complete, which reads as the game being broken rather than as something not being on
+		-- sale yet. With no door there is no button at all -- the 18.6 rule -- and paintVipHeader
+		-- drops the price to match, so the row goes quiet together rather than half-advertising.
+		vipDoor = (not owned) and entry.vip == true and vipPass ~= nil and (vipPass.passId or 0) > 0
+			and not GameConfig.OwnsPass(hud.getData(), "VIP")
+
+		equipButton.Visible = owned or boardMode or vipDoor
+		if boardMode then
+			-- THE DOOR, AND IT ONLY EXISTS WHILE THE WINDOW IS OPEN ON THIS SKIN. A button that opened
+			-- the Quests tab on a Wednesday would land on a board with no section for this event at all
+			-- -- a press whose result contradicts its own label, which is the 18.6 fault. It is also the
+			-- only reason this card can stop at "what the ladder asks": the claiming is one press away.
+			equipButton.Text = "\u{1F4CB} Open the event board"
+			setButtonColor(equipButton, ladderColor or UITheme.Color.Green)
+			equipButton.Active = true
+			equipButton.AutoButtonColor = true
+		elseif vipDoor then
+			-- GOLD, which is this door's own colour by the same rule the event door is painted in its
+			-- event's: the pass is the crown, its shop card's wash is gold, and the Season panel's
+			-- Premium button -- the only other Robux door in the HUD -- is UITheme.Color.Gold too. A
+			-- green button here would read as an Equip that has changed its mind.
+			--
+			-- The price is on the button as well as on the row header. It is the last thing read
+			-- before a press and a Robux dialog is the worst place to first learn a number.
+			equipButton.Text = ("\u{1F451} Get VIP \u{2014} R$ %s"):format(vipPass.price or "?")
+			setButtonColor(equipButton, UITheme.Color.Gold)
+			equipButton.Active = true
+			equipButton.AutoButtonColor = true
+		elseif equipped then
 			equipButton.Text = "\u{2713} Wearing it"
 			-- Same receipt-not-refusal split as the Auras row and Stage Mastery (18.6): inert is
 			-- right, grey is not. The skin the player chose is the proudest thing on this screen.
@@ -568,6 +944,11 @@ return function(hud)
 			equipButton.Text = "Wear this one"
 			setButtonColor(equipButton, UITheme.Color.Green)
 			equipButton.Active = true
+			-- PUT BACK, not merely left alone. The `equipped` branch above switches AutoButtonColor
+			-- off and nothing switched it on again, so looking at the worn skin and then at any other
+			-- one left a live Equip button with no press feedback for the rest of the session. Found
+			-- while adding the branch above, which sets both for the same reason.
+			equipButton.AutoButtonColor = true
 		end
 
 		-- THERE IS NO TRADE LEFT TO WARN ABOUT. This used to compare the rung against the one on the
@@ -598,23 +979,35 @@ return function(hud)
 				local label = ("%s%s"):format(eventDef and (eventDef.emoji .. " ") or "",
 					eventDef and eventDef.name or "the event")
 				-- A ROTATION SKIN IS NOT AVAILABLE WHENEVER ITS EVENT IS (12.13). The generic line
-				-- below is true of the festival, which hands out its one skin for the whole window --
-				-- and false of a champion, which is one of four and is handed out on one weekend in
-				-- four. Telling a collector to "turn up while it is running" on a weekend that is
+				-- below is true of the festival, which offers its one skin for the whole window --
+				-- and false of a champion, which is one of four and is offered on one weekend in
+				-- four. Telling a collector to come back "while it is running" on a weekend that is
 				-- running somebody else's skin is the panel lying about the only thing this card
 				-- exists to answer.
+				--
+				-- AND SINCE 26.1 NONE OF THE THREE MAY SAY "TURN UP". The skin stopped being handed to
+				-- whoever was online and became the last rung of an ordered ladder, so a card still
+				-- promising attendance would be the game's own Journal describing a rule the server no
+				-- longer runs. The rung count is READ rather than written into the string, so an author
+				-- who adds a fifth rung does not have to remember this file.
+				--
+				-- THIS WHOLE BRANCH IS A FALLBACK NOW (26.3), AND IT IS NOT DEAD CODE. The ladder block
+				-- above takes the card over -- and hides dHint -- for any event skin whose event has rungs
+				-- authored, which today is both of them. An event added later with a `reward.characterKey`
+				-- and no `EventQuests` entry lands here instead of on an empty board, which is why these
+				-- three sentences stay and why they must stay true.
 				local rot = GameConfig.GetRotationInfo(entry.key)
 				if rot and rot.live then
-					dHint.Text = ("Week %d of %d \u{2014} being handed out in %s RIGHT NOW. Turn up and it is yours for good.")
-						:format(rot.slot, rot.count, label)
+					dHint.Text = ("Week %d of %d \u{2014} up for grabs in %s RIGHT NOW. Finish its %d-step event ladder and it is yours for good.")
+						:format(rot.slot, rot.count, label, #GameConfig.GetEventQuests(entry.event))
 					dHint.TextColor3 = Color3.fromRGB(72, 168, 96)
 				elseif rot and rot.nextStart then
 					dHint.Text = ("Week %d of %d in the %s rotation \u{2014} its turn comes round in %s.")
 						:format(rot.slot, rot.count, label,
 							GameConfig.FormatDuration(rot.nextStart - GameConfig.EventNow()))
 				else
-					dHint.Text = ("Handed out during %s. Turn up while it is running and it is yours for good.")
-						:format(label)
+					dHint.Text = ("Earned by finishing the %d-step event ladder during %s \u{2014} then it is yours for good.")
+						:format(#GameConfig.GetEventQuests(entry.event), label)
 				end
 			else
 				dHint.Text = "Evolve to " .. (stage and stage.name or "this stage") .. " to discover it."
@@ -702,6 +1095,22 @@ return function(hud)
 	end
 
 	equipButton.MouseButton1Click:Connect(function()
+		-- FIRST, and with a return: an EquipCharacter for a skin the save does not own is a remote the
+		-- server refuses, and the refusal would be the only thing this press produced.
+		if boardMode then
+			-- straight to the Quests tab rather than to whichever tab was last open -- the Season
+			-- panel remembers, and landing on the XP track after pressing "open the event board" is
+			-- the same broken promise the button is guarded against making.
+			if hud.showSeasonPanel then hud.showSeasonPanel("quests") end
+			return
+		end
+		if vipDoor then
+			-- The KEY, never the pass id: the server holds the id, so the worst a tampered client can
+			-- do is name a pass that exists. PassService owns every refusal from here -- unknown key,
+			-- id 0, already an owner -- so this side has nothing left to check.
+			if promptPass then promptPass:FireServer("VIP") end
+			return
+		end
 		if selectedKey and equipButton.Active then
 			Remotes.EquipCharacter:FireServer(selectedKey)
 		end
@@ -784,6 +1193,26 @@ return function(hud)
 	-- honest signal for it -- the cells live inside the scrolling frame and their own positions
 	-- move with it.
 	characterScroll:GetPropertyChangedSignal("CanvasPosition"):Connect(fillPreviews)
+
+	-- ===== THE COUNTDOWNS TICK ON THEIR OWN SECOND (26.3) =====
+	--
+	-- Everything else on this card is a function of the save, so a repaint on DataUpdate has always
+	-- been enough. A window is a function of the CLOCK: "ends in 3h 04m" and the five discs' captions
+	-- go stale between pushes, and the moment the window actually closes is the moment the card must
+	-- stop offering a board that has gone. Same one-second tick, and the same visibility guard, the
+	-- Season panel's own countdowns run on.
+	--
+	-- paintDetail is text and button only by contract -- it never rebuilds the figure -- so this
+	-- costs a handful of strings a second while the panel is open, and nothing at all while it is
+	-- shut.
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			if characterPanel.Visible then
+				paintDetail()
+			end
+		end
+	end)
 
 	-- ONE turntable, for the big figure only. Turning eighteen cell rigs as well would be six
 	-- hundred part CFrames written every frame behind a panel, and a 96px disc reads no better
