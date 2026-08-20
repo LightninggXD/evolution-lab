@@ -1008,4 +1008,130 @@ return function(hud)
 			end
 		end
 	end)
+	-- ========================================================================
+	-- 6. THE PROMPT OVER A NEARBY PLAYER (21.1)
+	-- ========================================================================
+	-- 16.2 put the door on the person and it was the right move -- but a door nobody can SEE is the
+	-- state 21.1 opened against: "trading is fully built and invisible", seven live remotes and
+	-- 1,011 lines of client behind a gesture the game never mentions. Clicking another player is not
+	-- something Roblox teaches, and nothing on this screen implies it does anything.
+	--
+	-- So the affordance is drawn where the door already is: a small `Trade` tag over the head of any
+	-- other player inside `GameConfig.TradeProximityStuds`, which is the SERVER's own range rule
+	-- (`TradeService` reads the same constant), so a tag can never appear over somebody the server
+	-- would then refuse. Tapping the tag opens the same card the click opens -- it is one more way
+	-- in, not a second implementation.
+	--
+	-- WHY A TAG AND NOT A HUD TILE, which is the other half of what 21.1 asked for. The tile existed
+	-- and 16.2 deleted it on the owner's own reasoning: trading means nothing until somebody is
+	-- standing next to you, and a permanent button spent a fifth of the left edge asking the player
+	-- to find a name in a list while they were looking straight at the person. Putting it back would
+	-- undo a closed row, break the left column's 2x2 block, and cost a register in a file that has
+	-- none (MainUI is at Luau's 200-local ceiling). The tag answers the actual complaint -- nothing
+	-- tells you the feature is there -- at the only moment it is true, and it carries the picker in
+	-- behind it through the card's second button. See the note in ROADMAP 21.1.
+	--
+	-- NOT AlwaysOnTop, on purpose, and it is the same rule the raycast above follows: a tag that
+	-- shines through a wall advertises a trade with somebody you cannot reach. `MaxDistance` is belt
+	-- and braces on top of the range test -- it culls the tag at the engine level on a frame the
+	-- poll has not caught up with yet.
+	local prompts = {}          -- [Player] = BillboardGui
+	local taughtThisSession = false
+
+	local function dropPrompt(other)
+		local gui = prompts[other]
+		if gui then
+			prompts[other] = nil
+			gui:Destroy()
+		end
+	end
+
+	local function makePrompt(other, head)
+		local gui = Instance.new("BillboardGui")
+		gui.Name = "TradePrompt"
+		gui.Adornee = head
+		gui.Size = UDim2.fromOffset(132, 40)
+		-- EXTENTS, NOT STUDS. The player body runs 1x to 9x across the twenty stages (see
+		-- `StageCostume`), so a constant stud offset is a hat at one end of the game and a kite at
+		-- the other -- the same trap `worldPopup` in MainUI sizes around. ExtentsOffset is measured
+		-- in multiples of the adornee's own size, so this stays a hand above the head at every stage
+		-- without ever being told which one the player is on.
+		gui.ExtentsOffsetWorldSpace = Vector3.new(0, 1.8, 0)
+		gui.AlwaysOnTop = false
+		gui.MaxDistance = GameConfig.TradeProximityStuds + 6
+		gui.ResetOnSpawn = false
+		gui.Parent = screenGui
+
+		local btn = Instance.new("TextButton")
+		btn.Name = "Tag"
+		btn.Size = UDim2.new(1, 0, 1, 0)
+		btn.BackgroundColor3 = UITheme.Color.Green
+		btn.AutoButtonColor = true
+		btn.Text = "\u{1F91D} Trade"
+		btn.Font = Enum.Font.FredokaOne
+		btn.TextSize = 20
+		btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+		btn.Parent = gui
+		corner(btn, UDim.new(0.5, 0))
+		stroke(btn, 3, UITheme.Color.Outline)
+
+		btn.MouseButton1Click:Connect(function()
+			-- The card is positioned from a SCREEN point, the same space an input position arrives
+			-- in -- `WorldToScreenPoint` includes the topbar inset and `WorldToViewportPoint` does
+			-- not, and `showCard` subtracts the inset itself. Mixing those two is how an element
+			-- lands exactly one inset out of place.
+			local cam = workspace.CurrentCamera
+			local px, py = 0, 0
+			if cam then
+				local pt = cam:WorldToScreenPoint(head.Position)
+				px, py = pt.X, pt.Y
+			end
+			showCard(other, px, py)
+		end)
+
+		prompts[other] = gui
+		return gui
+	end
+
+	Players.PlayerRemoving:Connect(dropPrompt)
+
+	task.spawn(function()
+		while true do
+			task.wait(0.4)
+			-- Every prompt goes away while a trade is actually open. The modal is the conversation;
+			-- a row of tags floating behind it invites a second one the server would refuse anyway.
+			local muted = tradeModal.Visible or currentTradeId ~= nil
+			for _, other in ipairs(Players:GetPlayers()) do
+				if other ~= player then
+					local head = other.Character and other.Character:FindFirstChild("Head")
+					local d = studsTo(other)
+					local want = (not muted) and head and d and d <= GameConfig.TradeProximityStuds
+					local gui = prompts[other]
+					if want then
+						if not gui then
+							makePrompt(other, head)
+							-- ONE toast, the first time it is ever true in a session, and never
+							-- again. The tag teaches the gesture on its own once it is on screen;
+							-- what it cannot do is catch the eye of somebody looking at their own
+							-- HUD. After that this would be a banner about a thing already visible.
+							if not taughtThisSession then
+								taughtThisSession = true
+								showNotification(
+									("\u{1F91D} %s is nearby \u{2014} tap the tag above them to trade")
+										:format(other.DisplayName),
+									UITheme.Color.Green, 4)
+							end
+						elseif gui.Adornee ~= head then
+							-- they respawned, or StageCostume rebuilt the body: re-adorn rather than
+							-- leaving a tag pinned to a Head that is no longer in the character
+							gui.Adornee = head
+						end
+					elseif gui then
+						dropPrompt(other)
+					end
+				end
+			end
+		end
+	end)
 end
+
