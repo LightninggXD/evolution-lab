@@ -1038,6 +1038,63 @@ return function(hud)
 	local prompts = {}          -- [Player] = BillboardGui
 	local taughtThisSession = false
 
+	-- WHERE THE TAG SITS. THE FIRST VERSION PUT IT INSIDE THE PLAYER'S OWN BODY.
+	--
+	-- It shipped as `ExtentsOffsetWorldSpace = (0, 1.8, 0)`, written and reviewed as "1.8 head
+	-- heights above the head" -- measured off the body so it would hold across the twenty stages.
+	-- It does hold across the stages, and it was never 1.8 head heights:
+	--
+	--     `ExtentsOffset` IS MEASURED IN THE ADORNEE'S HALF-SIZE, NOT ITS SIZE.
+	--
+	-- Measured on the live client at stage 20, three billboards side by side on the same Head: one
+	-- at `ExtentsOffsetWorldSpace = 2.0` rendered at exactly the height of one at
+	-- `StudsOffset = head.Size.Y`, and far below one at `StudsOffset = head.Size.Y * 2`. So the
+	-- shipped tag sat at 0.9 x the head's height, half of what the number reads as.
+	--
+	-- That put it under the one thing already over every head: `CombatClient`'s `HealthPlate`, the
+	-- player's name plus their bar when they are hurt, on the Head of every player, `AlwaysOnTop`,
+	-- 52 px tall, anchored at `head.Size.Y * 1.35 + 1.6`. That anchor is where the COSTUME ends --
+	-- the 1.35 clears the shell and the +1.6 clears the crowns and horns the late stages wear, and
+	-- the comment there records what it cost to find. The tag sat
+	--
+	--     0.9H - (1.35H + 1.6)  =  -0.45H - 1.6
+	--
+	-- below it, which is negative at every stage and grows worse as the body does: 2.6 studs under
+	-- the costume line at Cell, 4.7 at Alien, and 6.8 at The Absolute (measured: anchor 10.36 vs
+	-- the plate's 17.13). Inside the silhouette, on a tag that is deliberately NOT `AlwaysOnTop`,
+	-- which means the body itself occludes it. The affordance built so trading would stop being
+	-- invisible was being swallowed by the player it was pointing at.
+	--
+	-- AND IT COULD NOT HAVE BEEN FIXED BY A BIGGER NUMBER, because the two are measured in
+	-- different units. The plate is anchored in studs and sized in PIXELS -- that is its own fix
+	-- for "the bar is over my head" -- so the number of studs it covers GROWS as the camera pulls
+	-- back, and `CameraFit` alone moves that from 12.5 studs at stage 1 to 46 at stage 20 before
+	-- the other player's own 40 studs of range are added. Any constant stud offset slides through
+	-- it at some distance.
+	--
+	-- So the tag is stacked on the plate IN THE PLATE'S OWN SPACE: same anchor, then pushed clear
+	-- in pixels by `SizeOffset`, which is measured in multiples of the tag's own size and therefore
+	-- holds the same gap at every distance and every stage. Both numbers are READ OFF THE PLATE
+	-- rather than copied from it -- the anchor formula and the 52 belong to `CombatClient`, and this
+	-- must not become a second place that has to be edited when they move. The literal fallback is
+	-- only for the frames before `attachHealthPlate`'s `WaitForChild` has returned.
+	local function alignPrompt(gui, head)
+		local plate = head:FindFirstChild("HealthPlate")
+		local anchor = plate and plate.StudsOffset or Vector3.new(0, head.Size.Y * 1.35 + 1.6, 0)
+		if gui.StudsOffset ~= anchor then
+			gui.StudsOffset = anchor
+		end
+		-- How far the plate reaches ABOVE that anchor, in pixels: its own pixel height times the
+		-- fraction of itself that its `SizeOffset` pushed up, plus the half it would otherwise be
+		-- centred on. 6 px of air, so the two read as a stack rather than as one block.
+		local top = plate and plate.Size.Y.Offset * (plate.SizeOffset.Y + 0.5) or 52
+		local h = gui.Size.Y.Offset
+		local want = Vector2.new(0, (top + 6 + h / 2) / h)
+		if gui.SizeOffset ~= want then
+			gui.SizeOffset = want
+		end
+	end
+
 	local function dropPrompt(other)
 		local gui = prompts[other]
 		if gui then
@@ -1051,12 +1108,9 @@ return function(hud)
 		gui.Name = "TradePrompt"
 		gui.Adornee = head
 		gui.Size = UDim2.fromOffset(132, 40)
-		-- EXTENTS, NOT STUDS. The player body runs 1x to 9x across the twenty stages (see
-		-- `StageCostume`), so a constant stud offset is a hat at one end of the game and a kite at
-		-- the other -- the same trap `worldPopup` in MainUI sizes around. ExtentsOffset is measured
-		-- in multiples of the adornee's own size, so this stays a hand above the head at every stage
-		-- without ever being told which one the player is on.
-		gui.ExtentsOffsetWorldSpace = Vector3.new(0, 1.8, 0)
+		-- Set before it is parented, so the tag is never drawn for one frame at the head's own
+		-- origin. See `alignPrompt` above for why this is not an offset of its own.
+		alignPrompt(gui, head)
 		gui.AlwaysOnTop = false
 		gui.MaxDistance = GameConfig.TradeProximityStuds + 6
 		gui.ResetOnSpawn = false
@@ -1121,10 +1175,16 @@ return function(hud)
 										:format(other.DisplayName),
 									UITheme.Color.Green, 4)
 							end
-						elseif gui.Adornee ~= head then
-							-- they respawned, or StageCostume rebuilt the body: re-adorn rather than
-							-- leaving a tag pinned to a Head that is no longer in the character
-							gui.Adornee = head
+						else
+							if gui.Adornee ~= head then
+								-- they respawned, or StageCostume rebuilt the body: re-adorn rather
+								-- than leaving a tag pinned to a Head no longer in the character
+								gui.Adornee = head
+							end
+							-- Re-aligned every pass, not only on re-adorn: an evolve grows the head
+							-- and moves the plate underneath a tag whose Adornee never changed.
+							-- Both writes are guarded on the value, so a still player costs nothing.
+							alignPrompt(gui, head)
 						end
 					elseif gui then
 						dropPrompt(other)
