@@ -3,6 +3,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 local PetService = require(script.Parent.PetService)
 
 local DNAService = {}
@@ -250,6 +251,8 @@ function DNAService.HandleBuyUpgrade(player, upgradeKey)
 	if data.DNA >= cost then
 		data.DNA -= cost
 		data.Upgrades[upgradeKey] = level + 1
+		Telemetry.Economy(player, "Sink", Telemetry.Currency.DNA, cost, data.DNA,
+			Telemetry.Tx.Shop, "upgrade:" .. upgradeKey)
 		-- Speed lives on the Humanoid, which is only written on spawn and on a Mastery purchase --
 		-- so without this the upgrade a player just paid for does not arrive until they next die.
 		if upgradeKey == "Speed" and DNAService.OnMasteryChanged then
@@ -438,6 +441,11 @@ function DNAService.HandleEvolve(player)
 		data.TutorialDone = true
 	end
 
+	-- FUNNEL STEP 5. The core loop closing once -- fight, XP, evolve -- and the single most
+	-- important number in the whole funnel: everything before it is the game teaching itself, and
+	-- everything after it is a player who has seen what the game IS.
+	Telemetry.Funnel(player, "firstEvolve", data)
+
 	PlayerDataService.UpdateLeaderstats(player)
 	PlayerDataService.PushToClient(player)
 
@@ -529,6 +537,8 @@ function DNAService.HandleBuyDiamondUpgrade(player, upgradeKey)
 	if (data.Diamonds or 0) >= cost then
 		data.Diamonds -= cost
 		data.DiamondUpgrades[upgradeKey] = level + 1
+		Telemetry.Economy(player, "Sink", Telemetry.Currency.Diamonds, cost, data.Diamonds,
+			Telemetry.Tx.Shop, "diamondUpgrade:" .. upgradeKey)
 		PlayerDataService.PushToClient(player)
 		Remotes.Notify:FireClient(player, { kind = "diamondUpgrade", upgrade = upgradeKey, level = level + 1 })
 	else
@@ -565,6 +575,8 @@ function DNAService.HandleBuyStageMastery(player, stageIndex)
 	data.Diamonds -= cost
 	data.MasteredStages = data.MasteredStages or {}
 	table.insert(data.MasteredStages, stageIndex)
+	Telemetry.Economy(player, "Sink", Telemetry.Currency.Diamonds, cost, data.Diamonds,
+		Telemetry.Tx.Shop, "stageMastery")
 
 	-- walk speed and max health live on the Humanoid, so buying one has to be pushed onto the
 	-- character immediately -- otherwise it only takes effect on the next respawn
@@ -643,6 +655,11 @@ function DNAService.Init()
 					data.__autoPerSec = amt
 					if amt > 0 then
 						data.DNA += amt
+						-- BATCHED, not sent. This line runs once a second for every player in the
+						-- server for as long as the server is up; see the header in Telemetry for
+						-- why that cannot be one economy event each.
+						Telemetry.Accrue(player, "Source", Telemetry.Currency.DNA, amt,
+							Telemetry.Tx.Gameplay, "autoCollect")
 						PlayerDataService.UpdateLeaderstats(player)
 					end
 				end

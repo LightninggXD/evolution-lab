@@ -32,6 +32,7 @@ local StatsService = require(ServerScriptService.StatsService)
 local EventService = require(ServerScriptService.EventService)
 local HubPlaza = require(ServerScriptService.HubPlaza)
 local TradeService = require(ServerScriptService.TradeService)
+local Telemetry = require(ServerScriptService.Telemetry)
 
 -- ===== STREAMING =====
 -- The two radii that decide how much world a client is holding. Roblox's defaults (min 64,
@@ -68,6 +69,16 @@ ZoneBuilder.Build()
 -- that arrived first and made its own would end up on a fader nothing else in the game touches.
 SoundLibrary.EnsureGroups()
 
+-- ===== FIRST, AND BEFORE PlayerDataService (Phase 20) =====
+-- Telemetry connects its own `PlayerRemoving`, and what it does there is read the player's live
+-- balance out of `PlayerDataService.Cache` to stamp on the batched economy events it is about to
+-- flush. `PlayerDataService`'s own `PlayerRemoving` CLEARS that cache entry. Signal handlers run
+-- in connection order, so connecting first is the whole difference between an aggregate that
+-- carries a real ending balance and one that carries nothing.
+--
+-- It requires no other service at load time (its two lookups are lazy, see the note over `flush`),
+-- so nothing else has to move to let it go here.
+Telemetry.Init()
 PlayerDataService.Init()
 DNAService.Init()
 ZoneService.Init()

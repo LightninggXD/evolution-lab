@@ -4,11 +4,42 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 -- for the free daily spin only. No cycle: RobuxShopService reaches PlayerDataService, SeasonPass
 -- Service and DNAService, and none of those reaches back here.
 local RobuxShopService = require(script.Parent.RobuxShopService)
 
 local RewardService = {}
+
+-- ===== 20.7: THE GROUP CHEST USED TO THROW HERE =====
+--
+-- The notification below called a formatter on GameConfig that HAS NEVER EXISTED -- not in
+-- GameConfig, not anywhere in the place, and this line was its only caller. So every group-chest
+-- claim credited the DNA, the Diamonds and the potion on the lines above and then died inside the
+-- message, which meant `UpdateLeaderstats` and `PushToClient` never ran and the function never
+-- returned "ok": the player was paid and never told, and their HUD kept the old numbers until
+-- something else happened to push. Found 2026-08-20 by driving the real remote in Play, not by
+-- reading -- a nil global is invisible until the line executes.
+--
+-- Duplicated from BossService rather than shared for the reason written there: the one real
+-- implementation lives in the UITheme module, and that is a client UI module a server script
+-- must not require.
+local function formatNumber(n)
+	n = math.floor(n)
+	if n < 1000 then return tostring(n) end
+	local suffixes = { "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp" }
+	local mag = 0
+	while n >= 1000 and mag < #suffixes do
+		n = n / 1000
+		mag += 1
+	end
+	-- the rounding carries past the loop -- see the note on the BossService copy
+	if n >= 999.995 and mag < #suffixes then
+		n = n / 1000
+		mag += 1
+	end
+	return string.format("%.2f%s", n, suffixes[mag])
+end
 local SECONDS_PER_DAY = 86400
 
 local function dayNumber(timestamp)
@@ -52,9 +83,14 @@ function RewardService.HandleClaim(player)
 
 	-- scaled to where the player stands: a flat 23,000 is worth less than one kill from stage 6 on
 	-- (see GameConfig.ScaleReward)
-	data.DNA += GameConfig.ScaleReward(reward.dna, data)
+	local dailyDna = GameConfig.ScaleReward(reward.dna, data)
+	data.DNA += dailyDna
+	Telemetry.Economy(player, "Source", Telemetry.Currency.DNA, dailyDna, data.DNA,
+		Telemetry.Tx.TimedReward, "daily")
 	if reward.shards then
 		data.EvolutionShards += reward.shards
+		Telemetry.Economy(player, "Source", Telemetry.Currency.Shards, reward.shards,
+			data.EvolutionShards, Telemetry.Tx.TimedReward, "daily")
 	end
 	if reward.potions then
 		-- `potionId` names which of the nine the day gives; GameConfig.AddPotions falls back to the
@@ -63,6 +99,8 @@ function RewardService.HandleClaim(player)
 	end
 	if reward.diamonds then
 		data.Diamonds = (data.Diamonds or 0) + reward.diamonds
+		Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, reward.diamonds,
+			data.Diamonds, Telemetry.Tx.TimedReward, "daily")
 	end
 	data.LastRewardClaim = os.time()
 
@@ -116,6 +154,7 @@ function RewardService.HandleFreeSpin(player)
 	-- follows. GrantSpin rolls, pays, pushes and notifies; if the stamp came after it, two clicks on
 	-- consecutive frames would both find the spin ready.
 	data.LastFreeSpin = os.time()
+	Telemetry.Custom(player, "SpinTaken", 0)   -- 0 = the free daily, 1 = paid with shards
 	RobuxShopService.GrantSpin(player)
 	return "ok"
 end
@@ -176,7 +215,13 @@ function RewardService.HandleClaimGroupChest(player)
 	data.ClaimedGroupChest = os.time()
 	local dnaReward = GameConfig.ScaleReward(GameConfig.GroupChestReward.dna, data)
 	data.DNA = (data.DNA or 0) + dnaReward
-	data.Diamonds = (data.Diamonds or 0) + (GameConfig.GroupChestReward.diamonds or 25)
+	local groupGems = GameConfig.GroupChestReward.diamonds or 25
+	data.Diamonds = (data.Diamonds or 0) + groupGems
+	Telemetry.Economy(player, "Source", Telemetry.Currency.DNA, dnaReward, data.DNA,
+		Telemetry.Tx.TimedReward, "groupChest")
+	Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, groupGems, data.Diamonds,
+		Telemetry.Tx.TimedReward, "groupChest")
+	Telemetry.Custom(player, "ChestOpened")
 	GameConfig.AddPotions(data, GameConfig.GroupChestReward.potionId or "dna_m", GameConfig.GroupChestReward.potions or 1)
 
 	PlayerDataService.UpdateLeaderstats(player)
@@ -184,7 +229,7 @@ function RewardService.HandleClaimGroupChest(player)
 	Remotes.Notify:FireClient(player, {
 		kind = "reward",
 		message = ("🎁 Claimed Daily Group Chest! +%s DNA, 💎 +%d, 🧪 +%d Potion"):format(
-			GameConfig.FormatNumber(dnaReward),
+			formatNumber(dnaReward),
 			GameConfig.GroupChestReward.diamonds or 25,
 			GameConfig.GroupChestReward.potions or 1
 		),
@@ -202,7 +247,10 @@ function RewardService.HandleClaimLikeReward(player)
 	end
 
 	data.ClaimedLikeReward = true
-	data.Diamonds = (data.Diamonds or 0) + (GameConfig.LikeReward.diamonds or 15)
+	local likeGems = GameConfig.LikeReward.diamonds or 15
+	data.Diamonds = (data.Diamonds or 0) + likeGems
+	Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, likeGems, data.Diamonds,
+		Telemetry.Tx.TimedReward, "likeReward")
 	GameConfig.AddPotions(data, GameConfig.LikeReward.potionId or "luck_m", GameConfig.LikeReward.potions or 1)
 
 	PlayerDataService.UpdateLeaderstats(player)
@@ -227,8 +275,14 @@ function RewardService.HandleClaimFavoriteReward(player)
 	end
 
 	data.ClaimedFavoriteReward = true
-	data.Diamonds = (data.Diamonds or 0) + (GameConfig.FavoriteReward.diamonds or 15)
-	data.EvolutionShards = (data.EvolutionShards or 0) + (GameConfig.FavoriteReward.shards or 2)
+	local favGems = GameConfig.FavoriteReward.diamonds or 15
+	local favShards = GameConfig.FavoriteReward.shards or 2
+	data.Diamonds = (data.Diamonds or 0) + favGems
+	data.EvolutionShards = (data.EvolutionShards or 0) + favShards
+	Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, favGems, data.Diamonds,
+		Telemetry.Tx.TimedReward, "favoriteReward")
+	Telemetry.Economy(player, "Source", Telemetry.Currency.Shards, favShards,
+		data.EvolutionShards, Telemetry.Tx.TimedReward, "favoriteReward")
 
 	PlayerDataService.UpdateLeaderstats(player)
 	PlayerDataService.PushToClient(player)

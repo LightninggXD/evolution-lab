@@ -530,3 +530,18 @@ TweenService:Create(logo, fadeInfo, { TextTransparency = 1, TextStrokeTransparen
 
 task.wait(FADE)
 gui:Destroy()
+
+-- ===== FUNNEL STEP 2 (Phase 20) =====
+-- HERE, and not at `setProgress(1)` above: the step means "the player can see the game", and
+-- between that line and this one sit MIN_SHOW and a 0.45s fade -- up to three seconds in which
+-- the world is ready and the player is still looking at a blue rectangle. The server cannot
+-- observe either of them.
+--
+-- Fire-and-forget, and guarded: this script runs in ReplicatedFirst, before most of the game
+-- exists, so the remote is found rather than waited on. A missing one costs a funnel row, and
+-- a yield here would hold the wipe open.
+pcall(function()
+	local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+	local step = remotes and remotes:FindFirstChild("TelemetryStep")
+	if step then step:FireServer("loaded") end
+end)

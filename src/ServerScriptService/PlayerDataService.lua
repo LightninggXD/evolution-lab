@@ -5,6 +5,7 @@ local DataStoreService = game:GetService("DataStoreService")
 
 local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
+local Telemetry = require(script.Parent.Telemetry)
 
 local DataStore = DataStoreService:GetDataStore("EvolutionLab_v1")
 
@@ -275,6 +276,13 @@ function PlayerDataService.Load(player)
 
 	if not data then
 		data = defaultData()
+		-- ===== BORN INSTRUMENTED (Phase 20) =====
+		-- An empty table means "follow this save through the onboarding funnel". It is set HERE and
+		-- not in `defaultData` on purpose: the backfill loop in the other branch copies every default
+		-- onto every existing save, which would hand a veteran an empty funnel and enter them at
+		-- whatever step they happened to trip first. This is the one field where the fresh branch and
+		-- the returning branch must disagree. See the funnel header in Telemetry.
+		data.Funnel = {}
 	else
 		local def = defaultData()
 		for k, v in pairs(def) do
@@ -287,6 +295,11 @@ function PlayerDataService.Load(player)
 				data.Upgrades[k] = v
 			end
 		end
+		-- The other half of the funnel stamp above. A save that already existed when Phase 20 shipped
+		-- is marked `pre` and is never logged again -- it has no step 1 under it and never will, so
+		-- entering it now would only bend the drop-off curve every later phase is measured against.
+		-- A save that was born instrumented keeps the table it already has.
+		data.Funnel = (type(data.Funnel) == "table") and data.Funnel or { pre = true }
 		-- Sub-tables added after launch need the same nil guard the top level gets, or the first
 		-- write to one on an existing save indexes nil.
 		-- POTIONS WENT FROM A COUNTER TO AN INVENTORY. Every save written before that holds a plain
@@ -346,6 +359,11 @@ function PlayerDataService.Load(player)
 		if mutationLevel > 0 then
 			local refund = math.floor(60 * ((1.35 ^ mutationLevel) - 1) / 0.35)
 			data.DNA = (data.DNA or 0) + refund
+			-- The Phase 12 Mutation Chance refund. Logged like any other faucet: it is real DNA
+			-- entering the economy, it happens once per affected save, and leaving it out would
+			-- make the DNA supply chart disagree with the saves by exactly this amount.
+			Telemetry.Economy(player, "Source", Telemetry.Currency.DNA, refund, data.DNA,
+				Telemetry.Tx.Onboarding, "mutationRefund")
 			-- NOT on `data` -- see SplicerRefunds at the top of this file. SplicerService reads it
 			-- to tell the player once, because a silent refund reads as a save that lost an upgrade.
 			PlayerDataService.SplicerRefunds[player.UserId] = refund
@@ -645,6 +663,11 @@ function PlayerDataService.Init()
 		local data = PlayerDataService.Load(player)
 		-- nil means the player was kicked or left during the read. Everything below would index it.
 		if not data then return end
+
+		-- FUNNEL STEP 1. "Joined" means the server is holding their save, not that the Player
+		-- instance appeared -- a join that fails its DataStore read is a kick, and counting it as
+		-- an arrival would put a phantom at the top of every funnel chart.
+		Telemetry.Funnel(player, "joined", data)
 
 		local leaderstats = Instance.new("Folder")
 		leaderstats.Name = "leaderstats"

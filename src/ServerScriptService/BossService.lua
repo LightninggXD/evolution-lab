@@ -9,6 +9,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 local DNAService = require(script.Parent.DNAService)
 local SeasonPassService = require(script.Parent.SeasonPassService)
 local UITheme = require(RS.Modules.UITheme)
@@ -2432,6 +2433,8 @@ local function spawnBoss(zone)
 			if auraConnection then auraConnection:Disconnect() end
 
 			data.DNA += boss.dnaReward
+			Telemetry.Accrue(player, "Source", Telemetry.Currency.DNA, boss.dnaReward,
+				Telemetry.Tx.Gameplay, "boss")
 			-- half a level for THIS zone's stage -- GameConfig derives it, because a flat 25 was a third
 			-- of the first level and a rounding error by the tenth
 			data.XP = (data.XP or 0) + math.floor((boss.xpReward or 25) * GameConfig.GetXPMult(data))
@@ -2444,6 +2447,8 @@ local function spawnBoss(zone)
 			-- seconds reads as nothing happening. Credited BEFORE markDefeated, which is what pushes.
 			local gems = GameConfig.RollBossDiamonds(false)
 			data.Diamonds = (data.Diamonds or 0) + gems
+			Telemetry.Accrue(player, "Source", Telemetry.Currency.Diamonds, gems,
+				Telemetry.Tx.Gameplay, "boss")
 			SeasonPassService.Track(player, "bosses", 1)
 			-- a boss is a kill too, and counts on the same lifetime board (5.3)
 			data.Kills = (data.Kills or 0) + 1
@@ -2763,6 +2768,11 @@ local function spawnEventBoss()
 						-- gem out of a future 1.5.
 						local gems = math.floor(GameConfig.RollBossDiamonds(true) * eventBossMult)
 						d.Diamonds = (d.Diamonds or 0) + gems
+						Telemetry.Accrue(plr, "Source", Telemetry.Currency.Diamonds, gems,
+							Telemetry.Tx.Gameplay, "worldBoss")
+						-- 20.3: one event per CONTRIBUTOR, fired from the payout loop, so the count
+						-- answers "how many people took part" rather than "how many bosses died".
+						Telemetry.Custom(plr, "WorldBossContribution", gems)
 						SeasonPassService.Track(plr, "bosses", 1)
 						d.Kills = (d.Kills or 0) + 1
 						PlayerDataService.UpdateLeaderstats(plr)

@@ -3,6 +3,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 local DNAService = require(script.Parent.DNAService)
 
 local PotionService = {}
@@ -156,6 +157,8 @@ function PotionService.HandleBuyMystery(player, cost)
 	end
 
 	data.DNA -= cost
+	Telemetry.Economy(player, "Sink", Telemetry.Currency.DNA, cost, data.DNA,
+		Telemetry.Tx.Shop, "mysteryPotion")
 	-- the player's own luck reaches the shop: it shifts the roll toward the bigger bottles
 	local potionId = GameConfig.RollMysteryPotion(DNAService.GetLuckPercent(data))
 	local potion = GameConfig.AddPotions(data, potionId, 1)

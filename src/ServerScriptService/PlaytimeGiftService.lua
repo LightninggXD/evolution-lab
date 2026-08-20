@@ -4,6 +4,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 
 local PlaytimeGiftService = {}
 
@@ -70,9 +71,18 @@ function PlaytimeGiftService.HandleClaim(player, milestoneIndex)
 	claims[slot] = true
 
 	-- see GameConfig.ScaleReward: a flat 35,000 stops being a gift about fifteen minutes in
-	if milestone.dna then data.DNA += GameConfig.ScaleReward(milestone.dna, data) end
+	if milestone.dna then
+		local paid = GameConfig.ScaleReward(milestone.dna, data)
+		data.DNA += paid
+		Telemetry.Economy(player, "Source", Telemetry.Currency.DNA, paid, data.DNA,
+			Telemetry.Tx.TimedReward, "playtimeGift")
+	end
 	if milestone.potions then GameConfig.AddPotions(data, milestone.potionId, milestone.potions) end
-	if milestone.diamonds then data.Diamonds = (data.Diamonds or 0) + milestone.diamonds end
+	if milestone.diamonds then
+		data.Diamonds = (data.Diamonds or 0) + milestone.diamonds
+		Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, milestone.diamonds,
+			data.Diamonds, Telemetry.Tx.TimedReward, "playtimeGift")
+	end
 
 	PlayerDataService.UpdateLeaderstats(player)
 	PlayerDataService.PushToClient(player)

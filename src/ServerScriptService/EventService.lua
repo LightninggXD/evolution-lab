@@ -320,7 +320,7 @@ function EventService.HandleClaimEventQuest(player, eventKey, questKey)
 
 	-- The SAME payout the season quests use, exported rather than copied: a second implementation of
 	-- "what a reward table means" is how one board learns to scale DNA and the other forgets to.
-	SeasonPassService.GrantReward(data, quest)
+	SeasonPassService.GrantReward(data, quest, player)
 
 	-- THE SKIN, ON THE LAST RUNG ONLY.
 	--

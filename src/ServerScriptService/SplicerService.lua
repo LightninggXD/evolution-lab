@@ -710,6 +710,9 @@ function SplicerService.HandleRoll(player)
 	end
 
 	data.DNA -= cost
+	local Telemetry = require(script.Parent.Telemetry)
+	Telemetry.Economy(player, "Sink", Telemetry.Currency.DNA, cost, data.DNA,
+		Telemetry.Tx.Shop, "splice")
 	data.SplicerRolls = (data.SplicerRolls or 0) + 1
 
 	-- The pity roll is decided from the INCREMENTED count, so the tenth roll is charged rather
@@ -728,6 +731,9 @@ function SplicerService.HandleRoll(player)
 		end
 	end
 
+	-- 20.3: the roll, not the equip -- a mutation the player already had a better copy of is still
+	-- a roll they paid for, and the interesting number is how often the machine is used.
+	Telemetry.Custom(player, "MutationRolled", charged and 1 or 0)
 	local equipped = applyMutation(data, mutation)
 	if equipped then
 		-- The one replication channel the aura and the walk speed both read.

@@ -4,6 +4,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 local SeasonPassService = require(script.Parent.SeasonPassService)
 local AnnounceService = require(script.Parent.AnnounceService)
 
@@ -308,6 +309,11 @@ function PetService.HandleBuyEgg(player, eggKey, auto)
 	lastEgg[player.UserId] = now
 
 	data.DNA -= eggDef.cost
+	Telemetry.Economy(player, "Sink", Telemetry.Currency.DNA, eggDef.cost, data.DNA,
+		Telemetry.Tx.Shop, "egg:" .. tostring(eggKey))
+	-- FUNNEL STEP 8. The last step, and the only one on the SHOP side of the game: a player who has
+	-- bought an egg has understood that DNA is for spending, not for watching go up.
+	Telemetry.Funnel(player, "firstEgg", data)
 
 	local petDef = rollAndInsert(data, eggDef)
 
@@ -395,6 +401,9 @@ function PetService.HandleBuyEggBulk(player, eggKey)
 
 	lastEgg[player.UserId] = now
 	data.DNA -= eggDef.cost * count
+	Telemetry.Economy(player, "Sink", Telemetry.Currency.DNA, eggDef.cost * count, data.DNA,
+		Telemetry.Tx.Shop, "eggBulk:" .. tostring(eggKey))
+	Telemetry.Funnel(player, "firstEgg", data)
 
 	-- Nothing between here and the end of the loop yields.
 	local rolled, best = {}, nil
@@ -750,6 +759,8 @@ function PetService.HandleEnchant(player, petId)
 
 	-- one block, no yield: charge, roll, decide, write
 	data.Diamonds -= cost
+	Telemetry.Economy(player, "Sink", Telemetry.Currency.Diamonds, cost, data.Diamonds,
+		Telemetry.Tx.Shop, "enchant")
 	local rolled = GameConfig.RollEnchant()
 	local upgraded = GameConfig.IsEnchantBetter(rolled, pet.enchant)
 	if upgraded then

@@ -7,6 +7,7 @@ local Debris = game:GetService("Debris")
 local GameConfig = require(RS.Modules.GameConfig)
 local UITheme = require(RS.Modules.UITheme)
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 local DNAService = require(script.Parent.DNAService)
 local SeasonPassService = require(script.Parent.SeasonPassService)
 -- 11.6: the terraces drop pets, so the kill path needs the one function that creates one. No cycle
@@ -3358,6 +3359,12 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 		local data = PlayerDataService.Get(player)
 		if not data then return end
 
+		-- FUNNEL STEP 3. Here rather than in the remote handler on purpose: a swing that was out of
+		-- reach, or thrown by a dead player, or aimed at a creature this server is not holding, has
+		-- not happened as far as the game is concerned, and counting it would put players into the
+		-- funnel who never actually hit anything.
+		Telemetry.Funnel(player, "firstSwing", data)
+
 		-- ===== THE REBIRTH GATE, AND THIS IS THE REAL ONE (11.6) =====
 		--
 		-- The client greys these creatures out and drops them from auto-attack, and none of that is
@@ -3495,6 +3502,10 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 			local amount, wasCrit = DNAService.GetClickAmount(data)
 			amount = amount * tier.dnaMult * layerDna
 			data.DNA += amount
+			-- BATCHED. This is the line the comments above call "the most frequent event in the
+			-- game", which is exactly the definition of something that must not be one event each.
+			Telemetry.Accrue(player, "Source", Telemetry.Currency.DNA, amount,
+				Telemetry.Tx.Gameplay, "kill")
 			data.XP = (data.XP or 0)
 				+ math.max(1, math.floor(tier.xp * layerXp * GameConfig.GetXPMult(data)))
 
@@ -3508,6 +3519,8 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 			local gems = GameConfig.RollDiamondDrop(tierName)
 			if gems > 0 then
 				data.Diamonds = (data.Diamonds or 0) + gems
+				Telemetry.Accrue(player, "Source", Telemetry.Currency.Diamonds, gems,
+					Telemetry.Tx.Gameplay, "kill")
 			end
 
 			-- EVOLUTION SHARDS, AND ONLY FROM UP HERE (9.4). `raised` is the flag the spawner set on
@@ -3521,7 +3534,12 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 			local shards = GameConfig.RollShardDrop(tierName, raised)
 			if shards > 0 then
 				data.EvolutionShards = (data.EvolutionShards or 0) + shards
+				Telemetry.Accrue(player, "Source", Telemetry.Currency.Shards, shards,
+					Telemetry.Tx.Gameplay, "kill")
 			end
+			-- FUNNEL STEP 4. The creature is dead and the player has been paid for it, which is the
+			-- first time the loop has given anything back.
+			Telemetry.Funnel(player, "firstKill", data)
 
 			-- ===== AND THE ROOM IS TOLD, IF THIS WAS AN APEX (12.14) =====
 			--

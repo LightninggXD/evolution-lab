@@ -33,6 +33,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 
 local RelicService = {}
 
@@ -108,6 +109,8 @@ function RelicService.HandleOpenChest(player, source)
 		end
 		-- CHARGED FIRST, in the same block as the roll below and with nothing that yields between.
 		data.Diamonds -= cost
+		Telemetry.Economy(player, "Sink", Telemetry.Currency.Diamonds, cost, data.Diamonds,
+			Telemetry.Tx.Shop, "relicChest")
 		bias = GameConfig.RelicChestDiamondBias
 
 	elseif source == "banked" then
@@ -133,6 +136,10 @@ function RelicService.HandleOpenChest(player, source)
 	-- Luck bends the tier table exactly the way it bends an egg roll, and it is the SAME luck --
 	-- pets, potions, upgrades and passes all feed `GetLuckPercent`, so a relic chest rewards the luck
 	-- build a player already has rather than asking them to build a second one.
+	-- 20.3: CHEST OPENED. Here, below all three source branches, so the diamond chest, the banked
+	-- chest and the free timer all count as the same act -- which is what they are to a player.
+	Telemetry.Custom(player, "ChestOpened")
+
 	local luck = GameConfig.GetLuckPercent(data)
 	local relic = GameConfig.RollRelic(luck, bias)
 	local entry, isNew = GameConfig.AddRelic(data, relic.key, 1)
@@ -238,6 +245,8 @@ function RelicService.HandleMerge(player, key)
 	end
 
 	data.DNA -= cost
+	Telemetry.Economy(player, "Sink", Telemetry.Currency.DNA, cost, data.DNA,
+		Telemetry.Tx.Shop, "relicMerge")
 	entry.copies -= GameConfig.RelicMergeCopies
 	entry.level = level + 1
 

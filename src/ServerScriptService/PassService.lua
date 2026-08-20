@@ -7,6 +7,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 
 local PassService = {}
 
@@ -77,6 +78,8 @@ function PassService.GrantVipDaily(player, data)
 	if data.VipDailyDay == today then return end
 	data.VipDailyDay = today
 	data.Diamonds = (data.Diamonds or 0) + amount
+	Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, amount, data.Diamonds,
+		Telemetry.Tx.IAP, "vipDaily")
 
 	-- Saved immediately. A grant that lives only in memory until the next autosave is a grant the
 	-- player loses if the server goes down, and the day stamp would go with it -- so they would be

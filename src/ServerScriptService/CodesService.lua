@@ -30,6 +30,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 
 local CodesService = {}
 
@@ -114,12 +115,18 @@ function CodesService.Redeem(player, text)
 	}
 	if granted.dna > 0 then
 		data.DNA += granted.dna
+		Telemetry.Economy(player, "Source", Telemetry.Currency.DNA, granted.dna, data.DNA,
+			Telemetry.Tx.TimedReward, "code")
 	end
 	if granted.diamonds > 0 then
 		data.Diamonds = (data.Diamonds or 0) + granted.diamonds
+		Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, granted.diamonds,
+			data.Diamonds, Telemetry.Tx.TimedReward, "code")
 	end
 	if granted.shards > 0 then
 		data.EvolutionShards = (data.EvolutionShards or 0) + granted.shards
+		Telemetry.Economy(player, "Source", Telemetry.Currency.Shards, granted.shards,
+			data.EvolutionShards, Telemetry.Tx.TimedReward, "code")
 	end
 	if granted.potions > 0 then
 		-- same call the daily reward uses; falls back to the default bottle when the row names none

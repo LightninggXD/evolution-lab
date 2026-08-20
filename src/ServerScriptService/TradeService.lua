@@ -82,6 +82,7 @@ local RS = game:GetService("ReplicatedStorage")
 
 local GameConfig = require(RS.Modules.GameConfig)
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 
 local TradeService = {}
 
@@ -343,6 +344,11 @@ function TradeService.Request(fromUserId, toUserId)
 	if not dataOf(fromUserId) or not dataOf(toUserId) then return refuse(fromUserId, "That player is not ready") end
 	if TradeService.GetSession(fromUserId) then return refuse(fromUserId, "You are already in a trade") end
 	if TradeService.GetSession(toUserId) then return refuse(fromUserId, "They are already in a trade") end
+
+	-- 20.3: TRADE OPENED, counted on the REQUESTER and only once every guard above has passed --
+	-- a request refused for self-trading or for an already-open session never opened anything.
+	local fromPlayer = Players:GetPlayerByUserId(fromUserId)
+	if fromPlayer then Telemetry.Custom(fromPlayer, "TradeOpened") end
 
 	local now = os.clock()
 	if lastRequest[fromUserId] and now - lastRequest[fromUserId] < REQUEST_COOLDOWN then
@@ -616,6 +622,10 @@ function TradeService.Commit(tradeId)
 
 	if playerA then PlayerDataService.PushToClient(playerA) end
 	if playerB then PlayerDataService.PushToClient(playerB) end
+	-- 20.3: TRADE COMPLETED, once per SIDE, so the number is comparable with TradeOpened above
+	-- (which is also per-player). A trade that committed is the only one that counts.
+	if playerA then Telemetry.Custom(playerA, "TradeCompleted") end
+	if playerB then Telemetry.Custom(playerB, "TradeCompleted") end
 	tell(record.a.userId, { kind = "reward", message = "\u{1F91D} Trade complete!" })
 	tell(record.b.userId, { kind = "reward", message = "\u{1F91D} Trade complete!" })
 

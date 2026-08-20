@@ -31,6 +31,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 
 local SeasonPassService = {}
 
@@ -116,22 +117,33 @@ end
 -- means" is exactly how one board learns to scale DNA to the player's stage and the other quietly
 -- forgets to. `grant` just below is an alias for it, kept because the two call sites in this file
 -- read better with the short name.
-function SeasonPassService.GrantReward(data, reward)
+-- `player` IS NOT OPTIONAL AND EVERY CALLER PASSES IT (20.2). It is third only because `data` is
+-- what the function actually works on and moving it would have rewritten every line below. It is
+-- here because a reward payout is a faucet, and a faucet with no player attached is a row the
+-- dashboard cannot attribute to anybody -- so it would silently not be logged at all.
+function SeasonPassService.GrantReward(data, reward, player)
 	if not reward then return end
 	if reward.dna then
 		-- scaled to the player's stage -- see GameConfig.ScaleReward. The season track had this
 		-- problem at BOTH ends: its first levels handed a brand-new player one or two whole stages
 		-- outright, and its level-30 payout was 0.003 of a single kill by the time anyone got there.
-		data.DNA += GameConfig.ScaleReward(reward.dna, data)
+		local paid = GameConfig.ScaleReward(reward.dna, data)
+		data.DNA += paid
+		Telemetry.Economy(player, "Source", Telemetry.Currency.DNA, paid, data.DNA,
+			Telemetry.Tx.TimedReward, "seasonPass")
 	end
 	if reward.potions then
 		GameConfig.AddPotions(data, reward.potionId, reward.potions)
 	end
 	if reward.diamonds then
 		data.Diamonds = (data.Diamonds or 0) + reward.diamonds
+		Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, reward.diamonds,
+			data.Diamonds, Telemetry.Tx.TimedReward, "seasonPass")
 	end
 	if reward.shards then
 		data.EvolutionShards = (data.EvolutionShards or 0) + reward.shards
+		Telemetry.Economy(player, "Source", Telemetry.Currency.Shards, reward.shards,
+			data.EvolutionShards, Telemetry.Tx.TimedReward, "seasonPass")
 	end
 end
 local grant = SeasonPassService.GrantReward
@@ -307,7 +319,7 @@ function SeasonPassService.HandleClaimQuest(player, period, questKey)
 		season.xp = math.min(season.xp + owed, ceiling)
 	end
 
-	grant(data, quest)
+	grant(data, quest, player)
 
 	PlayerDataService.UpdateLeaderstats(player)
 	PlayerDataService.PushToClient(player)
@@ -348,7 +360,7 @@ function SeasonPassService.HandleClaimSeasonReward(player, level, track)
 	claimedSet[slot] = true
 
 	local reward = (track == "premium") and row.premium or row.free
-	grant(data, reward)
+	grant(data, reward, player)
 
 	PlayerDataService.UpdateLeaderstats(player)
 	PlayerDataService.PushToClient(player)

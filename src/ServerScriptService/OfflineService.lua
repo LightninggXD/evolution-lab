@@ -37,6 +37,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 local DNAService = require(script.Parent.DNAService)
 
 local OfflineService = {}
@@ -82,6 +83,8 @@ function OfflineService.Grant(player)
 	if amount <= 0 then return 0, seconds end
 
 	data.DNA += amount
+	Telemetry.Economy(player, "Source", Telemetry.Currency.DNA, amount, data.DNA,
+		Telemetry.Tx.TimedReward, "offline")
 	PlayerDataService.UpdateLeaderstats(player)
 	PlayerDataService.PushToClient(player)
 	Remotes.Notify:FireClient(player, {

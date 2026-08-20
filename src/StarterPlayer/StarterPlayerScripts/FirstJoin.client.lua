@@ -947,6 +947,17 @@ local function runGuide()
 		-- adds one line rather than a second card: what to do NEXT, which is the one thing that card
 		-- cannot say.
 		if state.data and state.data.TutorialDone then
+			-- FUNNEL STEP 6 (Phase 20). The guide is over: the evolve landed and this client got as
+			-- far as showing the card that says so. Seconds after step 5 and deliberately so -- in
+			-- this game the tutorial IS the first evolve, so the two steps are near-simultaneous by
+			-- design and the interesting drop-off in this funnel is 4 -> 5, not 5 -> 6. The step is
+			-- still worth having: it is the only one that proves a client reached the end of the
+			-- sequence rather than the server having written the flag underneath it.
+			pcall(function()
+				local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+				local step = remotes and remotes:FindFirstChild("TelemetryStep")
+				if step then step:FireServer("tutorialDone") end
+			end)
 			paintIfChanged("done")
 			banner.Visible = true
 			task.delay(DONE_BANNER_TIME, function()

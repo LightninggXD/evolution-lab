@@ -66,6 +66,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local SkinMesh = require(RS.Modules.SkinMesh)
 -- Only for the photo reward at the bottom of this file; the plaza itself touches no save.
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 
 local HubPlaza = {}
 
@@ -1118,6 +1119,8 @@ local function grantPhotoReward(player)
 	data.PhotoTaken = true
 
 	data.Diamonds = (data.Diamonds or 0) + PHOTO_REWARD_DIAMONDS
+	Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, PHOTO_REWARD_DIAMONDS,
+		data.Diamonds, Telemetry.Tx.TimedReward, "photoPad")
 	PlayerDataService.UpdateLeaderstats(player)
 	PlayerDataService.PushToClient(player)
 	RS.Remotes.Notify:FireClient(player, {

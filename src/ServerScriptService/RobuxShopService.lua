@@ -5,6 +5,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 local SeasonPassService = require(script.Parent.SeasonPassService)
 -- for the Lucky Spin only: the wheel is bent by the buyer's own luck, and GetLuckPercent is the one
 -- function that knows what that is. No cycle -- DNAService requires PlayerDataService and PetService
@@ -73,10 +74,14 @@ local function applySpin(player, data)
 		local paid = GameConfig.ScaleReward(segment.dna, data)
 		data.DNA += paid
 		detail.dna = paid
+		Telemetry.Economy(player, "Source", Telemetry.Currency.DNA, paid, data.DNA,
+			Telemetry.Tx.TimedReward, "spin")
 	end
 	if segment.diamonds then
 		data.Diamonds = (data.Diamonds or 0) + segment.diamonds
 		detail.diamonds = segment.diamonds
+		Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, segment.diamonds,
+			data.Diamonds, Telemetry.Tx.TimedReward, "spin")
 	end
 	if segment.shards then
 		data.EvolutionShards = (data.EvolutionShards or 0) + segment.shards
@@ -151,6 +156,8 @@ local function rollSpinChain(player, data)
 			local fallback = GameConfig.SpinWheel[1]
 			local paid = fallback.dna and GameConfig.ScaleReward(fallback.dna, data) or 0
 			data.DNA += paid
+			Telemetry.Economy(player, "Source", Telemetry.Currency.DNA, paid, data.DNA,
+				Telemetry.Tx.TimedReward, "spinFallback")
 			table.insert(chain, { segment = fallback, detail = { dna = paid } })
 			break
 		end
@@ -242,7 +249,10 @@ local function processReceipt(receiptInfo)
 	-- RewardService, PlaytimeGiftService and SeasonPassService.grant already give their tables; the
 	-- paid route was the one that was missed.
 	if product.grantDNA then
-		data.DNA += GameConfig.ScaleReward(product.grantDNA, data)
+		local paidDna = GameConfig.ScaleReward(product.grantDNA, data)
+		data.DNA += paidDna
+		Telemetry.Economy(player, "Source", Telemetry.Currency.DNA, paidDna, data.DNA,
+			Telemetry.Tx.IAP, "product:" .. tostring(product.key))
 	end
 	if product.grantPotions then
 		GameConfig.AddPotions(data, product.grantPotionId, product.grantPotions)
@@ -254,12 +264,16 @@ local function processReceipt(receiptInfo)
 	-- permanent upgrade in the game in one purchase.
 	if product.grantDiamonds then
 		data.Diamonds = (data.Diamonds or 0) + product.grantDiamonds
+		Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, product.grantDiamonds,
+			data.Diamonds, Telemetry.Tx.IAP, "product:" .. tostring(product.key))
 	end
 	-- Shards are unscaled for a STRONGER reason than diamonds (11.12): a shard buys exactly one thing
 	-- in the whole game, a spin at the flat `SpinCostShards` of 25, so ScaleReward here would sell a
 	-- late-stage buyer thousands of spins on one tile.
 	if product.grantShards then
 		data.EvolutionShards = (data.EvolutionShards or 0) + product.grantShards
+		Telemetry.Economy(player, "Source", Telemetry.Currency.Shards, product.grantShards,
+			data.EvolutionShards, Telemetry.Tx.IAP, "product:" .. tostring(product.key))
 	end
 	-- The premium pass is a flag, not a payout, and it pushes its own confirmation -- so it is
 	-- unlocked here and the generic notify below still fires for the receipt itself.
@@ -387,6 +401,9 @@ function RobuxShopService.SpendShardSpin(player)
 	-- pushes and notifies; nothing on that path yields, so there is no frame in which a second call
 	-- could see these shards still sitting there and spin twice off one balance.
 	data.EvolutionShards -= cost
+	Telemetry.Economy(player, "Sink", Telemetry.Currency.Shards, cost, data.EvolutionShards,
+		Telemetry.Tx.Shop, "shardSpin")
+	Telemetry.Custom(player, "SpinTaken", 1)   -- 1 = paid with shards, 0 = the free daily
 	RobuxShopService.GrantSpin(player)
 	return "ok"
 end

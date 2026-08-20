@@ -3,6 +3,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 -- 12.14's kill feed. Module scope is safe: AnnounceService requires GameConfig and UITheme and
 -- nothing else, so it cannot come back around into this file.
 local AnnounceService = require(script.Parent.AnnounceService)
@@ -82,6 +83,12 @@ function RebirthService.HandleRebirth(player, tier)
 	data.Rebirths += 1
 
 	-- reset run-specific progress; Pets and EvolutionShards/Rebirths persist across rebirths
+	-- A rebirth is the single largest DNA sink in the game and it is not a purchase -- the whole
+	-- balance goes, whatever it was. Read BEFORE the zeroing, and the ending balance is 0 by
+	-- definition. Without this row the supply chart would show DNA being minted forever and never
+	-- destroyed, which is the exact shape of a broken economy in a game whose economy is fine.
+	Telemetry.Economy(player, "Sink", Telemetry.Currency.DNA, data.DNA or 0, 0,
+		Telemetry.Tx.Gameplay, "rebirth")
 	data.DNA = 0
 	data.XP = 0
 	data.StageIndex = 1

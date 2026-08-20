@@ -3,6 +3,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local Telemetry = require(script.Parent.Telemetry)
 local ZoneBuilder = require(script.Parent.ZoneBuilder)
 
 local Players = game:GetService("Players")
@@ -189,6 +190,9 @@ function ZoneService.HandleTeleportRequest(player, zoneKey, fromZoneKey)
 	-- the wrong answer here teleports them somewhere they have never been, on every death.
 	if travel(player, target, labelForZone(zoneKey)) then
 		data.CurrentZone = zoneKey
+		-- FUNNEL STEP 7. Inside the `travel` guard for the same reason the write is: a transition
+		-- that failed did not move anybody, and the funnel must not claim it did.
+		Telemetry.Funnel(player, "firstZone", data)
 	end
 end
 
