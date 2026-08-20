@@ -42,6 +42,13 @@ return function(hud)
 	local registerPanel, panelClose, toggleOnly = hud.registerPanel, hud.panelClose, hud.toggleOnly
 	local showNotification, flatText = hud.showNotification, hud.flatText
 
+	-- `currentTradeId` MUST BE CLEARED EVERYWHERE THE TRADE ENDS, and for most of this file's life
+	-- nothing noticed that it was not. It was assigned once (in the `TradeUpdate` handler) and read
+	-- by nobody -- a dead write, invisible. 21.1's tag poll gave it its FIRST reader, and inherited a
+	-- variable that had never had to be correct: `muted` went true on the first trade and stayed
+	-- true, so the trade tag vanished for the rest of the session after a player's first trade.
+	-- Measured live 2026-08-20, two clients 7 studs apart: modal closed, distance fine, heads fine,
+	-- no tag on either side, and it never came back. See ROADMAP 21.1.
 	local currentTradeId = nil
 	local currentSession = nil
 	local myOfferIds = {}
@@ -500,6 +507,7 @@ return function(hud)
 		if cancelRemote then cancelRemote:FireServer() end
 		tradeModal.Visible = false
 		currentSession = nil
+		currentTradeId = nil
 		myOfferIds = {}
 	end)
 
@@ -521,6 +529,10 @@ return function(hud)
 			if payload.state == "cancelled" or payload.state == "completed" then
 				tradeModal.Visible = false
 				currentSession = nil
+				-- the one the tag poll reads. Cleared HERE rather than only on the cancel button,
+				-- because most trades do not end on this client's own button: the other side
+				-- cancels, somebody walks out of range, or the trade completes.
+				currentTradeId = nil
 				myOfferIds = {}
 				return
 			end
