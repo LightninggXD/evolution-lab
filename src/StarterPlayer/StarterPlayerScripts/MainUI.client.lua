@@ -4646,7 +4646,16 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 			formatNumber(payload.amount or 0), payload.away or "?",
 			payload.capped and " (max)" or ""), Color3.fromRGB(150, 190, 255))
 	elseif payload.kind == "playtimeGift" then
-		showNotification("⏰ Playtime Gift (" .. payload.minutes .. " min)! Reward claimed!", Color3.fromRGB(255, 150, 90), notifRank)
+		-- TWO LADDERS SINCE 21.3, and the toast has to say which one paid -- both run to the same
+		-- minute counts at the low end, so "Playtime Gift (30 min)" alone leaves the player unable
+		-- to tell whether the session rung or the daily one just went green. The daily one is also
+		-- the only place a four-digit minute count can appear, hence the hours.
+		local mins = payload.minutes or 0
+		local when = (mins >= 60 and mins % 60 == 0) and ((mins // 60) .. "h") or (mins .. " min")
+		showNotification(
+			(payload.daily and ("📅 Daily Playtime Gift (" .. when .. ")! Reward claimed!")
+				or ("⏰ Playtime Gift (" .. when .. ")! Reward claimed!")),
+			Color3.fromRGB(255, 150, 90), notifRank)
 	elseif payload.kind == "bossRevive" then
 		celebratePurchase(("\u{2694}\u{FE0F} REVIVED!\n%s is back to %d%%"):format(payload.name or "The boss", payload.pct or 0),
 			UITheme.Color.Gold)

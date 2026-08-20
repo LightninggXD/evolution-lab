@@ -140,14 +140,45 @@ function GameConfig.GetStageMasteryBonus(data)
 end
 
 -- ===== PLAYTIME GIFTS =====
--- Session-based (not persisted): the longer a player stays connected in one sitting, the
--- better the gift waiting for them. Resets to Day-1-style milestones each time they rejoin.
+-- Measured against ONE SITTING: the clock starts when the player connects and is thrown away when
+-- they leave. The claim set is day-stamped and persisted (see PlaytimeGiftService) so rejoining is
+-- not a faucet -- but that is also exactly why this ladder alone serves nobody who plays in short
+-- visits: a 20-minute session takes the 10 and the 20, and the third visit of the day finds every
+-- rung it can reach already spent. `DailyPlaytimeGifts` below is the answer to that, not a
+-- replacement for this one -- a long sitting is worth rewarding on its own terms.
 GameConfig.PlaytimeGifts = {
 	{ minutes = 10, dna = 1000 },
 	{ minutes = 20, dna = 2500,  potions = 1, potionId = "dna_s" },
 	{ minutes = 30, dna = 6000,  potions = 1, potionId = "xp_m" },
 	{ minutes = 45, dna = 15000, diamonds = 1 },
 	{ minutes = 60, dna = 35000, potions = 1, potionId = "luck_l", diamonds = 2 },
+}
+
+-- ===== THE DAILY PLAYTIME LADDER (21.3) =====
+--
+-- The same shape, measured against **every minute played today added together**, across as many
+-- sessions as it takes. The accumulator lives in the save (`data.DailyPlaytime`) and is stamped
+-- with the same UTC day the claim sets use, so it resets once a day and never on a rejoin.
+--
+-- WHY THE RUNGS START WHERE THE SESSION LADDER'S SECOND ONE DOES. This ladder has to be reachable
+-- by the player the row was opened for -- three twenty-minute visits -- and unreachable by accident
+-- in a single short one, or it is just the session ladder paying twice for the same ten minutes.
+-- 30 minutes is the first rung the fragmented player clears and the first the session ladder can no
+-- longer hand them, and the top two rungs are past anything one sitting is expected to reach.
+--
+-- WHY THE DNA IS BIG AND THE DIAMONDS ARE NOT, which is the same line 21.2 drew on the daily board:
+-- `dna` runs through `GameConfig.ScaleReward`, so it is authored in stage-1 clicks and is worth the
+-- same fraction of an hour's income at stage 1 and at stage 20. Diamonds and potions are FLAT and
+-- aimed at fixed sinks -- a Mega Income level costs 25 and never moves. Four hours of roaming
+-- already pays about a thousand diamonds off kills alone (see the measurement in GameConfig.
+-- Diamonds), so the three here are a garnish on the card, not a source, and they are deliberately
+-- the same three the session ladder pays rather than a second faucet of a different size.
+GameConfig.DailyPlaytimeGifts = {
+	{ minutes = 30,  dna = 3000 },
+	{ minutes = 60,  dna = 8000,   potions = 1, potionId = "dna_m" },
+	{ minutes = 120, dna = 25000,  diamonds = 1 },
+	{ minutes = 180, dna = 60000,  potions = 1, potionId = "luck_l" },
+	{ minutes = 240, dna = 150000, potions = 1, potionId = "xp_l", diamonds = 2 },
 }
 
 end

@@ -161,6 +161,15 @@ local function defaultData()
 		-- in memory because a table cleared on leave hands the whole ladder back on every rejoin --
 		-- see PlaytimeGiftService. Shaped and reset by that service, so {} is the right start.
 		PlaytimeClaims = {},
+		-- How many seconds have been played TODAY, added across every session, plus which rungs of
+		-- `GameConfig.DailyPlaytimeGifts` that has already bought. Day-stamped exactly like
+		-- PlaytimeClaims above and shaped by the same service, so {} is the right start.
+		--
+		-- IT IS WRITTEN BY A TICK, NOT BY A LEAVE HANDLER, and that is not a style choice: this
+		-- service's own PlayerRemoving runs AFTER the one below, which has already saved -- so a
+		-- total flushed on the way out would be written to a `data` nobody reads again. See
+		-- PlaytimeGiftService.
+		DailyPlaytime = {},
 		-- Codes already redeemed, as a SET of normalised code strings (GameConfig.NormaliseCode). A set
 		-- rather than a list because the only question ever asked of it is "has this one been used",
 		-- and a list would be a linear scan over something that only ever grows.
