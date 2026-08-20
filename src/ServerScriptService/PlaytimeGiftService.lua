@@ -51,15 +51,28 @@ local TICK_SECONDS = 30
 -- server's clock, and a stale one restored from a save read a week later would bank a week.
 local lastTick = {}
 
---- Bank everything since the last tick and hand back today's row. THE ONLY WAY to read the daily
---- total: every caller that compares it against a milestone has to see the seconds that have
---- passed since the last tick too, or a player who reaches thirty minutes is told to keep playing
---- for up to another thirty seconds by a number that is simply out of date.
+--- Bank everything since the last tick and hand back today's row, plus whether that row is a NEW
+--- day. THE ONLY WAY to read the daily total: every caller that compares it against a milestone
+--- has to see the seconds that have passed since the last tick too, or a player who reaches thirty
+--- minutes is told to keep playing for up to another thirty seconds by a number that is out of date.
+---
+--- THE SECOND RETURN IS WHAT KEEPS THE BOARD HONEST AT MIDNIGHT. `pushStatus` fires on join and on
+--- claim and nowhere else, so before this the rollover was invisible to the client: the server had
+--- handed the ladder back while the panel still showed yesterday's rungs greyed to `DONE`. Nothing
+--- on that panel is then claimable, so no claim is ever fired, so no push ever happens -- the
+--- ladder stayed shut for the rest of the session for the one player who was there to see it turn
+--- over. Measured, not reasoned about: the panel sat on a stale payload reading `4h 3m played` with
+--- all five rungs `DONE` for minutes after the server's row had gone back to zero.
+--- Only the TICK acts on this. `pushStatus` calls accrue itself and must not push from inside it.
 local function accrue(player, data)
 	local userId = player.UserId
 	local now = os.time()
 	local st = data.DailyPlaytime
+	local rolled = false
 	if type(st) ~= "table" or st.day ~= dayStamp() then
+		-- a save with no row yet is not a rollover -- there is no board state to correct, and the
+		-- join push is already on its way
+		rolled = type(st) == "table" and st.day ~= nil
 		st = { day = dayStamp(), seconds = 0, claims = {} }
 		data.DailyPlaytime = st
 		-- The delta being banked straddles midnight and part of it belongs to yesterday. It is at
@@ -72,7 +85,7 @@ local function accrue(player, data)
 	-- would take time OFF a total that is only ever supposed to grow
 	st.seconds = (st.seconds or 0) + math.max(0, now - (lastTick[userId] or now))
 	lastTick[userId] = now
-	return st
+	return st, rolled
 end
 
 --- A claim set keyed by tostring(index), as the LIST the client wants.
@@ -186,14 +199,19 @@ function PlaytimeGiftService.Init()
 		lastTick[player.UserId] = nil
 	end)
 
-	-- The bank. Every player, every TICK_SECONDS, for as long as the server is up.
+	-- The bank. Every player, every TICK_SECONDS, for as long as the server is up. It is also the
+	-- only thing that notices midnight, which is why the rollover push lives here: see `accrue`.
+	-- The session claim set resets on the same stamp, so the one push corrects both ladders.
 	task.spawn(function()
 		while true do
 			task.wait(TICK_SECONDS)
 			for _, player in ipairs(Players:GetPlayers()) do
 				local data = PlayerDataService.Get(player)
 				-- no save yet means no row to bank into; lastTick is untouched, so nothing is lost
-				if data then accrue(player, data) end
+				if data then
+					local _, rolled = accrue(player, data)
+					if rolled then pushStatus(player) end
+				end
 			end
 		end
 	end)
