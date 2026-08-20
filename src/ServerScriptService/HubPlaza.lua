@@ -61,6 +61,9 @@ local RS = game:GetService("ReplicatedStorage")
 
 local UITheme = require(RS.Modules.UITheme)
 local GameConfig = require(RS.Modules.GameConfig)
+-- The Exhibit stands the real wardrobe up: `SkinMesh.TemplateFor` is the same lookup the
+-- costume path uses, so a statue is the skin rather than a model of it.
+local SkinMesh = require(RS.Modules.SkinMesh)
 -- Only for the photo reward at the bottom of this file; the plaza itself touches no save.
 local PlayerDataService = require(script.Parent.PlayerDataService)
 
@@ -70,7 +73,8 @@ local HubPlaza = {}
 -- BOARD_VERSION, EventService's SIGN_VERSION and ZoneBuilder's BUILD_VERSION. Editing anything
 -- below WITHOUT moving this number is a silent no-op on a world that already has a plaza in it.
 -- 3: the photo spot gained the prompt it had been missing since it was built (17.3).
-local PLAZA_VERSION = 3
+-- 4: the Exhibit -- fourteen locked-but-visible skins flanking the walk from the spawn (26.5).
+local PLAZA_VERSION = 4
 
 -- What the first photo pays, once per save, ever. Diamonds rather than DNA because DNA is
 -- stage-scaled and a fixed figure means nothing across twenty zones -- the same reasoning the
@@ -627,6 +631,313 @@ local function buildPhotoSpot(model, pos, side)
 end
 
 -- ============================================================================
+-- THE EXHIBIT (26.5)
+-- ============================================================================
+-- The owner's instruction, in as many words: "da stoje likovi izlozeni negde na pocetku igre".
+-- Two ranks of plinths flanking the walk down from the spawn -- the nine VIP bundles on the east
+-- side, the five event skins on the west -- each figure on a stone plinth with a plaque naming what
+-- it costs or which ladder pays it out.
+--
+-- LOCKED-BUT-VISIBLE IS THE WHOLE MECHANISM, and it is the one thing every game in 26's research
+-- does with the character you cannot have today. A skin nobody can see is not a goal; a skin
+-- standing in the road with a price under it is. So an unowned figure is SILHOUETTED rather than
+-- hidden -- same body, same size, same plaque, painted out to a dark slate.
+--
+-- THE SILHOUETTE IS DRAWN ON THE CLIENT AND HAS TO BE. Ownership differs per player and this model
+-- is one shared set of parts, so the server builds every figure in its true colours and
+-- `Exhibit.client` paints out the ones the local player does not own. That is also why each stand
+-- carries `CharacterKey` and `ExhibitKind` attributes: they are the whole contract between this
+-- file and that one.
+--
+-- THE FIGURE IS THE SAME TEMPLATE THE PLAYER WEARS -- `ReplicatedStorage.Assets.SkinMeshes` --
+-- cloned, scaled to a single display height so the rank reads as a rank, and turned by the SAME
+-- yaw rule SkinMesh.Apply uses, `FaceFlip` included. Ten of the 214 templates were generated
+-- backwards and that attribute is the only record of which; re-deriving the rule here would mean
+-- ten statues showing the plaza the back of their heads.
+local EXHIBIT_X = 56          -- outside the street furniture (|x| < 40) and inboard of the lamps (84)
+local EXHIBIT_Z = 330         -- one plinth south of the banner poles at z = 352
+local EXHIBIT_STEP = 24       -- 13-stud plinths, so an 11-stud gap: a colonnade, not a wall
+local EXHIBIT_FOOT = Vector3.new(20, 22, 18)
+local FIGURE_HEIGHT = 9       -- a stage-1 player is about 6, so a figure looms without being scenery
+local PLINTH_TOP = DECK_TOP + 6.5
+-- Dead-inward would show the spawn nothing but shoulders; a fifth of a right angle toward the
+-- north end means the row is three-quarters-on from the arrival pad and square-on from the walk.
+local EXHIBIT_TURN = math.rad(20)
+
+-- Where each rank looks. `side` is the sign of x, and it is also which way the figure faces.
+local function exhibitLook(side)
+	return Vector3.new(-side * math.cos(EXHIBIT_TURN), 0, math.sin(EXHIBIT_TURN))
+end
+
+-- WHERE THE RANKS ACTUALLY STOOD, because the plaza's own searches cannot see each other: nothing
+-- is parented into workspace until the end of `build`, so every piece up to now has been AUTHORED
+-- not to collide. The photo spot is the one piece whose position is not authored -- its last-resort
+-- scan walks x = +-76 with a 40-stud clearance, which reaches the east rank -- so it is given this
+-- to read. Deliberately narrower than a general reservation list: PHOTO_FOOT is a clearance rather
+-- than a solid, and the four authored photo spots already overlap a lamp's clearance without either
+-- of them being wrong.
+local exhibitSpots = {}
+local function nearExhibit(centre, footprint)
+	for _, spot in ipairs(exhibitSpots) do
+		if math.abs(centre.X - spot.X) < (footprint.X + EXHIBIT_FOOT.X) * 0.5
+			and math.abs(centre.Z - spot.Z) < (footprint.Z + EXHIBIT_FOOT.Z) * 0.5 then
+			return true
+		end
+	end
+	return false
+end
+
+-- A colour a player can read off a white plaque. The nine VIP discs include a cream (228, 220, 176)
+-- and the ladder is free to add another, so the hue is kept and the VALUE is pulled down until it
+-- clears the sheet -- the same decision `inkOn` makes inside UITheme, taken here against a fixed
+-- white rather than against a caller's fill.
+local PLAQUE_INK_MAX = 0.52
+local function plaqueInk(colour)
+	local lum = UITheme.Luminance(colour)
+	if lum <= PLAQUE_INK_MAX then return colour end
+	return UITheme.Shade(colour, PLAQUE_INK_MAX / lum - 1)
+end
+
+-- A RANK KEEPS ITS RHYTHM, WHICH IS WHY THIS IS NOT JUST `standAt`. The shared gate's nudge list
+-- tries z first, and z is the axis the spacing is measured along: measured on the live world, the
+-- Forest group chest at (48, 335) blocks the first VIP plinth, `standAt` slid it 14 studs down the
+-- rank, and two 13-stud bases 10 studs apart overlapped into one lump of stone. Stepping OUTWARD in
+-- x instead keeps every plinth on its own z and costs the rank nothing but a slightly ragged edge.
+-- `standAt` is still the floor under it -- it is the piece that owns the corridor rule and the
+-- skipped counter, and a plinth with nowhere honest to stand must still not be built.
+local RANK_NUDGE = { 0, 12, 24, -10 }
+local function standInRank(preferred, side)
+	for _, dx in ipairs(RANK_NUDGE) do
+		local centre = preferred + Vector3.new(dx * side, 0, 0)
+		if math.abs(centre.X) - EXHIBIT_FOOT.X * 0.5 >= CORRIDOR_HALF and not occupied(centre, EXHIBIT_FOOT) then
+			if dx ~= 0 then moved = moved + 1 end
+			return centre
+		end
+	end
+	return standAt(preferred, EXHIBIT_FOOT)
+end
+
+-- A museum label, not a floating billboard. A BillboardGui over a statue's head reads as a HUD
+-- element that happens to be in the world -- the signage note this game has paid for twice -- and
+-- this one has a real slab to sit on, angled with the figure so the walk sees both square-on.
+local function buildPlaque(stand, centre, side, entry, earnLine, tint)
+	local look = exhibitLook(side)
+	-- CLEAR OF THE PLINTH, WHICH THE FIRST CUT WAS NOT AND ONLY A CAPTURE SAID SO. At 4.9 the slab
+	-- was inside the base's own 13-stud footprint: every property read correct, `TextFits` was true,
+	-- and the plinth stood in front of the middle third of the label -- the plaque photographed as
+	-- "Cybe        un / VIP Pass - R$      ll 9". The offset now clears the base's boundary along
+	-- the facing (6.5 / cos 20 = 6.9) with both far corners of a 9-stud slab outside it, and the
+	-- bottom edge sits ON the deck so it reads as a planted label rather than a floating card.
+	local pos = Vector3.new(centre.X, DECK_TOP + 1.9, centre.Z) + look * 8.4
+	local plaque = newPart({
+		Name = "Plaque",
+		Size = Vector3.new(9.0, 3.8, 0.7),
+		CFrame = CFrame.lookAt(pos, pos + look),
+		Color = OUTLINE,
+		CanCollide = false,
+		Parent = stand,
+	})
+
+	local gui = Instance.new("SurfaceGui")
+	gui.Name = "PlaqueSign"
+	gui.Face = Enum.NormalId.Front
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 48
+	-- The plaza is lit by Forest's very bright key light and the plaque faces the walk, not the sky.
+	-- LightInfluence 0 is what keeps the ink black instead of a mid grey in its own shadow.
+	gui.LightInfluence = 0
+	gui.MaxDistance = 250
+	gui.Adornee = plaque
+	gui.Parent = plaque
+
+	local shell = Instance.new("Frame")
+	shell.Name = "Shell"
+	shell.Size = UDim2.new(1, -12, 1, -12)
+	shell.Position = UDim2.fromOffset(6, 6)
+	shell.BackgroundColor3 = UITheme.Color.PanelWhite
+	shell.BorderSizePixel = 0
+	shell.Parent = gui
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = shell
+
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.Size = UDim2.fromScale(1, 0.40)
+	title.Position = UDim2.fromScale(0, 0.03)
+	title.BackgroundTransparency = 1
+	title.Font = UITheme.Font.Display
+	title.Text = (entry.emoji or "") .. "  " .. entry.name
+	title.TextColor3 = plaqueInk(tint)
+	title.TextScaled = true
+	title.Parent = shell
+
+	-- Dark ink on a white sheet takes NO stroke. UITheme's outline is the same near-black as the
+	-- glyph, so a halo here renders as a blob -- 12.3, 12.6 and 26.3 have each paid for this once.
+	local earn = Instance.new("TextLabel")
+	earn.Name = "Earn"
+	earn.Size = UDim2.fromScale(1, 0.29)
+	earn.Position = UDim2.fromScale(0, 0.42)
+	earn.BackgroundTransparency = 1
+	earn.Font = UITheme.Font.Body
+	earn.Text = earnLine
+	earn.TextColor3 = Color3.fromRGB(70, 78, 98)
+	earn.TextScaled = true
+	earn.Parent = shell
+
+	-- Written by the server so a plaque is never blank, and OWNED BY THE CLIENT from its first
+	-- DataUpdate: whether this player has it, and for an event skin how long its window has left.
+	local status = Instance.new("TextLabel")
+	status.Name = "Status"
+	status.Size = UDim2.fromScale(1, 0.26)
+	status.Position = UDim2.fromScale(0, 0.72)
+	status.BackgroundTransparency = 1
+	status.Font = UITheme.Font.Display
+	status.Text = "\u{1F512} LOCKED"
+	status.TextColor3 = Color3.fromRGB(126, 134, 156)
+	status.TextScaled = true
+	status.Parent = shell
+
+	return plaque
+end
+
+-- The statue. Returns nil when the template is missing, and the caller then builds no plinth at
+-- all: an empty plinth with a price on it is a bug report, where a rank of eight is a rank.
+local function buildFigure(stand, key, centre, side)
+	local template = SkinMesh.TemplateFor(key)
+	if not template then
+		warn(("[HubPlaza] no SkinMesh template for '%s' -- exhibit stand skipped"):format(tostring(key)))
+		return nil
+	end
+
+	local clone = template:Clone()
+	local _, rawSize = clone:GetBoundingBox()
+	if rawSize.Y > 0.001 then
+		-- ScaleTo is ABSOLUTE and the templates are authored at 1, so this is the factor itself.
+		clone:ScaleTo(FIGURE_HEIGHT / rawSize.Y)
+	end
+
+	local meshCF, size = clone:GetBoundingBox()
+	local look = exhibitLook(side)
+	-- The same arithmetic as SkinMesh.Apply, and for the same reason: the templates are authored
+	-- facing -Z, and the ones that are not carry `FaceFlip`.
+	local yaw = math.atan2(-look.X, -look.Z)
+	if template:GetAttribute("FaceFlip") then
+		yaw = yaw + math.pi
+	end
+	local localPivot = CFrame.new(meshCF.Position):Inverse() * clone:GetPivot()
+	clone:PivotTo(CFrame.new(centre.X, PLINTH_TOP + size.Y * 0.5, centre.Z)
+		* CFrame.Angles(0, yaw, 0) * localPivot)
+
+	for _, part in ipairs(clone:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Anchored = true
+			-- NOT collidable and NOT queryable: the plinth under it is the obstruction, and a statue
+			-- a later service's box query could see would push that service's own piece away for a
+			-- shape nothing can walk into.
+			part.CanCollide = false
+			part.CanQuery = false
+			part.CanTouch = false
+			part.CastShadow = false
+		end
+	end
+
+	clone.Name = "Figure"
+	clone.Parent = stand
+	return clone
+end
+
+-- One plinth, one figure, one plaque. `entry` is the GameConfig character row; `kind` is what the
+-- client branches on.
+local function buildStand(parent, preferred, side, entry, kind, earnLine, tint)
+	local pos = standInRank(preferred, side)
+	if not pos then return nil end
+
+	local stand = Instance.new("Model")
+	stand.Name = "Stand_" .. entry.key
+	stand:SetAttribute("CharacterKey", entry.key)
+	stand:SetAttribute("ExhibitKind", kind)
+	stand.Parent = parent
+
+	if not buildFigure(stand, entry.key, pos, side) then
+		stand:Destroy()
+		return nil
+	end
+
+	-- TALLER THAN IT IS WIDE, and the first cut was the other way round: a 13-stud base under a
+	-- 3-stud column read as a low table with somebody standing on it, which is what the first
+	-- capture showed. The taper is what makes it a plinth -- 11.6 down at the deck, 8.8 through the
+	-- shaft, and the coloured cap back out to 10.2 so it reads as a lid rather than as a tabletop.
+	newPart({
+		Name = "Base", Size = Vector3.new(11.6, 1.4, 11.6),
+		Position = Vector3.new(pos.X, DECK_TOP + 0.7, pos.Z),
+		Color = OUTLINE, CanCollide = true, Parent = stand,
+	})
+	newPart({
+		Name = "Column", Size = Vector3.new(8.8, 4.2, 8.8),
+		Position = Vector3.new(pos.X, DECK_TOP + 3.5, pos.Z),
+		Color = STONE_MID, CanCollide = true, Parent = stand,
+	})
+	-- The one coloured piece of the plinth, and it is what tells the two ranks apart from the far
+	-- end of the plaza: gold for the pass, the event's own colour for an event skin.
+	newPart({
+		Name = "Cap", Size = Vector3.new(10.2, 0.9, 10.2),
+		Position = Vector3.new(pos.X, DECK_TOP + 6.05, pos.Z),
+		Color = tint, CanCollide = true, Parent = stand,
+	})
+
+	buildPlaque(stand, pos, side, entry, earnLine, tint)
+	return pos
+end
+
+-- The two ranks, ordered the way they are walked: the VIP row escalates away from the spawn, so
+-- the top of the wardrobe stands at the far end of the avenue. Returns the count and the footprints
+-- it took, which is what stops the photo spot's last-resort scan landing on top of one.
+local function buildExhibit(model)
+	local exhibit = Instance.new("Model")
+	exhibit.Name = "Exhibit"
+	exhibit.Parent = model
+
+	local spots, built = {}, 0
+
+	local pass = GameConfig.GetGamePass("VIP")
+	-- READ, NEVER WRITTEN: a tenth bundle or a re-price needs no edit in this file. `passId <= 0`
+	-- is the same guard 26.4's Journal door uses -- an unset pass advertises no price.
+	local vipLine = (pass and pass.passId and pass.passId > 0)
+		and ("VIP Pass \u{2022} R$ %d for all %d"):format(pass.price, #GameConfig.VipCharacters)
+		or "VIP Pass"
+	for index, entry in ipairs(GameConfig.VipCharacters) do
+		local preferred = Vector3.new(EXHIBIT_X, 0, EXHIBIT_Z - (index - 1) * EXHIBIT_STEP)
+		local pos = buildStand(exhibit, preferred, 1, entry, "vip", vipLine, GOLD)
+		if pos then
+			built += 1
+			table.insert(spots, pos)
+		end
+	end
+
+	for index, entry in ipairs(GameConfig.EventCharacters) do
+		local event = GameConfig.GetEvent(entry.event)
+		local rungs = #GameConfig.GetEventQuests(entry.event)
+		-- The ladder is COUNTED, not quoted: 26.1 pays the skin on the last rung, and a fifth rung
+		-- must not have to be remembered in this file.
+		-- SHORT ENOUGH TO STAY ON ONE LINE, which is a capture finding rather than a preference:
+		-- "finish its 4-step ladder" wrapped to two rows inside a TextScaled label, and a label that
+		-- wraps shrinks -- the event row came out about half the height of the VIP row beside it.
+		local line = rungs > 0
+			and ("%s \u{2022} %d-step ladder"):format(event and event.name or "Event", rungs)
+			or ("%s \u{2022} event exclusive"):format(event and event.name or "Event")
+		local preferred = Vector3.new(-EXHIBIT_X, 0, EXHIBIT_Z - (index - 1) * EXHIBIT_STEP)
+		local pos = buildStand(exhibit, preferred, -1, entry, "event", line, entry.color)
+		if pos then
+			built += 1
+			table.insert(spots, pos)
+		end
+	end
+
+	return built, spots
+end
+
+-- ============================================================================
 -- THE BUILD
 -- ============================================================================
 -- Where each standing piece WANTS to be. Every one of these is a preference, not a placement --
@@ -684,7 +995,9 @@ local function scanForPhotoSpot()
 	for _, z in ipairs({ 344, 312, 376, 280, 200, 168, 232, 136 }) do
 		for _, x in ipairs({ -104, 104, -76, 76, -132, 132 }) do
 			local centre = Vector3.new(x, 0, z)
-			if math.abs(x) - PHOTO_FOOT.X * 0.5 >= CORRIDOR_HALF and not occupied(centre, PHOTO_FOOT) then
+			if math.abs(x) - PHOTO_FOOT.X * 0.5 >= CORRIDOR_HALF
+				and not nearExhibit(centre, PHOTO_FOOT)
+				and not occupied(centre, PHOTO_FOOT) then
 				return centre
 			end
 		end
@@ -699,6 +1012,7 @@ local function placePhotoSpot(model)
 	local before = skipped
 	for _, spot in ipairs(PHOTO_SPOTS) do
 		local pos = standAt(spot, PHOTO_FOOT)
+		if pos and nearExhibit(pos, PHOTO_FOOT) then pos = nil end
 		if pos then
 			skipped = before
 			buildPhotoSpot(model, pos, pos.X < 0 and -1 or 1)
@@ -755,6 +1069,11 @@ local function build()
 		if buildGateSign(model, spot) then signs = signs + 1 end
 	end
 
+	-- Before the photo spot, because the photo spot is the only piece here whose position is
+	-- not authored and it is the one that has to give way.
+	local figures, spots = buildExhibit(model)
+	exhibitSpots = spots
+
 	local photo = placePhotoSpot(model)
 
 	model:SetAttribute("PlazaVersion", PLAZA_VERSION)
@@ -766,8 +1085,9 @@ local function build()
 		model.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
 	end)
 
-	print(("[HubPlaza] built v%d: %d parts, %d lamps, %d banners, %d gate signs, photo spot %s (%d pieces nudged, %d skipped)")
+	print(("[HubPlaza] built v%d: %d parts, %d lamps, %d banners, %d gate signs, %d/%d exhibit figures, photo spot %s (%d pieces nudged, %d skipped)")
 		:format(PLAZA_VERSION, #model:GetDescendants(), lamps, banners, signs,
+			figures, #GameConfig.VipCharacters + #GameConfig.EventCharacters,
 			photo and ("at %d,%d"):format(photo.X, photo.Z) or "SKIPPED", moved, skipped))
 
 	return model
