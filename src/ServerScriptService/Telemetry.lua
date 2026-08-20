@@ -109,21 +109,34 @@ Telemetry.Currency = { DNA = "DNA", Diamonds = "Diamonds", Shards = "EvolutionSh
 
 -- ===== WHO COUNTS AS A REACHABLE PLAYER (20.6) ================================================
 --
--- Every entry point below used to test `player.Parent`, and that test is RIGHT for the calls it was
--- written for: a reward that lands after the player has gone is a call at nobody. It was WRONG for
--- the two paths this module runs at the door, and it silently deleted both of them.
+-- Every entry point below asks `reachable(player)` rather than testing `player.Parent` directly,
+-- and the comment that used to stand here gave the wrong reason for it. It said `PlayerRemoving`
+-- hands over an already-unparented player, so the parent guard refused every call this module
+-- makes at the door. THAT IS MEASURED FALSE. On 2026-08-20 a probe was placed INSIDE
+-- `Telemetry.Custom` and `Telemetry.Economy` -- not in an outside hook choosing its own moment --
+-- and it printed the parent on the exact calls `SessionEnd` and `flush` make. All four: parent is
+-- `Players`, `typeof` is `Instance`, from the first call of the removal sequence to the last. The
+-- old guard would have PASSED every one of them. **The parent never goes nil while this handler
+-- runs, and `reachable` is a no-op on this path.**
 --
--- `Players.PlayerRemoving` hands over a player who has ALREADY been unparented, so `player.Parent`
--- is nil for the whole of that handler -- which is where `flush()` drains the Accrue buckets and
--- where `SessionEnd` sends its four events. Every one of those calls returned at the guard. Nothing
--- errored, nothing landed in `Stats.failed`, and `sent` did not move: the instrumentation reported
--- perfect health while sending nothing at all. Measured 2026-08-20 (see ROADMAP 20.6): at the stop,
--- `sent` was identical to its value before it and `custom` held no `Session*` key.
+-- What actually deleted both reports was the SHAPE OF THE HANDLER. `flush(player)` was a bare call
+-- sitting directly above `Telemetry.SessionEnd`, so a throw anywhere inside it stopped the drain
+-- part-way AND propagated out of the handler before `SessionEnd` was ever reached -- one cause for
+-- both halves of the symptom, nothing sent at the door and no `Session*` event in existence. It
+-- also explains why `Stats.failed` stayed at 0 while this was happening: `send()`'s pcall is the
+-- only thing that raises that counter, and the throw was above `send`. So the two calls below are
+-- separately wrapped, and that is not defensive habit -- they are two independent reports about one
+-- departure and neither may be allowed to cancel the other.
 --
--- So the departure is made explicit rather than the guard being deleted. A player is reachable if
--- they are still parented OR if we are inside their own PlayerRemoving, and nowhere else -- which
--- leaves the protection intact for the async callers that rely on it (the friend count below tests
--- `player.Parent` itself, on purpose, and keeps doing so).
+-- WHICH statement in the old `flush` threw cannot be recovered: this file enters git history
+-- already patched, so that body exists nowhere on disk or in Studio. The split is what fixed the
+-- outcome and is also what would have named the culprit had it been there at the time.
+--
+-- `reachable` is KEPT rather than reverted, for one reason that survives the correction:
+-- `BindToClose` opens the same door, and a server tearing down genuinely can unparent before that
+-- callback runs, with nothing left afterwards to observe it. It costs one table lookup. The async
+-- callers keep their own `player.Parent` test on purpose -- see the friend count in `Init`, where a
+-- reward landing after the player has gone really is a call at nobody.
 local leaving = {}   -- [userId] = true only for the duration of that player's departure
 
 local function reachable(player)
