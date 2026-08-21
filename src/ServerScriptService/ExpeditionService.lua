@@ -470,7 +470,20 @@ function ExpeditionService.HandleStationStart(player, index)
 	end
 
 	-- One station at a time. Without this a client could open three and submit the best.
-	if run.station then return end
+	if run.station then
+		-- ...but a station that can no longer be banked is not a station any more. `run.station` is
+		-- cleared by a finish and by nothing else, so a client that never submits -- a disconnect
+		-- mid-game, a panel that was closed by something other than itself -- used to lock the rest
+		-- of the expedition out IN SILENCE: every later prompt returned here and the player was
+		-- given no reason. The window is the same one `HandleStationFinish` refuses on, so nothing
+		-- is ever released that the other end could still bank.
+		if os.clock() - run.station.startedAt <= run.station.kind.seconds + 60 then
+			return
+		end
+		warn(("[ExpeditionService] %s abandoned station %d; releasing it")
+			:format(player.Name, run.station.index))
+		run.station = nil
+	end
 
 	-- THE BODY HAS TO BE AT THE STATION. The prompt already enforces this for an honest client;
 	-- this is the same check on the side that cannot be edited. Generous on purpose -- the prompt

@@ -62,6 +62,13 @@ local briefLines = nil
 local resultLines = nil
 local enterButton = nil
 local againButton = nil
+-- True from the moment a station's game opens until its result comes back. The tracker is a
+-- top-centre capsule and `MinigameUI`'s panel is a centred modal whose score and countdown bar live
+-- in its top 54 px, so the two occupy the same pixels: measured 2026-08-21, the capsule sat over the
+-- run timer for the whole game. Both ScreenGuis are DisplayOrder 9, so there is no z-order that
+-- separates them -- one of the two has to be absent, and the tracker is the one whose information
+-- (which seals you hold) is not the information you need while playing for one.
+local stationOpen = false
 local tracker = nil
 local trackerRows = nil
 local trackerTotal = nil
@@ -238,7 +245,7 @@ end
 -- Rebuilt rather than reconciled: a run has three seals and rebuilding three frames costs nothing,
 -- while a reconcile has to know what changed. The panel-refresh rule the whole HUD follows.
 local function refreshTracker()
-	if not runState or not runState.running then
+	if not runState or not runState.running or stationOpen then
 		tracker.Visible = false
 		return
 	end
@@ -397,6 +404,14 @@ end)
 -- arrives separately on `ExpeditionState` because the server is the only thing that counts them.
 Remotes.ExpeditionStation.OnClientEvent:Connect(function(payload)
 	if type(payload) ~= "table" then return end
+	if payload.ok and not payload.finished then
+		stationOpen = true
+		refreshTracker()
+		return
+	end
+	-- Finished or refused: either way the game is off the screen and the capsule comes back.
+	stationOpen = false
+	refreshTracker()
 	if payload.ok and payload.finished then
 		SoundLibrary.PlayLocal(payload.beatPar and "levelUp" or "collect")
 	end

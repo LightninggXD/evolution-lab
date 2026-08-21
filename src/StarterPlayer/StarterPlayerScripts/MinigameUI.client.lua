@@ -740,6 +740,20 @@ local function stopRun(submit)
 	end
 end
 
+-- The modal's own header, which is the one piece of this panel that is NOT shared: the arcade is
+-- called the arcade, and a station is called by the seal it is played for. Restored to the arcade's
+-- wording by the terminal prompt, so neither entry point can inherit the other's title.
+local function panelTitle(session)
+	local header = modal:FindFirstChild("Title")
+	if not header then return end
+	if session and session.channel == "expedition" then
+		UITheme.SetText(header, ("%s  %s"):format(session.symbol or "\u{1F5FA}",
+			session.symbolName or "Station"))
+	else
+		UITheme.SetText(header, "\u{1F3AE} Arcade")
+	end
+end
+
 local function startRun(session)
 	stopRun(false)
 
@@ -856,7 +870,16 @@ end)
 Remotes.ExpeditionStation.OnClientEvent:Connect(function(payload)
 	if type(payload) ~= "table" then return end
 	if payload.ok and not payload.finished then
+		-- THE PANEL IS OPENED HERE, AND IT HAS TO BE. The arcade's panel is shown by the terminal's
+		-- own ProximityPrompt handler at the bottom of this file; a station's prompt carries
+		-- `ShopPanel = "expedition_station"` and belongs to `ExpeditionUI`, which fires
+		-- `StationStart` instead -- so nothing on this path ever made the modal visible. Measured
+		-- 2026-08-21: the station game ran, scored, timed out and banked a score of 0 while
+		-- completely invisible, and every property probe called it healthy (`run` was live, the
+		-- board had children, the labels held their text). Only a capture showed the empty screen.
+		panelTitle(payload)
 		startRun(payload)
+		modal.Visible = true
 		return
 	end
 	-- Either the station finished or it was refused; either way the game is over and the wording
@@ -928,6 +951,7 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt, who)
 	zoneKey = prompt:GetAttribute("ZoneKey")
 	if not zoneKey then return end
 	SoundLibrary.PlayLocal("open")
+	panelTitle(nil)
 	showBriefing()
 	modal.Visible = true
 end)
