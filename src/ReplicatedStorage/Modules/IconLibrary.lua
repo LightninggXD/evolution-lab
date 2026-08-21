@@ -195,6 +195,36 @@ local ID = {
 	scroll       = "rbxassetid://105872367758963",
 	watermelon   = "rbxassetid://83492622609213",
 
+	-- ========================================================================
+	-- THE TEN COLLECTION-RELIC FORMS (30.2)
+	-- ========================================================================
+	--
+	-- Ten drawings that are rendered ONCE and drawn TWO HUNDRED times: every one of the twenty zone
+	-- sets shows this same set of pictures tinted to its own palette through `ImageColor3`. That is
+	-- what turns 200 relics into 10 uploads, and it is why `tools/icons/set_relic.py` draws them in
+	-- greyscale -- `ImageColor3` multiplies, so tinting a coloured drawing gives mud.
+	--
+	-- REACHED BY NAME, NOT BY EMOJI, exactly like the fifteen relic foods above: the name comes off
+	-- `GameConfig.RelicSetForms[i].icon`, and there is no emoji anywhere in the chain to key on.
+	--
+	-- THESE TEN WERE ALMOST LOST THE DAY THEY ARRIVED. `tools/apply_uploads.py` REBUILDS this table
+	-- from `assets/icons/uploaded.json` and DELETES every name that file does not carry -- which is
+	-- every `-- store` id and the whole Decal batch above, i.e. the aura tiers, the HUD chrome and
+	-- all fifteen relic foods. It also silently repointed seven names (`dna`, `gift`, `paw`,
+	-- `potion`, `plus`, `bolt`, `backpack`) at house PNGs whose art is a DIFFERENT PICTURE, which is
+	-- the swap this file's own header warns about. It reported "74 untouched" while doing it. So:
+	-- **add an id here by hand, and do not run that tool against this file until it is fixed.**
+	relic_shard    = "rbxassetid://123745793690557",   -- Common
+	relic_tooth    = "rbxassetid://106396752709689",   -- Common
+	relic_coin     = "rbxassetid://101917348923443",   -- Common
+	relic_plume    = "rbxassetid://140557951329969",   -- Common
+	relic_horn     = "rbxassetid://119690774977841",   -- Rare
+	relic_rune     = "rbxassetid://133569388294006",   -- Rare
+	relic_vial     = "rbxassetid://128807435706879",   -- Rare
+	relic_idol     = "rbxassetid://109243891518958",   -- Epic
+	relic_core     = "rbxassetid://134563614614091",   -- Epic
+	relic_sigil    = "rbxassetid://122958581180983",   -- the capstone
+
 	-- Chrome that DOES have callers, wired below.
 	pet_dog      = "rbxassetid://116115997044622",  -- the Pets tab and tile
 	portal       = "rbxassetid://135230134031189",

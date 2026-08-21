@@ -81,9 +81,28 @@ return function(hud)
 
 	local function polish(scroll)
 		-- A visible bar on a white shell. Outline is the kit's near-black; at 0.35 it reads as a
-		-- grip rather than a black stripe.
+		-- grip rather than a black stripe. This half applies whichever way the list runs.
 		scroll.ScrollBarImageColor3 = UITheme.Color.Outline
 		scroll.ScrollBarImageTransparency = 0.35
+
+		-- ===== EVERYTHING BELOW IS A VERTICAL-LIST ASSUMPTION (30.2) =====
+		--
+		-- This pass was written when every `ScrollingFrame` in the game ran down the page, and all
+		-- three of the things it does after this line quietly assume that:
+		--
+		--   * a 10 px bar is a comfortable grip beside a 400 px column and is a THIRD OF THE HEIGHT
+		--     of a 34 px tab strip -- measured on the relic panel's set tabs, where it pushed the
+		--     28 px tabs into the clip and cut their outlines off;
+		--   * `TAIL` buys trailing space UNDER the last row, which a sideways list does not have;
+		--   * `attachFade` pins a fade to the scroll's BOTTOM EDGE and shows it when content is
+		--     below the fold. On a horizontal scroll there is never anything below the fold, so it
+		--     is dead weight parented over the strip forever.
+		--
+		-- Two lists are horizontal today -- the relic set tabs and the Season track -- and both are
+		-- fixed-height rows whose whole content is already on screen vertically. The honest fix is
+		-- for the pass to say what it is for rather than to be worked around at each call site.
+		if scroll.ScrollingDirection == Enum.ScrollingDirection.X then return end
+
 		if scroll.ScrollBarThickness < 10 then scroll.ScrollBarThickness = 10 end
 
 		-- Trailing space has to be bought differently depending on who owns the canvas. Padding on

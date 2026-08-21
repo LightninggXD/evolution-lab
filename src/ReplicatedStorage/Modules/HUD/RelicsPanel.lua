@@ -274,65 +274,109 @@ return function(hud)
 		end,
 	})
 
-	-- ===== THE COLLECTION =====
+	-- ===== THE COLLECTION, WHICH IS NOW TWENTY-ONE COLLECTIONS =====
 	--
-	-- A section rule, then the grid. The rule is the same centred-grey-word-between-two-lines the
-	-- Potions panel uses, built the same way, so the two shelves read as one cupboard.
-	local head = Instance.new("TextLabel")
-	head.Name = "Section_Collection"
-	head.Size = UDim2.new(1, -32, 0, 26)
-	head.Position = UDim2.new(0, 16, 0, 330)
-	head.BackgroundTransparency = 1
-	head.Text = "Collection"
-	head.ZIndex = baseZ
-	head.Parent = panel
-	themeLabel(head, 22, INK_ON_WHITE)
-	for _, side in ipairs({ -1, 1 }) do
-		local rule = Instance.new("Frame")
-		rule.Name = "Rule"
-		rule.Size = UDim2.new(0.30, 0, 0, 3)
-		rule.Position = UDim2.new(side < 0 and 0 or 0.70, 0, 0.5, -1)
-		rule.BackgroundColor3 = Color3.fromRGB(224, 228, 238)
-		rule.BorderSizePixel = 0
-		rule.ZIndex = head.ZIndex
-		rule.Parent = head
-	end
+	-- Until 30.2 this was one section rule reading "Collection" over a grid of fifteen tiles. It is
+	-- now a TAB STRIP over a stack of pages, and the reason is arithmetic rather than taste: the
+	-- collection layer is 200 relics, and the shape this panel shipped with does not survive them.
+	--
+	-- WHAT WOULD HAVE BROKEN, MEASURED OFF THE OLD CODE RATHER THAN GUESSED:
+	--
+	--   * IT BUILT EVERY TILE AT INIT. Fifteen tiles is ~90 instances; 215 is ~1,290, built
+	--     synchronously on a `require` that happens while the player is looking at a loading screen.
+	--   * IT REWROTE EVERY TILE AT 1 Hz WHILE VISIBLE. Six writes a tile is 90 property writes a
+	--     second today and would have been ~1,290 -- forever, for a panel whose contents change a
+	--     few times an hour.
+	--
+	-- So this row buys three things and each one is a separate fix:
+	--
+	--   1. TABS. One page per zone set plus the Forge's own fifteen. Twenty-one pages of ten to
+	--      fifteen tiles is a screen a player can read; 215 tiles in one scroll is a wall.
+	--   2. LAZY PAGES. A page is built the first time its tab is opened and never again. A player
+	--      who opens the Forge and closes it has built fifteen tiles, exactly as before.
+	--   3. A DIRTY FLAG. The 1 Hz ticker now writes ONLY the chest countdown, which is the one thing
+	--      no push can tell us about and the only reason the ticker existed. Everything else redraws
+	--      when the data actually changed.
+	--
+	-- And a fourth thing falls out of the tabs for free: only the OPEN page is ever written, so the
+	-- cost of a refresh is bounded by what is on screen rather than by what exists.
+	local tabs = Instance.new("ScrollingFrame")
+	tabs.Name = "SetTabs"
+	-- 40 FOR 28 PX TABS, and the 12 is not slack. A CardKit card draws a 3 px border stroke and a
+	-- 2 px inner one OUTSIDE its own bounds, so a 28 px tab occupies 38 px of a clipping parent --
+	-- the `gap of N shows as N - 15` rule the HUD layout carries, in its smallest form. At 34 the
+	-- tabs' outlines were cut off along both edges and the strip read as a row of torn labels.
+	tabs.Size = UDim2.new(1, -32, 0, 40)
+	tabs.Position = UDim2.new(0, 16, 0, 326)
+	tabs.BackgroundTransparency = 1
+	tabs.BorderSizePixel = 0
+	-- HORIZONTAL ONLY. `AutomaticCanvasSize` on a strip that also has a Y canvas of 0 will happily
+	-- report a Y overflow from the tiles' outlines and draw a vertical bar down a 34 px row.
+	tabs.ScrollingDirection = Enum.ScrollingDirection.X
+	tabs.AutomaticCanvasSize = Enum.AutomaticSize.X
+	tabs.CanvasSize = UDim2.new(0, 0, 0, 0)
+	tabs.ScrollBarThickness = 4
+	-- Grey, not white: 25.4's sweep found nine lists in this game with a white bar on a white sheet,
+	-- which is a scrollbar that only exists for people who already know it is there.
+	tabs.ScrollBarImageColor3 = Color3.fromRGB(186, 192, 214)
+	tabs.ClipsDescendants = true
+	tabs.ZIndex = baseZ
+	tabs.Parent = panel
 
-	local grid = Instance.new("ScrollingFrame")
-	grid.Name = "RelicGrid"
-	grid.Size = UDim2.new(1, -32, 1, -378)
-	grid.Position = UDim2.new(0, 16, 0, 362)
-	grid.BackgroundTransparency = 1
-	grid.BorderSizePixel = 0
-	grid.ScrollBarThickness = 6
-	grid.ScrollBarImageColor3 = Color3.fromRGB(180, 186, 208)
-	grid.ClipsDescendants = true
-	grid.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	grid.CanvasSize = UDim2.new(0, 0, 0, 0)
-	grid.ZIndex = baseZ
-	grid.Parent = panel
+	local tabRow = Instance.new("UIListLayout")
+	tabRow.FillDirection = Enum.FillDirection.Horizontal
+	tabRow.VerticalAlignment = Enum.VerticalAlignment.Center
+	tabRow.SortOrder = Enum.SortOrder.LayoutOrder
+	tabRow.Padding = UDim.new(0, 6)
+	tabRow.Parent = tabs
 
-	-- 5 x 84 + 4 x 8 of padding = 452 against the 488 the panel's margins leave, and the scrollbar
-	-- and the tiles' own outlines take the rest. Five columns puts the fifteen in exactly three
-	-- rows, which is the whole roster visible at once on a desktop -- the collection should not need
-	-- scrolling to be understood, only to be reached on a phone.
-	local gridLayout = Instance.new("UIGridLayout")
-	gridLayout.CellSize = UDim2.new(0, 84, 0, 84)
-	gridLayout.CellPadding = UDim2.new(0, 8, 0, 8)
-	gridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	gridLayout.Parent = grid
+	-- ===== THE PAGES =====
+	--
+	-- One `ScrollingFrame` per tab, all stacked in the same place, exactly one visible. A single
+	-- grid whose children were swapped would have to destroy and rebuild on every tab press --
+	-- which is the flicker the Pets panel carries its own note about -- and would throw away the
+	-- lazy build the moment a player looked at two sets.
+	local PAGE_POS = UDim2.new(0, 16, 0, 370)
+	local PAGE_SIZE = UDim2.new(1, -32, 1, -386)
 
-	do
+	local pages, tabRefs = {}, {}
+	local currentTab = "forge"
+
+	local function newPage(name)
+		local page = Instance.new("ScrollingFrame")
+		page.Name = "Page_" .. name
+		page.Size = PAGE_SIZE
+		page.Position = PAGE_POS
+		page.BackgroundTransparency = 1
+		page.BorderSizePixel = 0
+		page.ScrollBarThickness = 6
+		page.ScrollBarImageColor3 = Color3.fromRGB(180, 186, 208)
+		page.ClipsDescendants = true
+		page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		page.CanvasSize = UDim2.new(0, 0, 0, 0)
+		page.Visible = false
+		page.ZIndex = baseZ
+		page.Parent = panel
+
+		-- 5 x 84 + 4 x 8 of padding = 452 against the 488 the panel's margins leave, and the
+		-- scrollbar and the tiles' own outlines take the rest. Five columns puts the fifteen in
+		-- exactly three rows and a zone's ten in two.
+		local layout = Instance.new("UIGridLayout")
+		layout.CellSize = UDim2.new(0, 84, 0, 84)
+		layout.CellPadding = UDim2.new(0, 8, 0, 8)
+		layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Parent = page
+
 		-- Room for the tiles' outlines, which are drawn OUTSIDE their bounds against a frame that
-		-- clips -- the fault `ScrollingPanelBuilder` and the potion shelf both carry the same padding
-		-- for. Asymmetric on purpose: the scrollbar owns the right edge whatever the padding says.
+		-- clips. Asymmetric on purpose: the scrollbar owns the right edge whatever the padding says.
 		local pad = Instance.new("UIPadding")
 		pad.PaddingTop = UDim.new(0, 4)
 		pad.PaddingBottom = UDim.new(0, 8)
 		pad.PaddingLeft = UDim.new(0, 4)
 		pad.PaddingRight = UDim.new(0, 12)
-		pad.Parent = grid
+		pad.Parent = page
+		return page
 	end
 
 	-- ===== THE LOCKED PANEL =====
@@ -391,19 +435,20 @@ return function(hud)
 			GameConfig.RelicUnlockStage), 16, Color3.fromRGB(150, 154, 168), 46)
 	end
 
-	-- ===== THE TILES =====
+	-- ===== A TILE =====
 	--
-	-- Fifteen, built once, in the config's own order -- which is rarity ascending, so the grid reads
-	-- as a ladder left-to-right and top-to-bottom and an unowned Mythic sits alone in the last cell
-	-- where it is conspicuous. Sorting by owned-first was considered and rejected: a collection whose
-	-- cells MOVE as you fill it never becomes a shape you can remember.
-	local tileRefs = {}
-	for i, relic in ipairs(GameConfig.Relics) do
-		local rarity = relic.rarityDef
-		local tile, setColors = CardKit.Card(grid, {
-			name = "Relic_" .. relic.key,
+	-- One builder for both layers, because a tile is a tile: art, a rarity frame, a dupe badge, a
+	-- level pip or a copy count, a tick. What differs between an equippable and a collection relic
+	-- is which of those are ever turned on, and that is decided by the refresh rather than here --
+	-- two builders would be two places for the tile geometry to drift apart.
+	local GHOST = { Color3.fromRGB(206, 210, 224), Color3.fromRGB(150, 155, 175) }
+
+	local function buildTile(parent, def, order, onClick)
+		local rarity = def.rarityDef
+		local tile, setColors = CardKit.Card(parent, {
+			name = "Relic_" .. def.key,
 			size = UDim2.new(0, 84, 0, 84),
-			layoutOrder = i,
+			layoutOrder = order,
 			colors = { rarity.color, rarity.deep },
 			radius = 12,
 			studTransparency = 0.86,
@@ -416,7 +461,16 @@ return function(hud)
 		art.Position = UDim2.new(0.5, 0, 0.5, -4)
 		art.AnchorPoint = Vector2.new(0.5, 0.5)
 		art.BackgroundTransparency = 1
-		art.Image = IconLibrary.Id[relic.icon] or ""
+		-- RESOLVED THROUGH THE FALLBACK, NEVER `Id[icon]` BARE. An unmapped name gives `Image = ""`,
+		-- which is not a blank tile but a HOLE -- and with ten form names that only resolve once
+		-- their art has been drawn, rendered and uploaded, that window is real rather than
+		-- theoretical. `RelicSetFallbackIcon` is a name that has been in the library since 2026-08-10.
+		art.Image = IconLibrary.Id[def.icon]
+			or IconLibrary.Id[GameConfig.RelicSetFallbackIcon]
+			or ""
+		-- The tint is the zone's, and it is the whole reason 200 relics cost 10 uploads. `ImageColor3`
+		-- multiplies, so on the fifteen -- which are drawn in their own colours -- it must stay white.
+		art.ImageColor3 = def.tint or Color3.new(1, 1, 1)
 		art.ScaleType = Enum.ScaleType.Fit
 		art.ZIndex = baseZ + 3
 		art.Parent = tile
@@ -466,12 +520,129 @@ return function(hud)
 		hit.AutoButtonColor = false
 		hit.ZIndex = baseZ + 5
 		hit.Parent = tile
+		hit.MouseButton1Click:Connect(onClick)
 
-		tileRefs[relic.key] = {
-			relic = relic, tile = tile, setColors = setColors, art = art,
+		return {
+			def = def, tile = tile, setColors = setColors, art = art,
 			dupe = dupe, dupeLabel = dupeLabel,
 			levelPip = levelPip, levelLabel = levelLabel, tick = tick, hit = hit,
 		}
+	end
+
+	-- Selection is client-only state. `selectedKey` is the key and `selectedSet` says which of the
+	-- two layers it belongs to, because the two live in different save fields and a key alone can no
+	-- longer say which table to look in.
+	local selectedKey, selectedIsSet = nil, false
+	local refresh                      -- forward-declared: the tiles' handlers call it
+
+	-- ===== BUILDING A PAGE, ONCE =====
+	--
+	-- `ensurePage` is the lazy build. It returns the page frame and its tile list, building both the
+	-- first time it is asked and never again -- so the cost of the collection layer is paid one zone
+	-- at a time, by the player who actually opened that zone.
+	local function ensurePage(tabKey)
+		local entry = pages[tabKey]
+		if entry then return entry end
+
+		local page = newPage(tabKey)
+		local tiles = {}
+		local defs
+		if tabKey == "forge" then
+			-- the config's own order, which is rarity ascending, so the grid reads as a ladder and
+			-- an unowned Mythic sits alone in the last cell where it is conspicuous
+			defs = GameConfig.Relics
+		else
+			defs = GameConfig.RelicSetsByZone[tabKey].relics
+		end
+
+		local isSet = (tabKey ~= "forge")
+		for i, def in ipairs(defs) do
+			local key = def.key
+			tiles[key] = buildTile(page, def, i, function()
+				-- A TILE YOU DO NOT OWN IS NOT SELECTABLE on the Forge page, where the strip's whole
+				-- job is to equip and forge -- but it IS on a collection page, where "what is this
+				-- thing and where does it come from" is the question a player has about the eight
+				-- cells they have not filled yet.
+				local d = hud.getData and hud.getData()
+				if not d then return end
+				if not isSet and not (d.Relics and d.Relics[key]) then return end
+				-- tapping the selected tile again closes the strip, which is the only way to dismiss it
+				if selectedKey == key then
+					selectedKey, selectedIsSet = nil, false
+				else
+					selectedKey, selectedIsSet = key, isSet
+				end
+				refresh()
+			end)
+		end
+
+		entry = { page = page, tiles = tiles, isSet = isSet }
+		pages[tabKey] = entry
+		return entry
+	end
+
+	local function showTab(tabKey)
+		local entry = ensurePage(tabKey)
+		for key, other in pairs(pages) do
+			if key ~= tabKey then other.page.Visible = false end
+		end
+		entry.page.Visible = true
+		currentTab = tabKey
+		-- A SELECTION DOES NOT SURVIVE A TAB CHANGE. The detail strip sits under the grid and would
+		-- otherwise keep describing a relic that is no longer on screen -- which reads as the strip
+		-- belonging to whatever tile happens to be under it.
+		selectedKey, selectedIsSet = nil, false
+		refresh()
+	end
+
+	-- ===== THE TAB STRIP =====
+	--
+	-- The Forge first, then the twenty zones in strip order, which is the order the player unlocked
+	-- them in and the order every other list in this game uses. Each tab carries its zone's emoji
+	-- and its own count, so the strip doubles as the progress readout -- the alternative is a
+	-- "3/20 sets" line somewhere else that the player has to correlate by hand.
+	local TAB_ON  = { Color3.fromRGB(255, 214, 120), Color3.fromRGB(240, 165, 20) }
+	local TAB_OFF = { Color3.fromRGB(214, 219, 232), Color3.fromRGB(158, 165, 186) }
+	local TAB_DONE = { Color3.fromRGB(150, 245, 190), Color3.fromRGB(24, 190, 110) }
+
+	local function addTab(tabKey, order, text, width)
+		local tab, setTabColors = CardKit.Card(tabs, {
+			name = "Tab_" .. tabKey,
+			size = UDim2.new(0, width, 0, 28),
+			layoutOrder = order,
+			colors = TAB_OFF,
+			radius = 8,
+			studTransparency = 1,
+			zIndex = baseZ + 1,
+		})
+		local label = CardKit.Text(tab, {
+			name = "Label",
+			text = text,
+			size = UDim2.new(1, -8, 1, 0),
+			position = UDim2.new(0, 4, 0, 0),
+			textSize = 14,
+			xAlign = "Center",
+			zIndex = baseZ + 3,
+			strokeThickness = 2,
+		})
+		local hit = Instance.new("TextButton")
+		hit.Name = "Hit"
+		hit.Size = UDim2.new(1, 0, 1, 0)
+		hit.BackgroundTransparency = 1
+		hit.Text = ""
+		hit.AutoButtonColor = false
+		hit.ZIndex = baseZ + 4
+		hit.Parent = tab
+		hit.MouseButton1Click:Connect(function() showTab(tabKey) end)
+		tabRefs[tabKey] = { tab = tab, setColors = setTabColors, label = label }
+	end
+
+	addTab("forge", 1, "\u{1F52E} Forge", 92)
+	for i, set in ipairs(GameConfig.RelicSets) do
+		-- The emoji is the ZONE's, which is already drawn everywhere else this zone appears. It is a
+		-- glyph rather than an icon on purpose: `IconLibrary` resolves by emoji and returns nil for
+		-- most zone glyphs, and a 28 px tab is not where a missing image should be discovered.
+		addTab(set.zoneKey, i + 1, ("%s 0/%d"):format(set.emoji, set.total), 78)
 	end
 
 	-- ===== THE DETAIL STRIP =====
@@ -532,9 +703,14 @@ return function(hud)
 	local FORGE_ON = { Color3.fromRGB(255, 214, 120), Color3.fromRGB(240, 165, 20) }
 	local EQUIP_ON = { Color3.fromRGB(120, 255, 170), Color3.fromRGB(20, 200, 100) }
 
-	local selectedKey = nil
-
-	local _, equipBtn = CardKit.Button(detailCard, {
+	-- THE INSTANCE AS WELL AS THE HANDLE, because these two buttons are the only ones in the HUD
+	-- that have to be able to VANISH. `CardKit.Button`'s handle deliberately has no `SetVisible` and
+	-- its own comment says why -- "a button that vanishes takes its caption with it and the card
+	-- stops explaining itself", which is exactly right for the DISABLED state it is talking about.
+	-- A collection relic is a different case: EQUIP and FORGE are not refused for it, they do not
+	-- exist for it, and a greyed-out EQUIP is a statement that the verb exists and is unavailable.
+	-- So they are hidden rather than disabled, and the strip carries a sentence instead.
+	local equipInst, equipBtn = CardKit.Button(detailCard, {
 		name = "Equip",
 		text = "EQUIP",
 		size = UDim2.new(0, 86, 0, 38),
@@ -559,7 +735,7 @@ return function(hud)
 		end,
 	})
 
-	local _, forgeBtn = CardKit.Button(detailCard, {
+	local forgeInst, forgeBtn = CardKit.Button(detailCard, {
 		name = "Forge",
 		text = "FORGE",
 		size = UDim2.new(0, 86, 0, 38),
@@ -578,7 +754,30 @@ return function(hud)
 	-- from `GameConfig.Relics` -- the same functions the SERVER uses to roll and to pay the bonuses,
 	-- so this panel cannot advertise a number the game is not applying. That rule is why the maths
 	-- lives in GameConfig rather than in `RelicService`; see the note over `GetRelicMult`.
-	local function refresh()
+	--
+	-- IT WRITES ONE PAGE, NEVER TWENTY-ONE. `pages` only contains what has been opened, and of those
+	-- only the visible one is written -- so the work here is bounded by what is on the screen rather
+	-- than by the 215 relics that exist.
+	local function refreshChest(data)
+		local ready, remaining = GameConfig.GetRelicChestReady(data, os.time())
+		bankedChests = tonumber(data.RelicChests) or 0
+		if bankedChests > 0 then
+			-- The count is in the caption rather than on a pill: this button is already carrying a
+			-- countdown in the other state, so a number in the same place is the one thing a player
+			-- is used to reading off it.
+			freeChest.SetEnabled(true, BANKED)
+			freeChest.SetText(bankedChests > 1
+				and ("OPEN CHEST (%d)"):format(bankedChests)
+				or "OPEN CHEST")
+		else
+			freeChest.SetEnabled(ready, FREE_READY)
+			freeChest.SetText(ready and "FREE CHEST" or ("%dm %02ds"):format(remaining // 60, remaining % 60))
+			if not ready then freeChest.SetColors(FREE_WAIT) end
+		end
+		buyChest.SetEnabled((data.Diamonds or 0) >= GameConfig.RelicChestDiamondCost, DIAMOND_BUY)
+	end
+
+	function refresh()
 		local data = hud.getData and hud.getData()
 		if not data then return end
 
@@ -586,8 +785,13 @@ return function(hud)
 		locked.Visible = not open
 		sockets.Visible = open
 		chestRow.Visible = open
-		head.Visible = open
-		grid.Visible = open
+		tabs.Visible = open
+		for _, entry in pairs(pages) do
+			-- A HIDDEN PANEL'S PAGES ARE ALL HIDDEN, not just the ones that were not current. The
+			-- locked state draws over the whole panel and a page left visible under it would show
+			-- through the transparent parts of it.
+			entry.page.Visible = open and (entry == pages[currentTab])
+		end
 		if not open then
 			detail.Visible = false
 			subtitle.Text = ("Sealed until stage %d"):format(GameConfig.RelicUnlockStage)
@@ -640,83 +844,129 @@ return function(hud)
 			end
 		end
 
-		-- --- the chest buttons
-		local ready, remaining = GameConfig.GetRelicChestReady(data, os.time())
-		bankedChests = tonumber(data.RelicChests) or 0
-		if bankedChests > 0 then
-			-- The count is in the caption rather than on a pill: this button is already carrying a
-			-- countdown in the other state, so a number in the same place is the one thing a player
-			-- is used to reading off it.
-			freeChest.SetEnabled(true, BANKED)
-			freeChest.SetText(bankedChests > 1
-				and ("OPEN CHEST (%d)"):format(bankedChests)
-				or "OPEN CHEST")
-		else
-			freeChest.SetEnabled(ready, FREE_READY)
-			freeChest.SetText(ready and "FREE CHEST" or ("%dm %02ds"):format(remaining // 60, remaining % 60))
-			if not ready then freeChest.SetColors(FREE_WAIT) end
+		refreshChest(data)
+
+		-- --- the tab strip. Twenty-one labels is cheap and it is the progress readout, so it is
+		-- written every refresh rather than only when its own set changes -- a tab that is stale
+		-- about its count is worse than no count.
+		for _, set in ipairs(GameConfig.RelicSets) do
+			local refs = tabRefs[set.zoneKey]
+			local have = GameConfig.CountSetRelicsOwned(data, set.zoneKey)
+			refs.label.Text = ("%s %d/%d"):format(set.emoji, have, set.total)
+			local done = have >= set.total
+			if set.zoneKey == currentTab then
+				refs.setColors(TAB_ON)
+			else
+				refs.setColors(done and TAB_DONE or TAB_OFF)
+			end
 		end
-		buyChest.SetEnabled((data.Diamonds or 0) >= GameConfig.RelicChestDiamondCost, DIAMOND_BUY)
+		tabRefs.forge.setColors(currentTab == "forge" and TAB_ON or TAB_OFF)
 
-		-- --- the grid
-		for key, refs in pairs(tileRefs) do
-			local entry = owned[key]
-			local copies = (type(entry) == "table" and entry.copies) or 0
-			local level = (type(entry) == "table" and entry.level) or 1
-			local has = copies > 0
-
-			-- AN UNOWNED RELIC IS A SILHOUETTE, NOT A HIDDEN ONE. The grid doubles as the reference
-			-- for what exists -- the same argument the potion shelf makes for listing bottles you do
-			-- not hold -- and a collection you cannot see the shape of is not a collection.
-			refs.setColors(has and { refs.relic.rarityDef.color, refs.relic.rarityDef.deep }
-				or { Color3.fromRGB(206, 210, 224), Color3.fromRGB(150, 155, 175) })
-			refs.art.ImageTransparency = has and 0 or 0.72
-			refs.dupe.Visible = copies > 1
-			refs.dupeLabel.Text = "x" .. copies
-			refs.levelPip.Visible = level > 1
-			refs.levelLabel.Text = ("Lv.%d"):format(level)
-			refs.tick.Visible = equippedLookup[key] == true
+		-- --- the open page, and only it
+		local entry = pages[currentTab]
+		if entry and entry.isSet then
+			for key, refs in pairs(entry.tiles) do
+				local copies = GameConfig.GetSetRelicCopies(data, key)
+				local has = copies > 0
+				-- AN UNOWNED RELIC IS A SILHOUETTE, NOT A HIDDEN ONE. The grid doubles as the
+				-- reference for what exists -- the same argument the potion shelf makes for listing
+				-- bottles you do not hold -- and a collection you cannot see the shape of is not a
+				-- collection. It matters more here than on the Forge page: an empty cell is the only
+				-- thing telling a player which relic is between them and a completed set.
+				refs.setColors(has and { refs.def.rarityDef.color, refs.def.rarityDef.deep } or GHOST)
+				refs.art.ImageTransparency = has and 0 or 0.72
+				refs.dupe.Visible = copies > 1
+				refs.dupeLabel.Text = "x" .. copies
+				-- a collection relic has no level and is never worn, so neither mark can ever show
+				refs.levelPip.Visible = false
+				refs.tick.Visible = false
+			end
+		elseif entry then
+			for key, refs in pairs(entry.tiles) do
+				local e = owned[key]
+				local copies = (type(e) == "table" and e.copies) or 0
+				local level = (type(e) == "table" and e.level) or 1
+				local has = copies > 0
+				refs.setColors(has and { refs.def.rarityDef.color, refs.def.rarityDef.deep } or GHOST)
+				refs.art.ImageTransparency = has and 0 or 0.72
+				refs.dupe.Visible = copies > 1
+				refs.dupeLabel.Text = "x" .. copies
+				refs.levelPip.Visible = level > 1
+				refs.levelLabel.Text = ("Lv.%d"):format(level)
+				refs.tick.Visible = equippedLookup[key] == true
+			end
 		end
 
 		-- --- the detail strip
-		local relic = selectedKey and GameConfig.GetRelic(selectedKey)
-		local entry = selectedKey and owned[selectedKey]
-		if relic and entry then
-			local level = (type(entry) == "table" and entry.level) or 1
-			local copies = (type(entry) == "table" and entry.copies) or 0
-			detail.Visible = true
-			setDetailColors({ relic.rarityDef.color, relic.rarityDef.deep })
-			detailArt.Image = IconLibrary.Id[relic.icon] or ""
-			detailName.Text = ("%s  \u{00B7}  %s"):format(relic.name, relic.rarity)
-
-			-- The LIVE value, not the authored one: a Lv.3 relic pays more than its table row says,
-			-- and printing the row would make every levelled relic under-report itself.
-			local value = GameConfig.GetRelicValue(relic, level)
-			local shown = relic.statDef.add and ("+%d %s"):format(math.floor(value + 0.5), relic.statDef.label)
-				or ("+%d%% %s"):format(math.floor(value * 100 + 0.5), relic.statDef.label)
-			detailEffect.Text = ("%s  \u{00B7}  %s set  \u{00B7}  Lv.%d"):format(shown, relic.family, level)
-
-			local worn = equippedLookup[selectedKey] == true
-			equipBtn.SetText(worn and "UNEQUIP" or "EQUIP")
-			equipBtn.SetEnabled(worn or #(data.EquippedRelicKeys or {}) < slots, EQUIP_ON)
-
-			-- THE FORGE BUTTON SAYS WHY IT IS OFF. Three different refusals -- maxed, not enough
-			-- copies, not enough DNA -- and a single greyed button that means all three is a button
-			-- the player pokes at. `CanMergeRelic` is the config's own test, so this cannot disagree
-			-- with what the server will do when the button IS pressed.
-			if level >= GameConfig.RelicMaxLevel then
-				forgeBtn.SetText("MAX")
-				forgeBtn.SetEnabled(false)
-			elseif not GameConfig.CanMergeRelic(data, selectedKey) then
-				forgeBtn.SetText(("%d/%d"):format(copies, 1 + GameConfig.RelicMergeCopies))
-				forgeBtn.SetEnabled(false)
-			else
-				local cost = GameConfig.ScaleReward(GameConfig.GetRelicMergeCost(level), data)
-				forgeBtn.SetText("FORGE")
-				forgeBtn.SetEnabled((data.DNA or 0) >= cost, FORGE_ON)
+		if selectedKey and selectedIsSet then
+			-- A COLLECTION RELIC HAS NO BUTTONS, and that is the promise of the whole layer drawn on
+			-- the screen rather than only argued in a config header. It cannot be worn, it cannot be
+			-- levelled, and a greyed-out EQUIP would say the opposite -- a disabled control is a
+			-- statement that the verb exists.
+			local def = GameConfig.GetSetRelic(selectedKey)
+			local copies = GameConfig.GetSetRelicCopies(data, selectedKey)
+			detail.Visible = def ~= nil
+			if def then
+				setDetailColors({ def.rarityDef.color, def.rarityDef.deep })
+				detailArt.Image = IconLibrary.Id[def.icon]
+					or IconLibrary.Id[GameConfig.RelicSetFallbackIcon] or ""
+				detailArt.ImageColor3 = def.tint
+				detailName.Text = ("%s  \u{00B7}  %s"):format(def.name, def.rarity)
+				if copies > 0 then
+					detailEffect.Text = ("%s  \u{00B7}  x%d held  \u{00B7}  %s set")
+						:format(def.blurb, copies, def.zoneName)
+				else
+					detailEffect.Text = ("Not found yet  \u{00B7}  %s set"):format(def.zoneName)
+				end
+				equipInst.Visible = false
+				forgeInst.Visible = false
 			end
 		else
-			detail.Visible = false
+			local relic = selectedKey and GameConfig.GetRelic(selectedKey)
+			local entryR = selectedKey and owned[selectedKey]
+			if relic and entryR then
+				local level = (type(entryR) == "table" and entryR.level) or 1
+				detail.Visible = true
+				equipInst.Visible = true
+				forgeInst.Visible = true
+				setDetailColors({ relic.rarityDef.color, relic.rarityDef.deep })
+				detailArt.Image = IconLibrary.Id[relic.icon] or ""
+				-- the fifteen are drawn in their own colours; a tint would be a second multiply
+				detailArt.ImageColor3 = Color3.new(1, 1, 1)
+				detailName.Text = ("%s  \u{00B7}  %s"):format(relic.name, relic.rarity)
+
+				-- The LIVE value, not the authored one: a Lv.3 relic pays more than its table row says,
+				-- and printing the row would make every levelled relic under-report itself.
+				local value = GameConfig.GetRelicValue(relic, level)
+				local shown = relic.statDef.add and ("+%d %s"):format(math.floor(value + 0.5), relic.statDef.label)
+					or ("+%d%% %s"):format(math.floor(value * 100 + 0.5), relic.statDef.label)
+				detailEffect.Text = ("%s  \u{00B7}  %s set  \u{00B7}  Lv.%d"):format(shown, relic.family, level)
+
+				local worn = equippedLookup[selectedKey] == true
+				equipBtn.SetText(worn and "UNEQUIP" or "EQUIP")
+				equipBtn.SetEnabled(worn or #(data.EquippedRelicKeys or {}) < slots, EQUIP_ON)
+
+				-- THE FORGE BUTTON SAYS WHY IT IS OFF. Four different refusals now -- maxed, not
+				-- enough copies AND not enough dust to cover the gap, not enough DNA -- and a single
+				-- greyed button that means all of them is a button the player pokes at.
+				-- `GetRelicMergePlan` is the config's own test and the same one the server charges
+				-- with, so this cannot disagree with what happens when the button IS pressed.
+				local plan = GameConfig.GetRelicMergePlan(data, selectedKey)
+				if plan.maxed then
+					forgeBtn.SetText("MAX")
+					forgeBtn.SetEnabled(false)
+				elseif not plan.ok then
+					-- what is SHORT, in the currency that is short: copies if dust could not cover it
+					forgeBtn.SetText(("%d\u{2728}"):format(plan.dustNeed - plan.dustHave))
+					forgeBtn.SetEnabled(false)
+				else
+					local cost = GameConfig.ScaleReward(GameConfig.GetRelicMergeCost(plan.level), data)
+					forgeBtn.SetText(plan.dustNeed > 0 and ("FORGE %d\u{2728}"):format(plan.dustNeed) or "FORGE")
+					forgeBtn.SetEnabled((data.DNA or 0) >= cost, FORGE_ON)
+				end
+			else
+				detail.Visible = false
+			end
 		end
 
 		-- --- the header subtitle: what the four sockets are actually paying, right now
@@ -728,24 +978,28 @@ return function(hud)
 		if income > 0 then table.insert(bits, ("+%d%% DNA"):format(income)) end
 		if damage > 0 then table.insert(bits, ("+%d%% DMG"):format(damage)) end
 		if luckAdd > 0 then table.insert(bits, ("+%d Luck"):format(luckAdd)) end
-		local sets = GameConfig.GetRelicSets(data)
-		for family in pairs(sets) do table.insert(bits, family .. " set!") end
-		subtitle.Text = (#bits > 0)
-			and ("%d/%d  \u{00B7}  %s"):format(ownedCount, #GameConfig.Relics, table.concat(bits, "  \u{00B7}  "))
-			or ("%d/%d collected  \u{00B7}  nothing equipped"):format(ownedCount, #GameConfig.Relics)
-	end
+		local familySets = GameConfig.GetRelicFamilySets(data)
+		for family in pairs(familySets) do table.insert(bits, family .. " set!") end
+		-- The dust is in the subtitle rather than on a pill of its own because it is spent in exactly
+		-- one place -- the FORGE button two rows down -- and a currency shown next to the thing it
+		-- buys does not need a home in the HUD.
+		local dust = math.floor(tonumber(data.RelicDust) or 0)
+		if dust > 0 then table.insert(bits, ("%d\u{2728}"):format(dust)) end
 
-	-- Selecting is client-only state, so it writes `selectedKey` and re-runs the same refresh
-	-- everything else does rather than having its own draw path -- one function that renders the
-	-- panel, however it was provoked.
-	for key, refs in pairs(tileRefs) do
-		refs.hit.MouseButton1Click:Connect(function()
-			local data = hud.getData and hud.getData()
-			if not (data and data.Relics and data.Relics[key]) then return end
-			-- tapping the selected tile again closes the strip, which is the only way to dismiss it
-			selectedKey = (selectedKey == key) and nil or key
-			refresh()
-		end)
+		-- TWO COUNTS, and they are deliberately not added together. The fifteen are the stat layer
+		-- and the two hundred are the collection; one "37/215" would be a number about nothing.
+		local held = GameConfig.CountSetRelicsHeld(data)
+		local doneSets = GameConfig.CountCompletedRelicSets(data)
+		-- "1 sets" -- caught by the capture, not by a probe, which is the whole reason this row
+		-- carries a photograph as its check. Every other count in this subtitle is a ratio and
+		-- reads fine at one; this is the only bare noun in the line.
+		local head = (doneSets > 0)
+			and ("%d/%d  \u{00B7}  %d/%d relics  \u{00B7}  %d %s")
+				:format(ownedCount, #GameConfig.Relics, held, GameConfig.SetRelicTotal,
+					doneSets, doneSets == 1 and "set" or "sets")
+			or ("%d/%d  \u{00B7}  %d/%d relics"):format(ownedCount, #GameConfig.Relics, held, GameConfig.SetRelicTotal)
+		subtitle.Text = (#bits > 0) and ("%s  \u{00B7}  %s"):format(head, table.concat(bits, "  \u{00B7}  "))
+			or head
 	end
 
 	-- ===== HOW THIS PANEL LEARNS THAT SOMETHING CHANGED =====
@@ -760,16 +1014,46 @@ return function(hud)
 	--      in `PlayerDataService.PushToClient`.
 	--   2. the ticker below -- for the ONE thing no push can tell us about, which is a clock.
 	--
-	-- The free-chest caption counts down, and nothing fires while it does. Guarded on
-	-- `panel.Visible`, which is the rule this HUD follows everywhere: refreshing a hidden panel is
-	-- the cost this game already has twenty of, and this one would otherwise re-render fifteen tiles
-	-- once a second forever behind a closed door.
-	hud.refreshRelicsPanel = refresh
+	-- ===== AND WHY THE TICKER NO LONGER REDRAWS THE PANEL =====
+	--
+	-- It used to call the full `refresh` once a second while visible, which was defensible at
+	-- fifteen tiles and is not at 215: the free-chest caption is the only thing on this panel that
+	-- changes without a push, and rewriting every socket, tab and tile to move one countdown is
+	-- ~200 property writes a second to update two characters of text.
+	--
+	-- So the ticker calls `refreshChest` alone, and everything else waits for the data to change.
+	-- The dirty flag is what keeps that honest: a push that arrives while the panel is CLOSED sets
+	-- the flag instead of drawing, and opening the panel spends it. Without that, a player who
+	-- collects three relics with the panel shut opens it onto the state it had when they closed it.
+	local dirty = true
+
+	hud.refreshRelicsPanel = function()
+		if panel.Visible then
+			dirty = false
+			refresh()
+		else
+			dirty = true
+		end
+	end
+
+	panel:GetPropertyChangedSignal("Visible"):Connect(function()
+		if panel.Visible and dirty then
+			dirty = false
+			refresh()
+		end
+	end)
+
+	-- The Forge page is built and shown up front, so the panel opens on exactly what it opened on
+	-- before this row -- the fifteen. The twenty collection pages cost nothing until one is opened.
+	showTab("forge")
 
 	task.spawn(function()
 		while true do
 			task.wait(1)
-			if panel.Visible then refresh() end
+			if panel.Visible then
+				local data = hud.getData and hud.getData()
+				if data and GameConfig.IsRelicForgeUnlocked(data) then refreshChest(data) end
+			end
 		end
 	end)
 end

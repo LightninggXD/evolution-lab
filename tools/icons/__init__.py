@@ -7,3 +7,4 @@ nothing but import it and render whatever turned up. A new set is a new module a
 
 from . import set_currency, set_action, set_item, set_place  # noqa: F401
 from . import set_zone, set_ui  # noqa: F401
+from . import set_relic  # noqa: F401

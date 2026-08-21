@@ -109,6 +109,22 @@ local function defaultData()
 		-- and the Forge had no button that spent one. A wheel segment a player pays Robux for was
 		-- landing in a number nothing could read.
 		RelicChests = 0,
+		-- ===== THE COLLECTION LAYER (30.2) =====
+		-- `SetRelics` is collection-relic KEY -> COPIES, and it is a SEPARATE FIELD from `Relics`
+		-- rather than more rows in it. That separation is the mechanism behind the promise those 200
+		-- relics make -- they are collected and traded, never worn -- because `GetEquippedRelics`
+		-- resolves through `RelicsByKey`, which holds only the fifteen. A collection key cannot pay a
+		-- stat bonus even if something put it in `EquippedRelicKeys`, and `CountOwnedRelics` cannot
+		-- start reporting 215 out of 15.
+		--
+		-- String-keyed and a plain integer count, like `Potions`: a table whose only keys are
+		-- integers is a sparse array and Roblox silently drops those crossing a RemoteEvent.
+		SetRelics = {},
+		-- What a duplicate collection relic becomes, and the second way to level one of the fifteen.
+		-- It exists because of arithmetic rather than generosity: at 200 keys a second copy of any
+		-- ONE key effectively stops arriving, so `CanMergeRelic`'s three-spare-copies rule fires less
+		-- and less often as the collection grows.
+		RelicDust = 0,
 		-- Group and Community status and claim timestamps (5.5)
 		InGroup = false,
 		ClaimedGroupChest = 0,
@@ -501,6 +517,11 @@ function PlayerDataService.Load(player)
 		-- unlike `TutorialDone` below: a player who has never opened a chest owns no relics.
 		if type(data.Relics) ~= "table" then data.Relics = {} end
 		if type(data.EquippedRelicKeys) ~= "table" then data.EquippedRelicKeys = {} end
+		-- ...and the collection layer's table needs its own guard for the same reason: the top-level
+		-- nil-fill above does not descend, so a save written before 30.2 reaches `AddSetRelic` with
+		-- no table at all. `RelicDust` is a scalar and the nil-fill DOES cover it, so it is not
+		-- repaired here -- adding a redundant line would suggest the nil-fill cannot be trusted.
+		if type(data.SetRelics) ~= "table" then data.SetRelics = {} end
 		-- ...and a save that reached stage 10 before relics existed gets the forge on this load
 		-- rather than being asked to climb again for a door that was not there the first time.
 		if (data.StageIndex or 1) >= (GameConfig.RelicUnlockStage or 10) then

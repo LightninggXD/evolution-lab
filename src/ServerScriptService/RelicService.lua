@@ -155,6 +155,40 @@ function RelicService.HandleOpenChest(player, source)
 		equipped = true
 	end
 
+	-- ===== AND THE COLLECTION RELIC (30.2) =====
+	--
+	-- THE FAUCET, and until it existed the whole collection layer was unreachable: 200 keys, a save
+	-- field, twenty panel pages and a set bonus wired into `GetRelicAdd` / `GetRelicMult`, with
+	-- nothing anywhere that could put a single one of them in a save. `CountCompletedRelicSets`
+	-- said so out loud -- "zero for the whole population until a faucet ships".
+	--
+	-- ONE CHEST PAYS BOTH LAYERS, and they do not compete. The equippable above is the stat reward
+	-- and its odds are untouched by this; the collection relic is a second, separate grant off the
+	-- same act. Nothing was taken away from the chest to pay for it.
+	--
+	-- THE ZONE IS WHERE THE PLAYER IS STANDING, and that is the whole progression gate on this
+	-- layer. There is no per-set unlock flag and there does not need to be one: a set only fills
+	-- while its zone is the ground under your feet, so the five Mythics -- the capstones of zones
+	-- 16 to 20 -- are reachable only by a player who has actually got there. It also means a
+	-- diamond chest cannot buy a late-zone relic early, which is the shape 17.6 asked for.
+	--
+	-- `CurrentZone` SURVIVES THE ARENA AND THE EXPEDITION. Only `HandleTeleportRequest` writes it;
+	-- `EnterArena` and the expedition entrance both go through `travel()`, which does not -- so a
+	-- chest opened inside either still pays the zone the player came from. The guard below is for
+	-- a save carrying a zone key that no longer exists in the strip, not for those two.
+	local zoneKey = data.CurrentZone
+	if not GameConfig.RelicSetsByZone[zoneKey] then zoneKey = "Forest" end
+
+	-- PREFERS SOMETHING NOT YET OWNED, tier by tier -- `RollUnownedSetRelic`'s own note explains
+	-- why: a collection wants the next piece, and only hands back a duplicate once the rolled tier
+	-- is complete. Same luck and the same chest bias as the roll above, so a bought chest is
+	-- better on both layers at once rather than only on one.
+	local setRelic = GameConfig.RollUnownedSetRelic(data, zoneKey, luck, bias)
+	local setNew, setDust = false, 0
+	if setRelic then
+		setRelic, setNew, setDust = GameConfig.AddSetRelic(data, setRelic.key, 1)
+	end
+
 	PlayerDataService.PushToClient(player)
 
 	-- AFTER the push, so the toast never arrives before the data that justifies it.
@@ -169,6 +203,29 @@ function RelicService.HandleOpenChest(player, source)
 			and ("%s relic! %s"):format(relic.rarity, relic.name)
 			or ("%s  \u{00B7}  copy %d"):format(relic.name, entry and entry.copies or 1),
 	})
+
+	-- ITS OWN TOAST, ON THE SAME `relic` KIND. Two grants are two events to a player and folding
+	-- them into one line would hide whichever came second. The kind is reused rather than invented
+	-- because MainUI's `relic` branch already does everything this needs -- the big card for a
+	-- first Legendary or Mythic, the toast for everything else, the rarity-pitched sting -- and it
+	-- resolves the key through `GetSetRelic` as well as `RelicsByKey`, so the chip carries the
+	-- form's own drawing in its set's tint. `equipped` is deliberately absent: a collection relic
+	-- has no socket and never will, which is the promise the separate save field enforces.
+	if setRelic then
+		local copies = GameConfig.GetSetRelicCopies(data, setRelic.key)
+		Remotes.Notify:FireClient(player, {
+			kind = "relic",
+			relicKey = setRelic.key,
+			rarity = setRelic.rarity,
+			isNew = setNew,
+			copies = copies,
+			-- the dust is the entire value of a duplicate, so it is said out loud rather than left
+			-- to be discovered as a number that moved on a panel the player may not have open
+			message = setNew
+				and ("%s relic! %s"):format(setRelic.rarity, setRelic.name)
+				or ("%s  \u{00B7}  copy %d  \u{00B7}  +%d Dust"):format(setRelic.name, copies, setDust),
+		})
+	end
 end
 
 -- ===== EQUIP =====
@@ -225,14 +282,19 @@ function RelicService.HandleMerge(player, key)
 	local entry = data.Relics and data.Relics[key]
 	if type(entry) ~= "table" then return end
 
-	local level = entry.level or 1
-	if level >= GameConfig.RelicMaxLevel then
+	-- ONE PLAN, READ ONCE, and the panel greys its button off the same call -- so the button and the
+	-- charge cannot disagree about what a forge costs. 30.2 is what made that matter: a level is now
+	-- payable in two currencies (spare copies, and `RelicDust` standing in for the copies you are
+	-- short), and two implementations of a two-currency price is two chances to charge the wrong one.
+	local plan = GameConfig.GetRelicMergePlan(data, key)
+	local level = plan.level
+	if plan.maxed then
 		refuse(player, ("%s is already Lv.%d!"):format(relic.name, GameConfig.RelicMaxLevel))
 		return
 	end
-	if not GameConfig.CanMergeRelic(data, key) then
-		local need = (1 + GameConfig.RelicMergeCopies) - (entry.copies or 0)
-		refuse(player, ("Need %d more %s to forge!"):format(need, relic.name))
+	if not plan.ok then
+		refuse(player, ("Need %d more Relic Dust to forge %s!"):format(
+			plan.dustNeed - plan.dustHave, relic.name))
 		return
 	end
 
@@ -247,7 +309,16 @@ function RelicService.HandleMerge(player, key)
 	data.DNA -= cost
 	Telemetry.Economy(player, "Sink", Telemetry.Currency.DNA, cost, data.DNA,
 		Telemetry.Tx.Shop, "relicMerge")
-	entry.copies -= GameConfig.RelicMergeCopies
+	-- SPEND WHAT THE PLAN SAID, in the plan's own order: copies first, dust for the shortfall. The
+	-- copy you own is never spent -- `useCopies` is capped at `copies - 1` -- so forging can raise a
+	-- relic's level but can never take the relic itself away.
+	entry.copies -= plan.useCopies
+	-- NOT LOGGED THROUGH `Telemetry.Economy`, deliberately. Its `Currency` enum is DNA / Diamonds /
+	-- Robux, and dust is none of the three -- logging a dust sink as a DNA sink of 0 would put a
+	-- false row in the one funnel the game has. Row 30.8 owns the dust events.
+	if plan.dustNeed > 0 then
+		data.RelicDust = (tonumber(data.RelicDust) or 0) - plan.dustNeed
+	end
 	entry.level = level + 1
 
 	PlayerDataService.PushToClient(player)

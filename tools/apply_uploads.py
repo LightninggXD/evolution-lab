@@ -46,27 +46,100 @@ def names_from(upload_map):
     return out
 
 
-def rewrite_id_table(source, ids):
-    """Replace the body of `local ID = { ... }` with one row per icon, name-sorted and aligned.
-
-    Anchored on the two literal lines rather than parsed: this file is hand-written Lua with
-    comments that matter, and the surgical replacement is the one that cannot damage them.
-    """
+def id_table_span(source):
+    """Where the body of `local ID = { ... }` starts and ends."""
     start = source.index("local ID = {")
     end = source.index("\n}", start) + len("\n}")
-    # `uploaded.json` carries a `_note` explaining the never-re-upload rule, which is a note to
-    # humans and not an icon. Anything not shaped like an asset id is skipped rather than written
-    # into Lua, where it would be a syntax-valid row pointing at prose.
+    return start, end
+
+
+def id_rows_in(source):
+    """Every `name = "rbxassetid://n"` row already in the Lua ID table, name -> id.
+
+    Read out of the LUA rather than out of `uploaded.json`, because the two are deliberately not
+    the same set -- see `patch_id_table`.
+    """
+    start, end = id_table_span(source)
+    body = source[start:end]
+    return dict(re.findall(r'^\t([a-z_0-9]+)\s*=\s*"(rbxassetid://\d+)"', body, re.M))
+
+
+def pinned_rows(source):
+    """Names whose row carries `-- store`, which the ID table uses to mean NOT OUR UPLOAD.
+
+    These are the rows the rebuild silently reversed. A dozen of them have a house PNG on disk and
+    an old house upload recorded in `uploaded.json` under the same name, showing a DIFFERENT
+    PICTURE -- `IconLibrary`'s header says so in as many words: "redrawing one and re-uploading it
+    silently swaps the HUD back to the house look". The marker is the file telling this tool to
+    keep its hands off, so it is read rather than ignored.
+    """
+    start, end = id_table_span(source)
+    body = source[start:end]
+    return set(re.findall(r'^	([a-z_0-9]+)\s*=\s*"rbxassetid://\d+",\s*--\s*store', body, re.M))
+
+
+def patch_id_table(source, ids):
+    """Update the id on rows that exist, append rows that do not, and TOUCH NOTHING ELSE.
+
+    ===== THIS FUNCTION USED TO REBUILD THE TABLE, AND THAT DESTROYED THE FILE =====
+
+    It used to replace the whole body with one row per entry of `uploaded.json`, name-sorted, and
+    its docstring claimed that was "the surgical replacement that cannot damage" the comments. It
+    could not damage the comments and it deleted the DATA, because **`uploaded.json` is the record
+    of our own PNG uploads and the ID table holds much more than those.** Measured 2026-08-21, on
+    one run that was adding ten new icons:
+
+      * **51 rows deleted.** Every `-- store` id -- the seven aura tiers, `dna`, `gift`, `paw`,
+        `potion`, `plus`, `bolt`, `backpack`, `shop`, `upgrade`, `wheel`, `zone`, `book`, `robux`
+        -- and the entire 2026-08-17 Decal batch, which is all fifteen relic foods. None of those
+        has a PNG on disk, so none is in `uploaded.json`, so the rebuild simply did not emit them.
+      * **Seven rows silently repointed at house art.** `dna`, `gift`, `paw`, `potion`, `plus`,
+        `bolt` and `backpack` each have an old house upload recorded in `uploaded.json` AND a store
+        id that this table deliberately overrides it with. Rebuilding reinstated the house PNG,
+        which is exactly the swap `IconLibrary`'s own header warns about.
+      * And it printed **"74 untouched (still on their previous id)"** while doing all of it, which
+        is why the output looked safe. The damage was found only because fifteen relic tiles
+        rendered as holes in a screen capture.
+
+    A row is a line; patching lines is what keeps a hand-written table hand-written.
+    """
+    start, end = id_table_span(source)
+    body = source[start:end]
+    existing = id_rows_in(source)
     rows_in = {k: v for k, v in ids.items()
                if not k.startswith("_") and re.fullmatch(r"rbxassetid://\d+", str(v))}
-    width = max(len(n) for n in rows_in)
-    rows = "\n".join(
-        '\t%-*s = "%s",' % (width, name, rows_in[name]) for name in sorted(rows_in)
-    )
-    return source[:start] + "local ID = {\n" + rows + "\n}" + source[end:]
+
+    pinned = pinned_rows(source)
+    changed, added, skipped = [], [], []
+    for name in sorted(rows_in):
+        want = rows_in[name]
+        if existing.get(name) == want:
+            continue
+        if name in pinned:
+            # a `-- store` row is never ours to move, however new the upload is
+            skipped.append((name, existing[name], want))
+            continue
+        if name in existing:
+            # replace ONLY the id inside that one row, so its alignment and any trailing comment
+            # survive -- `-- store` is load-bearing documentation on a dozen of these
+            pattern = r'(^\t%s\s*=\s*")rbxassetid://\d+(")' % re.escape(name)
+            body, n = re.subn(pattern, lambda m: m.group(1) + want + m.group(2), body,
+                              count=1, flags=re.M)
+            if n == 1:
+                changed.append((name, existing[name], want))
+        else:
+            added.append((name, want))
+
+    if added:
+        width = max(len(n) for n, _ in added)
+        block = "\n".join('\t%-*s = "%s",' % (width, n, v) for n, v in sorted(added))
+        # in front of the closing brace, which is where a hand-added row would go
+        body = body[: -len("\n}")] + "\n\n" + block + "\n}"
+
+    return source[:start] + body + source[end:], changed, added, skipped
 
 
-def audit_reachability(source, ids):
+def audit_reachability(source, _ids):
     """Cross-check the two halves of IconLibrary: `BY_EMOJI` names an icon, `ID` gives it an id.
 
     Both directions are real faults and neither raises an error at runtime:
@@ -77,6 +150,9 @@ def audit_reachability(source, ids):
     """
     body = source[source.index("local BY_EMOJI = {"):source.index("\n}", source.index("local BY_EMOJI = {"))]
     referenced = set(re.findall(r'\]\s*=\s*"([a-z_]+)"', body))
+    # AGAINST THE LUA TABLE, not against `uploaded.json` -- the table is what the game reads and it
+    # holds store and Decal ids that file has never heard of.
+    ids = id_rows_in(source)
     missing = sorted(referenced - set(ids))
     orphan = sorted(set(ids) - referenced)
     if missing:
@@ -118,7 +194,23 @@ def main():
 
     with open(LIBRARY, encoding="utf-8") as f:
         lua = f.read()
-    new_lua = rewrite_id_table(lua, record)
+    before_rows = id_rows_in(lua)
+    new_lua, changed, added, skipped = patch_id_table(lua, record)
+    after_rows = id_rows_in(new_lua)
+
+    # WHAT THE TABLE ITSELF IS ABOUT TO DO, which is a different report from what was uploaded. The
+    # old version printed only the latter, and that is how a run which deleted 51 rows read clean.
+    print("")
+    print("IconLibrary ID table: %d rows -> %d rows" % (len(before_rows), len(after_rows)))
+    for name, old_id, new_id in changed:
+        print("  REPOINT %-14s %s -> %s" % (name, old_id, new_id))
+    for name, new_id in added:
+        print("  ADD     %-14s %s" % (name, new_id))
+    for name, old_id, new_id in skipped:
+        print("  PINNED  %-14s kept %s (would have been %s)" % (name, old_id, new_id))
+    lost = sorted(set(before_rows) - set(after_rows))
+    if lost:
+        raise SystemExit("REFUSING: this would delete %d ID rows: %s" % (len(lost), ", ".join(lost)))
 
     if check:
         print("\n--check: nothing written")

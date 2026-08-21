@@ -4743,7 +4743,14 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		-- handler's own function, which has registers to spare, and `IconLibrary` is reached through a
 		-- require expression rather than a hoisted module reference for the same reason `UITheme`
 		-- re-exports `HasIcon`.
+		-- TWO TABLES, ONE BRANCH (30.2). The chest now pays a collection relic beside the equippable
+		-- and fires the same kind for it, so the key can name either layer. `RelicsByKey` holds the
+		-- fifteen worn ones and `GetSetRelic` the two hundred collected ones; the keyspaces cannot
+		-- collide (`relic_<zone>_<form>` is generated, the fifteen are hand-authored) so the order
+		-- of the two lookups is not load-bearing. Everything downstream reads `.name`, `.rarity`
+		-- and `.icon`, which both shapes carry.
 		local relic = GameConfig.RelicsByKey[payload.relicKey or ""]
+			or GameConfig.GetSetRelic(payload.relicKey or "")
 		local rarity = GameConfig.RelicRarityByKey[payload.rarity or ""]
 
 		-- THE SOUND IS ALREADY PLAYING AND THIS IS NOT A SECOND ONE. `SoundLibrary.PlayNotify` ran at
@@ -4825,9 +4832,26 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 			local card = notifFrame:FindFirstChild("Notif" .. tostring(notifFrame:GetAttribute("Seq") or 0))
 			local chip = card and card:FindFirstChild("Chip")
 			local slot = chip and chip:FindFirstChild("Icon")
+			--
+			-- THE FALLBACK IS PART OF THIS AND NOT A FOLLOW-UP (30.2). The ten collection forms are
+			-- ten fresh names in `IconLibrary.Id`, and an unmapped name answers nil here -- which on
+			-- this path is not a hole (the orb is already drawn and simply stays) but IS a hole in
+			-- `RelicsPanel`, which is why `RelicSetFallbackIcon` exists. Resolved through it here
+			-- too, so the toast and the tile can never disagree about what a relic looks like.
 			local art = relic and require(RS.Modules.IconLibrary).Id[relic.icon]
+			if relic and not art and relic.collection then
+				art = require(RS.Modules.IconLibrary).Id[GameConfig.RelicSetFallbackIcon]
+			end
 			if art and slot and slot:IsA("ImageLabel") then
 				slot.Image = art
+				-- AND THE TINT, WHICH IS THE ONLY THING SAYING WHICH ZONE IT CAME FROM. Ten drawings
+				-- cover two hundred relics: the picture is the rarity and `ImageColor3` is the set.
+				-- Written only when the relic carries one -- the fifteen equippables have their own
+				-- coloured art and multiplying it by anything would give mud, which is the same
+				-- reason the ten collection forms are drawn nearly white.
+				if relic.tint then
+					slot.ImageColor3 = relic.tint
+				end
 			end
 		end
 	elseif payload.kind == "error" then
