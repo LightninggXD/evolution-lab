@@ -1,5 +1,5 @@
 --[[
-	MinigameUI -- the arcade panel and the four games inside it (Phase 28).
+	MinigameUI -- the arcade panel and the five games inside it (Phase 28; the fifth is 29.8).
 
 	=========================================================================================
 	WHY THIS IS ITS OWN LOCALSCRIPT AND NOT A BLOCK IN MainUI
@@ -18,13 +18,13 @@
 	which is the whole reason that function takes `data` rather than living in MinigameService.
 
 	=========================================================================================
-	ONE SHELL, FOUR GAMES, ONE CLEANUP PATH
+	ONE SHELL, FIVE GAMES, ONE CLEANUP PATH
 	=========================================================================================
 	Every game is a function that fills `board` and registers whatever it made through `ctx.bind`.
 	The shell owns the clock, the score, the timer bar and the teardown, so a game is only its own
 	rules -- and, more importantly, there is exactly ONE place that disconnects things. A minigame
 	that leaks a Heartbeat is a client that gets slower every time it is played, and it would leak
-	four different ways if each game tore itself down.
+	five different ways if each game tore itself down.
 
 	`stopRun` runs whether the run ended, timed out, or the panel was closed under it, for the
 	reason SplicerUI's `finishReveal` exists: state left behind by a game nobody finished is a
@@ -36,6 +36,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 
@@ -104,7 +105,7 @@ local function build()
 		name = "MinigamePanel",
 		title = "\u{1F3AE} Arcade",
 		size = UDim2.new(0, 640, 0, 540),
-		-- A dark inner board rather than the shops' panel blue: three of the four games are bright
+		-- A dark inner board rather than the shops' panel blue: four of the five games are bright
 		-- objects moving on a field, and they read as objects only if the field is quiet.
 		accent = Color3.fromRGB(32, 28, 48),
 	})
@@ -701,6 +702,386 @@ games.Containment = function(ctx)
 			end
 		end
 	end
+end
+
+-- ---- Strand Splice (Animal Jam Classic: "Overflow") ----------------------
+--
+-- The only PUZZLE of the five: a cut strand lies across a grid as couplers, each tap turns one a
+-- quarter turn, and the strand is spliced when a run of joined ends reaches the receptor. Solving
+-- one board immediately deals a bigger one, so the game is scored per strand -- see the long note
+-- on `gridSteps` in `GameConfig.Minigames` for why the difficulty is in the board and not the
+-- clock. It is also the only game here with no `ctx.onTick`: nothing moves on its own.
+--
+-- THREE THINGS ARE WORTH KNOWING BEFORE EDITING IT.
+--
+-- 1. A TILE IS ITS OPENINGS ROTATED, NEVER A NAMED SHAPE. There is no "elbow" or "tee" branch
+--    below the generator: a tile carries a four-slot `base` array of open sides plus a `turns`
+--    count, and `openAt` reads the base back through the turns. That is what makes cutting the
+--    solution one line -- the path says which two sides a tile must have open and that set IS the
+--    base -- where a shape vocabulary would need a name, a rotation table and a match function for
+--    every shape, all of which can disagree with the drawing.
+-- 2. THE PIPE IS ROTATED AND THE BUTTON IS NOT. `Rotation` on a GUI pivots on the CENTRE, which is
+--    exactly right for a square tile, but `AbsolutePosition` is reported PRE-rotation and a
+--    rotated button is a hit box nobody can reason about. So the TextButton stays axis-aligned and
+--    an inert Frame inside it carries the arms and the quarter turn.
+-- 3. THE BOARD IS SOLVABLE BY CONSTRUCTION, AND ITS LENGTH IS BOUNDED ON PURPOSE. The path is laid
+--    first as a staircase that only ever steps east, or vertically inside one column, and the
+--    couplers on it are cut to fit; everything else on the grid is decoration. A random walk would
+--    also be solvable, but its length is unbounded -- a sixteen-cell snake through a 6x4 is not a
+--    six-second board -- and a puzzle whose difficulty cannot be bounded cannot be scored per
+--    solve, which is the whole payout design.
+games.Splice = function(ctx)
+	local kind = ctx.kind
+
+	-- 1 = north, 2 = east, 3 = south, 4 = west, clockwise -- so one quarter turn is +1 and the
+	-- whole rotation problem is arithmetic modulo 4.
+	local STEP = { { -1, 0 }, { 0, 1 }, { 1, 0 }, { 0, -1 } }
+	local OPPOSITE = { 3, 4, 1, 2 }
+
+	local DEAD_PIPE = Color3.fromRGB(98, 94, 136)
+	local LIVE_PIPE = Color3.fromRGB(130, 250, 200)
+	local FLASH_PIPE = Color3.fromRGB(255, 255, 255)
+	local DEAD_TILE = Color3.fromRGB(46, 42, 72)
+	local LIVE_TILE = Color3.fromRGB(32, 68, 76)
+	local NODE_TILE = Color3.fromRGB(58, 46, 92)
+	-- THE TWO NODES ARE PAINTED GOLD AND ARE NOT PART OF THE FLOW COLOURING, AND A CAPTURE IS WHY.
+	-- Photographed at the authored colours the receptor read as a plain plate with no coupling on
+	-- it at all: its stub is 66 px of a 132 px tile and the glyph, centred at 0.66 of the tile,
+	-- covered 44 of them -- so 22 px of DEAD_PIPE (98,94,136) was left showing against a node plate
+	-- of (64,52,98), which is nothing a player can see. The source got away with it only because it
+	-- is live by definition and was therefore drawn in mint. Two changes, and the glyph shrank to
+	-- 0.54 as well: a node now says which side it accepts from, at rest, before anything is joined.
+	local NODE_PIPE = Color3.fromRGB(255, 206, 110)
+	local TURN_TWEEN = TweenInfo.new(0.13, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+	-- Everything a board makes hangs under one holder, so dealing the next board is one
+	-- `ClearAllChildren` rather than a second teardown path competing with the shell's.
+	local holder = Instance.new("Frame")
+	holder.Name = "SpliceHolder"
+	holder.BackgroundTransparency = 1
+	holder.AnchorPoint = Vector2.new(0.5, 0.5)
+	holder.Position = UDim2.new(0.5, 0, 0.5, 0)
+	holder.Size = UDim2.new(1, -20, 1, -10)
+	holder.ZIndex = ctx.ZB + 2
+	holder.Parent = ctx.board
+	ctx.bind(holder)
+
+	local solved = 0
+	local frozen = false
+	local buildBoard = nil
+
+	local function openAt(tile, dir)
+		return tile.base[((dir - 1 - tile.turns) % 4) + 1] and true or false
+	end
+
+	-- A coupler that is not on the path. Two thirds of them are pieces that could plausibly be on
+	-- it; the tees are what stop a player solving the board by looking for the only shape that fits.
+	local function decoyShape()
+		local roll = ctx.rng:NextNumber()
+		local a = ctx.rng:NextInteger(1, 4)
+		local set = { false, false, false, false }
+		set[a] = true
+		if roll < 0.30 then
+			set[OPPOSITE[a]] = true                 -- straight
+		elseif roll < 0.75 then
+			set[(a % 4) + 1] = true                 -- elbow
+		else
+			set[(a % 4) + 1] = true                 -- tee
+			set[((a + 1) % 4) + 1] = true
+		end
+		return set
+	end
+
+	buildBoard = function(attempt)
+		holder:ClearAllChildren()
+		frozen = false
+
+		local step = kind.gridSteps[math.min(solved + 1, #kind.gridSteps)]
+		local cols, rows = step[1], step[2]
+		ctx.setExtra(("%d spliced  \u{2022}  %d x %d"):format(solved, cols - 2, rows))
+
+		-- The grid is sized by an ASPECT CONSTRAINT rather than off `AbsoluteSize`. The board frame
+		-- is not square and its measured size is not trustworthy on the first frame anyway -- this
+		-- panel is opened AFTER `startRun` on the expedition path, so a layout read here can be one
+		-- frame stale. The constraint is the engine's own answer and it makes every cell square.
+		local grid = Instance.new("Frame")
+		grid.Name = "Grid"
+		grid.BackgroundTransparency = 1
+		grid.AnchorPoint = Vector2.new(0.5, 0.5)
+		grid.Position = UDim2.new(0.5, 0, 0.5, 0)
+		grid.Size = UDim2.new(1, 0, 1, 0)
+		grid.ZIndex = ctx.ZB + 2
+		local ratio = Instance.new("UIAspectRatioConstraint")
+		ratio.AspectRatio = cols / rows
+		ratio.AspectType = Enum.AspectType.FitWithinMaxSize
+		ratio.Parent = grid
+		grid.Parent = holder
+
+		-- ===== THE SOLUTION IS LAID BEFORE ANYTHING IS DRAWN =====
+		-- Column 1 holds the source and column `cols` the receptor, so the staircase runs through
+		-- the interior columns only and both nodes are reached along the one axis they open on.
+		local srcRow = ctx.rng:NextInteger(1, rows)
+		local dstRow = ctx.rng:NextInteger(1, rows)
+		local path = { { r = srcRow, c = 1 } }
+		local row = srcRow
+		for c = 2, cols - 1 do
+			table.insert(path, { r = row, c = c })
+			local target = (c == cols - 1) and dstRow or ctx.rng:NextInteger(1, rows)
+			local towards = (target > row) and 1 or -1
+			while row ~= target do
+				row += towards
+				table.insert(path, { r = row, c = c })
+			end
+		end
+		table.insert(path, { r = dstRow, c = cols })
+
+		local function cellKey(r, c) return r .. "," .. c end
+		local function dirBetween(a, b)
+			if b.r < a.r then return 1 end
+			if b.c > a.c then return 2 end
+			if b.r > a.r then return 3 end
+			return 4
+		end
+
+		local wanted = {}
+		for i, cell in ipairs(path) do
+			local set = { false, false, false, false }
+			if path[i - 1] then set[dirBetween(cell, path[i - 1])] = true end
+			if path[i + 1] then set[dirBetween(cell, path[i + 1])] = true end
+			wanted[cellKey(cell.r, cell.c)] = set
+		end
+
+		-- ===== THE TILES =====
+		local tiles = {}
+		local refresh = nil
+		local onSpliced = nil
+		local cw = 1 / cols
+		local ch = 1 / rows
+
+		for r = 1, rows do
+			tiles[r] = {}
+			for c = 1, cols do
+				local isSource = (r == srcRow and c == 1)
+				local isReceptor = (r == dstRow and c == cols)
+				local fixed = isSource or isReceptor
+				local solution = wanted[cellKey(r, c)]
+
+				-- Nothing stands in the source or the receptor column except the node itself. The
+				-- board then reads the way the fiction does -- strand on the left, receptor on the
+				-- right, couplers in between -- and it is a dozen fewer instances a board.
+				local skip = (c == 1 or c == cols) and not fixed
+				if not skip then
+					local base = nil
+					local turns = nil
+					if fixed then
+						base = { false, false, false, false }
+						base[isSource and 2 or 4] = true
+						turns = 0
+					elseif solution then
+						-- The solution set IS the base, so the tile is correct at every turn count
+						-- that is a multiple of four. It starts at 1, 2 or 3 so no coupler on the
+						-- path is handed to the player already right.
+						base = solution
+						turns = ctx.rng:NextInteger(1, 3)
+					else
+						base = decoyShape()
+						turns = ctx.rng:NextInteger(0, 3)
+					end
+
+					local tile = { r = r, c = c, base = base, turns = turns, fixed = fixed,
+						live = false, arms = {} }
+					tiles[r][c] = tile
+
+					local button = Instance.new("TextButton")
+					button.Name = ("Tile%d_%d"):format(r, c)
+					button.Text = ""
+					button.AutoButtonColor = false
+					button.BorderSizePixel = 0
+					button.BackgroundColor3 = fixed and NODE_TILE or DEAD_TILE
+					button.Size = UDim2.new(cw, -8, ch, -8)
+					button.Position = UDim2.new((c - 1) * cw, 4, (r - 1) * ch, 4)
+					button.ZIndex = ctx.ZB + 3
+					button.Active = not fixed
+					button.Parent = grid
+					tile.button = button
+
+					local corner = Instance.new("UICorner")
+					corner.CornerRadius = UDim.new(0, 12)
+					corner.Parent = button
+
+					local pipe = Instance.new("Frame")
+					pipe.Name = "Pipe"
+					pipe.BackgroundTransparency = 1
+					pipe.Size = UDim2.new(1, 0, 1, 0)
+					pipe.Rotation = turns * 90
+					pipe.ZIndex = ctx.ZB + 4
+					pipe.Parent = button
+					tile.pipe = pipe
+
+					for dir = 1, 4 do
+						if base[dir] then
+							local a = Instance.new("Frame")
+							a.Name = "Arm" .. dir
+							a.BorderSizePixel = 0
+							a.BackgroundColor3 = fixed and NODE_PIPE or DEAD_PIPE
+							a.ZIndex = ctx.ZB + 5
+							if dir == 1 then
+								a.AnchorPoint = Vector2.new(0.5, 0)
+								a.Position = UDim2.new(0.5, 0, 0, 0)
+								a.Size = UDim2.new(0.26, 0, 0.5, 0)
+							elseif dir == 3 then
+								a.AnchorPoint = Vector2.new(0.5, 1)
+								a.Position = UDim2.new(0.5, 0, 1, 0)
+								a.Size = UDim2.new(0.26, 0, 0.5, 0)
+							elseif dir == 2 then
+								a.AnchorPoint = Vector2.new(1, 0.5)
+								a.Position = UDim2.new(1, 0, 0.5, 0)
+								a.Size = UDim2.new(0.5, 0, 0.26, 0)
+							else
+								a.AnchorPoint = Vector2.new(0, 0.5)
+								a.Position = UDim2.new(0, 0, 0.5, 0)
+								a.Size = UDim2.new(0.5, 0, 0.26, 0)
+							end
+							a.Parent = pipe
+							table.insert(tile.arms, a)
+						end
+					end
+
+					local hub = Instance.new("Frame")
+					hub.Name = "Hub"
+					hub.BorderSizePixel = 0
+					hub.BackgroundColor3 = fixed and NODE_PIPE or DEAD_PIPE
+					hub.AnchorPoint = Vector2.new(0.5, 0.5)
+					hub.Position = UDim2.new(0.5, 0, 0.5, 0)
+					hub.Size = UDim2.new(0.34, 0, 0.34, 0)
+					hub.ZIndex = ctx.ZB + 6
+					hub.Parent = pipe
+					local hubCorner = Instance.new("UICorner")
+					hubCorner.CornerRadius = UDim.new(1, 0)
+					hubCorner.Parent = hub
+					table.insert(tile.arms, hub)
+
+					if fixed then
+						-- Parented to the BUTTON, not to the pipe, so it can never inherit a turn.
+						-- Both glyphs are U+1F300 and above, the range 27.7 and 29.10 established
+						-- as the safe one -- a miss below it draws nothing and reports nothing.
+						local mark = Instance.new("TextLabel")
+						mark.Name = "Mark"
+						mark.BackgroundTransparency = 1
+						mark.AnchorPoint = Vector2.new(0.5, 0.5)
+						mark.Position = UDim2.new(0.5, 0, 0.5, 0)
+						mark.Size = UDim2.new(0.54, 0, 0.54, 0)
+						mark.Font = UITheme.Font.Display
+						mark.Text = isSource and "\u{1F9EC}" or "\u{1F9EA}"
+						mark.TextScaled = true
+						mark.ZIndex = ctx.ZB + 7
+						mark.Parent = button
+					else
+						-- Bound even though `Destroy` disconnects an instance's own events: this
+						-- game destroys and rebuilds its board several times inside one run, and
+						-- the rule the shell is built on is that the game registers what it makes.
+						-- A guard that depends on the engine's cleanup order is a guard nobody can
+						-- check by reading this file.
+						ctx.bind(button.Activated:Connect(function()
+							if frozen or not holder.Parent then return end
+							tile.turns += 1
+							TweenService:Create(pipe, TURN_TWEEN,
+								{ Rotation = tile.turns * 90 }):Play()
+							SoundLibrary.PlayLocal("click")
+							if refresh() then
+								onSpliced()
+							end
+						end))
+					end
+				end
+			end
+		end
+
+		-- Floods from the source and repaints in one pass, and RETURNS whether the receptor was
+		-- reached -- so "is it solved" and "what colour is everything" can never disagree.
+		refresh = function()
+			for r = 1, rows do
+				for c = 1, cols do
+					local tile = tiles[r][c]
+					if tile then tile.live = false end
+				end
+			end
+
+			local source = tiles[srcRow][1]
+			source.live = true
+			local queue = { source }
+			local head = 1
+			while head <= #queue do
+				local tile = queue[head]
+				head += 1
+				for dir = 1, 4 do
+					if openAt(tile, dir) then
+						local nr = tile.r + STEP[dir][1]
+						local nc = tile.c + STEP[dir][2]
+						local other = tiles[nr] and tiles[nr][nc]
+						if other and not other.live and openAt(other, OPPOSITE[dir]) then
+							other.live = true
+							table.insert(queue, other)
+						end
+					end
+				end
+			end
+
+			for r = 1, rows do
+				for c = 1, cols do
+					local tile = tiles[r][c]
+					if tile then
+						local colour = tile.fixed and NODE_PIPE
+							or (tile.live and LIVE_PIPE or DEAD_PIPE)
+						for _, piece in ipairs(tile.arms) do
+							piece.BackgroundColor3 = colour
+						end
+						if not tile.fixed then
+							tile.button.BackgroundColor3 = tile.live and LIVE_TILE or DEAD_TILE
+						end
+					end
+				end
+			end
+			return tiles[dstRow][cols].live
+		end
+
+		onSpliced = function()
+			if frozen then return end
+			frozen = true
+			solved += 1
+			ctx.add(kind.splicePoints)
+			ctx.setExtra("\u{1F9EC}  SPLICED!")
+			SoundLibrary.PlayLocal("collect")
+
+			for r = 1, rows do
+				for c = 1, cols do
+					local tile = tiles[r][c]
+					if tile and tile.live then
+						for _, piece in ipairs(tile.arms) do
+							piece.BackgroundColor3 = FLASH_PIPE
+						end
+					end
+				end
+			end
+
+			task.delay(0.55, function()
+				-- The run can end inside this delay three ways -- the clock, the panel closing, a
+				-- zone transition -- and all three destroy the holder. That is the check.
+				if not holder.Parent then return end
+				buildBoard(1)
+			end)
+		end
+
+		-- A board can come out already spliced: a path with no vertical steps is all straights, and
+		-- a straight is symmetric, so a starting turn of 2 leaves it correct. Rare (~1%), harmless
+		-- if it ever survives four deals -- the first tap breaks the line and putting it back pays
+		-- the splice -- but a board the player did not solve should not be on screen.
+		if refresh() and attempt < 4 then
+			return buildBoard(attempt + 1)
+		end
+	end
+
+	buildBoard(1)
 end
 
 -- ============================================================================

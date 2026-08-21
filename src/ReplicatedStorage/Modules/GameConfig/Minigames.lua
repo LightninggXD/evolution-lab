@@ -1,4 +1,4 @@
--- GameConfig.Minigames -- the four arcade games, what they pay, and how often they may be played.
+-- GameConfig.Minigames -- the five arcade games, what they pay, and how often they may be played.
 --
 -- ONE OF THE PARTS OF `GameConfig` (18.9). It is handed the shared config table and writes into it;
 -- see the loader in `GameConfig` itself for why the order of the parts is load-bearing. This one is
@@ -6,7 +6,7 @@
 -- `GameConfig.ScaleReward` at call time.
 --
 -- =====================================================================================
--- WHY FOUR SCREEN GAMES AND NOT FOUR WORLD ARENAS (28.1, owner's steer)
+-- WHY SCREEN GAMES AND NOT WORLD ARENAS (28.1, owner's steer)
 -- =====================================================================================
 -- The first design was world-based -- collect orbs in the zone, survive a collapsing floor. Both
 -- die on the same measurement: the player body is `BodyScale 5` at stage 20, a 45 x 42 x 35 stud
@@ -16,15 +16,22 @@
 -- normalisation (a teleport, a costume rebuild and a restore path, all of it fragile).
 --
 -- The owner's steer was Animal Jam Classic, and the whole AJ Classic arcade is 2D SCREEN games.
--- A screen game does not care how big the body is. That single property is why all four of these
+-- A screen game does not care how big the body is. That single property is why all five of these
 -- are drawn in a `ScreenGui` and why none of them needed a stud of new world geometry beyond the
 -- terminal that opens them.
 --
 -- Each is a direct lift of an AJ Classic game, reskinned to the lab:
---   Double Up      -> DNA Match     (memory pairs)
---   Spider Zapper  -> Phantom Purge (tap the targets before they split)
---   Super Sort     -> Sample Sort   (route falling samples into the right beaker)
---   Falling Phantoms -> Containment (slide a dish, dodge what falls)
+--   Double Up        -> DNA Match     (memory pairs)
+--   Spider Zapper    -> Phantom Purge (tap the targets before they split)
+--   Super Sort       -> Sample Sort   (route falling samples into the right beaker)
+--   Falling Phantoms -> Containment   (slide a dish, dodge what falls)
+--   Overflow         -> Strand Splice (turn the couplers until the strand runs end to end)
+--
+-- FOUR OF THE FIVE ARE REFLEX TESTS, AND THAT IS WHY THE FIFTH EXISTS (29.8). An arcade whose
+-- every cabinet rewards the same skill is one cabinet built five times. Strand Splice is the only
+-- one that can be played slowly and still won, so it is the only route through the arcade for a
+-- player who is bad at the other four -- and it is scored per solved strand rather than per event,
+-- which is what its whole config row below is bent around.
 --
 -- =====================================================================================
 -- WHAT A GAME PAYS, AND WHY IT IS AUTHORED IN STAGE-1 CLICKS
@@ -64,7 +71,7 @@ GameConfig.MinigameDailyPlays = 12
 -- Diamonds a player may earn from minigames in one UTC day, however many par runs they post.
 GameConfig.MinigameDailyDiamonds = 3
 
--- ===== THE FOUR GAMES =====
+-- ===== THE FIVE GAMES =====
 --
 -- `seconds` is the clock the client counts down and the server bills against. `minSeconds` is the
 -- floor an honest run cannot come in under and is the cheap half of the anti-cheat (see
@@ -150,6 +157,46 @@ GameConfig.MinigameKinds = {
 		par = 760,
 		payoutClicks = 900,
 	},
+	{
+		key = "Splice",
+		name = "Strand Splice",
+		-- Petri dish, U+1F9EB. Chosen from U+1F300 and up like every glyph in
+		-- `GameConfig.Expeditions`, for the reason 27.7 and 29.10 both give: the risky range is
+		-- U+2600-27BF, where a font miss draws NOTHING and `.Text`, `.TextColor3` and `.TextFits`
+		-- all still read correct. It is also distinct from the two glyphs the board itself uses
+		-- (DNA at the source, test tube at the receptor), so a terminal sign cannot be mistaken
+		-- for a tile.
+		emoji = "\u{1F9EB}",
+		blurb = "The strand has been cut into couplers. Turn them until it runs from the source to the receptor.",
+		howTo = "Tap a coupler to turn it a quarter turn. Light the whole line.",
+		seconds = 50,
+		minSeconds = 10,
+		-- ===== THE ONE PUZZLE OF THE FIVE, AND WHY IT IS SCORED PER STRAND =====
+		-- The other four are reflex tests scored per event, so their scores climb smoothly and a
+		-- bad run still lands somewhere. A puzzle pays nothing at all until it is solved, which
+		-- makes the score COARSE -- one splice or four, never 3.4 -- and that one property decides
+		-- every number in this row.
+		--
+		-- It is why the clock is the longest of the five (50 s against 40-60): at 160 a splice, a
+		-- board that takes one beat too long is 12% of the payout gone, and the extra clock is what
+		-- buys a slow player a second board. And it is why the BOARD grows instead of the clock
+		-- shrinking, which is how the other four scale: taking time away from a puzzle makes it
+		-- unsolvable rather than harder, so a fast player is answered with more grid instead.
+		--
+		-- `gridSteps` is that ladder, `{columns, rows}`, one entry per strand already spliced, the
+		-- last entry repeating for the rest of the run. The first and last COLUMN are the source
+		-- and the receptor rather than couplers, so `{4, 3}` is a two-column puzzle and `{6, 4}` a
+		-- four-column one -- the ladder is shorter than it reads.
+		gridSteps = { {4, 3}, {5, 3}, {5, 4}, {6, 4} },
+		splicePoints = 160,
+		-- Par is 4 splices (~12 s a board) and the ceiling is 8 (~6 s a board once the grid is at
+		-- full size). The 2.03 ratio between them is deliberately the same shape as Sample Sort's
+		-- (1.93) and Containment's (1.97), so `GetMinigameReward`'s par-to-perfect half of the
+		-- payout is worth chasing here by the same amount it is worth chasing there.
+		maxScore = 1300,
+		par = 640,
+		payoutClicks = 900,
+	},
 }
 
 GameConfig.MinigameKindsByKey = {}
@@ -159,31 +206,47 @@ end
 
 -- ===== WHICH GAME STANDS IN WHICH ZONE =====
 --
--- The four cycle across the twenty zones, and the cycle is OFFSET rather than in order: a player
--- walking the strip meets all four inside the first four zones, and no two adjacent zones ever run
--- the same game. Written out by zone key rather than computed with a modulo so a zone can be
--- re-themed later without anybody having to work out what `(i - 1) % 4` was protecting.
+-- The five cycle across the twenty zones, and twenty divides by five exactly: FOUR BLOCKS OF FIVE,
+-- each block a different permutation of the same five games. Two properties are what the
+-- permutations buy, and both are checked by the tripwire at the bottom of this file rather than by
+-- eye:
+--
+--   * A player walking out of Forest meets all five inside the first five zones, so the arcade is
+--     fully introduced before the second block starts repeating it.
+--   * No two ADJACENT zones ever run the same game -- INCLUDING ACROSS A BLOCK BOUNDARY, which is
+--     the join a plain repeated cycle gets right by accident and a shuffled one gets wrong. Each
+--     block's last game is different from the next block's first.
+--
+-- Every game therefore stands in exactly four zones, and the order a player meets them in is
+-- different on each pass down the strip.
+--
+-- Written out by zone key rather than computed with a modulo, for the reason it always was: a zone
+-- can be re-themed later without anybody having to work out what `(i - 1) % 5` was protecting.
 GameConfig.MinigameByZone = {
+	-- block 1
 	Forest          = "Match",
 	Desert          = "Purge",
 	Ocean           = "Sort",
 	Volcano         = "Containment",
-	Moon            = "Match",
+	Moon            = "Splice",
+	-- block 2
 	Mars            = "Purge",
-	Galaxy          = "Sort",
-	BlackHole       = "Containment",
-	Multiverse      = "Match",
-	Nebula          = "Purge",
-	Wormhole        = "Sort",
-	QuantumRealm    = "Containment",
-	TimeRift        = "Match",
-	AntimatterZone  = "Purge",
-	DreamDimension  = "Sort",
-	MirrorUniverse  = "Containment",
-	VoidExpanse     = "Match",
-	CelestialThrone = "Purge",
-	Singularity     = "Sort",
-	AbsolutePlane   = "Containment",
+	Galaxy          = "Splice",
+	BlackHole       = "Match",
+	Multiverse      = "Sort",
+	Nebula          = "Containment",
+	-- block 3
+	Wormhole        = "Splice",
+	QuantumRealm    = "Sort",
+	TimeRift        = "Purge",
+	AntimatterZone  = "Containment",
+	DreamDimension  = "Match",
+	-- block 4
+	MirrorUniverse  = "Sort",
+	VoidExpanse     = "Containment",
+	CelestialThrone = "Splice",
+	Singularity     = "Match",
+	AbsolutePlane   = "Purge",
 }
 
 -- The game standing in a zone, or nil if that zone has none. Returns the KIND table itself, so
@@ -327,16 +390,29 @@ function GameConfig.GetMinigameReward(kind, score, data)
 	}
 end
 
--- ===== A ZONE WITHOUT A GAME IS A BUG, AND IT SAYS SO AT LOAD =====
+-- ===== A ZONE WITHOUT A GAME IS A BUG, AND SO IS TWO IN A ROW WITH THE SAME ONE =====
 --
 -- The map above is written out by hand precisely so a zone can be re-themed, and the cost of that
--- choice is that adding a twenty-first zone silently leaves it with a dark terminal. This is the
--- tripwire: it runs once, at load, costs twenty table lookups, and names the zone.
+-- choice is that hand-editing it can break either of the two properties it claims to have. This is
+-- the tripwire for both. It runs once, at load, costs forty table lookups, and names the zones
+-- rather than saying the map is wrong.
+--
+-- The second check is the one 29.8 added, and it earns its place because an adjacent collision is
+-- INVISIBLE unless somebody walks the strip in order: nothing errors, both terminals build, both
+-- pay, and the only symptom is the same cabinet twice in a row halfway down the map. The map was
+-- re-derived by hand for a fifth game in that same edit, which is exactly the kind of change that
+-- produces one.
+local previousZone = nil
 for _, zone in ipairs(GameConfig.Zones) do
-	if not GameConfig.MinigameByZone[zone.key] then
+	local game = GameConfig.MinigameByZone[zone.key]
+	if not game then
 		warn(("[GameConfig.Minigames] zone %q has no minigame -- its terminal will not build")
 			:format(zone.key))
+	elseif previousZone and game == GameConfig.MinigameByZone[previousZone.key] then
+		warn(("[GameConfig.Minigames] zones %q and %q both run %q -- a player walking the strip "
+			.. "meets the same cabinet twice in a row"):format(previousZone.key, zone.key, game))
 	end
+	previousZone = zone
 end
 
 end
