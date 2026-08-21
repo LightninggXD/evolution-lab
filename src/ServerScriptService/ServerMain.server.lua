@@ -37,6 +37,7 @@ local ExpeditionService = require(ServerScriptService.ExpeditionService)
 local AdventureService = require(ServerScriptService.AdventureService)
 local ForestMapService = require(ServerScriptService.ForestMapService)
 local BoardStats = require(ServerScriptService.MapProps.BoardStats)
+local MapCounters = require(ServerScriptService.MapProps.MapCounters)
 local Telemetry = require(ServerScriptService.Telemetry)
 
 -- ===== STREAMING =====
@@ -78,6 +79,12 @@ ZoneBuilder.Build()
 -- It does NOT edit `ZoneBuilder`, deliberately -- that file is two registers from Luau's local cap.
 -- Delete this line and the zone comes back exactly as it was built.
 ForestMapService.Init()
+-- IMMEDIATELY AFTER, AND BEFORE PotionService BELOW (31.6). The map's shop, upgrades, potion and
+-- spin props get their prompts here; the potion one is a `MysteryCost` attribute and PotionService
+-- finds its counters by scanning workspace.Zones ONCE at its own Init. Wire these after that scan
+-- and the pad is a prompt that does nothing, with no error anywhere -- which is exactly the failure
+-- shape 30.17 spent a session on.
+MapCounters.Init("Forest")
 
 -- Before PlayerDataService, and therefore before anyone can join. The three SoundGroups have to
 -- exist on the server so they REPLICATE: every client resolves them by name and sets its own
