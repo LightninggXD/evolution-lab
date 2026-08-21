@@ -578,8 +578,11 @@ local function drawPlate(slotIndex, name, value)
 		for _, b in ipairs(BOARDS) do
 			if b.key == STATUE_BOARD then board = b break end
 		end
+		-- The noun is on the plate, not in the formatter: the map's own rank label is authored as
+		-- "<value> Rebirths" and our podium ranks by DNA, so a bare number under a stranger's old
+		-- caption is worse than no caption at all.
 		MapBoards.SetPodium(slotIndex, name,
-			name and board and formatValue(board, value or 0) or nil)
+			name and board and (formatValue(board, value or 0) .. " DNA") or nil)
 	end
 
 	local label = plateLabels[slotIndex]

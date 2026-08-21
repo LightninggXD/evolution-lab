@@ -358,13 +358,22 @@ local VALLEY_X = 395
 -- platform down each side of it that the map's mountain ring was standing on; clearing the southern
 -- arcs (see `ForestMapService.MAPS.Forest.clear`) hands both pockets to the wood.
 --
--- 800 x 144 at (80, -420) reaches x -320..480 and z -547..-293 at 88%. Two things set those bounds
--- and neither is arbitrary:
---   * the EAST offset of +80 and the west edge at -320 keep the rigs clear of the boss, who moved to
---     (-400, -430) in 31.4 with a ~79-stud arena disc reaching x -440..-360. 40 studs of gap.
---   * the far edge at -547 still clears the exit gate at -575.
+-- `a` AND `b` ARE SEMI-AXES, NOT WIDTHS -- `toGlade` reaches `x +/- a * 0.88`. A first cut at this
+-- read them as full widths, doubled both, and put creatures at x = 748: measured live, 74 rigs
+-- spread x -567..748 with the far ones standing over the void 123 studs past the platform edge.
+-- Nothing errored and nothing logged, because a creature over the void is a creature like any other.
+--
+-- THREE BOUNDS SET THE NUMBERS, AND NONE IS ARBITRARY:
+--   * PLATFORM EDGE at +/-625, so nothing may reach past about +/-590.
+--   * THE BOSS, who moved to (-400, -430) in 31.4 with a ~79-stud arena disc covering x -440..-360.
+--     The east offset of +115 is what buys the gap; the west reach stops at -325, 35 studs clear.
+--   * THE EXIT GATE at z = -575 and the village floor's southern edge at z = -290.
+--
+-- 500 x 144 at (115, -420) reaches x -325..555 and z -547..-293. Against the 500 x 100 at (0, -448)
+-- it replaces that is ~40% more ground and it is all of the width the platform has to give here:
+-- south of the village floor there is no floor edge to respect, only the platform's.
 local MAP_GLADE = {
-	Forest = { x = 80, z = -420, a = 800, b = 144 },
+	Forest = { x = 115, z = -420, a = 500, b = 144 },
 }
 
 -- Normalised by the extent the points above were actually drawn in, then clamped to the unit DISC

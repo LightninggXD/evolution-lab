@@ -114,6 +114,13 @@ function MapBoards.Adopt(zoneKey)
 			local rankLabel = anchor.inst:FindFirstChild("Rank", true)
 			if nameLabel and nameLabel:IsA("TextLabel") then
 				podium[rank] = { name = nameLabel, rank = rankLabel }
+				-- BLANKED ON ADOPTION, for the same reason `Stats` is cleared: the podium arrives
+				-- carrying the free model's demo winners (CV10K, Diablo19812, "252.34Sx Rebirths").
+				-- Measured 2026-08-22 -- they survived a full boot, because `clearStatue` only runs
+				-- for a slot this server has already filled, and on a fresh server it never has. So
+				-- an empty top three read as a real top three naming two strangers.
+				nameLabel.Text = "---"
+				if rankLabel and rankLabel:IsA("TextLabel") then rankLabel.Text = "" end
 			end
 		end
 	end
