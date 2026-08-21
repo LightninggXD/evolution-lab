@@ -345,6 +345,29 @@ local SCALE_PROPS = { "BodyHeightScale", "BodyWidthScale", "BodyDepthScale", "He
 -- off the limbs they hang on, and walk speed already scales with the body.
 local PLAYER_SCALE_BOOST = 1.45
 
+-- ===== THE PLAYER DOES NOT GROW ANY MORE (30.14) =====
+--
+-- Kristina's call, 2026-08-21: *"nemoj da igrac raste, nek bude iste velicine uvek, pa da se uklopi
+-- sve u mapu"* -- the body is one fixed size for the whole game, so a map can be authored around it.
+--
+-- WHY THIS IS ONE CONSTANT AND NOT TWENTY EDITS. `stage.scale` (1.0 -> 5.0 across the twenty stages)
+-- stays exactly as authored in `Evolution.lua`, because those numbers are the SHAPE of the
+-- progression and other things may yet want to read them. What changes is that the BODY stops
+-- listening to them: both the `BodyScale` stamp and the `applyScale` call below take this instead.
+--
+-- AND EVERYTHING DOWNSTREAM IS ALREADY CORRECT, because none of it reads `stage.scale` -- it reads
+-- the `BodyScale` ATTRIBUTE. `CameraFit`, `CombatClient`'s reach, `VipFlair`'s aura, `MainUI`'s
+-- health bar, `applyMastery`'s pace (`GetSizeSpeedMultiplier`) and the costume shells all keep
+-- working untouched; they simply stop being told the number changed. That is the whole reason this
+-- is a two-line change rather than a sweep.
+--
+-- 1.0 IS TODAY'S STAGE-ONE BODY, not a new size. Through `PLAYER_SCALE_BOOST` it is 1.45x a stock
+-- avatar (~8.3 studs), which is what every player already spawns as -- so nothing in the existing
+-- world regresses: every zone, shop, egg stall, arena and obby course is already walkable at it.
+-- Raising it is one number here; the thing to check first is `AdventureMap`'s fixed WALK_SPEED /
+-- JUMP_POWER, which was cut against a body that used to reach 41 studs.
+local FIXED_BODY_SCALE = 1.0
+
 local PROPORTION = {
 	BodyHeightScale = 0.92,
 	BodyWidthScale = 1.22,
@@ -630,13 +653,18 @@ function EvolutionVisuals.ApplyStage(player, stageIndex, opts)
 	character:SetAttribute("StageIndexForHealth", stageIndex)
 	-- Read back by applyMastery (pace scales with the body) and by the client's floating health bar,
 	-- which has to hang above a head that is anywhere from 1 to 9 times its default height.
-	character:SetAttribute("BodyScale", stage.scale)
+	-- FIXED_BODY_SCALE, not `stage.scale` -- see the note over the constant. The attribute is still
+	-- stamped, and still on every spawn and every evolve: half a dozen client scripts wait on it and
+	-- a character that never gets it falls back to 1 and sizes its aura, camera and reach wrong.
+	character:SetAttribute("BodyScale", FIXED_BODY_SCALE)
 
 	local data = PlayerDataService.Get(player)
 	local bonus = data and GameConfig.GetStageMasteryBonus(data)
 	-- same product as applyMastery below -- stage mastery times the worn skin's own rank bonus.
 	-- Both call sites have to agree or the two paths fight over MaxHealth on every respawn.
-	applyScale(character, stage.scale, opts.animate,
+	-- The health multiplier is UNCHANGED and still stage-driven: evolving stops making you bigger,
+	-- it does not stop making you tougher. Only the size argument is frozen.
+	applyScale(character, FIXED_BODY_SCALE, opts.animate,
 		(bonus and bonus.healthMult or 1) * (data and GameConfig.GetCharacterHealthMult(data) or 1))
 	if data then
 		applyMastery(character, data)
