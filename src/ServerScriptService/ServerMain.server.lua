@@ -34,6 +34,7 @@ local HubPlaza = require(ServerScriptService.HubPlaza)
 local TradeService = require(ServerScriptService.TradeService)
 local MinigameService = require(ServerScriptService.MinigameService)
 local ExpeditionService = require(ServerScriptService.ExpeditionService)
+local AdventureService = require(ServerScriptService.AdventureService)
 local Telemetry = require(ServerScriptService.Telemetry)
 
 -- ===== STREAMING =====
@@ -165,6 +166,15 @@ TradeService.Init()
 -- have to run in a fixed order against each other, while a terminal stands beside its own zone's
 -- arrival pad, where none of them ever goes. It reads no other service's state.
 MinigameService.Init()
+-- NO ORDERING CONSTRAINT AT ALL, and that is worth one line because every other world-building
+-- service on this list has one. An adventure course is built on FIRST ENTRY rather than at Init --
+-- twenty obbies is five times the expedition's geometry for a feature most servers never open --
+-- so this call creates an empty `workspace.Adventures` folder and connects one Heartbeat and
+-- nothing else. It is deliberately NOT ahead of `ZoneService.Init` the way `ExpeditionService` is:
+-- that ordering exists so the one-shot `PortalGate` scan finds the expedition's exit gates, and a
+-- lazily built map can never be in that scan whatever order this runs in. `AdventureService` wires
+-- its own gates at build time instead -- see the header of that file.
+AdventureService.Init()
 
 -- Hook evolution -> zone unlock checks + visual update (kept out of DNAService to avoid circular requires)
 DNAService.OnEvolve = function(player, data)

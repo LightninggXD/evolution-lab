@@ -270,6 +270,40 @@ function ZoneService.SendHomeFromExpedition(player)
 	ZoneService.HandleTeleportRequest(player, home, home)
 end
 
+-- ===== ADVENTURES =====
+-- A THIRD PAIR, and the argument against folding all three into one function taking a key is the
+-- same one the expedition pair makes above -- plus one that is specific to this feature. An
+-- adventure course rewrites the player's WalkSpeed and JumpPower (`AdventureMap`'s header: the
+-- geometry is cut against a fixed movement profile, because a stage-one body and a stage-twenty
+-- body cannot both be served by one set of gaps), so the way home is the only moment anybody has to
+-- put the real numbers back. `AdventureService` owns that call; a shared generic teleport would
+-- have to be told which of the three places it was leaving in order to know whether to make it.
+--
+-- `CurrentZone` is deliberately NOT changed, exactly as the arena and the expedition leave it
+-- alone, and the same three behaviours fall out for free -- a disconnect mid-course loads back into
+-- the real zone, `ReturnToCurrentZone` ejects anyone who respawns out there, and nobody loses their
+-- place in the strip by running an obby.
+local ADVENTURE_RETURN_KEY = "ReturnFromAdventure"
+
+function ZoneService.SendToAdventure(player, cframe, label)
+	local data = PlayerDataService.Get(player)
+	local character = player.Character
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	if not (data and hrp) then return false end
+
+	data.AdventureReturnZone = data.CurrentZone or "Forest"
+	return travel(player, cframe, label)
+end
+
+function ZoneService.SendHomeFromAdventure(player)
+	local data = PlayerDataService.Get(player)
+	if not data then return end
+	local home = data.AdventureReturnZone or data.CurrentZone or "Forest"
+	if not hasZone(data, home) then home = "Forest" end
+	data.AdventureReturnZone = nil
+	ZoneService.HandleTeleportRequest(player, home, home)
+end
+
 function ZoneService.ReturnToCurrentZone(player)
 	local data = PlayerDataService.Get(player)
 	if not data then return end
@@ -347,6 +381,14 @@ function ZoneService.Init()
 					ZoneService.SendToArena(player)
 				elseif targetKey == RETURN_KEY then
 					ZoneService.SendHomeFromArena(player)
+				elseif targetKey == ADVENTURE_RETURN_KEY then
+					-- REACHED ONLY IF AN ADVENTURE COURSE IS EVER BUILT BEFORE THIS SCAN RUNS, and
+					-- today none is: they are built lazily on first entry and `AdventureService`
+					-- connects its own gates at build time, in `wireMap`. The branch is here so the
+					-- two halves cannot drift -- if 30.6 ever pre-builds a course at Init, the way
+					-- home already works instead of silently doing nothing.
+					local AdventureService = require(script.Parent.AdventureService)
+					AdventureService.HandleLeave(player)
 				elseif targetKey == EXPEDITION_RETURN_KEY then
 					-- The way out of an expedition map. There is deliberately no matching "in"
 					-- branch: an expedition is entered through a ProximityPrompt and a briefing
