@@ -35,6 +35,7 @@ local TradeService = require(ServerScriptService.TradeService)
 local MinigameService = require(ServerScriptService.MinigameService)
 local ExpeditionService = require(ServerScriptService.ExpeditionService)
 local AdventureService = require(ServerScriptService.AdventureService)
+local ForestMapService = require(ServerScriptService.ForestMapService)
 local Telemetry = require(ServerScriptService.Telemetry)
 
 -- ===== STREAMING =====
@@ -65,6 +66,17 @@ local Telemetry = require(ServerScriptService.Telemetry)
 -- Forest shop footprint. Build() is also what trips the BUILD_VERSION guard that regenerates
 -- zone geometry left over from an older version of this file.
 ZoneBuilder.Build()
+
+-- IMMEDIATELY AFTER Build(), and that ordering is the whole design of the file. `ForestMapService`
+-- replaces a zone's generated dressing with a hand-built map, so it has to run when the dressing
+-- exists and BEFORE anything measures the ground: `CreatureService` and `BossService` place spawns
+-- against the platform, `HubPlaza` and the leaderboards search the live ground for a clear spot,
+-- and `EnsureSpawn` moves the SpawnLocation off whatever it finds. Every one of those would be
+-- reading a zone that is about to be rebuilt underneath them if this ran later.
+--
+-- It does NOT edit `ZoneBuilder`, deliberately -- that file is two registers from Luau's local cap.
+-- Delete this line and the zone comes back exactly as it was built.
+ForestMapService.Init()
 
 -- Before PlayerDataService, and therefore before anyone can join. The three SoundGroups have to
 -- exist on the server so they REPLICATE: every client resolves them by name and sets its own

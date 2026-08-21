@@ -318,6 +318,36 @@ end
 -- ground height because they are placed after the world exists and can simply ask it.
 local VALLEY_X = 395
 
+-- ===== A ZONE WHOSE GROUND IS A MAP GETS ITS CREATURES IN ONE PLACE =====
+--
+-- `ForestMapService` replaces a zone's generated valley with a hand-built map, and that map has
+-- exactly two open spaces: the village clearing and the glade cut for the hunt. The scatter above
+-- spreads across the whole 1250 x 1150 platform, which on a mapped zone puts most of the rigs
+-- inside a tree -- measured 2026-08-21 on the first live build: **61 of 74 outside the glade**.
+--
+-- This FOLDS the existing layout into the glade rather than re-authoring it. The relative spread is
+-- preserved, so a swarm is still a cluster and a fringe point is still on the fringe; only the
+-- extent changes. Re-authoring would have meant a second set of points to keep in step with the
+-- four keep-out rules above, and those rules exist because every mistake they prevent has already
+-- shipped once.
+--
+-- IT HAS TO STAY IN STEP WITH `ForestMapService.MAPS` -- one decision written in two files. The
+-- alternative is this module requiring a server service it otherwise knows nothing about, at module
+-- scope, to read four numbers.
+local MAP_GLADE = {
+	Forest = { x = 0, z = -200, a = 300, b = 135 },
+}
+
+-- Normalised by the extent the points above were actually drawn in, then clamped to the unit DISC
+-- rather than the unit square: clamping the square would leave the corner points outside the
+-- ellipse, which is the one place a creature would still end up in a tree.
+local function toGlade(g, rel)
+	local u, v = rel.X / VALLEY_X, rel.Z / 492
+	local m = math.sqrt(u * u + v * v)
+	if m > 1 then u, v = u / m, v / m end
+	return g.x + u * g.a * 0.88, g.z + v * g.b * 0.88
+end
+
 local function scatterPoints(count, minGap, placed)
 	local out = {}
 	local guard = 0
@@ -3831,12 +3861,17 @@ function CreatureService.Init()
 		local spots = raisedSpots(zone)
 		local taken = 0
 
+		-- nil for every zone that is still ZoneBuilder's valley, which is nineteen of the twenty
+		local glade = MAP_GLADE[zone.key]
+
 		for _, tierName in ipairs({ "Swarmer", "Critter", "Brute", "Elite" }) do
 			for _, rel in ipairs(RELATIVE_SPAWN_POINTS[tierName] or {}) do
+				local rx, rz = rel.X, rel.Z
+				if glade then rx, rz = toGlade(glade, rel) end
 				-- The Y column in the table is ignored, and so is the one passed here: spawnCreature
 				-- asks the ground how high it is once the point is final. Every rig reaches about half
 				-- its size below the body centre, which is where the 0.56 comes from.
-				local pos = Vector3.new(zone.offset + rel.X, TIERS[tierName].size * 0.56, rel.Z)
+				local pos = Vector3.new(zone.offset + rx, TIERS[tierName].size * 0.56, rz)
 				spawnCreature(pos, tierName, zone)
 			end
 		end
