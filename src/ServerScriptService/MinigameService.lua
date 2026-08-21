@@ -51,7 +51,7 @@ local MinigameService = {}
 -- Rebuilt by replacement rather than patched in place, the rule `SplicerService` states: a stamped
 -- model whose version has moved is not the same machine, and reconciling it piece by piece is how
 -- half-old geometry survives. Bump this when the terminal's SHAPE changes.
-local TERMINAL_VERSION = 2
+local TERMINAL_VERSION = 3
 
 -- ===== HOW BIG, AND THE RULE THAT DECIDES IT =====
 --
@@ -148,9 +148,15 @@ local function buildTerminal(zone, kind, centre)
 	local sign = Instance.new("BillboardGui")
 	sign.Name = "TerminalSign"
 	sign.Size = UDim2.new(0, 260, 0, 92)
-	-- ExtentsOffsetWorldSpace, not StudsOffset -- 21.1's rule. The body runs 1x to 9x across the
-	-- twenty stages and a constant offset is a hat at one end of the game and a kite at the other.
-	sign.ExtentsOffsetWorldSpace = Vector3.new(0, 4, 0)
+	-- THE SIGN SAT 68 STUDS IN THE SKY AND NOBODY SAW IT (measured 2026-08-21, by capture).
+	-- `ExtentsOffsetWorldSpace` was copied here from 21.1, where it is correct: the thing it hangs
+	-- over there is a PLAYER, whose body runs 1x to 9x across the twenty stages, so an offset that
+	-- scales with the adornee is the only one that works at both ends. A cabinet is authored geometry
+	-- and never changes size, so that reason does not apply -- and the copy brought the trap with
+	-- it: the unit is HALF the adornee's extent, so `4` is not 4 studs, it is 4 x 17 = 68, which
+	-- put the sign in the open sky beside the terminal it names. A fixed prop wants a plain stud
+	-- value, where the number in the source is the number on the screen.
+	sign.StudsOffsetWorldSpace = Vector3.new(0, 26, 0)
 	sign.MaxDistance = 260
 	sign.LightInfluence = 0
 	sign.AlwaysOnTop = false

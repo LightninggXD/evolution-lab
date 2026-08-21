@@ -56,7 +56,7 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 local ExpeditionService = {}
 
-local ENTRANCE_VERSION = 1
+local ENTRANCE_VERSION = 2
 
 -- `reach > structure half-width + player half-width` -- the rule `CombatClient` carries for bosses
 -- and `SplicerService` had to be rescued by on 2026-08-17. A stage-20 body is ~22 studs of half
@@ -141,9 +141,15 @@ local function buildEntrance(expedition)
 	local sign = Instance.new("BillboardGui")
 	sign.Name = "EntranceSign"
 	sign.Size = UDim2.new(0, 280, 0, 96)
-	-- ExtentsOffsetWorldSpace, not StudsOffset -- 21.1's rule: the body runs 1x to 9x across the
-	-- twenty stages and a constant offset is a hat at one end of the game and a kite at the other.
-	sign.ExtentsOffsetWorldSpace = Vector3.new(0, 4, 0)
+	-- THE SIGN SAT 68 STUDS IN THE SKY AND NOBODY SAW IT (measured 2026-08-21, by capture).
+	-- `ExtentsOffsetWorldSpace` was copied here from 21.1, where it is correct: the thing it hangs
+	-- over there is a PLAYER, whose body runs 1x to 9x across the twenty stages, so an offset that
+	-- scales with the adornee is the only one that works at both ends. A door lintel is authored geometry
+	-- and never changes size, so that reason does not apply -- and the copy brought the trap with
+	-- it: the unit is HALF the adornee's extent, so `4` is not 4 studs, it is 4 x 4 = 16, which
+	-- put the sign in the open sky beside the terminal it names. A fixed prop wants a plain stud
+	-- value, where the number in the source is the number on the screen.
+	sign.StudsOffsetWorldSpace = Vector3.new(0, 13, 0)
 	sign.MaxDistance = 300
 	sign.LightInfluence = 0
 	sign.AlwaysOnTop = false
@@ -227,7 +233,10 @@ local function buildStationTerminal(map, expedition, index)
 	local sign = Instance.new("BillboardGui")
 	sign.Name = "StationSign"
 	sign.Size = UDim2.new(0, 240, 0, 88)
-	sign.ExtentsOffsetWorldSpace = Vector3.new(0, 4, 0)
+	-- A stud value for the same reason the entrance sign above uses one: the station body is
+	-- authored geometry, and `ExtentsOffsetWorldSpace` counts in HALF-extents (17 here), so the
+	-- 4 this was written with meant 68 studs.
+	sign.StudsOffsetWorldSpace = Vector3.new(0, 26, 0)
 	sign.MaxDistance = 260
 	sign.LightInfluence = 0
 	sign.Adornee = body

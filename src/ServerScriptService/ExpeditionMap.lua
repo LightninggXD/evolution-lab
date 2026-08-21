@@ -42,7 +42,7 @@ local ExpeditionMap = {}
 
 -- Bump when the SHAPE changes. `ZoneBuilder` compares this against the folder's own attribute and
 -- rebuilds the map alone, leaving the twenty zones untouched.
-ExpeditionMap.MAP_VERSION = 1
+ExpeditionMap.MAP_VERSION = 2
 
 -- ===== THE FLOOR PLAN, IN ONE BLOCK =====
 local CHAMBER = 300 -- square, x and z
