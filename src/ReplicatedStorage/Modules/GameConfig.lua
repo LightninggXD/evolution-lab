@@ -51,6 +51,12 @@ for _, part in ipairs({
 	-- load-time check reads `GameConfig.MinigameKindsByKey` to prove every expedition station
 	-- names a game that exists, and its reward functions quote `GetMinigameReward`.
 	"Expeditions",
+	-- AFTER `Expeditions`, and it is a hard dependency for two reasons at once: it DERIVES its
+	-- twenty routes from `GameConfig.Zones` at load time -- one per zone, so `tier` can never
+	-- disagree with the strip -- and its luck ladder quotes `GetPetPower`, `GetLuckPercent` and
+	-- `PetBaseBonus` from `Pets`. Nothing above it reads `GameConfig.AdventureList`, so appending
+	-- is again the only move that cannot produce the silent nil this list's header warns about.
+	"Adventures",
 }) do
 	require(script:WaitForChild(part))(GameConfig)
 end
