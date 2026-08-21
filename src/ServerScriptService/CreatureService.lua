@@ -320,10 +320,14 @@ local VALLEY_X = 395
 
 -- ===== A ZONE WHOSE GROUND IS A MAP GETS ITS CREATURES IN ONE PLACE =====
 --
--- `ForestMapService` replaces a zone's generated valley with a hand-built map, and that map has
--- exactly two open spaces: the village clearing and the glade cut for the hunt. The scatter above
--- spreads across the whole 1250 x 1150 platform, which on a mapped zone puts most of the rigs
--- inside a tree -- measured 2026-08-21 on the first live build: **61 of 74 outside the glade**.
+-- `ForestMapService` replaces a zone's generated valley with a hand-built map, and the map is the
+-- VILLAGE -- there is no open ground inside it. The scatter above spreads across the whole
+-- 1250 x 1150 platform, which on a mapped zone puts most of the rigs inside a house or a tree:
+-- measured 2026-08-21 on the first live build, **61 of 74 outside the glade**.
+--
+-- The glade is therefore the HUNT BAND behind the village, `ForestMapService`'s third band
+-- (z -330 .. -575), which that file plants a forest into. Village at the front, hunting wood behind
+-- it, exit gate past that.
 --
 -- This FOLDS the existing layout into the glade rather than re-authoring it. The relative spread is
 -- preserved, so a swarm is still a cluster and a fringe point is still on the fringe; only the
@@ -333,9 +337,11 @@ local VALLEY_X = 395
 --
 -- IT HAS TO STAY IN STEP WITH `ForestMapService.MAPS` -- one decision written in two files. The
 -- alternative is this module requiring a server service it otherwise knows nothing about, at module
--- scope, to read four numbers.
+-- scope, to read four numbers. The ellipse is inset from the band on every side: `toGlade` reaches
+-- 88% of it, so 500 x 100 at z = -448 lands every rig between z -536 and -360, which clears the
+-- village edge at -330 and the exit gate at -575.
 local MAP_GLADE = {
-	Forest = { x = 0, z = -200, a = 300, b = 135 },
+	Forest = { x = 0, z = -448, a = 500, b = 100 },
 }
 
 -- Normalised by the extent the points above were actually drawn in, then clamped to the unit DISC
@@ -3878,9 +3884,27 @@ function CreatureService.Init()
 
 		-- ...and then the cliffs, highest shelf first -- see RAISED_LAYOUT for the order and why the
 		-- Apexes are at the top of it.
+		--
+		-- A MAPPED ZONE HAS NO CLIFFS, AND `raisedSpots` FOUND SOME ANYWAY. It accepts a point only
+		-- when the part under it is named `TerraceTop`, which `ForestMapService` drops -- but the
+		-- shell keeps its own copies loaded (`keepShellLoaded` reparents them out of the zone model,
+		-- so the drop pass never sees them), and 14 of Forest's 74 creatures were standing on
+		-- terraces the player cannot see, in the middle of the village. On a mapped zone these go in
+		-- the glade with everything else; they keep `band.layer`, which is the only thing about them
+		-- that matters to the drop tables.
+		local raisedRng = glade and Random.new(20260822 + math.floor(zone.offset)) or nil
 		for _, band in ipairs(RAISED_LAYOUT) do
 			local tierName = band.tier
 			for _ = 1, band.count do
+				if glade then
+					local rel = Vector3.new(
+						raisedRng:NextNumber(-VALLEY_X, VALLEY_X), 0, raisedRng:NextNumber(-492, 492))
+					local gx, gz = toGlade(glade, rel)
+					spawnCreature(
+						Vector3.new(zone.offset + gx, TIERS[tierName].size * 0.56, gz),
+						tierName, zone, band.layer)
+					continue
+				end
 				taken += 1
 				local spot = spots[taken]
 				-- A zone whose shelves are all too narrow or too full of boulders simply gets fewer

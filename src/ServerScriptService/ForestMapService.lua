@@ -42,18 +42,54 @@
 -- ZoneBuilder tuft standing in the village, which is visible and harmless.
 --
 -- =====================================================================================
--- THE MAP HAS ONE CLEARING AND A ZONE NEEDS TWO
+-- THE ZONE IS THREE BANDS, AND THE MAP IS ONLY THE MIDDLE ONE
 -- =====================================================================================
--- Everything in the source that is not the village is solid forest, so "mobs on one side" is a CUT
--- rather than a placement. The glade is an ellipse on the -z half -- the half the exit gate and the
--- boss clearing are already on, so the walk through the zone stays village -> hunt -> exit, which
--- is the shape the street always had.
+-- The first cut of this file cut the hunting glade INTO the map, and that was wrong twice over.
+-- The village floor is 682 x 580 and the ellipse took a bite out of its southern quarter, so the
+-- thing the owner asked to have in the game was the thing being deleted; and the map's own mountain
+-- ring reaches z = 438, which is 72 studs PAST the spawn -- so the arrival end of the zone was
+-- inside a mountain. Measured live, not argued: the player stood at (-28, 5, 329) on the HubPlaza
+-- deck with `Meshes/gora` 106 studs over her head and no way out, because a raycast started inside
+-- a part does not hit it and every probe therefore reported open ground.
+--
+-- The zone is 1250 x 1150 and it now runs, +z to -z, in three bands:
+--
+--     z  575 .. 300   ARRIVAL   portal in, ZonePad, the one SpawnLocation at z = 366, HubPlaza
+--     z  300 .. -330  VILLAGE   the map, whole and uncut -- this is the zone
+--     z -330 .. -575  HUNT      forest planted behind the village, and every creature in it
+--
+-- So the walk is arrive -> village -> hunt -> exit gate, which is the shape the street always had,
+-- and the player spawns ON ONE SIDE of the map looking into it rather than under it.
+--
+-- WHAT THE MAP LOSES IS THREE MOUNTAINS AND NOTHING ELSE. The clear list is checked by FOOTPRINT
+-- OVERLAP, not by centre: a mountain centred at z = 268 reaches z = 418, and a centre test keeps it
+-- standing over the plaza. It is also a fraction rather than a touch -- the western mountain pokes
+-- 7 studs into the plaza's corner out at x = -407 and is scenery there, so the rule is "a fifth of
+-- your footprint is in the band" and that number is what separates the two.
 --
 -- IT IS CUT BY WHOLE PROPS, NEVER BY PARTS. Half a tree left standing because its trunk fell
--- outside the ellipse and its canopy inside is the thing that reads as broken, and a part-wise cut
+-- outside the band and its canopy inside is the thing that reads as broken, and a part-wise cut
 -- produces dozens of them.
+--
+-- =====================================================================================
+-- THE HUNT FOREST IS PLANTED, AND IT IS PLANTED WITH THE MAP'S OWN TREES
+-- =====================================================================================
+-- Behind the village is bare platform, and 74 creatures standing on bare platform is the "random
+-- shapes on a floor" the whole look pass exists to remove. The trees are cloned out of the map's
+-- own stock -- 119 of its children are tree-shaped -- so the hunt band is made of the same art as
+-- the village and cannot drift from it.
+--
+-- NOTHING PLANTED HERE COLLIDES. A `MeshPart` at `CollisionFidelity.Default` is a handful of convex
+-- hulls, and a 64-stud canopy's hull is very close to a 64-stud box: a hundred of them in the band
+-- the player has to fight in is a hundred chances to repeat the mountain. They are backdrop, so
+-- they are `CanCollide = false` and the band stays walkable.
 
 local ServerStorage = game:GetService("ServerStorage")
+
+-- Only for PLATFORM_WIDTH / PLATFORM_DEPTH, which is where a zone's share of the shell is defined.
+-- ZoneKit is a live sibling module and this runs after `ZoneBuilder.Build()`, so it is already
+-- required and cached by the time anything here calls it.
+local ZoneKit = require(script.Parent.ZoneKit)
 
 local ForestMapService = {}
 
@@ -61,13 +97,25 @@ local ForestMapService = {}
 local SCALE = 1.45
 
 -- One entry per zone that has a map. The table exists so the second one costs a row rather than a
--- rewrite -- and so the glade, which is the only hand-tuned number here, is visible in one place.
+-- rewrite -- and so the bands, which are the only hand-tuned numbers here, are visible in one place.
 local MAPS = {
 	Forest = {
 		source = "ForestVillage",
 		scale = SCALE,
-		-- ellipse, in zone-relative studs, on the far side of the village
-		glade = { x = 0, z = -200, a = 300, b = 135 },
+		-- Bands, in zone-relative studs, the map may not stand in. See the header: the first is the
+		-- arrival end (spawn is at z = 366) and the second is the hunting ground behind the village.
+		clear = {
+			{ x1 = -230, x2 = 230, z1 = 300, z2 = 620 },
+			-- -300 rather than -330, and the 30 studs are load-bearing: two of the ring's mountains
+			-- reach z = -378 and -394 with their feet, which at -330 scored 0.147 and stayed --
+			-- a wall across the mouth of the hunting ground at x = -250, -120 and 250, measured by
+			-- walking a grid over it. At -300 they score 0.24 and go, and the only village prop that
+			-- goes with them is one tree on the southern fringe.
+			{ x1 = -620, x2 = 620, z1 = -620, z2 = -300 },
+		},
+		-- The forest planted behind the village. `lane` is the half-width of the street kept open
+		-- down the middle: the exit gate is at z = -575 and a tree line across it is a wall.
+		hunt = { zNear = -335, zFar = -560, xEdge = 590, lane = 78 },
 	},
 }
 
@@ -156,29 +204,184 @@ local function seat(map, cx)
 	return floor
 end
 
-local function cutGlade(map, cx, glade)
+-- THE ZONE'S DRESSING IS NOT ALL IN THE ZONE. `WorldShell` pins ~2,000 parts against streaming by
+-- REPARENTING them out of the zone model, so the drop pass above -- which walks `zoneModel` -- never
+-- sees them. Sixty-eight of Forest's were still standing after the map went in: 36 `TerraceTop`
+-- shelves (the ones `CreatureService.raisedSpots` kept finding, invisible under the map), 6
+-- `TerraceRamp` flights, a landmark plinth colonnade down the hunting ground's western side and two
+-- pool beds. Same names, same rules, same `NEVER_DROP` -- so `Floor` is safe, and it has to be,
+-- because the shell's `Floor` IS this zone's ground.
+--
+-- Bounded by the platform rather than by the map: the shell is one flat folder for the whole world
+-- and a zone's share of it is "everything standing on my platform".
+local function dropShellDressing(cx)
+	local shell = workspace:FindFirstChild("WorldShell")
+	if not shell then return 0 end
+	local halfX, halfZ = ZoneKit.PLATFORM_WIDTH / 2, ZoneKit.PLATFORM_DEPTH / 2
+	local dropped = 0
+	for _, c in ipairs(shell:GetChildren()) do
+		local pos
+		if c:IsA("BasePart") then
+			pos = c.Position
+		elseif c:IsA("Model") then
+			pos = c:GetBoundingBox().Position
+		end
+		if pos and math.abs(pos.X - cx) <= halfX and math.abs(pos.Z) <= halfZ and isDressing(c.Name) then
+			c:Destroy()
+			dropped += 1
+		end
+	end
+	return dropped
+end
+
+-- A prop's footprint against one band, as a fraction of the prop's own footprint. Two overlaps
+-- multiplied is the shared AREA, which is what makes the west mountain (deep overlap in z, seven
+-- studs of it in x) score 0.06 and stay standing while the one over the plaza scores 0.49 and goes.
+local function overlapFraction(pos, size, cx, band)
+	local function span(lo1, hi1, lo2, hi2)
+		return math.max(math.min(hi1, hi2) - math.max(lo1, lo2), 0)
+	end
+	if size.X <= 0 or size.Z <= 0 then return 0 end
+	local fx = span(pos.X - size.X / 2, pos.X + size.X / 2, cx + band.x1, cx + band.x2) / size.X
+	local fz = span(pos.Z - size.Z / 2, pos.Z + size.Z / 2, band.z1, band.z2) / size.Z
+	return fx * fz
+end
+
+local CLEAR_SHARE = 0.2
+
+local function clearBands(map, cx, bands)
 	local cleared = 0
 	for _, c in ipairs(map:GetChildren()) do
-		-- MainPart is the ground the glade is cut INTO and Terrain is what its far edge is read
-		-- against; neither is scenery.
+		-- MainPart is the ground the bands are measured over and Terrain is what their far edge is
+		-- read against; neither is scenery and neither may be cut.
 		if c.Name ~= "MainPart" and c.Name ~= "Terrain" then
-			local cf
+			local pos, size
 			if c:IsA("Model") then
-				cf = c:GetBoundingBox()
+				local cf, s = c:GetBoundingBox()
+				pos, size = cf.Position, s
 			elseif c:IsA("BasePart") then
-				cf = c.CFrame
+				pos, size = c.Position, c.Size
 			end
-			if cf then
-				local dx = (cf.Position.X - (cx + glade.x)) / glade.a
-				local dz = (cf.Position.Z - glade.z) / glade.b
-				if dx * dx + dz * dz <= 1 then
-					c:Destroy()
-					cleared += 1
+			if pos then
+				for _, band in ipairs(bands) do
+					if overlapFraction(pos, size, cx, band) >= CLEAR_SHARE then
+						c:Destroy()
+						cleared += 1
+						break
+					end
 				end
 			end
 		end
 	end
 	return cleared
+end
+
+-- A tree, for the purposes of this file, is a top-level child holding a mesh named `Top` -- the
+-- name the source's own foliage uses, 181 of them across the map. Sized 30..110 so the planting
+-- draws from real trees and not from the one 123-stud specimen or from a shrub.
+local function treeStock(map)
+	local stock = {}
+	for _, c in ipairs(map:GetChildren()) do
+		if c:IsA("Model") then
+			local isTree = false
+			for _, d in ipairs(c:GetDescendants()) do
+				if d:IsA("MeshPart") and d.Name == "Top" then
+					isTree = true
+					break
+				end
+			end
+			if isTree then
+				local _, size = c:GetBoundingBox()
+				if size.Y >= 30 and size.Y <= 110 then
+					stock[#stock + 1] = c
+				end
+			end
+		end
+	end
+	return stock
+end
+
+-- Stands one clone with its FEET on y = 0. The bounding box has to be re-read after the yaw,
+-- because a rotated tree is a different box and seating it on the box it had before the turn is
+-- how a trunk ends up half a stud in the air.
+local function plantOne(proto, parent, x, z, rng)
+	local t = proto:Clone()
+	t:ScaleTo(rng:NextNumber(0.82, 1.28))
+	t:PivotTo(t:GetPivot() * CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0))
+	local cf, size = t:GetBoundingBox()
+	t:PivotTo(t:GetPivot()
+		+ Vector3.new(x - cf.Position.X, -(cf.Position.Y - size.Y / 2), z - cf.Position.Z))
+	for _, d in ipairs(t:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.Anchored = true
+			-- see the header: planted foliage is backdrop, and backdrop that collides is a trap
+			d.CanCollide = false
+			d.CastShadow = false
+		end
+	end
+	t.Name = "HuntTree"
+	t.Parent = parent
+	return t
+end
+
+-- The band behind the village: a back wall of trees, two flanks, and clumps in the middle. The
+-- middle is deliberately sparse -- this is the ground 74 creatures stand and are fought on, so it
+-- is a CLEARING with trees in it rather than a wood, which is the 30.12 rule read from the inside.
+local function plantForest(map, cx, hunt)
+	local stock = treeStock(map)
+	if #stock == 0 then return 0 end
+
+	local folder = Instance.new("Folder")
+	folder.Name = "HuntForest"
+	folder.Parent = map
+
+	-- Seeded off the zone rather than off the clock: two servers of the same place have to grow the
+	-- same forest, for the same reason `CreatureService` seeds its raised spots that way.
+	local rng = Random.new(20260822 + math.floor(cx))
+	local planted = 0
+	local function plant(x, z)
+		plantOne(stock[rng:NextInteger(1, #stock)], folder, cx + x, z, rng)
+		planted += 1
+	end
+
+	-- 1. the back wall, broken for the street down to the exit gate
+	local x = -hunt.xEdge
+	while x <= hunt.xEdge do
+		if math.abs(x) > hunt.lane then
+			plant(x + rng:NextNumber(-16, 16), hunt.zFar + rng:NextNumber(-14, 26))
+			if rng:NextNumber() < 0.55 then
+				plant(x + rng:NextNumber(-24, 24), hunt.zFar + rng:NextNumber(28, 62))
+			end
+		end
+		x += 34
+	end
+
+	-- 2. the two flanks, which are what stop the band reading as a corridor
+	for _, side in ipairs({ -1, 1 }) do
+		local z = hunt.zFar
+		while z <= hunt.zNear do
+			plant(side * rng:NextNumber(hunt.xEdge - 150, hunt.xEdge), z + rng:NextNumber(-18, 18))
+			if rng:NextNumber() < 0.7 then
+				plant(side * rng:NextNumber(hunt.xEdge - 240, hunt.xEdge - 120),
+					z + rng:NextNumber(-22, 22))
+			end
+			z += 38
+		end
+	end
+
+	-- 3. clumps in the open middle -- at the foot of each other, never sprinkled evenly, which is
+	--    the one rule that separates a planted wood from scattered decor
+	for _ = 1, 16 do
+		local ox = rng:NextNumber(-(hunt.xEdge - 190), hunt.xEdge - 190)
+		local oz = rng:NextNumber(hunt.zFar + 40, hunt.zNear - 30)
+		if math.abs(ox) > hunt.lane + 30 then
+			for _ = 1, rng:NextInteger(2, 4) do
+				plant(ox + rng:NextNumber(-34, 34), oz + rng:NextNumber(-30, 30))
+			end
+		end
+	end
+
+	return planted
 end
 
 function ForestMapService.Init()
@@ -220,6 +423,7 @@ function ForestMapService.Init()
 					dropped += 1
 				end
 			end
+			dropped += dropShellDressing(cx)
 
 			local map = template:Clone()
 			map.Name = "VillageMap"
@@ -232,9 +436,11 @@ function ForestMapService.Init()
 					:format(zoneKey))
 			else
 				map.Parent = zoneModel
-				local cleared = spec.glade and cutGlade(map, cx, spec.glade) or 0
-				print(("[ForestMapService] %s: dropped %d dressing, laid %d map parts at x%.2f, cut %d for the glade")
-					:format(zoneKey, dropped, #map:GetDescendants(), spec.scale, cleared))
+				local cleared = spec.clear and clearBands(map, cx, spec.clear) or 0
+				local planted = spec.hunt and plantForest(map, cx, spec.hunt) or 0
+				print(("[ForestMapService] %s: dropped %d dressing, laid %d map parts at x%.2f, "
+					.. "cut %d props for the arrival and hunt bands, planted %d trees behind the village")
+					:format(zoneKey, dropped, #map:GetDescendants(), spec.scale, cleared, planted))
 			end
 		end
 	end
