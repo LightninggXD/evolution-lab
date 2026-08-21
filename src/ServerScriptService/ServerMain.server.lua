@@ -36,6 +36,7 @@ local MinigameService = require(ServerScriptService.MinigameService)
 local ExpeditionService = require(ServerScriptService.ExpeditionService)
 local AdventureService = require(ServerScriptService.AdventureService)
 local ForestMapService = require(ServerScriptService.ForestMapService)
+local BoardStats = require(ServerScriptService.MapProps.BoardStats)
 local Telemetry = require(ServerScriptService.Telemetry)
 
 -- ===== STREAMING =====
@@ -125,6 +126,10 @@ RebirthService.Init()
 -- after RebirthService (it wires each statue's prompt straight into HandleRebirth) and after
 -- ZoneBuilder.Build() above, which is what puts the Forest decor the plaza has to clear back
 RebirthShrine.Init()
+-- The five counters the map's leaderboard boards read (31.5). ANYWHERE AFTER PlayerDataService:
+-- it connects PlayerAdded/PlayerRemoving and starts one 60-second banking loop, and reads no world
+-- furniture at all. It has to be before any player can join, which everything in this file is.
+BoardStats.Init()
 RewardService.Init()
 PotionService.Init()
 -- ANYWHERE AFTER PlayerDataService, and that is the whole constraint. RelicService wires four

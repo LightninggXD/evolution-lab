@@ -5,6 +5,7 @@ local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local Telemetry = require(script.Parent.Telemetry)
+local BoardStats = require(script.Parent.MapProps.BoardStats)
 local SeasonPassService = require(script.Parent.SeasonPassService)
 local AnnounceService = require(script.Parent.AnnounceService)
 
@@ -341,6 +342,8 @@ function PetService.HandleBuyEgg(player, eggKey, auto)
 	-- rarity rule and the rate limit both live in AnnounceService, so no publisher has to know what
 	-- counts as rare. See its header for why that is a service rather than an `if` here.
 	AnnounceService.PetHatched(player, petDef)
+	-- the map's Eggs Opened and Secrets Hatched boards (31.5)
+	BoardStats.Hatched(data, petDef)
 end
 
 -- ===== x10 =====
@@ -436,7 +439,11 @@ function PetService.HandleBuyEggBulk(player, eggKey)
 	-- both live in AnnounceService, so ten Legendaries in one batch still raise one beam and no
 	-- publisher here has to know that.
 	for _, entry in ipairs(rolled) do
-		AnnounceService.PetHatched(player, GameConfig.GetPetDef(entry.key))
+		local def = GameConfig.GetPetDef(entry.key)
+		AnnounceService.PetHatched(player, def)
+		-- PER PET, not once for the bulk buy: ten eggs opened is ten on the board, and a Secret in a
+		-- ten-pull has to count exactly as a Secret in a single pull does (31.5).
+		BoardStats.Hatched(data, def)
 	end
 end
 

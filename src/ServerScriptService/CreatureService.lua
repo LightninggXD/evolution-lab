@@ -8,6 +8,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local UITheme = require(RS.Modules.UITheme)
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local Telemetry = require(script.Parent.Telemetry)
+local BoardStats = require(script.Parent.MapProps.BoardStats)
 local DNAService = require(script.Parent.DNAService)
 local SeasonPassService = require(script.Parent.SeasonPassService)
 -- 11.6: the terraces drop pets, so the kill path needs the one function that creates one. No cycle
@@ -3426,6 +3427,11 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 		if (hrp.Position - body.Position).Magnitude > (viaAuto and autoGate or clickGate) then return end
 		local data = PlayerDataService.Get(player)
 		if not data then return end
+
+		-- The map's Total Clicks board (31.5). PLACED HERE, past the reach and alive checks, for the
+		-- same reason the funnel step below is: a swing that was out of range or thrown by a corpse
+		-- did not happen, and counting it would put a public board out of step with the game.
+		BoardStats.Clicked(data)
 
 		-- FUNNEL STEP 3. Here rather than in the remote handler on purpose: a swing that was out of
 		-- reach, or thrown by a dead player, or aimed at a creature this server is not holding, has

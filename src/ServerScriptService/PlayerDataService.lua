@@ -81,6 +81,17 @@ local function defaultData()
 		-- reset rather than by how much they have played. Starts at 0 for everyone, including saves
 		-- that predate it -- there is nothing in an old save to reconstruct it from.
 		Kills = 0,
+		-- ===== THE MAP'S LEADERBOARD BOARDS (31.5) =====
+		-- The village map ships eight boards and the game kept numbers for two of them. These are
+		-- the five it did not, counted by `MapProps/BoardStats`. Every read there is `(x or 0)`, so
+		-- a save written before this existed is already valid and no migration runs -- a veteran
+		-- simply starts counting from the day it shipped, which is the only honest option: the
+		-- alternative is backfilling invented figures onto a public board.
+		EggsOpened = 0,
+		SecretsHatched = 0,
+		TotalClicks = 0,
+		RobuxSpent = 0,
+		TimePlayed = 0,   -- lifetime SECONDS; the two clocks in PlaytimeGiftService are per-sitting
 		EvolutionShards = 0,
 		LastRewardClaim = 0,
 		RewardStreak = 0,

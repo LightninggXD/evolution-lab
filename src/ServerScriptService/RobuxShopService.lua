@@ -5,6 +5,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local BoardStats = require(script.Parent.MapProps.BoardStats)
 local Telemetry = require(script.Parent.Telemetry)
 local SeasonPassService = require(script.Parent.SeasonPassService)
 -- for the Lucky Spin only: the wheel is bent by the buyer's own luck, and GetLuckPercent is the one
@@ -314,6 +315,12 @@ local function processReceipt(receiptInfo)
 			announced = true
 		end
 	end
+
+	-- The map's Robux Spent board (31.5). BEFORE the save below, so the figure rides out on the
+	-- same write the grant does -- a counter saved separately is a counter that can disagree with
+	-- the thing it counted. `CurrencySpent` is the price Roblox actually charged, which is the only
+	-- honest number here: the authored price can change between a purchase and a retry.
+	BoardStats.RobuxSpent(data, receiptInfo.CurrencySpent)
 
 	PlayerDataService.UpdateLeaderstats(player)
 	PlayerDataService.PushToClient(player)

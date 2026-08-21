@@ -46,6 +46,8 @@ local RS = game:GetService("ReplicatedStorage")
 local UITheme = require(RS.Modules.UITheme)
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local MapBoards = require(script.Parent.MapProps.MapBoards)
+local BoardStats = require(script.Parent.MapProps.BoardStats)
 
 local LeaderboardService = {}
 
@@ -73,6 +75,45 @@ local BOARDS = {
 	{
 		key = "Kills", field = "Kills",
 		title = "\u{2694}\u{FE0F}  KILLS", color = UITheme.Color.Coral, short = false,
+	},
+
+	-- ===== THE FIVE THE MAP ASKED FOR (31.5) =====
+	-- The village map ships EIGHT boards, and `key` is deliberately the map child's own name: that
+	-- is what `MapBoards` looks them up by, so a board added to the map and a board added here can
+	-- never drift apart by a spelling. `field` is the save field `BoardStats` counts into.
+	--
+	-- TWO OF THEM ARE THE SAME STAT UNDER A DIFFERENT NAME. The map calls Diamonds "Total Gems", and
+	-- Rebirths matches ours outright -- so those two were live from the moment the map went in and
+	-- the other five needed counters written (see MapProps/BoardStats).
+	--
+	-- `short` is on wherever the number is an economy figure: DNA, Diamonds and click counts run to
+	-- 1e17 in this game and a comma-grouped 1e17 does not fit a 20-stud board. Rebirths, eggs and
+	-- secrets are small integers and read better in full.
+	{
+		key = "TotalGems", field = BoardStats.Field.TotalGems,
+		title = "\u{1F48E}  TOTAL GEMS", color = UITheme.Color.Aqua, short = true,
+	},
+	{
+		key = "TotalClicks", field = BoardStats.Field.TotalClicks,
+		title = "\u{1F5B1}\u{FE0F}  TOTAL CLICKS", color = UITheme.Color.Sunny, short = true,
+	},
+	{
+		key = "EggsOpened", field = BoardStats.Field.EggsOpened,
+		title = "\u{1F95A}  EGGS OPENED", color = UITheme.Color.Lavender, short = false,
+	},
+	{
+		key = "SecretsHatched", field = BoardStats.Field.SecretsHatched,
+		title = "\u{2728}  SECRETS HATCHED", color = UITheme.Color.Coral, short = false,
+	},
+	{
+		key = "TimePlayed", field = BoardStats.Field.TimePlayed,
+		-- SECONDS in the save, hours on the board: see `formatValue`.
+		title = "\u{23F1}\u{FE0F}  TIME PLAYED", color = UITheme.Color.Mint, short = false,
+		clock = true,
+	},
+	{
+		key = "RobuxSpent", field = BoardStats.Field.RobuxSpent,
+		title = "\u{1F4B0}  ROBUX SPENT", color = UITheme.Color.Mint, short = false,
 	},
 }
 LeaderboardService.Boards = BOARDS
@@ -311,7 +352,39 @@ end
 
 local MEDAL = { "\u{1F947}", "\u{1F948}", "\u{1F949}" }
 
+-- ONE FORMATTER FOR BOTH SURFACES (31.5). The generated sign and the map's board have to agree
+-- about what a number looks like, and they will not if each formats its own -- which is exactly how
+-- a "Time Played" board ends up reading 5184000 next to a podium reading 60d.
+local function formatValue(board, value)
+	if board.clock then
+		local secs = math.max(math.floor(tonumber(value) or 0), 0)
+		local d = math.floor(secs / 86400)
+		local h = math.floor(secs % 86400 / 3600)
+		local m = math.floor(secs % 3600 / 60)
+		-- Days only once there are any: "0d 3h" reads as a bug on a board about how long you played.
+		if d > 0 then return ("%dd %dh"):format(d, h) end
+		if h > 0 then return ("%dh %dm"):format(h, m) end
+		return ("%dm"):format(m)
+	end
+	return board.short and shorten(value) or withCommas(value)
+end
+
+-- The map's own boards, when the zone has them. Returns true when it drew, so the generated-sign
+-- path below is skipped rather than run into nil label handles.
+local function drawMapBoard(board)
+	if not MapBoards.Has(board.key) then return false end
+	local rows = LeaderboardService.Top[board.key]
+	if not rows then return MapBoards.DrawStatus(board.key, "warming up...") end
+	if #rows == 0 then return MapBoards.DrawStatus(board.key, "nobody yet") end
+	local out = {}
+	for i, row in ipairs(rows) do
+		out[i] = { name = row.name, text = formatValue(board, row.value) }
+	end
+	return MapBoards.Draw(board.key, out)
+end
+
 local function drawBoard(board)
+	if drawMapBoard(board) then return end
 	local labels = rowLabels[board.key]
 	local status = statusLabels[board.key]
 	if not labels then return end
@@ -332,8 +405,7 @@ local function drawBoard(board)
 		local row = rows[i]
 		if row then
 			local rank = MEDAL[i] or ("#" .. i)
-			label.Text = ("%s  %s   %s"):format(rank, row.name,
-				board.short and shorten(row.value) or withCommas(row.value))
+			label.Text = ("%s  %s   %s"):format(rank, row.name, formatValue(board, row.value))
 			label.Visible = true
 		else
 			label.Visible = false
@@ -498,6 +570,18 @@ end
 -- The plate is repainted on its own, without touching the figure, because the common case by far is
 -- "the same player, a bigger number" -- an avatar fetch for that would be a web call to redraw text.
 local function drawPlate(slotIndex, name, value)
+	-- The map's own podium, when the zone has one. Written BEFORE the early return below, because
+	-- on a mapped zone `plateLabels` is empty by design -- `buildPlinths` never ran -- and putting
+	-- this after the return is how the whole podium silently stops updating.
+	if MapBoards.HasPodium() then
+		local board = nil
+		for _, b in ipairs(BOARDS) do
+			if b.key == STATUE_BOARD then board = b break end
+		end
+		MapBoards.SetPodium(slotIndex, name,
+			name and board and formatValue(board, value or 0) or nil)
+	end
+
 	local label = plateLabels[slotIndex]
 	if not label then return end
 	local medal = MEDAL[slotIndex] or ("#" .. slotIndex)
@@ -739,7 +823,19 @@ end
 -- INIT
 -- ============================================================================
 function LeaderboardService.Init()
-	local folder = buildSigns()
+	-- ===== THE MAP'S BOARDS COME FIRST (31.5) =====
+	-- `ForestMapService` runs at ServerMain:79 and this at :145, so the census is already published
+	-- by the time we get here. When it has boards, ours are never built at all -- not built and
+	-- hidden: an unbuilt slab cannot be found floating in the trees behind the village, which is
+	-- what the owner photographed.
+	local adopted = MapBoards.Adopt("Forest")
+	if adopted > 0 then
+		print(("[LeaderboardService] adopted %d map boards, podium=%s -- generated signs not built")
+			:format(adopted, tostring(MapBoards.HasPodium())))
+		LeaderboardService.Adopted = adopted
+	end
+
+	local folder = adopted == 0 and buildSigns() or nil
 	if folder then
 		if not folder:FindFirstChild("Plinth1") then
 			buildPlinths(folder)
