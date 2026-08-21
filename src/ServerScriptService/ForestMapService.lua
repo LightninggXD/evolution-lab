@@ -116,6 +116,10 @@ local MAPS = {
 		-- The forest planted behind the village. `lane` is the half-width of the street kept open
 		-- down the middle: the exit gate is at z = -575 and a tree line across it is a wall.
 		hunt = { zNear = -335, zFar = -560, xEdge = 590, lane = 78 },
+		-- The way IN. See the header: the map's northern half is solid wood and the village square
+		-- is behind it, so without this the plaza opens onto a hedge. Tapered, wide end at the
+		-- plaza -- a funnel reads as an entrance and a rectangle reads as a firebreak.
+		entrance = { zNear = 30, zFar = 312, halfNear = 72, halfFar = 108 },
 	},
 }
 
@@ -269,6 +273,59 @@ local function clearBands(map, cx, bands)
 						cleared += 1
 						break
 					end
+				end
+			end
+		end
+	end
+	return cleared
+end
+
+-- Foliage, as opposed to the village. Two tests, because the source names its greenery two ways:
+-- by name (`Pine Tree 02`, `Bush2`, `Rock 01`, `Trunk 01`, `Leaves`) and by shape -- 60 of the
+-- trees in the northern wood are called nothing but `Model`, and what identifies them is that every
+-- part they own is `Top` / `Bottom` / `Leaves` / `Branch`. A prop with anything else in it is a
+-- building, a stall or a pedestal and is never touched by this.
+local FOLIAGE_PREFIX = { "Pine Tree", "Tree", "Bush", "Flower", "Rock", "Trunk", "Leaves", "Shrub" }
+local FOLIAGE_PART = { Top = true, Bottom = true, Leaves = true, Branch = true }
+
+local function isFoliage(c)
+	for _, p in ipairs(FOLIAGE_PREFIX) do
+		if c.Name:sub(1, #p) == p then return true end
+	end
+	if not c:IsA("Model") then return false end
+	local leafy, other = 0, 0
+	for _, d in ipairs(c:GetDescendants()) do
+		if d:IsA("BasePart") then
+			if FOLIAGE_PART[d.Name] then leafy += 1 else other += 1 end
+		end
+	end
+	return leafy > 0 and other == 0
+end
+
+-- Cuts the road from the plaza to the village square. THE TEST IS THE PROP'S CENTRE, not its
+-- footprint, and that is the difference between a road and a trench: a tree rooted outside the
+-- corridor with its canopy hanging over it is what a road through a wood looks like, and clearing
+-- by footprint would take every one of them and leave two straight walls.
+--
+-- Anything under 5 studs tall stays. Flowers and flat rocks do not block a walk and do not hide a
+-- doorway, and a road scrubbed down to bare ground reads as a demolition rather than a path.
+local function cutEntrance(map, cx, e)
+	local cleared = 0
+	for _, c in ipairs(map:GetChildren()) do
+		if c.Name ~= "MainPart" and c.Name ~= "Terrain" and isFoliage(c) then
+			local pos, size
+			if c:IsA("Model") then
+				local cf, s = c:GetBoundingBox()
+				pos, size = cf.Position, s
+			elseif c:IsA("BasePart") then
+				pos, size = c.Position, c.Size
+			end
+			if pos and size.Y >= 5 and pos.Z >= e.zNear and pos.Z <= e.zFar then
+				local t = (pos.Z - e.zNear) / (e.zFar - e.zNear)
+				local half = e.halfNear + (e.halfFar - e.halfNear) * t
+				if math.abs(pos.X - cx) <= half then
+					c:Destroy()
+					cleared += 1
 				end
 			end
 		end
@@ -437,10 +494,12 @@ function ForestMapService.Init()
 			else
 				map.Parent = zoneModel
 				local cleared = spec.clear and clearBands(map, cx, spec.clear) or 0
+				local road = spec.entrance and cutEntrance(map, cx, spec.entrance) or 0
 				local planted = spec.hunt and plantForest(map, cx, spec.hunt) or 0
 				print(("[ForestMapService] %s: dropped %d dressing, laid %d map parts at x%.2f, "
-					.. "cut %d props for the arrival and hunt bands, planted %d trees behind the village")
-					:format(zoneKey, dropped, #map:GetDescendants(), spec.scale, cleared, planted))
+					.. "cut %d props for the arrival and hunt bands, %d for the entrance road, "
+					.. "planted %d trees behind the village")
+					:format(zoneKey, dropped, #map:GetDescendants(), spec.scale, cleared, road, planted))
 			end
 		end
 	end
