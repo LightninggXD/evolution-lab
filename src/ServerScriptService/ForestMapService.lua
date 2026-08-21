@@ -91,6 +91,12 @@ local ServerStorage = game:GetService("ServerStorage")
 -- required and cached by the time anything here calls it.
 local ZoneKit = require(script.Parent.ZoneKit)
 
+-- The map's own furniture, published by role. See MapProps/MapAnchors for why that is a separate
+-- module rather than another section of this file: the census has to run between parenting the map
+-- and cutting the bands, and every consumer of it lives in a different service.
+local MapAnchors = require(script.Parent.MapProps.MapAnchors)
+local MapForest = require(script.Parent.MapProps.MapForest)
+
 local ForestMapService = {}
 
 -- See the header: this is the player's size, not a fitting factor.
@@ -112,10 +118,31 @@ local MAPS = {
 			-- walking a grid over it. At -300 they score 0.24 and go, and the only village prop that
 			-- goes with them is one tree on the southern fringe.
 			{ x1 = -620, x2 = 620, z1 = -620, z2 = -300 },
+			-- 31.4: THE TWO SIDE POCKETS. The ring also stands down both flanks of the village, on the
+			-- ~280 studs of platform beyond the floor's edge at x +/-341. That is the ground the wood is
+			-- widened into, so the arcs south of the square go the way the southern arc did. Stopped at
+			-- z = +150 so the ring still closes the horizon behind the arrival plaza, which is the one
+			-- place it is doing scenery work rather than standing in the way.
+			{ x1 = -620, x2 = -345, z1 = -620, z2 = 150 },
+			{ x1 = 345, x2 = 620, z1 = -620, z2 = 150 },
 		},
 		-- The forest planted behind the village. `lane` is the half-width of the street kept open
 		-- down the middle: the exit gate is at z = -575 and a tree line across it is a wall.
-		hunt = { zNear = -335, zFar = -560, xEdge = 590, lane = 78 },
+		-- 31.4 PULLED `zNear` FORWARD FROM -335 TO -300 and left the rest alone. The trees now start
+		-- where the village floor ends rather than 35 studs behind it, which is what removes the bald
+		-- ring the owner's screenshots show between the last house and the first tree.
+		hunt = { zNear = -300, zFar = -560, xEdge = 590, lane = 78 },
+		-- ===== THE TWO SIDE POCKETS (31.4) =====
+		-- The village floor is 682 x 580 and the platform is 1250 x 1150, so beyond the floor's edge
+		-- at x +/-341 there is ~280 studs of bare platform down each side, running the whole depth of
+		-- the zone. The map's mountain ring was standing on it; the southern arcs are cleared below,
+		-- and this is what plants the ground that frees up. It is the owner's *"samo siri mapu sa
+		-- njim da stanu svi mobovi i boss"* -- the wood stops being a strip behind the village and
+		-- wraps around it, which roughly triples the ground 74 creatures and a boss have to share.
+		--
+		-- `zNear` stops at +150 rather than at the arrival band: north of that the pockets are beside
+		-- the plaza, and a tree wall there closes in the one part of the zone meant to read as sky.
+		flanks = { xIn = 360, xOut = 600, zNear = 150, zFar = -560 },
 		-- The way IN. See the header: the map's northern half is solid wood and the village square
 		-- is behind it, so without this the plaza opens onto a hedge. Tapered, wide end at the
 		-- plaza -- a funnel reads as an entrance and a rectangle reads as a firebreak.
@@ -253,12 +280,15 @@ end
 
 local CLEAR_SHARE = 0.2
 
-local function clearBands(map, cx, bands)
+-- `protected` is MapAnchors' set of furniture instances. An anchor is not scenery and is never cut
+-- by a band, even standing in one -- the alternative is a service asking for a shop that the band
+-- pass deleted eight lines earlier, which surfaces as a nil anchor and reads as a rename.
+local function clearBands(map, cx, bands, protected)
 	local cleared = 0
 	for _, c in ipairs(map:GetChildren()) do
 		-- MainPart is the ground the bands are measured over and Terrain is what their far edge is
 		-- read against; neither is scenery and neither may be cut.
-		if c.Name ~= "MainPart" and c.Name ~= "Terrain" then
+		if c.Name ~= "MainPart" and c.Name ~= "Terrain" and not (protected and protected[c]) then
 			local pos, size
 			if c:IsA("Model") then
 				local cf, s = c:GetBoundingBox()
@@ -309,10 +339,15 @@ end
 --
 -- Anything under 5 studs tall stays. Flowers and flat rocks do not block a walk and do not hide a
 -- doorway, and a road scrubbed down to bare ground reads as a demolition rather than a path.
-local function cutEntrance(map, cx, e)
+local function cutEntrance(map, cx, e, protected)
 	local cleared = 0
 	for _, c in ipairs(map:GetChildren()) do
-		if c.Name ~= "MainPart" and c.Name ~= "Terrain" and isFoliage(c) then
+		-- The protected test is load-bearing HERE in a way it is not in clearBands: the egg row sits
+		-- at zone z 91..116, inside this funnel, and `isFoliage` classifies by PART NAME as well as
+		-- by prop name -- a prop whose parts are all Top / Bottom / Leaves / Branch is foliage to it
+		-- whatever it actually is. Without this, the road is cut straight through the shop.
+		if c.Name ~= "MainPart" and c.Name ~= "Terrain"
+			and not (protected and protected[c]) and isFoliage(c) then
 			local pos, size
 			if c:IsA("Model") then
 				local cf, s = c:GetBoundingBox()
@@ -331,114 +366,6 @@ local function cutEntrance(map, cx, e)
 		end
 	end
 	return cleared
-end
-
--- A tree, for the purposes of this file, is a top-level child holding a mesh named `Top` -- the
--- name the source's own foliage uses, 181 of them across the map. Sized 30..110 so the planting
--- draws from real trees and not from the one 123-stud specimen or from a shrub.
-local function treeStock(map)
-	local stock = {}
-	for _, c in ipairs(map:GetChildren()) do
-		if c:IsA("Model") then
-			local isTree = false
-			for _, d in ipairs(c:GetDescendants()) do
-				if d:IsA("MeshPart") and d.Name == "Top" then
-					isTree = true
-					break
-				end
-			end
-			if isTree then
-				local _, size = c:GetBoundingBox()
-				if size.Y >= 30 and size.Y <= 110 then
-					stock[#stock + 1] = c
-				end
-			end
-		end
-	end
-	return stock
-end
-
--- Stands one clone with its FEET on y = 0. The bounding box has to be re-read after the yaw,
--- because a rotated tree is a different box and seating it on the box it had before the turn is
--- how a trunk ends up half a stud in the air.
-local function plantOne(proto, parent, x, z, rng)
-	local t = proto:Clone()
-	t:ScaleTo(rng:NextNumber(0.82, 1.28))
-	t:PivotTo(t:GetPivot() * CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0))
-	local cf, size = t:GetBoundingBox()
-	t:PivotTo(t:GetPivot()
-		+ Vector3.new(x - cf.Position.X, -(cf.Position.Y - size.Y / 2), z - cf.Position.Z))
-	for _, d in ipairs(t:GetDescendants()) do
-		if d:IsA("BasePart") then
-			d.Anchored = true
-			-- see the header: planted foliage is backdrop, and backdrop that collides is a trap
-			d.CanCollide = false
-			d.CastShadow = false
-		end
-	end
-	t.Name = "HuntTree"
-	t.Parent = parent
-	return t
-end
-
--- The band behind the village: a back wall of trees, two flanks, and clumps in the middle. The
--- middle is deliberately sparse -- this is the ground 74 creatures stand and are fought on, so it
--- is a CLEARING with trees in it rather than a wood, which is the 30.12 rule read from the inside.
-local function plantForest(map, cx, hunt)
-	local stock = treeStock(map)
-	if #stock == 0 then return 0 end
-
-	local folder = Instance.new("Folder")
-	folder.Name = "HuntForest"
-	folder.Parent = map
-
-	-- Seeded off the zone rather than off the clock: two servers of the same place have to grow the
-	-- same forest, for the same reason `CreatureService` seeds its raised spots that way.
-	local rng = Random.new(20260822 + math.floor(cx))
-	local planted = 0
-	local function plant(x, z)
-		plantOne(stock[rng:NextInteger(1, #stock)], folder, cx + x, z, rng)
-		planted += 1
-	end
-
-	-- 1. the back wall, broken for the street down to the exit gate
-	local x = -hunt.xEdge
-	while x <= hunt.xEdge do
-		if math.abs(x) > hunt.lane then
-			plant(x + rng:NextNumber(-16, 16), hunt.zFar + rng:NextNumber(-14, 26))
-			if rng:NextNumber() < 0.55 then
-				plant(x + rng:NextNumber(-24, 24), hunt.zFar + rng:NextNumber(28, 62))
-			end
-		end
-		x += 34
-	end
-
-	-- 2. the two flanks, which are what stop the band reading as a corridor
-	for _, side in ipairs({ -1, 1 }) do
-		local z = hunt.zFar
-		while z <= hunt.zNear do
-			plant(side * rng:NextNumber(hunt.xEdge - 150, hunt.xEdge), z + rng:NextNumber(-18, 18))
-			if rng:NextNumber() < 0.7 then
-				plant(side * rng:NextNumber(hunt.xEdge - 240, hunt.xEdge - 120),
-					z + rng:NextNumber(-22, 22))
-			end
-			z += 38
-		end
-	end
-
-	-- 3. clumps in the open middle -- at the foot of each other, never sprinkled evenly, which is
-	--    the one rule that separates a planted wood from scattered decor
-	for _ = 1, 16 do
-		local ox = rng:NextNumber(-(hunt.xEdge - 190), hunt.xEdge - 190)
-		local oz = rng:NextNumber(hunt.zFar + 40, hunt.zNear - 30)
-		if math.abs(ox) > hunt.lane + 30 then
-			for _ = 1, rng:NextInteger(2, 4) do
-				plant(ox + rng:NextNumber(-34, 34), oz + rng:NextNumber(-30, 30))
-			end
-		end
-	end
-
-	return planted
 end
 
 function ForestMapService.Init()
@@ -493,13 +420,18 @@ function ForestMapService.Init()
 					:format(zoneKey))
 			else
 				map.Parent = zoneModel
-				local cleared = spec.clear and clearBands(map, cx, spec.clear) or 0
-				local road = spec.entrance and cutEntrance(map, cx, spec.entrance) or 0
-				local planted = spec.hunt and plantForest(map, cx, spec.hunt) or 0
+				-- BEFORE the cuts, and that ordering is why the census is one line here rather
+				-- than a pass at the end: the cuts need the protected set, and the set does not
+				-- exist until the census has walked the placed map.
+				local protected = MapAnchors.Collect(zoneKey, map)
+				local cleared = spec.clear and clearBands(map, cx, spec.clear, protected) or 0
+				local road = spec.entrance and cutEntrance(map, cx, spec.entrance, protected) or 0
+				local planted = MapForest.Plant(map, cx, spec)
 				print(("[ForestMapService] %s: dropped %d dressing, laid %d map parts at x%.2f, "
 					.. "cut %d props for the arrival and hunt bands, %d for the entrance road, "
 					.. "planted %d trees behind the village")
 					:format(zoneKey, dropped, #map:GetDescendants(), spec.scale, cleared, road, planted))
+				print("[MapAnchors] " .. MapAnchors.Describe(zoneKey))
 			end
 		end
 	end

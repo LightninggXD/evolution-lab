@@ -2100,7 +2100,10 @@ local function spawnBoss(zone)
 	local boss = zone.boss
 	if not boss then return end
 
-	local position = Vector3.new(zone.offset, 0, 0) + BOSS_RELATIVE_OFFSET + Vector3.new(0, boss.size * 0.55, 0)
+	-- A mapped zone names its own station (31.4): the centre line is the lane to the exit gate
+	-- there, so the boss stands off in the western pocket instead of across it.
+	local station = (GameConfig.BossStationOverride or {})[zone.key] or BOSS_RELATIVE_OFFSET
+	local position = Vector3.new(zone.offset, 0, 0) + station + Vector3.new(0, boss.size * 0.55, 0)
 	-- Built facing +Z, i.e. back up the street toward the arrival gate, so the first thing a player
 	-- coming into the zone sees is the boss's face. The rigs are authored facing local -Z and the
 	-- street runs down -Z, so an unrotated origin pointed every one of them at the exit instead.
@@ -2196,7 +2199,9 @@ local function spawnBoss(zone)
 	-- unreadable exactly where the hardest bosses stand.
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "BossPlate"
-	billboard.Size = UDim2.new(0, 300, 0, 110)
+	-- 31.3: halved with the boss. A BillboardGui is sized in PIXELS, so it does not follow the rig
+	-- down and a 300 px plate over a 26-unit boss is a banner with a bear under it.
+	billboard.Size = UDim2.new(0, 176, 0, 66)
 	-- off the rig's own height, not a guess from boss.size: the tall rigs (throne, monolith,
 	-- singularity) reach well past one body and would wear their name plate through the chest
 	billboard.StudsOffset = Vector3.new(0, top + boss.size * 0.18, 0)
@@ -2610,7 +2615,8 @@ local function spawnEventBoss()
 
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "BossPlate"
-	billboard.Size = UDim2.new(0, 420, 0, 150)
+	-- 31.3: see the note on the zone plate above -- pixels do not follow studs.
+	billboard.Size = UDim2.new(0, 248, 0, 90)
 	billboard.StudsOffset = Vector3.new(0, top + boss.size * 0.2, 0)
 	billboard.AlwaysOnTop = false
 	billboard.LightInfluence = 0

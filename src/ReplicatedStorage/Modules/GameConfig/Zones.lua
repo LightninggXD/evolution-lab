@@ -139,6 +139,23 @@ GameConfig.BossReviveTTL = 180
 -- while they crossed the street would be the same complaint with a receipt attached.
 GameConfig.BossReviveFreeze = 30
 
+-- ===== WHERE A BOSS STANDS WHEN THE ZONE IS A MAP (31.4) =====
+-- `BossStationZ` puts every boss on the zone's centre line at -368, which in a valley zone is the
+-- middle of the street and is exactly right. In the mapped zone it is not: -368 is inside the
+-- hunting ground the creatures were folded into, and the centre line is the lane kept open so the
+-- player can reach the exit gate at (0, -575). A boss on that line is a wall across the way out.
+--
+-- The owner asked for him further away and off in the woods -- *"boss je sad preogroman za ovu mapu
+-- treba manji biti ... negde dalje da bude"* -- so a mapped zone puts him in the WESTERN pocket:
+-- the strip of platform beyond the village floor's edge (the floor is 682 x 580, the platform is
+-- 1250 x 1150), reached by walking out of the village and turning left through the trees. The exit
+-- lane stays straight ahead and empty.
+--
+-- Zone-relative, so `zone.offset` is still added. A zone with no entry here keeps BossStationZ.
+GameConfig.BossStationOverride = {
+	Forest = Vector3.new(-400, 0, -430),
+}
+
 -- The bosses were tuned as a speed bump on the way to the next portal, and at 18-60 studs they
 -- read as a big mob rather than the raid monster the art brief asks for. Applied as one pass over
 -- the finished table instead of retyping twenty rows, which is also the only way the three curves
@@ -148,7 +165,21 @@ GameConfig.BossReviveFreeze = 30
 -- gets bigger in proportion, so DNA per second is untouched and no zone's progression shifts.
 -- Retaliation is raised on its own -- that is the part that makes a boss feel dangerous rather
 -- than merely slow.
-local BOSS_SIZE_MULT = 4.2
+-- 31.3: 4.2 -> 1.45. THE MULTIPLIER WAS RIGHT FOR A PLAYER WHO NO LONGER EXISTS. It was chosen
+-- when a stage-20 body reached 41 studs; 30.14 froze the body at 8.3 and the Forest boss stayed at
+-- 75 units, which is a ~180-stud bounding box -- wider than the village floor is deep and far wider
+-- than the hunting ground behind it. That is the owner's "boss je sad preogroman za ovu mapu".
+--
+-- 1.45 is not a coincidence: it is the same number the map and the body are scaled by, which is what
+-- makes Forest's 18 land on 26 -- a ~62-stud rig, about 7.5x the player. Still unmistakably a raid
+-- monster, and it now fits in a clearing.
+--
+-- HEALTH, DNA AND RETALIATION ARE DELIBERATELY NOT TOUCHED. They have their own multipliers below,
+-- so this is a purely visual change and no zone's progression moves. What DOES move with it is the
+-- damage aura (multiplied by this constant at the bottom of the file) and the click/strike reaches
+-- in spawnBoss, which are expressed against `size` -- all three mean "as far as the rig reaches",
+-- so shrinking with it is the correct behaviour, not a side effect.
+local BOSS_SIZE_MULT = 1.45
 local BOSS_HEALTH_MULT = 1.6
 local BOSS_HURT_MULT = 1.3
 
@@ -182,8 +213,14 @@ end
 -- spawnBoss, and the damage aura (`math.max(boss.auraRange, boss.size * 0.85)`). Both are meant
 -- to mean "as far out as the rig itself reaches", so growing with it is correct -- but it does
 -- make the late bosses dangerous from further away than they used to be.
+-- The taper moved with the multiplier (31.3). The old cap `70 + size * 0.85` was written to stop
+-- the late rigs burying the exit gate at a 4.2x gain and is far above the new linear term
+-- everywhere, so leaving it would have made it dead code and let AbsolutePlane reach 87. At
+-- `20 + size * 0.47` the cap binds again from the middle of the table on: Forest 18 -> 26,
+-- Galaxy 39 -> 38, AbsolutePlane 60 -> 48. The min of two increasing terms is still increasing, so
+-- the curve cannot fold back on itself.
 local function scaledBossSize(size)
-	return math.floor(math.min(size * BOSS_SIZE_MULT, 70 + size * 0.85))
+	return math.floor(math.min(size * BOSS_SIZE_MULT, 20 + size * 0.47))
 end
 
 for _, boss in pairs(GameConfig.ZoneBosses) do

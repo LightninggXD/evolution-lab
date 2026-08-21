@@ -146,7 +146,13 @@ local TIERS = {
 		hitCooldown = 0.15,
 		respawnDelay = 4,
 		dnaMult = 1.8,
-		size = 6.5,
+		-- 31.3: SIZED AGAINST THE BODY, NOT AGAINST THE OLD CURVE. Every number in this table was
+		-- chosen when a stage-20 player stood 41 studs tall. 30.14 froze the body at 8.3
+		-- (FIXED_BODY_SCALE 1.0 x PLAYER_SCALE_BOOST 1.45) and nothing here moved with it, which is
+		-- the whole of the owner's "sve izgleda preveliko naspram mene". The map is the reference
+		-- now: its own leaderboard board is 24 studs, i.e. ~3x the player, and that is the ceiling
+		-- for anything in frame. Ratios between the tiers are preserved; only the scale changed.
+		size = 5,
 		colors = { Color3.fromRGB(240, 200, 90), Color3.fromRGB(150, 220, 120), Color3.fromRGB(230, 140, 190) },
 		label = "\u{1F41B} Swarmer",
 		retaliateChance = 0,
@@ -165,7 +171,7 @@ local TIERS = {
 		hitCooldown = 0.22,
 		respawnDelay = 9,
 		dnaMult = 4.5,
-		size = 11,
+		size = 7,
 		colors = { Color3.fromRGB(210, 70, 70), Color3.fromRGB(90, 170, 90), Color3.fromRGB(200, 150, 60) },
 		label = "\u{1F47E} Critter",
 		retaliateChance = 0, -- doesn't fight back
@@ -181,7 +187,7 @@ local TIERS = {
 		hitCooldown = 0.22,
 		respawnDelay = 16,
 		dnaMult = 9,
-		size = 16,
+		size = 9.5,
 		colors = { Color3.fromRGB(90, 30, 110), Color3.fromRGB(40, 40, 50) },
 		label = "\u{1F480} Brute",
 		retaliateChance = 0.55, -- 55% chance to hit back when you attack it
@@ -207,7 +213,7 @@ local TIERS = {
 		hitCooldown = 0.22,
 		respawnDelay = 55,
 		dnaMult = 34,
-		size = 26,
+		size = 13,
 		colors = { Color3.fromRGB(255, 160, 40), Color3.fromRGB(120, 40, 160) },
 		label = "\u{2B50} Elite",
 		retaliateChance = 0.8,
@@ -234,16 +240,19 @@ local TIERS = {
 	-- What makes it dangerous is the retaliation, not the health bar: it hits back on 95% of blows
 	-- for 40-70, with a 20-stud aura at 26-44 every second. A player who wandered up without three
 	-- rebirths' worth of damage would lose the trade badly -- which is the point of a gate you can
-	-- see from below. Size stays at the Elite's 26 deliberately: `raisedSpots` clears its candidate
-	-- shelves with a 26-stud probe, so a bigger Apex would need that probe widened and would quietly
-	-- cost some zones their spots. The crown, the colour and the name carry the distinction instead.
+	-- see from below. Size used to be pinned to the Elite's 26 because `raisedSpots` cleared its
+	-- candidate shelves with a hard-coded 26-stud probe, so a bigger Apex would have quietly cost
+	-- some zones their spots. 31.3 unpinned it: the probe reads `widestTier()` off this table now,
+	-- so the Apex is free to be the biggest thing in the valley and the shelves follow it.
+	-- IT IS STILL ONLY 15 STUDS -- under 2x the 8.3-stud player. The crown, the colour, the name and
+	-- the retaliation carry the distinction; height stopped carrying it when the body was frozen.
 	Apex = {
 		health = GameConfig.ApexBaseHealth,
 		minHits = 10,
 		hitCooldown = 0.22,
 		respawnDelay = 120,
 		dnaMult = 55,
-		size = 26,
+		size = 15,
 		colors = { Color3.fromRGB(255, 90, 200), Color3.fromRGB(45, 15, 70) },
 		label = "\u{1F451} Apex",
 		retaliateChance = 0.95,
@@ -338,10 +347,23 @@ local VALLEY_X = 395
 -- IT HAS TO STAY IN STEP WITH `ForestMapService.MAPS` -- one decision written in two files. The
 -- alternative is this module requiring a server service it otherwise knows nothing about, at module
 -- scope, to read four numbers. The ellipse is inset from the band on every side: `toGlade` reaches
--- 88% of it, so 500 x 100 at z = -448 lands every rig between z -536 and -360, which clears the
--- village edge at -330 and the exit gate at -575.
+-- 88% of it.
+--
+-- ===== 31.4 WIDENED IT, AND MOVED ITS CENTRE EAST =====
+-- The owner asked for the wood to hold everything -- *"treba samo rasporediti drveca malo ih
+-- udaljiti da mobovi stanu tu"* -- and 500 x 100 was a corridor: 74 rigs in a strip 176 studs deep
+-- is a queue, not a hunting ground. The band behind the village is not the only free ground either.
+-- The village FLOOR is 682 x 580 inside a 1250 x 1150 platform, so there is a ~280-stud pocket of
+-- platform down each side of it that the map's mountain ring was standing on; clearing the southern
+-- arcs (see `ForestMapService.MAPS.Forest.clear`) hands both pockets to the wood.
+--
+-- 800 x 144 at (80, -420) reaches x -320..480 and z -547..-293 at 88%. Two things set those bounds
+-- and neither is arbitrary:
+--   * the EAST offset of +80 and the west edge at -320 keep the rigs clear of the boss, who moved to
+--     (-400, -430) in 31.4 with a ~79-stud arena disc reaching x -440..-360. 40 studs of gap.
+--   * the far edge at -547 still clears the exit gate at -575.
 local MAP_GLADE = {
-	Forest = { x = 0, z = -448, a = 500, b = 100 },
+	Forest = { x = 80, z = -420, a = 800, b = 144 },
 }
 
 -- Normalised by the extent the points above were actually drawn in, then clamped to the unit DISC
@@ -3117,7 +3139,11 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 	-- so anything walking this hierarchy keeps working.
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "CreaturePlate"
-	billboard.Size = UDim2.new(0, 186, 0, 58)
+	-- 31.3: A PLATE IS IN PIXELS AND THE WORLD IS IN STUDS, SO THIS DOES NOT SHRINK ON ITS OWN.
+	-- Every creature lost roughly half its height in 31.3; a plate that kept its 186 px would now be
+	-- wider on screen than the thing it names. Cut with them, and the offset below follows for free
+	-- because it is already expressed against `tier.size`.
+	billboard.Size = UDim2.new(0, 112, 0, 36)
 	-- off the rig's own size: the tiers run 6.5 to 26 studs and a constant offset wears the plate
 	-- through an Elite's chest
 	billboard.StudsOffset = Vector3.new(0, tier.size * 0.95, 0)
@@ -3283,13 +3309,19 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 	-- different controls. A click is aimed and should be melee (see clickReach); an auto-attack is
 	-- the convenience feature and is meant to pick up whatever you walk past.
 	--
-	-- Resulting reach: Swarmer 66.5, Critter 71, Brute 76, Elite 86.
-	--
 	-- 15.21 restored this from `math.max(clickReach + 3, 22) + tier.size * 0.35`. That floor was
 	-- BELOW the player's own half-width (15.4 studs at max stage) plus the creature's, so the server
 	-- would have refused blows a player could see land -- and the client, cut to 22 in the same pass,
-	-- could not nominate them in the first place. Both halves are back at 60.
-	local autoReach = math.max(clickReach + 4, 60) + tier.size
+	-- could not nominate them in the first place.
+	--
+	-- 31.3 CUT THE FLOOR FROM 60 TO 34, AND THE REASON THE OLD ONE WAS RIGHT IS THE REASON THE NEW
+	-- ONE IS. 60 was sized against a 15.4-stud half-width -- a player who does not exist any more.
+	-- The body is frozen at 8.3 studs tall (30.14), so its half-width is around 3, and a 60-stud
+	-- floor against 5-to-15-stud creatures means auto-attack reaches four bodies past anything the
+	-- player can see herself standing next to. Resulting reach is now Swarmer 39, Critter 41,
+	-- Brute 43.5, Elite 47.5, Apex 49.5 -- still comfortably over half-width + half-width, which is
+	-- the test that matters.
+	local autoReach = math.max(clickReach + 4, 34) + tier.size
 
 	model:SetAttribute("Health", tier.health)
 	-- ===== WHAT THE CLIENT IS ALLOWED TO KNOW ABOUT THIS CREATURE (11.6) =====
@@ -3760,6 +3792,18 @@ end
 
 -- inside the band (TERRAIN_INNER is 415) and inside the spawn keep-out's own 575 edge limit
 local RAISED_IN, RAISED_OUT = 432, 566
+
+-- The widest thing that will ever stand on a shelf. It was the literal 26 in two places below, which
+-- silently coupled the shelf census to the Apex's size -- so shrinking the Apex (31.3) without this
+-- would have kept probing 26-stud boxes and rejected shelves that are now perfectly good. Read from
+-- the table so the two move together for good.
+local function widestTier()
+	local w = 0
+	for _, t in pairs(TIERS) do
+		if t.size and t.size > w then w = t.size end
+	end
+	return w
+end
 local FLAT_PROBE = { Vector2.new(13, 0), Vector2.new(-13, 0), Vector2.new(0, 13), Vector2.new(0, -13) }
 
 local function raisedSpots(zone)
@@ -3820,7 +3864,8 @@ local function raisedSpots(zone)
 		-- and the ground query afterwards would then honestly report the valley floor. Rejecting the
 		-- spot outright and taking the next one keeps the creature up where it was put.
 		local x2 = zone.offset + rel
-		if blockedAt(x2, y + 26 * 0.56, z, 26) then continue end
+		local probe = widestTier()
+		if blockedAt(x2, y + probe * 0.56, z, probe) then continue end
 
 		local clear = true
 		for _, p in ipairs(found) do
