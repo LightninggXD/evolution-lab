@@ -66,6 +66,18 @@ GameConfig.ExpeditionDailyRuns = 2
 -- every expedition's Core is worth the same: it is the ending, not a difficulty tier.
 GameConfig.ExpeditionCoreClicks = 900
 
+-- ===== HOW LONG THE CORE STANDS, AND WHY IT IS A COUNT OF SWINGS =====
+--
+-- Not hit points. `ExpeditionService` prices the Core at `hits x GetCombatDamage(data)` on the FIRST
+-- blow, so the fight is the same length for a stage-3 player and a stage-20 one -- the rule the
+-- whole game is built on, and the same reason every reward above is authored in stage-1 clicks. A
+-- flat health pool would be a wall at stage 3 and a formality at stage 12.
+--
+-- 120 swings at `CombatClient.AUTO_INTERVAL` (0.34 s) is about 41 seconds, on top of a run that is
+-- ~3-4 minutes today. It is an ending, not a second expedition: long enough that the bar visibly
+-- falls, short enough that nobody puts the mouse down. It is one number, and row 29.9 owns it.
+GameConfig.ExpeditionCoreHits = 120
+
 -- Relic chests for finishing, and for finishing well. `RelicService.GiveChest` is documented in its
 -- own file as "the seam for every future source -- boss drops, hidden passages", which is exactly
 -- what this is. Beating par doubles it; nothing else in the run does.

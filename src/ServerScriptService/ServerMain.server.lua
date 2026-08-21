@@ -102,6 +102,12 @@ PetService.Init()
 PetFollowService.Init()
 CreatureService.Init()
 BossService.Init()
+-- AFTER BossService.Init, and that is a hard constraint rather than a preference: its first act is
+-- to destroy every child of `workspace.Bosses`, and an expedition Core lives in that folder so the
+-- combat client can target it without knowing what an expedition is. Built in ExpeditionService.Init
+-- (line 92) the Cores are created and then wiped here, silently -- nothing errors, the folder simply
+-- comes out holding twenty bosses and no Cores. The full argument is above BuildCores itself.
+ExpeditionService.BuildCores()
 RebirthService.Init()
 -- after RebirthService (it wires each statue's prompt straight into HandleRebirth) and after
 -- ZoneBuilder.Build() above, which is what puts the Forest decor the plaza has to clear back

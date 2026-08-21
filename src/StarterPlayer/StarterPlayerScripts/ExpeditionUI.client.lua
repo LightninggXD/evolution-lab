@@ -285,8 +285,35 @@ local function refreshTracker()
 		corner.Parent = chip
 	end
 
-	trackerTotal.Text = ("%d  \u{2022}  %d / %d seals")
-		:format(runState.total or 0, runState.sealsHeld or 0, #expedition.stations)
+	-- The Core gets a chip of its own, and only once every seal is held -- before that it is not
+	-- what the player is being asked to do, and a fourth dim circle sitting there from the first
+	-- chamber would read as a fourth station. Lit when it is DOWN, which is the same grammar the
+	-- seals use: a lit chip is a thing you have finished with.
+	local core = expedition.core
+	if core and runState.sealsHeld >= #expedition.stations then
+		local down = runState.coreDown == true
+		local coreChip = Instance.new("TextLabel")
+		coreChip.Name = "Core"
+		coreChip.Size = UDim2.new(0, 44, 0, 44)
+		coreChip.BackgroundColor3 = down and (core.color or Color3.fromRGB(190, 130, 255))
+			or Color3.fromRGB(52, 48, 72)
+		coreChip.BorderSizePixel = 0
+		coreChip.Font = UITheme.Font.Display
+		coreChip.Text = core.emoji or "\u{1F9A0}"
+		coreChip.TextScaled = true
+		coreChip.TextTransparency = down and 0 or 0.62
+		coreChip.LayoutOrder = #expedition.stations + 1
+		coreChip.ZIndex = 42
+		coreChip.Parent = trackerRows
+
+		local coreCorner = Instance.new("UICorner")
+		coreCorner.CornerRadius = UDim.new(1, 0)
+		coreCorner.Parent = coreChip
+	end
+
+	trackerTotal.Text = ("%d  \u{2022}  %d / %d seals%s")
+		:format(runState.total or 0, runState.sealsHeld or 0, #expedition.stations,
+			runState.coreDown and "  \u{2022}  vault open" or "")
 end
 
 -- ============================================================================
@@ -309,6 +336,71 @@ local function applyDoor()
 				-- by design, so nothing here can be replicated back by a later server write, and
 				-- the server's own authored 0.25 stays the thing every other player sees.
 				door.LocalTransparencyModifier = open and 0.85 or 0
+			end
+		end
+	end
+end
+
+-- ============================================================================
+-- THE CORE
+-- ============================================================================
+-- The same illusion as the door, for the same reason, and it is worth saying why it takes so little
+-- code. `ExpeditionService` builds ONE Core per expedition into `workspace.Bosses` and writes
+-- `Health = 1` on it once. That attribute is a TARGETING FLAG, not the health -- the real health is
+-- `run.coreHp`, per run, on the server, because the map is shared and two players standing in the
+-- last chamber are each fighting their own. The server never writes the attribute again.
+--
+-- So `CombatClient` needs no idea that expeditions exist. Its auto-attack picker skips any model in
+-- that folder whose replicated `Health` is not above zero (CombatClient.client.lua:1019), and its
+-- other door is a ClickDetector at the same 70 studs the server validates against. Writing 0 over
+-- the flag on the LOCAL copy is therefore the whole of "the Core is dead for me": the loop stops
+-- nominating it, the cursor stops offering it, and the player beside you -- still on their own
+-- seals -- goes on swinging at a Core that is, for them, at full strength.
+--
+-- A client write to an attribute of a replicated instance does not replicate, and nothing overwrites
+-- it until the server writes that attribute again, which this one never does. That is the same
+-- guarantee LocalTransparencyModifier gives the door, reached by a different route.
+--
+-- It is allowed to be an illusion, exactly like the door: `HandleCoreStrike` refuses a blow on a run
+-- that is already `coreDown`, and `HandleOpenChest` re-checks `coreDown` before it pays anything.
+local CORE_REACH = 70 -- ExpeditionService.CORE_REACH. A gate on both sides, so both must move.
+local CORE_FADE = 0.88
+
+local function applyCore()
+	local bosses = workspace:FindFirstChild("Bosses")
+	if not bosses then return end
+
+	for _, model in ipairs(bosses:GetChildren()) do
+		-- Only ever a Core. The folder belongs to `BossService` and a real boss carries no
+		-- ExpeditionKey; the Cores are Persistent, so unlike the map this loop never has to wait for
+		-- streaming to bring one in.
+		local key = model:GetAttribute("ExpeditionKey")
+		if key then
+			local down = runState ~= nil and runState.running == true
+				and runState.key == key and runState.coreDown == true
+
+			model:SetAttribute("Health", down and 0 or 1)
+
+			for _, thing in ipairs(model:GetDescendants()) do
+				if thing:IsA("BasePart") then
+					-- LocalTransparencyModifier rather than Transparency, for the reason written at
+					-- the door: it is client-only BY DESIGN, so no later server write can replicate
+					-- over it, and the neon the player beside you is still swinging at stays solid.
+					-- A ghost rather than a Destroy, so the room still reads as a fight that was won
+					-- and the next run has something to put back.
+					thing.LocalTransparencyModifier = down and CORE_FADE or 0
+				elseif thing:IsA("Light") then
+					thing.Enabled = not down
+				elseif thing:IsA("BillboardGui") then
+					-- "Break it to open the vault" is a lie once it is broken, and the sign is the
+					-- one piece the fade does not reach: a BillboardGui is drawn in screen space and
+					-- ignores the transparency of the part it is adorned to entirely.
+					thing.Enabled = not down
+				elseif thing:IsA("ClickDetector") then
+					-- Zero rather than Destroy: the server already refuses the click, this is only
+					-- so the cursor stops lighting up on a corpse -- and the next run needs it back.
+					thing.MaxActivationDistance = down and 0 or CORE_REACH
+				end
 			end
 		end
 	end
@@ -397,6 +489,7 @@ Remotes.ExpeditionState.OnClientEvent:Connect(function(payload)
 	end
 	refreshTracker()
 	applyDoor()
+	applyCore()
 end)
 
 -- A station's OUTCOME. `MinigameUI` has already torn its own panel down off this same remote (it
@@ -422,6 +515,7 @@ Remotes.ExpeditionResult.OnClientEvent:Connect(function(payload)
 	runState = nil
 	refreshTracker()
 	applyDoor()
+	applyCore()
 
 	briefing.Visible = false
 	resultPane.Visible = true
@@ -478,4 +572,5 @@ end)
 player.CharacterAdded:Connect(function()
 	task.wait(0.5)
 	applyDoor()
+	applyCore()
 end)
