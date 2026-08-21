@@ -368,6 +368,14 @@ local function cutEntrance(map, cx, e, protected)
 	return cleared
 end
 
+-- The spec for a mapped zone, so a consumer can read the entrance corridor rather than copying its
+-- four numbers. `MapEggs` is the first caller and the reason this exists: the corridor is the one
+-- piece of geometry another module has to agree with exactly, and `evolution-lab-zone-geometry-
+-- constants` is the standing lesson about one decision written in two files.
+function ForestMapService.GetSpec(zoneKey)
+	return MAPS[zoneKey]
+end
+
 function ForestMapService.Init()
 	local source = ServerStorage:FindFirstChild("Maps")
 	if not source then

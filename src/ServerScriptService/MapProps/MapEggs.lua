@@ -31,6 +31,7 @@
 -- X first (the generated row sits at x = -32, 0, +32) and a column is moved as one thing.
 
 local MapAnchors = require(script.Parent.MapAnchors)
+local ForestMapService = require(script.Parent.Parent.ForestMapService)
 
 local MapEggs = {}
 
@@ -133,8 +134,44 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 		end
 	end
 
-	print(("[MapEggs] %s: dropped %d stall pieces, moved %d egg columns onto the map's own spots")
-		:format(zoneKey, dropped, moved))
+	-- 3. THE LEFTOVER EGG PROP MUST NOT STAND IN THE ROAD.
+	-- Leaving `King` as the artist's scenery was right and it was also a 21 x 22 x 17 boulder at
+	-- (-6, 113) -- which is the middle of the entrance funnel. Measured by walking the centre line
+	-- with a body-sized box: three of thirty-two cells from spawn to the square were blocked, all
+	-- three by `King.inkubator`, and nothing anywhere reported it. A prop in a corridor is not a
+	-- decision anyone makes, it is one nobody checked.
+	--
+	-- Pushed sideways rather than deleted, and pushed by the CORRIDOR's own half-width read from
+	-- ForestMapService rather than by a number typed here -- if the funnel is ever widened, this
+	-- follows it instead of quietly becoming wrong again.
+	local spec = ForestMapService.GetSpec(zoneKey)
+	local e = spec and spec.entrance
+	local pushed = 0
+	if e then
+		for _, name in ipairs(MapAnchors.EGGS) do
+			local anchor = MapAnchors.Get(zoneKey, "egg", name)
+			local inst = anchor and anchor.inst
+			if inst and inst.Parent then
+				local pos = centreOf(inst)
+				if pos and pos.Z >= e.zNear and pos.Z <= e.zFar then
+					local t = (pos.Z - e.zNear) / (e.zFar - e.zNear)
+					local half = e.halfNear + (e.halfFar - e.halfNear) * t
+					-- Half the prop's own width of clearance past the corridor edge, so it stands
+					-- BESIDE the road rather than touching it.
+					local want = half + anchor.size.X * 0.5 + 10
+					if math.abs(pos.X) < want then
+						local side = pos.X >= 0 and 1 or -1
+						moveBy(inst, Vector3.new(side * want - pos.X, 0, 0))
+						pushed += 1
+					end
+				end
+			end
+		end
+	end
+
+	print(("[MapEggs] %s: dropped %d stall pieces, moved %d egg columns onto the map's own spots, "
+		.. "pushed %d leftover props out of the entrance road")
+		:format(zoneKey, dropped, moved, pushed))
 	return moved
 end
 
