@@ -61,8 +61,14 @@ local TERMINAL_VERSION = 3
 -- one the player cannot see over and whose prompt can never fire. The cabinet below is 30 studs
 -- across and the prompt is 70, which clears 15 + 22 with room for the player to be standing on the
 -- far side of their own pet.
-local CAB_W, CAB_H, CAB_D = 30, 34, 16
-local PROMPT_DISTANCE = 70
+-- 31.8: 30 x 34 x 16 -> 16 x 18 x 9, and the reach with it. THIRTY-FOUR STUDS IS FOUR TIMES THE
+-- PLAYER. Every number in this file was chosen when a stage-20 body reached 41 studs; 30.14 froze it
+-- at 8.4 and this did not move, which is one of the objects in the owner's "sve izgleda preveliko
+-- naspram mene". 18 studs is a machine you stand at rather than one you could park a bus in, and it
+-- is the height her own inserted `Arcade Machines` cabinets scale to in the mapped zone (MapArcade).
+-- The reach follows because the note above derives it from the cabinet's own half-width.
+local CAB_W, CAB_H, CAB_D = 16, 18, 9
+local PROMPT_DISTANCE = 34
 
 -- Where a terminal stands, in ZONE-LOCAL coordinates (x is offset from the zone centre, z is the
 -- world z the whole strip shares). Every zone is the same 1250 x 1150 platform, so one local

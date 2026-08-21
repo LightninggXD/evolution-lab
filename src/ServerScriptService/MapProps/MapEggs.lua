@@ -114,7 +114,7 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 		local anchor = spotName and MapAnchors.Get(zoneKey, "egg", spotName)
 		if anchor then
 			local pieces = columns[key]
-			local eggPos
+			local eggPos = nil
 			for _, c in ipairs(pieces) do
 				if c.Name == "Egg" then eggPos = centreOf(c) break end
 			end

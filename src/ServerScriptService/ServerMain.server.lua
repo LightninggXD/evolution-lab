@@ -39,6 +39,7 @@ local ForestMapService = require(ServerScriptService.ForestMapService)
 local BoardStats = require(ServerScriptService.MapProps.BoardStats)
 local MapCounters = require(ServerScriptService.MapProps.MapCounters)
 local MapEggs = require(ServerScriptService.MapProps.MapEggs)
+local MapArcade = require(ServerScriptService.MapProps.MapArcade)
 local Telemetry = require(ServerScriptService.Telemetry)
 
 -- ===== STREAMING =====
@@ -200,6 +201,12 @@ TradeService.Init()
 -- have to run in a fixed order against each other, while a terminal stands beside its own zone's
 -- arrival pad, where none of them ever goes. It reads no other service's state.
 MinigameService.Init()
+-- STRICTLY AFTER IT (31.8), and that is the point: the mapped zone gets a row of the owner's own
+-- arcade cabinets in the village instead of a generated slab on the arrival plaza, and it works by
+-- REPARENTING the prompt MinigameService just built rather than by making a second one. Run it
+-- before and there is no prompt to take; make our own instead and the feature has two doors that can
+-- disagree about their attributes.
+MapArcade.Init("Forest", 0)
 -- NO ORDERING CONSTRAINT AT ALL, and that is worth one line because every other world-building
 -- service on this list has one. An adventure course is built on FIRST ENTRY rather than at Init --
 -- twenty obbies is five times the expedition's geometry for a feature most servers never open --
