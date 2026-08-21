@@ -26,9 +26,12 @@
 --
 -- The old block ran `refreshPlaytimePanel()` every second for the whole session, rewriting five
 -- labels, five stroke colours and five card fills whether or not anything was on screen. Here the
--- loop still ticks every second -- a countdown has to -- but it returns immediately unless the
--- panel is open, and the READY transition is what actually needs watching: a milestone that comes
--- due while the panel is shut is picked up the moment it is opened, because `OnRefresh` runs then.
+-- loop still ticks every second -- a countdown has to -- but the CARD repaint returns immediately
+-- unless the panel is open, and the READY transition is what actually needs watching: a milestone
+-- that comes due while the panel is shut is picked up the moment it is opened, because `OnRefresh`
+-- runs then. (Since 21.4 the tick also updates the tile badge unconditionally -- one boolean and at
+-- most one `Visible` write -- because a badge that only lights while the panel is open is a badge
+-- for nobody. See the 21.4 note below.)
 --
 -- ===== TWO LADDERS IN ONE LIST (21.3) =====
 --
@@ -43,6 +46,26 @@
 -- claim set, and which clock -- and every one of those is data. The daily clock arrives from the
 -- server as a virtual start time (`dailyStart = now - secondsPlayedToday`) precisely so that
 -- `os.time() - start` is the right expression for both.
+--
+-- ===== THE ENDLESS RUNG, AND THE TILE BADGE (21.4) =====
+--
+-- 21.4 asks for a guarantee that a session never ends with nothing pending, and the daily ladder is
+-- the one carrier that can deliver it by construction: past 240 minutes it now repeats hourly for
+-- ever (`GameConfig.DailyPlaytimeRepeat`). So this panel draws ONE extra card under the daily five,
+-- and that card is not a sixth step -- it is whichever repeat rung is next, re-aimed as each one is
+-- taken. There is always exactly one, and it is never more than an hour out.
+--
+-- ONE CARD AND NOT A GROWING LIST. A player eight hours in would otherwise be scrolling past three
+-- grey `DONE` cards to reach the only line that still asks them for anything; a spent rung has
+-- nothing left to say. The card reads its index from `repeatIndexFor` at CLICK time rather than
+-- from a variable `refresh` maintains, so it cannot fire a stale index -- see the note there.
+--
+-- AND THE COUNTDOWN IS NOW VISIBLE FROM OUTSIDE THE PANEL. A rung that comes due behind a shut
+-- panel is unfinished business the player never learns about, which is the same complaint 21.1 made
+-- about trading. The `Gifts` tile gets the badge the `Daily` tile has had since 16.x, lit whenever
+-- either ladder has a rung ready. That is why the one-second loop at the bottom of this file no
+-- longer returns early when the panel is closed: the badge has to tick whether anyone is looking at
+-- the list or not. The expensive half -- ten cards of labels, strokes and fills -- is still gated.
 
 local RS = game:GetService("ReplicatedStorage")
 local Remotes = RS:WaitForChild("Remotes")
@@ -82,6 +105,10 @@ local ladders = {
 		claimed = {},
 		rows = {},
 		order = 100,
+		-- ONLY THIS LADDER REPEATS. The session ladder measures the same minutes against a second
+		-- clock, and an endless rung on both would bill one hour of play twice -- see the note over
+		-- `GameConfig.DailyPlaytimeRepeat`. One endless countdown is what the guarantee needs.
+		repeats = true,
 	},
 }
 local sessionLadder, dailyLadder = ladders[1], ladders[2]
@@ -135,6 +162,97 @@ local function iconFor(m)
 	return IconLibrary.Resolve("\u{1F9EC}")
 end
 
+--- WHICH REPEAT RUNG IS NEXT (21.4). The lowest index past the authored five that this player has
+--- not already taken -- normally `#list + 1`, and one higher for each hourly rung they have claimed
+--- since. The loop terminates on its own because `claimed` is a finite set; it deliberately carries
+--- no arbitrary ceiling, because the only real ceiling is the clock and `HandleClaim` owns that.
+---
+--- CALLED AT CLICK TIME, NOT CACHED INTO THE LADDER BY `refresh`. `refresh` runs only while the
+--- panel is open, so a cached index would be whatever it was at the last repaint -- and the one
+--- moment it is wrong is the moment after a claim, which is exactly when the button is pressed
+--- again. A three-line scan on a click costs nothing; a stale index re-claims a spent rung.
+local function repeatIndexFor(ladder)
+	local i = #ladder.list + 1
+	while ladder.claimed[i] do
+		i += 1
+	end
+	return i
+end
+
+--- The three states of one rung -- waiting, ready, spent -- painted onto one card. Pulled out of
+--- `refresh` when 21.4 added the repeat card, so that card gets the SAME three states rather than a
+--- second, drifting copy of them. `m` is the milestone, `elapsed` the ladder's own clock in seconds.
+local function paintRow(row, m, elapsed, claimed)
+	local remaining = m.minutes * 60 - elapsed
+	if claimed then
+		row.card.SetDescription("Claimed today")
+		row.card.SetColors(DONE)
+		row.card.Button.SetPrice("DONE")
+		row.card.Button.SetEnabled(false)
+	elseif remaining <= 0 then
+		row.card.SetDescription("Ready to claim")
+		row.card.SetColors(READY)
+		row.card.Button.SetPrice("CLAIM")
+		row.card.Button.SetEnabled(true, CLAIM)
+	else
+		-- `%dm %02ds`, not `%dm %ds`: this line rewrites itself once a second, and a seconds field
+		-- that changes width makes the whole row twitch on every tick. Past an hour the seconds are
+		-- dropped rather than left to run to `179m 04s`: a field that wide is a stopwatch, and
+		-- nobody watches a three-hour one tick.
+		if remaining >= 3600 then
+			row.card.SetDescription("Unlocks in " .. durationText(math.ceil(remaining / 60)))
+		else
+			row.card.SetDescription(("Unlocks in %dm %02ds"):format(remaining // 60, remaining % 60))
+		end
+		row.card.SetColors(WAITING)
+		-- amber rather than the disabled grey, and the time ON the button: this button is not
+		-- refusing, it is telling you when to come back
+		row.card.Button.SetPrice(durationText(math.ceil(remaining / 60)))
+		row.card.Button.SetEnabled(false, WAIT_COLORS)
+		row.card.Button.SetColors(WAIT_COLORS)
+	end
+end
+
+--- Is anything claimable on either ladder right now? The badge's whole question, and it is asked
+--- once a second whether or not the panel is open -- so it walks the config and draws nothing.
+--- THE REPEAT RUNG IS INCLUDED, and that is the half that matters: past four hours it is the only
+--- thing that can ever be ready, so a badge that stopped at the fifth authored rung would light for
+--- every player except the one 21.4 was opened for.
+local function anyReady()
+	local now = os.time()
+	for _, ladder in ipairs(ladders) do
+		local elapsedMinutes = (now - ladder.start) / 60
+		for i, m in ipairs(ladder.list) do
+			if not ladder.claimed[i] and elapsedMinutes >= m.minutes then return true end
+		end
+		if ladder.repeats then
+			local m = GameConfig.GetDailyPlaytimeGift(repeatIndexFor(ladder))
+			if m and elapsedMinutes >= m.minutes then return true end
+		end
+	end
+	return false
+end
+
+--- The badge on the HUD tile (21.4). FOUND BY NAME rather than passed in: `MainUI` is at Luau's
+--- 200-local ceiling and one more top-level local there silently deletes the whole HUD, which is
+--- why `columnTile` stamps `caption .. "Button"` on every tile and every late reader looks it up.
+--- Cached after the first successful lookup, so this is a table read and not a tree walk once a
+--- second for the rest of the session.
+---
+--- The tile is a sibling of this panel under the same ScreenGui, so it is reached through the
+--- screenGui `Init` was handed rather than through `panel.Instance.Parent` -- the builder is free to
+--- reparent or wrap its own frame and this lookup must not depend on it not having.
+local screenRoot = nil
+local giftsBadge = nil
+local function refreshBadge()
+	if not giftsBadge then
+		local tile = screenRoot and screenRoot:FindFirstChild("GiftsButton")
+		giftsBadge = tile and tile:FindFirstChild("Badge")
+		if not giftsBadge then return end
+	end
+	giftsBadge.Visible = anyReady()
+end
+
 local function refresh()
 	local now = os.time()
 	for _, ladder in ipairs(ladders) do
@@ -148,34 +266,21 @@ local function refresh()
 		for i, m in ipairs(ladder.list) do
 			local row = ladder.rows[i]
 			if row then
-				local remaining = m.minutes * 60 - elapsed
-				if ladder.claimed[i] then
-					row.card.SetDescription("Claimed today")
-					row.card.SetColors(DONE)
-					row.card.Button.SetPrice("DONE")
-					row.card.Button.SetEnabled(false)
-				elseif remaining <= 0 then
-					row.card.SetDescription("Ready to claim")
-					row.card.SetColors(READY)
-					row.card.Button.SetPrice("CLAIM")
-					row.card.Button.SetEnabled(true, CLAIM)
-				else
-					-- `%dm %02ds`, not `%dm %ds`: this line rewrites itself once a second, and a
-					-- seconds field that changes width makes the whole row twitch on every tick.
-					-- Past an hour the seconds are dropped rather than left to run to `179m 04s`:
-					-- a field that wide is a stopwatch, and nobody watches a three-hour one tick.
-					if remaining >= 3600 then
-						row.card.SetDescription("Unlocks in " .. durationText(math.ceil(remaining / 60)))
-					else
-						row.card.SetDescription(("Unlocks in %dm %02ds"):format(remaining // 60, remaining % 60))
-					end
-					row.card.SetColors(WAITING)
-					-- amber rather than the disabled grey, and the time ON the button: this button
-					-- is not refusing, it is telling you when to come back
-					row.card.Button.SetPrice(durationText(math.ceil(remaining / 60)))
-					row.card.Button.SetEnabled(false, WAIT_COLORS)
-					row.card.Button.SetColors(WAIT_COLORS)
-				end
+				paintRow(row, m, elapsed, ladder.claimed[i])
+			end
+		end
+		-- ===== THE ENDLESS RUNG (21.4) =====
+		-- Re-aimed on every repaint rather than rebuilt: this one card is a window onto whichever
+		-- hourly rung is next, so its title, its payout line and its countdown move together. Its
+		-- `claimed` argument is false by construction -- `repeatIndexFor` returns the lowest
+		-- UNCLAIMED index -- so the card is only ever waiting or ready and never draws a grey
+		-- `DONE`. That is the whole point of it: the last row of the list always asks for something.
+		if ladder.repeats and ladder.repeatRow then
+			local m = GameConfig.GetDailyPlaytimeGift(repeatIndexFor(ladder))
+			if m then
+				ladder.repeatRow.card.SetTitle(durationText(m.minutes))
+				ladder.repeatRow.card.SetSubtitle(rewardLine(m) .. "  \u{2022}  every hour from here")
+				paintRow(ladder.repeatRow, m, elapsed, false)
 			end
 		end
 	end
@@ -183,6 +288,9 @@ end
 
 function PlaytimeGiftsPanel.Init(screenGui)
 	if panel then return panel end
+
+	-- kept for `refreshBadge`, which reaches the `Gifts` tile by name -- see the note there
+	screenRoot = screenGui
 
 	panel = Builder.CreatePanel({
 		Parent = screenGui,
@@ -279,6 +387,48 @@ function PlaytimeGiftsPanel.Init(screenGui)
 			})
 			ladder.rows[i] = { card = card }
 		end
+
+		-- ===== THE ENDLESS RUNG (21.4) =====
+		--
+		-- ONE card, built once, re-aimed by `refresh` at whichever hourly rung is next. Everything
+		-- on it that names a specific rung -- the title, the payout line, the countdown -- is
+		-- written there and not here, because "which rung" changes while the panel is open.
+		--
+		-- IT IS VISIBLE FROM THE FIRST MINUTE and not revealed once the five above are spent. A
+		-- ladder whose last card appears out of nowhere four hours in is a surprise; one that has
+		-- always been at the bottom of the list is a promise the player has been reading all day.
+		-- It costs one card in a scroll that already holds twelve.
+		--
+		-- LayoutOrder is `order + 999`, not `order + #list + 1`: the two ladders are 100 apart and
+		-- this has to sit under the daily five without ever colliding with the session banner at 0
+		-- if a rung is one day added to either list.
+		if ladder.repeats then
+			local first = GameConfig.GetDailyPlaytimeGift(#ladder.list + 1)
+			local card = panel.AddCard({
+				Name = ladder.key .. "GiftRepeat",
+				LayoutOrder = ladder.order + 999,
+				Title = durationText(first.minutes),
+				Subtitle = rewardLine(first),
+				Description = "",
+				Icon = iconFor(first) or "",
+				BackgroundColors = WAITING,
+				Buttons = {
+					{
+						Name = "Claim",
+						Price = "CLAIM",
+						Icon = "",
+						Colors = CLAIM,
+						-- THE INDEX IS COMPUTED HERE, IN THE HANDLER, and not captured. This card
+						-- outlives the rung it is drawn for: claim the 5h rung and the same button
+						-- must fire 6 the next time it is green. See `repeatIndexFor`.
+						Callback = function()
+							Remotes.ClaimPlaytimeGift:FireServer(repeatIndexFor(ladder), ladder.key)
+						end,
+					},
+				},
+			})
+			ladder.repeatRow = { card = card }
+		end
 	end
 
 	-- Live from HUD build time -- see the header for why this cannot wait for the first click.
@@ -301,6 +451,10 @@ function PlaytimeGiftsPanel.Init(screenGui)
 		for _, idx in ipairs(payload.dailyClaimed or {}) do
 			dailyLadder.claimed[idx] = true
 		end
+		-- The badge, on every payload and not only on the tick: a claim changes what is claimable
+		-- in the same instant it is paid, and waiting up to a second to darken a badge the player
+		-- has just emptied is the one lag they would actually notice.
+		refreshBadge()
 		if panel.IsOpen() then refresh() end
 	end)
 
@@ -309,13 +463,22 @@ function PlaytimeGiftsPanel.Init(screenGui)
 	task.spawn(function()
 		while true do
 			task.wait(1)
-			-- a countdown that is not being watched is arithmetic nobody reads; `OnRefresh` catches
-			-- whatever came due while the panel was shut
+			-- THE BADGE IS NOT GATED ON THE PANEL BEING OPEN (21.4) and the card repaint still is.
+			-- They are two different costs answering two different questions: `refreshBadge` is one
+			-- boolean over about a dozen numbers and at most one `Visible` write, and it is the only
+			-- thing that can tell a player who is not looking at this list that a rung came due.
+			-- `refresh` rewrites twelve cards' worth of labels, strokes and fills, and a countdown
+			-- nobody is watching is arithmetic nobody reads -- `OnRefresh` catches whatever came due
+			-- while the panel was shut.
+			refreshBadge()
 			if panel.IsOpen() then refresh() end
 		end
 	end)
 
 	refresh()
+	-- Before the first tick, so the badge is never briefly lit on a HUD where nothing is claimable:
+	-- `UITheme.Badge` builds visible, and the tile is authored with its caption already on it.
+	refreshBadge()
 	return panel
 end
 

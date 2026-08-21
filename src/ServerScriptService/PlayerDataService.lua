@@ -227,6 +227,22 @@ local function defaultData()
 		-- had no code behind it at all. Not on RebirthService's reset list on purpose; a first photo
 		-- is a first photo.
 		PhotoTaken = false,
+		-- ===== EXPEDITIONS (29.1) =====
+		-- `Expeditions` is the daily ledger -- `{ Day, DayRuns, Best = {key -> score},
+		-- Cleared = {key -> times} }` -- shaped and rolled over by
+		-- `GameConfig.GetExpeditionLedger` rather than here, for the reason `Season` and `Quests`
+		-- are: which day a save belongs to is decided by the clock at read time, so an empty table
+		-- is the correct starting value and the first touch fills it in.
+		--
+		-- IT IS DELIBERATELY NOT ON RebirthService'S RESET LIST. A daily cap that a rebirth clears
+		-- is not a cap, it is a button that says "two more runs" -- and rebirth is something the
+		-- player is supposed to want to do often.
+		Expeditions = {},
+		-- Which zone to put the player back in when they leave an expedition map. The
+		-- `EventReturnZone` field above is the same idea for the Colosseum, and they are kept apart
+		-- on purpose so walking from one into the other cannot lose the way home. Cleared on the
+		-- way out; a save that still carries one was written mid-run and is harmless.
+		ExpeditionReturnZone = nil,
 		-- Game pass ownership, as a set of pass keys. RUNTIME ONLY: PassService writes it from the
 		-- Roblox ownership API on join, and Load below clears it unconditionally, so whatever ends up
 		-- in the DataStore is never read back. Declared here only so nothing ever indexes a nil.

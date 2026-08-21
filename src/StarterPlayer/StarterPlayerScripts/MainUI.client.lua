@@ -149,7 +149,13 @@ evolveFrame.Size = UDim2.new(0, 470, 0, 136)
 -- -36, up from -22 (16.2): the world-event bar is pinned to the bottom edge at -5 and is 26 tall,
 -- so its top edge sits at -31. Leaving this at -22 would have put the evolve card's own stroke
 -- through the boss pill. Five pixels of daylight between the two.
-evolveFrame.Position = UDim2.new(0.5, 0, 1, -36)
+--
+-- -84 NOW (2026-08-21), AND THE BAR THAT USED TO BE DOWN THERE HAS GONE UP. The bottom edge belongs
+-- to `Modules.HUD.QuickBuyRow` -- the row of DNA packs the reference draws under its level bar --
+-- which is 62 tall pinned at -10, i.e. its top edge is at -72. This card's bottom sits at -84, so
+-- there are 12 px between them, and the world-event bar moved to the TOP centre (see the note in
+-- `Modules.HUD.PotionTimers`) rather than being squeezed into a band that now has two tenants.
+evolveFrame.Position = UDim2.new(0.5, 0, 1, -84)
 evolveFrame.AnchorPoint = Vector2.new(0.5, 1)
 evolveFrame.BackgroundTransparency = 1
 evolveFrame.Parent = screenGui
@@ -1082,7 +1088,17 @@ local masteryBadge = nil
 -- ColumnSide/ColumnOrder registry the layout pass reads -- one system instead of two. The whole
 -- QuickRow frame, its layout and its builder are gone, which also gives three top-level registers
 -- back to a file that has about sixteen to spare.
-local playtimeButton = columnTile("R", 6, "⏰", "Gifts", UITheme.Color.Peach)
+-- THE BADGE IS 21.4, and it is the same signal the Daily tile has carried since 16.x: a flag that
+-- means "there is something to take right now", hidden the moment there is not. It matters more
+-- here than there, because the daily ladder now repeats hourly for ever -- so past four hours
+-- this tile is the ONLY place in the HUD that a rung coming due is ever announced, and a rung
+-- that comes due behind a shut panel is unfinished business the player never learns about.
+--
+-- NOTHING HERE HOLDS IT, on purpose: this file is at Luau's 200-local ceiling and one more
+-- top-level local silently deletes the whole HUD. `PlaytimeGiftsPanel` finds it back through
+-- `screenGui.GiftsButton.Badge` -- the name `columnTile` stamps -- and owns lighting it, since it
+-- is already the only reader of the remote that says what is claimable.
+local playtimeButton = columnTile("R", 6, "⏰", "Gifts", UITheme.Color.Peach, "CLAIM!", UITheme.Color.Green)
 
 -- AUTO-ATTACK toggle. The state itself lives on the player as an attribute, not in either script:
 -- CombatClient does the fighting and also toggles it off the T key, this tile draws it, and the
@@ -1113,7 +1129,25 @@ shopToggleButton.MouseButton1Click:Connect(function()
 	toggleOnly(shopFrame)
 end)
 
--- shared: red X close button in the top-right of a floating panel
+-- shared: red X close button hung on the top-right corner of a floating panel
+--
+-- ===== IT HANGS HALF OUTSIDE NOW (2026-08-21) =====
+--
+-- Every panel in the five screenshots Kristina sent closes with a big red disc whose CENTRE sits on
+-- the corner of the board, so half of it is over the shell and half over the world. This is the one
+-- function that draws that button for all eighteen panels, so the geometry moves here and nowhere
+-- else: anchorPoint (1, 0) -> (0.5, 0.5), which is what turns "inset from the corner" into "centred
+-- on it", and 44 -> 52 because the disc is now read against the world rather than against a panel
+-- and half of it is competing with whatever is behind the panel.
+--
+-- THE CIRCULAR RADIUS IS LOAD-BEARING AND WAS ALREADY HERE. `styleCard` drops the 6 px bottom lip
+-- for any shape whose corner radius is in scale (see the `lipDepth` line in UIKit): a stadium
+-- shifted down 6 px pokes its flanks out at both ends exactly where the body has curved away, so a
+-- disc with a lip wears two dark caps. Nothing to change -- but if the radius is ever made a pixel
+-- value, that is the bug you will see.
+--
+-- The ZIndex is unchanged and matters more than it did: the disc is drawn OVER the panel's own
+-- stroke now, not inside it.
 local function panelClose(panel)
 	-- (declared below its first caller's panel on purpose -- see the Upgrades panel, whose X is
 	-- attached at the bottom of this block because `animatePanel` does not exist further up)
@@ -1121,11 +1155,11 @@ local function panelClose(panel)
 		name = "Close",
 		text = "\u{2715}",
 		color = UITheme.Color.Red,
-		size = UDim2.new(0, 44, 0, 44),
-		position = UDim2.new(1, -12, 0, 8),
-		anchorPoint = Vector2.new(1, 0),
+		size = UDim2.new(0, 52, 0, 52),
+		position = UDim2.new(1, -4, 0, 4),
+		anchorPoint = Vector2.new(0.5, 0.5),
 		radius = UDim.new(1, 0),
-		maxTextSize = 26,
+		maxTextSize = 30,
 		zIndex = panel.ZIndex + UITheme.Z.Badge + 2,
 	})
 	btn.MouseButton1Click:Connect(function()
@@ -3686,7 +3720,16 @@ require(RS.Modules:WaitForChild("HUD"):WaitForChild("SeasonPass"))(hudRefs)
 local notifFrame = Instance.new("Frame")
 notifFrame.Name = "NotifFrame"
 notifFrame.Size = UDim2.new(0, 300, 0, 260)
-notifFrame.Position = UDim2.new(0.5, 0, 0, 66)
+-- 66 -> 132, MEASURED AGAINST THE WORLD-EVENT BAR (2026-08-21), which moved into this band when
+-- `QuickBuyRow` took the bottom edge. The bar is at y = 92 and is 32 tall, so it ends at 124; the
+-- toasts start 8 px under it.
+--
+-- THE TOASTS ARE WHAT MOVES, not the bar, and the direction is not arbitrary: the bar is permanent
+-- and has to be findable at a fixed spot, where a toast is transient and is read wherever it
+-- appears. Leaving them stacked would not have looked like an overlap either -- this frame is
+-- ZIndex 60 against the bar's 4, so a toast would simply have ERASED the boss clock for its whole
+-- four seconds, with both instances reporting correct properties throughout.
+notifFrame.Position = UDim2.new(0.5, 0, 0, 132)
 notifFrame.AnchorPoint = Vector2.new(0.5, 0)
 notifFrame.BackgroundTransparency = 1
 notifFrame.ZIndex = 60
@@ -4960,3 +5003,18 @@ require(RS.Modules:WaitForChild("HUD"):WaitForChild("TradePanel"))(hudRefs)
 -- Register cost: zero. Everything lives inside this block.
 -- MOVED OUT (18.9) to `ReplicatedStorage.Modules.HUD.ScrollAffordance` -- 103 lines, unchanged.
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("ScrollAffordance"))(hudRefs)
+
+-- ===== THE TWO PIECES OF FURNITURE THE REFERENCE HAS AND THIS HUD DID NOT (2026-08-21) =====
+--
+-- `QuickBuyRow` is the +10K / +100K / +1M strip under the progress bar; `OfferRail` is the stack of
+-- offer cards up the right edge. Both sell things that ALREADY EXIST with real ids in
+-- `GameConfig.RobuxProducts` and `GameConfig.GamePasses` -- neither invents a product, and neither
+-- touches the server.
+--
+-- REQUIRED HERE, LAST, AND WITH NO TOP-LEVEL LOCAL. Both reasons are the same one that has deleted
+-- this whole HUD twice: the file is at Luau's 200-register ceiling. Last, because `OfferRail` parks
+-- itself against the right-hand tile cluster and `TileColumnFit` two lines up is what lays that
+-- cluster out -- a rail that measured it first would measure the authored position, not the fitted
+-- one.
+require(RS.Modules:WaitForChild("HUD"):WaitForChild("QuickBuyRow"))(hudRefs)
+require(RS.Modules:WaitForChild("HUD"):WaitForChild("OfferRail"))(hudRefs)

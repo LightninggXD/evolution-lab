@@ -42,6 +42,15 @@ for _, part in ipairs({
 	-- `GameConfig.Relics` at load time -- so appending is the only move that cannot produce the
 	-- silent nil this list's header warns about.
 	"Relics",
+	-- AFTER `Relics`, and the same argument that put `Relics` last applies again: `Minigames` reads
+	-- `GameConfig.Zones` at load time (its tripwire walks them) and quotes `ScaleReward` at call
+	-- time, and nothing above it reads `GameConfig.Minigames` at all. Appending is therefore the
+	-- only move that cannot produce the silent nil this list's header warns about.
+	"Minigames",
+	-- AFTER `Minigames`, and this one is a hard dependency rather than a convention: its
+	-- load-time check reads `GameConfig.MinigameKindsByKey` to prove every expedition station
+	-- names a game that exists, and its reward functions quote `GetMinigameReward`.
+	"Expeditions",
 }) do
 	require(script:WaitForChild(part))(GameConfig)
 end

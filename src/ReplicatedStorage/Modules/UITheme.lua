@@ -234,6 +234,14 @@ local Color = {
 	InkSoft     = Color3.fromRGB(104, 96, 132),
 	Frost       = Color3.fromRGB(240, 243, 252),
 	Cloud       = Color3.fromRGB(222, 228, 244),
+	--   PanelLilac  THE BOARD ITSELF. What a floating panel's shell is made of since the reference
+	--            pass -- the pale lavender every panel in the games Kristina sent is drawn on. It is
+	--            deliberately BETWEEN Frost and Cloud in value (lum 0.88 against 0.95 and 0.89) and
+	--            carries a touch more blue than either, so a Frost chip laid on it still lifts off
+	--            the board and a Cloud well still sinks into it -- the two moves every panel in this
+	--            kit already makes. Above the 0.86 `isLightSurface` cut, so `inkOn` keeps returning
+	--            `Ink` and not one existing label on any panel changes colour.
+	PanelLilac  = Color3.fromRGB(226, 228, 246),
 	-- "you cannot afford this YET" -- NOT the same state as Locked, and it had been drawn with the
 	-- same swatch since the shop was written. Locked means the row is unavailable: zone-gated, maxed,
 	-- nothing selected. This means the button works, the price is real, and you are short. A dead
@@ -620,7 +628,11 @@ local LIP_DEPTH = 6
 -- own button prefabs rather than uploaded, so the tiles and the prefabs cannot drift apart. Used
 -- once, in `IconTile`; see the block there for why it is tiled in scale and tinted rather than
 -- drawn at its own colour.
+-- ...and twice now: `PanelSurface` lays the same sheet over a panel board. Exported so the HUD
+-- modules outside this file draw the texture from the same string rather than re-typing the id --
+-- `ScrollingPanelBuilder` already carries its own copy, which is exactly the drift to avoid.
 local STUD_TEXTURE = "rbxassetid://17601461662"
+UITheme.StudTexture = STUD_TEXTURE
 
 -- ============================================================================
 -- THE DROP SHADOW, THIRD ATTEMPT AND THE FIRST ONE THAT IS NOT A FRAME (18.5)
@@ -2467,14 +2479,19 @@ function UITheme.Modal(parent, opts)
 	})
 	title.ZIndex = base + Z.Badge
 
+	-- THE SAME DISC `panelClose` DRAWS (2026-08-21), because a modal is a panel with a dim behind it
+	-- and there is no reason for it to be the one surface in the game still closing with a square.
+	-- Geometry is the disc's, not this button's old one: anchored at its own CENTRE on the corner, so
+	-- it hangs half outside the shell exactly as the reference art does. See `panelClose` in MainUI
+	-- for why the circular radius is what keeps it from growing two dark caps.
 	local closeButton = UITheme.Button(modal, {
 		name = "Close",
-		text = "X",
+		text = "\u{2715}",
 		color = Color.Red,
-		radius = 12,
-		size = UDim2.new(0, 44, 0, 44),
-		position = UDim2.new(1, -6, 0, -6),
-		anchorPoint = Vector2.new(1, 0),
+		radius = UDim.new(1, 0),
+		size = UDim2.new(0, 52, 0, 52),
+		position = UDim2.new(1, -4, 0, 4),
+		anchorPoint = Vector2.new(0.5, 0.5),
 		zIndex = base + Z.Badge,
 		maxTextSize = 30,
 	})
@@ -2525,42 +2542,173 @@ end
 -- Returns the header AND the y offset content should start at, because the caller's next line is
 -- always positioning something under it and computing that by hand is how the four panels drifted
 -- apart in the first place.
+-- ============================================================================
+-- PUBLIC: PanelSurface - the board a panel is drawn on
+-- ============================================================================
+--
+-- Repaints a panel shell into the reference look: a pale lavender board under a tiled sheet of
+-- stud rings. Split out of `PanelHeader` rather than written inside it so a panel that draws its
+-- own heading (or none) can still get the board, and so the one-line opt-out is a real argument.
+--
+-- IT PAINTS `InnerBody`, NEVER THE HOST. Both surface builders in this game -- `applyShell` here
+-- and `UIKit.styleCard`, which is the second copy of it -- leave the host transparent and put the
+-- fill in a full-size `InnerBody` child (15.28). Painting the host would put the colour UNDER the
+-- body that is already opaque, i.e. nowhere. That `InnerBody` is also the only surface carrying
+-- `ClipsDescendants`, which is what makes the texture's rounded corner free: no second UICorner to
+-- drift out of step with whatever radius the panel was built at.
+--
+-- THE TILE SIZE IS IN SCALE, NOT PIXELS, for the same reason `IconTile`'s studs are (see the block
+-- there): panels are resized by their own responsive passes and a fixed tile would double the stud
+-- density on the way down. 0.035 is about a 30 px tile on the 868 px Upgrades panel, and at that
+-- size the stud rings stop reading as studs and read as the fine grid the reference boards have --
+-- which is the intent: this is a panel, not a moulded button face.
+--
+-- ===== 0.80, AND THE FIRST TWO GUESSES WERE BOTH INVISIBLE (measured 2026-08-21) =====
+--
+-- Authored at 0.93 on the reasoning that a tile face uses 0.5 and a panel is a big pale board that
+-- TEXT is read on, so it should be far quieter. That reasoning is right and the number was still
+-- wrong twice: 0.93 and then 0.86 both photographed as a completely flat board -- no texture at all
+-- -- against a lavender fill this pale. It was proved to be faintness rather than occlusion by
+-- setting the layer to opaque red, which drew the grid loudly, so the ZIndex stack was never the
+-- problem. 0.80 is the first value that survives a capture, and it is still quiet enough that the
+-- subtitle and every card on the board read exactly as they did without it.
+--
+-- The lesson, if this is ever retuned: judge it from a CAPTURE, never from the number. A property
+-- probe reports a texture at 0.93 exactly as confidently as one at 0.80.
+function UITheme.PanelSurface(panel, opts)
+	opts = opts or {}
+	local body = panel:FindFirstChild("InnerBody")
+	if not body then return nil end
+
+	local fill = opts.color or Color.PanelLilac
+	body.BackgroundColor3 = fill
+	local grad = body:FindFirstChild("Gradient")
+	if grad and grad:IsA("UIGradient") then
+		grad.Color = gradientFor(fill)
+	end
+
+	local studs = body:FindFirstChild("Studs")
+	if not studs then
+		studs = Instance.new("ImageLabel")
+		studs.Name = "Studs"
+		studs.BackgroundTransparency = 1
+		studs.BorderSizePixel = 0
+		studs.Size = UDim2.new(1, 0, 1, 0)
+		studs.Image = STUD_TEXTURE
+		studs.ScaleType = Enum.ScaleType.Tile
+	end
+	studs.ImageColor3 = Color.Outline
+	studs.ImageTransparency = opts.textureTransparency or 0.80
+	studs.TileSize = UDim2.new(0.035, 0, 0.035, 0)
+	-- above the fill it is drawn on, below the gloss and below every scrap of content. `Z.Body` is
+	-- the fill's own rung and this is a CHILD of the fill, so the two never contend.
+	studs.ZIndex = body.ZIndex + Z.Body
+	studs.Parent = body
+	return studs
+end
+
+-- ============================================================================
+-- PUBLIC: SectionRule - the "- Exclusive -" divider between two runs of cards
+-- ============================================================================
+--
+-- The dashes are literal text, exactly as the reference draws them, and that is the cheap half of
+-- why this is one label instead of a label between two drawn rules: a rule has to be measured
+-- against the text bounds every time the string or the panel width changes, and this kit's labels
+-- auto-shrink, so that measurement is never stable. Two hyphens cost nothing and cannot drift.
+function UITheme.SectionRule(parent, opts)
+	opts = opts or {}
+	return UITheme.Label(parent, {
+		name = opts.name or "SectionRule",
+		text = "- " .. (opts.text or "") .. " -",
+		size = opts.size or UDim2.new(1, -32, 0, 34),
+		position = opts.position,
+		anchorPoint = opts.anchorPoint,
+		layoutOrder = opts.layoutOrder,
+		maxTextSize = opts.maxTextSize or 30,
+		minTextSize = 16,
+		zIndex = opts.zIndex or ((parent.ZIndex or 0) + Z.Content),
+	})
+end
+
 function UITheme.PanelHeader(panel, opts)
 	opts = opts or {}
 	local base = panel.ZIndex or 20
 	local margin = opts.margin or 16
 	local top = opts.top or 14
 	local subtitle = opts.subtitle
-	local height = opts.height or (subtitle and 68 or 52)
-	local closeGap = opts.closeGap or 62
-	local accent = opts.accent or Color.PanelBlue
+
+	-- ===== THE HEADING CAME OFF THE BOARD (2026-08-21) =====
+	--
+	-- Kristina sent five screenshots of two other games and said "ovako paneli da izgledaju". In all
+	-- five the panel's name is set OUTSIDE the board, over the top-left corner, with its icon
+	-- breaking the corner -- and there is no band under it at all. That is what this function used to
+	-- draw and no longer does.
+	--
+	-- WHY THE BAND WAS NEVER THE POINT. The note this comment replaces argued that the band existed
+	-- to give the SUBTITLE somewhere to live, and that argument is still right -- so the subtitle
+	-- stays (Kristina chose to keep it: nineteen panels use it to say what is being spent and on
+	-- what, and the Upgrades panel is unreadable without the line naming which row costs DNA and
+	-- which costs Diamonds). It simply never needed 68 px of painted accent behind it to be read.
+	-- It is one quiet InkSoft line at the top of the board now.
+	--
+	-- THE DARK RULE FROM THE TITLE TO THE X, IN THE SCREENSHOTS, IS THE PANEL'S OWN TOP BORDER.
+	-- Look at the Shop and Worlds captures: the line runs the full width, passes UNDER the title, and
+	-- is the same weight as the board's other three sides. So it costs zero instances -- the title
+	-- simply hangs above the stroke that was always there. An added rule frame would draw it twice.
+	--
+	-- ===== THE RETURN CONTRACT IS UNCHANGED, DELIBERATELY =====
+	--
+	-- `(header, contentTop, title, sub)`. All nineteen call sites were read before this was written:
+	-- five use `contentTop`, five use `sub`, two use `title`, and the only two that capture `header`
+	-- (`HUD/GroupRewards`, `HUD/TradePanel`) never touch it. So `header` becomes the invisible strip
+	-- where the band used to be -- a real Frame at the same geometry, so anything ever parented to it
+	-- still lands where it looks like it should -- and not one caller needed an edit.
+	--
+	-- `contentTop` drops from `top + 68 + gap` to `top + 26 + gap`: every panel in the game gains
+	-- 42 px of content height for free. That is a change to the number, not to its meaning, and the
+	-- five callers that position against it follow it automatically.
+	--
+	-- `accent` IS NOW READ AND IGNORED, and the option is kept rather than removed: nine call sites
+	-- pass one, and a panel's accent is still a real fact about it that a later pass may want (the
+	-- title's halo, a section rule's tint). Deleting the argument would mean nine edits to say
+	-- nothing. `closeGap` and `height` are likewise inert -- nothing shares the title's row any more.
+	if opts.surface ~= false then
+		UITheme.PanelSurface(panel, { color = opts.surfaceColor })
+	end
+
+	local subHeight = subtitle and 26 or 0
 
 	local header = Instance.new("Frame")
 	header.Name = "Header"
-	header.Size = UDim2.new(1, -(margin * 2), 0, height)
+	header.Size = UDim2.new(1, -(margin * 2), 0, math.max(subHeight, 1))
 	header.Position = UDim2.new(0, margin, 0, top)
+	header.BackgroundTransparency = 1
 	header.ZIndex = base + Z.Content
-	applyShell(header, accent, UDim.new(0, 16), 4)
 	header.Parent = panel
 
-	local gloss = addGloss(header, UDim.new(0, 16))
-	gloss.ZIndex = header.ZIndex + Z.Gloss
-
-	local title = UITheme.Label(header, {
+	-- OUTSIDE THE BOARD: anchored to its own BOTTOM edge and placed 6 px above the panel's top, so
+	-- it sits over the corner however tall it turns out to be. x = 8 rather than the margin, because
+	-- in the reference the icon deliberately overhangs the left edge -- that overhang is most of what
+	-- makes the heading read as a label stuck onto the board rather than as a line printed on it.
+	--
+	-- White with the kit's own halo, which `UITheme.Label` adds through `outlineText` for any ink
+	-- that is not dark. It is the single loudest piece of text on a panel and it is drawn on the 3D
+	-- world, not on a fill, so the halo is doing real work here rather than being a style tic.
+	local title = UITheme.Label(panel, {
 		name = "Title",
 		text = opts.title or "",
-		size = UDim2.new(1, -(14 + closeGap), 0, subtitle and 32 or (height - 12)),
-		position = UDim2.new(0, 14, 0, subtitle and 6 or 6),
+		size = UDim2.new(0.74, 0, 0, 46),
+		position = UDim2.new(0, 8, 0, -6),
+		anchorPoint = Vector2.new(0, 1),
 		xAlign = "Left",
-		maxTextSize = opts.maxTextSize or 30,
-		zIndex = header.ZIndex + Z.Content,
-		-- the band's own fill, so a panel given a Frost or Cream accent gets an inked title instead
-		-- of a white one dissolving into it. PanelBlue is 0.59, so every existing header is untouched.
-		on = accent,
+		maxTextSize = opts.maxTextSize or 40,
+		minTextSize = 20,
+		zIndex = base + Z.Badge,
 	})
+	title.ZIndex = base + Z.Badge
 	-- 9.9's pipeline, unchanged: a mapped leading emoji becomes a drawing at the label's left edge
-	-- and everything else stays a glyph. Called on the header's own title so a panel converted to
-	-- this component keeps the icon it already had.
+	-- and everything else stays a glyph. This is what puts the basket, the globe and the paw beside
+	-- the word exactly as the reference has them.
 	UITheme.IconifyLabel(title)
 
 	local sub
@@ -2568,21 +2716,20 @@ function UITheme.PanelHeader(panel, opts)
 		sub = UITheme.Label(header, {
 			name = "Subtitle",
 			text = subtitle,
-			size = UDim2.new(1, -(14 + closeGap), 0, 22),
-			position = UDim2.new(0, 14, 0, 38),
+			size = UDim2.new(1, 0, 0, subHeight),
+			position = UDim2.new(0, 0, 0, 0),
 			xAlign = "Left",
 			maxTextSize = 18,
 			minTextSize = 12,
-			-- Cream is a 0.97 ink and it was the right answer on a blue band and only on a blue band:
-			-- on a light accent it is invisible AND it keeps its near-black halo, so the subtitle
-			-- would render as a hollow outline. `InkSoft` is the light-surface partner -- one tier
-			-- quieter than `Ink`, which is what a subtitle is for.
-			color = isLightSurface(accent) and Color.InkSoft or Color.Cream,
+			-- `InkSoft` unconditionally now, where this used to branch on the accent's luminance. The
+			-- board is always a light surface since PanelSurface paints it, so the Cream branch could
+			-- only ever produce the hollow-outline failure the old comment warned about.
+			color = Color.InkSoft,
 			zIndex = header.ZIndex + Z.Content,
 		})
 	end
 
-	return header, top + height + (opts.gap or 12), title, sub
+	return header, top + subHeight + (opts.gap or 12), title, sub
 end
 
 -- ============================================================================

@@ -181,4 +181,82 @@ GameConfig.DailyPlaytimeGifts = {
 	{ minutes = 240, dna = 150000, potions = 1, potionId = "xp_l", diamonds = 2 },
 }
 
+-- ===== THE DAILY LADDER HAS NO TOP (21.4) =====
+--
+-- 21.4 asks the game to GUARANTEE unfinished business at the moment a session ends -- a bar over
+-- 80%, a pending reward, or a running timer -- because that is what decides whether there is a
+-- tomorrow. Two of those three cannot be guaranteed honestly: an evolve bar is wherever the player
+-- left it, and the daily reward and the free spin are both once per UTC day, so a player who swept
+-- the board in their first minute has nothing pending for the next twenty-three hours.
+--
+-- THE THIRD ONE CAN BE, AND BY CONSTRUCTION RATHER THAN BY A SPECIAL CASE. The ladder above is a
+-- clock every player is already on, all day, whether or not they ever open the panel -- but it
+-- STOPS at 240 minutes, and a ladder that stops is a countdown that stops. Past four hours the
+-- panel showed five grey `DONE` cards and nothing else: the one player who had given the game the
+-- whole day was the one player it had stopped asking anything of.
+--
+-- So the last rung repeats, on the hour, for ever. This is the same line 21.2 drew on the daily
+-- board -- a ladder with no top is a promise the economy cannot keep, so the top REPEATS rather
+-- than climbing -- and it is drawn here for the same reason: there is always exactly one rung
+-- ahead, and it is never more than an hour away.
+--
+-- WHY THE REPEAT PAYS LESS THAN THE RUNG IT FOLLOWS, WHICH IS THE LOAD-BEARING NUMBER. The
+-- authored five are a CLIMB: 3K, 8K, 25K, 60K, 150K, which is 1,500 a minute at the top against
+-- 100 a minute at the bottom. Continuing that curve hourly would pay a marathon player more per
+-- hour than the ladder's own summit, for ever, off a clock that needs no skill and no risk. So the
+-- repeat FLATTENS: it pays 25,000 -- the two-hour rung's figure, the middle of the ladder and not
+-- its end -- and it pays it in DNA only.
+--
+-- MEASURED RATHER THAN ASSERTED, and the first draft of this comment was wrong about it. An hour of
+-- play is worth roughly 18,720 stage-1 clicks (a 4/s cadence for 14,400, plus auto-collect at the
+-- 1.2 clicks/s cap `DNAService.GetAutoCollectAmount` enforces, for 4,320), so 25,000 is **1.335x an
+-- hour's income** -- not the garnish this note first called it. It is still the right number, for
+-- the reason the ratios give: it is **1/6 of the top rung** (0.1667, and identical at stage 1, 10
+-- and 20, because `ScaleReward` is a clean multiplier), while the authored five have ALREADY paid
+-- 246,000 by the four-hour mark against the 74,880 clicks those four hours are worth -- 3.3x. So
+-- the repeat is well below the rate the ladder itself runs at when it hands over, and far below the
+-- 8x the top rung alone pays. Twelve straight hours adds 200K, less than one and a half of that
+-- single rung. What flattening buys is that the rate stops CLIMBING, which is the only part that
+-- could not have been left alone.
+--
+-- AND NO DIAMONDS, NO POTIONS, deliberately. Both are FLAT and aimed at fixed sinks -- the line 1.1
+-- drew when it kept them out of `ScaleReward`, and 21.2 and 21.3 both restated. A flat 2 diamonds
+-- an hour for ever is a faucet capped by nothing but the calendar; DNA scales with the player and
+-- is the only one of the three that can repeat without repricing something.
+--
+-- THE SESSION LADDER DELIBERATELY DOES NOT REPEAT. Those are the same minutes this ladder is
+-- already counting, and an endless rung on both clocks bills one hour of play twice. One endless
+-- countdown is what the guarantee needs; two is a second faucet bought for nothing.
+GameConfig.DailyPlaytimeRepeat = { everyMinutes = 60, dna = 25000 }
+
+--- THE ONLY WAY TO TURN AN INDEX INTO A DAILY RUNG, and it is a function rather than a longer list
+--- because the list is now infinite. The five authored rungs come back as themselves; everything
+--- past them is synthesised from `DailyPlaytimeRepeat`, so the server that pays a rung and the
+--- panel that advertises it cannot disagree about what the sixth one is. Same rule `GetDailyReward`
+--- carries for the login board: the day-index arithmetic written out by hand in five places was a
+--- board that promised what the server did not pay.
+---
+--- Returns nil for anything that is not a whole number at or above 1 -- this is reached from a
+--- RemoteEvent argument. There is no upper bound and there must not be one: the gate on a claim is
+--- the CLOCK, in `PlaytimeGiftService.HandleClaim`, so a rung at 900 minutes is simply one nobody
+--- will ever have played long enough to take.
+function GameConfig.GetDailyPlaytimeGift(index)
+	index = tonumber(index)
+	if not index or index < 1 or index % 1 ~= 0 then return nil end
+	local list = GameConfig.DailyPlaytimeGifts
+	if index <= #list then return list[index] end
+	local rep = GameConfig.DailyPlaytimeRepeat
+	-- Built fresh on each call rather than memoised into a growing table: this is read once a
+	-- second by one panel and once per claim by the server, and a cache keyed by an unbounded index
+	-- is a table with no reason ever to stop growing.
+	return {
+		minutes = list[#list].minutes + (index - #list) * rep.everyMinutes,
+		dna = rep.dna,
+		-- Marks the synthesised rungs for the panel, which titles and describes them differently:
+		-- the climb is over and this one is a metronome, and saying so is more honest than drawing
+		-- a sixth card that pretends to be a sixth step.
+		repeating = true,
+	}
+end
+
 end

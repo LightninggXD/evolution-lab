@@ -247,10 +247,26 @@ return function(hud)
 	-- that leaves 16 px before the cluster starts. BOTTOM_CLEAR lives inside the responsive block
 	-- at the bottom of this file and cannot be shared without a top-level register, so if it ever
 	-- moves, THIS BAR HAS TO BE RE-CHECKED BY HAND -- the relationship is a comment, not code.
+	--
+	-- ===== AND THAT RELATIONSHIP IS NOW MOOT: THE BAR IS AT THE TOP (2026-08-21) =====
+	--
+	-- 16.2 put it on the bottom edge because that was "the only band of a Roblox screen that is
+	-- genuinely idle". It is not idle any more -- `Modules.HUD.QuickBuyRow` holds it, which is where
+	-- the reference games Kristina sent put their buy strip -- so the choice was to squeeze two
+	-- tenants into 46 px or to move.
+	--
+	-- IT MOVES TO THE TOP CENTRE, WHICH IS WHERE THE REFERENCE PUTS THE SAME THING. Both games she
+	-- sent hang their server-wide banner ("Auto Wins / Free!") from the top centre, and every
+	-- argument 16.2 made for the bottom band holds there just as well: the currencies are top-LEFT,
+	-- the tiles are down both sides, the stage card is top-left, so the top centre is idle in exactly
+	-- the same sense. A world clock is ambient -- findable without being in the way.
+	--
+	-- y = 92 clears two things: the Roblox topbar owns the first ~36 px, and `ClickHint` sits at
+	-- y = 52 and is 32 tall, ending at 84. Eight px under it.
 	eventBar.Size = UDim2.new(0, 0, 0, 32)
 	eventBar.AutomaticSize = Enum.AutomaticSize.X
-	eventBar.Position = UDim2.new(0.5, 0, 1, -12)
-	eventBar.AnchorPoint = Vector2.new(0.5, 1)
+	eventBar.Position = UDim2.new(0.5, 0, 0, 92)
+	eventBar.AnchorPoint = Vector2.new(0.5, 0)
 	eventBar.BackgroundTransparency = 1
 	eventBar.ZIndex = UITheme.Z.Content
 	eventBar.Parent = screenGui

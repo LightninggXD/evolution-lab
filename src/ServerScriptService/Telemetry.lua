@@ -289,6 +289,90 @@ end
 
 local sessionStart = {}   -- [userId] = os.clock()
 
+--- ===== 21.4  THE PLAYTIME LADDERS AS SESSION-END CARRIERS ====================================
+---
+--- Returns (readyRungs, minutesToNextRung). `readyRungs` is how many unclaimed rungs are already
+--- due across both ladders; `minutesToNextRung` is how far the nearest running countdown is from
+--- paying, or nil if there is no countdown at all -- which, since 21.4 gave the daily ladder an
+--- endless repeating rung, should never happen for a loaded save. It is 0 whenever something is
+--- already due, because "the nearest unfinished thing" is then on the table rather than ahead.
+---
+--- READ OFF `data` AND `GameConfig` AND NOTHING ELSE. The obvious shape -- ask `PlaytimeGiftService`
+--- -- cannot be written here: that service requires this file, so requiring it back is a cycle, and
+--- this runs inside `PlayerRemoving` where a mid-require service is exactly the hazard every other
+--- read in `SessionEnd` is already defensive about. Both claim sets and the daily accumulator live
+--- in the save, so nothing is lost by reading them directly.
+---
+--- The daily row is up to one 30-second tick stale by construction (see `PlaytimeGiftService`'s
+--- note over `TICK_SECONDS`), which on a ladder whose finest rung is thirty minutes moves a
+--- reported "next rung" by at most half a minute.
+local function playtimeCarriers(data, sessionSeconds)
+	local ok, GameConfig = pcall(function()
+		return require(game:GetService("ReplicatedStorage").Modules.GameConfig)
+	end)
+	-- The same defensiveness every other read in `SessionEnd` carries, and for the same reason: this
+	-- runs inside `PlayerRemoving`. A missing list or a missing accessor means a build mismatch, not
+	-- a player state, and it must cost this report rather than the three above it.
+	if not ok or not GameConfig then return 0, nil end
+	if type(GameConfig.PlaytimeGifts) ~= "table"
+		or type(GameConfig.DailyPlaytimeGifts) ~= "table"
+		or type(GameConfig.GetDailyPlaytimeGift) ~= "function" then
+		return 0, nil
+	end
+
+	local today = math.floor(os.time() / 86400)
+	local ready, nearest = 0, nil
+
+	--- One ladder. `claims` is keyed by `tostring(index)` -- the string keys `PlaytimeGiftService`
+	--- uses so a sparse array is never handed to a RemoteEvent -- and `extraIndex`, when given, is
+	--- the daily ladder's next repeating rung, which has no entry in any list.
+	local function walk(list, claims, elapsed, extraIndex)
+		local function consider(index, milestone)
+			if not milestone or claims[tostring(index)] then return end
+			local remaining = milestone.minutes * 60 - elapsed
+			if remaining <= 0 then
+				ready += 1
+			elseif not nearest or remaining < nearest then
+				nearest = remaining
+			end
+		end
+		for i, milestone in ipairs(list) do
+			consider(i, milestone)
+		end
+		if extraIndex then
+			consider(extraIndex, GameConfig.GetDailyPlaytimeGift(extraIndex))
+		end
+	end
+
+	-- THE SESSION LADDER, against this file's own session clock rather than `PlaytimeGiftService`'s.
+	-- They are two marks on the same sitting, stamped one `PlayerAdded` apart, and the difference
+	-- is milliseconds against rungs measured in tens of minutes.
+	local sessionClaims = data.PlaytimeClaims
+	if sessionSeconds and type(sessionClaims) == "table" and sessionClaims.day == today then
+		walk(GameConfig.PlaytimeGifts, sessionClaims, sessionSeconds, nil)
+	elseif sessionSeconds then
+		-- no claim set for today means nothing has been taken, not that the ladder is missing
+		walk(GameConfig.PlaytimeGifts, {}, sessionSeconds, nil)
+	end
+
+	-- THE DAILY LADDER, plus the one repeating rung past it -- which is the rung the guarantee
+	-- rests on. Its index is the lowest past the authored list this player has not taken, found the
+	-- same way the panel finds it.
+	local daily = data.DailyPlaytime
+	if type(daily) == "table" and daily.day == today then
+		local claims = type(daily.claims) == "table" and daily.claims or {}
+		local list = GameConfig.DailyPlaytimeGifts
+		local nextRepeat = #list + 1
+		while claims[tostring(nextRepeat)] do
+			nextRepeat += 1
+		end
+		walk(list, claims, daily.seconds or 0, nextRepeat)
+	end
+
+	if ready > 0 then return ready, 0 end
+	return ready, nearest and math.floor(nearest / 60) or nil
+end
+
 function Telemetry.SessionEnd(player, data)
 	if not player then return end
 	local started = sessionStart[player.UserId]
@@ -307,11 +391,16 @@ function Telemetry.SessionEnd(player, data)
 
 	-- (a) THE BAR. `GetEvolveStep` is the one function that knows what the next press costs, so it
 	-- is also the only honest denominator -- the HUD draws this exact ratio.
+	-- HOISTED OUT OF THE `if` BY 21.4, which reads it back at the bottom of this function. It stays
+	-- 0 for a maxed save, and that is the right answer rather than a missing one: a player with no
+	-- next evolve has no bar, so the bar is not one of their carriers. The EVENT is still skipped in
+	-- that case -- a 0 in that distribution would read as "nowhere near" instead of "not applicable".
+	local barPct = 0
 	if okCfg and GameConfig and GameConfig.GetEvolveStep then
 		local okStep, step = pcall(GameConfig.GetEvolveStep, data)
 		if okStep and step and not step.isMax and (step.xpCost or 0) > 0 then
-			local pct = math.clamp(math.floor(((data.XP or 0) / step.xpCost) * 100), 0, 100)
-			Telemetry.Custom(player, "SessionEndEvolveBarPct", pct)
+			barPct = math.clamp(math.floor(((data.XP or 0) / step.xpCost) * 100), 0, 100)
+			Telemetry.Custom(player, "SessionEndEvolveBarPct", barPct)
 		end
 	end
 
@@ -347,6 +436,44 @@ function Telemetry.SessionEnd(player, data)
 		end
 	end
 	Telemetry.Custom(player, "SessionEndTimers", timers)
+
+	-- ===== 21.4  DID THE GUARANTEE HOLD, AND HOW HARD WAS IT PULLING =========================
+	--
+	-- 20.4 asks whether a session ended with unfinished business. 21.4 is the row that makes the
+	-- answer always yes, and these two events are how that claim is checked against reality rather
+	-- than asserted in a comment.
+	--
+	-- THE READ IS WIDER THAN THE THREE EVENTS ABOVE, AND DELIBERATELY SO. (b) counts only the daily
+	-- login reward and the free spin, and (c) only potion boosts, because those were the numbers
+	-- 20.4 was opened to shape and they must keep meaning exactly what they meant on the day they
+	-- started arriving -- a widened `SessionEndTimers` would silently rebase its own distribution
+	-- and make every figure from before this row uncomparable. So nothing above changes. What the
+	-- PLAYER has pending is a bigger set than either, and the two playtime ladders are most of the
+	-- difference: they are running clocks with a reward on the end, which is the definition the row
+	-- uses, and since 21.4 the daily one never runs out.
+	local ready, nextMinutes = playtimeCarriers(data, started and (os.clock() - started) or nil)
+
+	-- SENT AS AN ALARM, NOT AS A DISTRIBUTION, and that distinction is worth stating because a
+	-- metric that is 1 by construction looks like a broken metric. After this row a running daily
+	-- countdown always exists, so this should be 1 on every session that ever ends. It is here
+	-- precisely so that the day it is not -- a config edited to a finite ladder, a save whose
+	-- `DailyPlaytime` row never loaded, a rollover that left the board empty -- the dashboard says so
+	-- instead of the guarantee quietly becoming untrue.
+	local unfinished = 0
+	if barPct >= 80 or claimable > 0 or timers > 0 or ready > 0 or nextMinutes then
+		unfinished = 1
+	end
+	Telemetry.Custom(player, "SessionEndUnfinished", unfinished)
+
+	-- AND THIS ONE IS THE DISTRIBUTION, which is what 20.4 was still owed. "Is there something
+	-- pending" stops being interesting once the answer is always yes; "how close was it" does not.
+	-- A cohort that leaves three minutes from a reward and a cohort that leaves fifty-five minutes
+	-- from one are the same 1 above and completely different games, and the difference is what says
+	-- whether the rung spacing is right. Zero means something was ON THE TABLE when they left --
+	-- the strongest pull there is, and the one the tile badge exists to make visible.
+	if nextMinutes then
+		Telemetry.Custom(player, "SessionEndNextRungMins", nextMinutes)
+	end
 end
 
 -- ===== THE TWO STEPS ONLY THE CLIENT CAN SEE ==================================================

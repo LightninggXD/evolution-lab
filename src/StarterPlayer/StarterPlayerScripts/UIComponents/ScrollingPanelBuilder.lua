@@ -36,6 +36,9 @@ local INK = Color3.fromRGB(0, 0, 50)
 local BLACK = Color3.fromRGB(0, 0, 0)
 local WHITE = Color3.fromRGB(255, 255, 255)
 local STUDS = "rbxassetid://17601461662"
+-- `UITheme.Color.PanelLilac`, written out rather than imported -- see the note in CreatePanel for
+-- why this module keeps its own copy of every constant it draws with. Retune one, retune both.
+local PANEL_LILAC = Color3.fromRGB(226, 228, 246)
 
 -- A disabled button is not a hidden one: the card still has to say what it would cost, or the
 -- player cannot tell "you cannot afford this" from "this does not exist". Grey, but legible.
@@ -125,86 +128,108 @@ function Builder.CreatePanel(options)
 	panel.Size = UDim2.new(0, 650, 0, 450)
 	panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
-	panel.BackgroundColor3 = WHITE
+	-- ===== THE SAME BOARD EVERY OTHER PANEL GOT (2026-08-21) =====
+	--
+	-- `UITheme.PanelSurface` converted the nineteen panels that go through `UITheme.PanelHeader`;
+	-- these four overlays are the ones that do not, because they are built here instead. They cannot
+	-- simply call it either -- it paints an `InnerBody`, and this builder has never had one; it
+	-- paints the frame directly, which is the older shape `applyShell` used before 15.28.
+	--
+	-- So the VALUES are shared and the mechanism is not: `PANEL_LILAC` at the top of this file is
+	-- `UITheme.Color.PanelLilac` written out, for the same reason every other constant here is
+	-- written out -- this module deliberately does not depend on UITheme. If that token is ever
+	-- retuned, this one has to move with it, which is the same drift the header comment already
+	-- warns about for `STUDS`. A two-line cost against importing a kit this file was written without.
+	panel.BackgroundColor3 = PANEL_LILAC
 	panel.ZIndex = 51
 	panel.Parent = overlay
-	corner(panel, 12)
+	-- 12 -> 20, matching the radius `styleCard` gives the panels on the other path
+	corner(panel, 20)
 	stroke(panel, INK, 6)
+	-- The tiled sheet, at the weight a capture settled on for the other panels (see the note over
+	-- `PanelSurface` in UITheme: 0.93 and 0.86 both photographed as a completely flat board).
+	-- ZIndex 51 is the panel's own: a child ties with its parent and draws above it, while the
+	-- scrolling list at 52 stays above the texture.
+	local boardStuds = studs(panel, 30, 0.80, 20, 51)
+	boardStuds.Name = "BoardStuds"
 
-	-- ---- header
-	local header = Instance.new("Frame")
-	header.Name = "Header"
-	header.Size = UDim2.new(1, 0, 0, 70)
-	header.BackgroundColor3 = WHITE
-	header.ZIndex = 52
-	header.Parent = panel
-	corner(header, 12)
-	gradient(header, options.HeaderColors)
-
-	-- the header is rounded and the panel body under it is not, so the bottom two corners have to
-	-- be filled back in or the gradient shows a notch either side of the rule below it
-	local hBlock = Instance.new("Frame")
-	hBlock.Name = "HeaderFoot"
-	hBlock.Size = UDim2.new(1, 0, 0, 15)
-	hBlock.Position = UDim2.new(0, 0, 1, -15)
-	hBlock.BackgroundColor3 = WHITE
-	hBlock.BorderSizePixel = 0
-	hBlock.ZIndex = 51
-	hBlock.Parent = header
-	gradient(hBlock, options.HeaderColors)
-
-	local hLine = Instance.new("Frame")
-	hLine.Name = "HeaderRule"
-	hLine.Size = UDim2.new(1, 0, 0, 6)
-	hLine.Position = UDim2.new(0, 0, 1, -6)
-	hLine.BackgroundColor3 = INK
-	hLine.BorderSizePixel = 0
-	hLine.ZIndex = 53
-	hLine.Parent = header
-
+	-- ===== THE HEADER BAND IS GONE (2026-08-21) =====
+	--
+	-- It was a 70 px gradient band across the top of the board carrying an 80 px icon, a 40 pt title
+	-- and the close button, plus two frames that existed only to serve it: `HeaderFoot` filled the
+	-- band's bottom corners back in and `HeaderRule` drew the dark line under it.
+	--
+	-- All four are deleted, for the reason `UITheme.PanelHeader` lost its own band on the same day:
+	-- in every reference capture the panel's name sits OUTSIDE the board over the top-left corner
+	-- with its icon breaking the corner, and the dark rule that appears to run from the title to the
+	-- X is the board's own top border, not a drawn line. This is the second of the two places in the
+	-- game that draws a panel heading; converting only the first would have left Worlds and Rebirth
+	-- -- two of the five panels Kristina photographed -- as the odd ones out.
+	--
+	-- `options.HeaderColors` IS NOW READ BY NOTHING and is deliberately still accepted: all five
+	-- callers pass one, the band it tinted no longer exists, and removing the option would mean five
+	-- edits to delete five arguments that already cost nothing. Same call as `accent` in PanelHeader.
 	local hIcon = Instance.new("ImageLabel")
 	hIcon.Name = "HeaderIcon"
-	hIcon.Size = UDim2.new(0, 80, 0, 80)
-	hIcon.Position = UDim2.new(0, 10, 0.5, -5)
-	hIcon.AnchorPoint = Vector2.new(0, 0.5)
+	-- Anchored to its own BOTTOM edge and sat 4 px above the board, so it hangs over the corner
+	-- however tall it is -- the overhang is most of what makes the heading read as a label stuck
+	-- onto the board rather than as a line printed on it.
+	hIcon.Size = UDim2.new(0, 52, 0, 52)
+	hIcon.Position = UDim2.new(0, 6, 0, -4)
+	hIcon.AnchorPoint = Vector2.new(0, 1)
 	hIcon.BackgroundTransparency = 1
 	hIcon.Image = options.HeaderIcon or ""
-	hIcon.ZIndex = 54
-	hIcon.Parent = header
+	hIcon.ZIndex = 56
+	hIcon.Parent = panel
 
 	local title = Instance.new("TextLabel")
 	title.Name = "Title"
-	-- to the close button, not a fixed 300: a long title used to run underneath it
-	title.Size = UDim2.new(1, -175, 1, 0)
-	title.Position = UDim2.new(0, 100, 0, 0)
+	-- starts clear of the icon; width stops well short of the close disc on the far corner
+	title.Size = UDim2.new(1, -180, 0, 46)
+	title.Position = UDim2.new(0, 64, 0, -6)
+	title.AnchorPoint = Vector2.new(0, 1)
 	title.BackgroundTransparency = 1
 	title.Text = options.Title
 	title.Font = Enum.Font.FredokaOne
 	title.TextSize = 40
 	title.TextColor3 = WHITE
 	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.TextYAlignment = Enum.TextYAlignment.Bottom
 	title.TextTruncate = Enum.TextTruncate.AtEnd
-	title.ZIndex = 54
-	title.Parent = header
+	title.ZIndex = 56
+	title.Parent = panel
 	stroke(title, BLACK, 5)
 
+	-- THE RED DISC, CENTRED ON THE CORNER, matching `panelClose` in MainUI so both kinds of panel
+	-- close the same way. Anchor (0.5, 0.5) on (1, 0) is what puts half of it outside the board.
+	-- The corner radius is circular rather than the old 8: a disc is what the reference draws, and
+	-- the orange gradient went with the band -- red is what every other X in the game now is.
+	--
+	-- NO `studs()` ON IT ANY MORE: that call passed a corner radius of 8 to a button that is now a
+	-- circle, so the texture sheet would have drawn a rounded SQUARE over a round button.
 	local closeBtn = Instance.new("TextButton")
 	closeBtn.Name = "Close"
-	closeBtn.Size = UDim2.new(0, 50, 0, 50)
-	closeBtn.Position = UDim2.new(1, -10, 0.5, 0)
-	closeBtn.AnchorPoint = Vector2.new(1, 0.5)
+	closeBtn.Size = UDim2.new(0, 52, 0, 52)
+	closeBtn.Position = UDim2.new(1, -4, 0, 4)
+	closeBtn.AnchorPoint = Vector2.new(0.5, 0.5)
 	closeBtn.BackgroundColor3 = WHITE
+	-- "X", NOT "\u{2715}". FredokaOne has no glyph for U+2715 -- the button laid the character out
+	-- (`TextFits` true, `TextBounds` 14x32) and drew NOTHING, photographed as a blank red ball.
+	-- MainUI's disc gets away with the nicer character only because `UITheme.Button` maps it to a
+	-- DRAWN icon through IconLibrary and blanks the host's own text; this file has no IconLibrary
+	-- by design, so it needs a character the font actually carries.
 	closeBtn.Text = "X"
 	closeBtn.Font = Enum.Font.FredokaOne
-	closeBtn.TextSize = 35
+	closeBtn.TextSize = 34
 	closeBtn.TextColor3 = WHITE
-	closeBtn.ZIndex = 55
-	closeBtn.Parent = header
-	gradient(closeBtn, { Color3.fromRGB(255, 150, 50), Color3.fromRGB(255, 80, 0) })
-	corner(closeBtn, 8)
+	closeBtn.ZIndex = 57
+	closeBtn.Parent = panel
+	gradient(closeBtn, { Color3.fromRGB(255, 96, 108), Color3.fromRGB(214, 40, 56) })
+	local closeCorner = Instance.new("UICorner")
+	closeCorner.CornerRadius = UDim.new(1, 0)
+	closeCorner.Parent = closeBtn
 	stroke(closeBtn, BLACK, 4, Enum.ApplyStrokeMode.Border)
 	stroke(closeBtn, BLACK, 3)
-	studs(closeBtn, 15, 0.5, 8, 55)
 
 	-- ---- the list
 	local isHorizontal = options.ScrollDirection == "Horizontal"
@@ -212,8 +237,11 @@ function Builder.CreatePanel(options)
 	
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Name = "List"
-	scroll.Size = UDim2.new(1, -20, 1, -(85 + footerHeight))
-	scroll.Position = UDim2.new(0, 10, 0, 75)
+	-- 75 -> 20 and 85 -> 30: the 70 px header band is gone, so the list starts a margin under the
+	-- board's own top edge instead of under a band. Every card in every one of these overlays gains
+	-- 55 px of height, which is most of another row on the Worlds panel.
+	scroll.Size = UDim2.new(1, -20, 1, -(30 + footerHeight))
+	scroll.Position = UDim2.new(0, 10, 0, 20)
 	scroll.BackgroundTransparency = 1
 	scroll.BorderSizePixel = 0
 	scroll.ScrollBarThickness = 6

@@ -32,6 +32,8 @@ local StatsService = require(ServerScriptService.StatsService)
 local EventService = require(ServerScriptService.EventService)
 local HubPlaza = require(ServerScriptService.HubPlaza)
 local TradeService = require(ServerScriptService.TradeService)
+local MinigameService = require(ServerScriptService.MinigameService)
+local ExpeditionService = require(ServerScriptService.ExpeditionService)
 local Telemetry = require(ServerScriptService.Telemetry)
 
 -- ===== STREAMING =====
@@ -81,6 +83,13 @@ SoundLibrary.EnsureGroups()
 Telemetry.Init()
 PlayerDataService.Init()
 DNAService.Init()
+-- BEFORE ZoneService, and that is the whole ordering constraint. An expedition map is parented
+-- into `workspace.Zones` and its exit gate is a `PortalGate` -- which ZoneService.Init wires by
+-- scanning that folder ONCE, at startup. Build the map after that scan and the way home is a
+-- decorative slab. It is also before every Forest-furniture service (RebirthShrine, the
+-- leaderboards, the Splicer, HubPlaza), which is correct: those all search the live ground for a
+-- clear spot, so the door being there first is what makes them avoid it.
+ExpeditionService.Init()
 ZoneService.Init()
 EvolutionVisuals.Init()
 -- before BossService: it owns the proximity gate the boss auras register themselves with, and
@@ -144,6 +153,12 @@ HubPlaza.Init()
 -- it needs its own wait-for-data anyway and folding it in there would make that block do two jobs.
 OfflineService.Init()
 TradeService.Init()
+-- AFTER ZoneBuilder.Build() above, and that is its only ordering constraint -- it stands twenty
+-- arcade cabinets on twenty zone platforms and needs the ground under them to exist. It is NOT in
+-- the Forest-furniture block further up: those four all search the SAME plaza for a clear spot and
+-- have to run in a fixed order against each other, while a terminal stands beside its own zone's
+-- arrival pad, where none of them ever goes. It reads no other service's state.
+MinigameService.Init()
 
 -- Hook evolution -> zone unlock checks + visual update (kept out of DNAService to avoid circular requires)
 DNAService.OnEvolve = function(player, data)

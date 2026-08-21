@@ -204,6 +204,9 @@ end
 -- is what the way home is read from, and it is why walking in never costs a player their place.
 local ARENA_KEY = GameConfig.EventArena.key
 local RETURN_KEY = "ReturnFromArena"
+-- The expedition maps carry their exit gate under `workspace.Zones` precisely so the one-shot scan
+-- in Init below finds it. That is also why `ExpeditionService.Init()` runs BEFORE this file's.
+local EXPEDITION_RETURN_KEY = "ReturnFromExpedition"
 
 function ZoneService.SendToArena(player)
 	local data = PlayerDataService.Get(player)
@@ -235,6 +238,38 @@ end
 -- (in Forest) because the engine picks between multiple at random. So a player who dies in zone
 -- fourteen would wake up at the start of the strip with thirteen platforms to walk back across.
 -- Put them back at their own zone's gate the moment the new character exists.
+-- ===== EXPEDITIONS =====
+-- The same two functions the arena has, and deliberately a SEPARATE pair rather than a shared one
+-- taking a key: the two places are entered on different terms (the arena by walking into a gate,
+-- an expedition by spending one of two daily runs) and a single generalised function would have to
+-- be told which it was on every call anyway. `EventReturnZone` and `ExpeditionReturnZone` are also
+-- kept apart so a player who walks from one into the other cannot lose their way home.
+--
+-- `CurrentZone` IS DELIBERATELY NOT CHANGED, exactly as the arena leaves it alone, and three
+-- behaviours fall out of that one property for free: a player who disconnects inside the map loads
+-- back into their real zone, `ReturnToCurrentZone` below ejects anyone who dies in there, and
+-- nobody ever loses their place in the strip by going on an expedition.
+function ZoneService.SendToExpedition(player, cframe, label)
+	local data = PlayerDataService.Get(player)
+	local character = player.Character
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	if not (data and hrp) then return false end
+
+	-- remembered before the move, for the reason the arena remembers it: the way home has to work
+	-- even if they entered from a zone they later lose access to
+	data.ExpeditionReturnZone = data.CurrentZone or "Forest"
+	return travel(player, cframe, label)
+end
+
+function ZoneService.SendHomeFromExpedition(player)
+	local data = PlayerDataService.Get(player)
+	if not data then return end
+	local home = data.ExpeditionReturnZone or data.CurrentZone or "Forest"
+	if not hasZone(data, home) then home = "Forest" end
+	data.ExpeditionReturnZone = nil
+	ZoneService.HandleTeleportRequest(player, home, home)
+end
+
 function ZoneService.ReturnToCurrentZone(player)
 	local data = PlayerDataService.Get(player)
 	if not data then return end
@@ -312,6 +347,13 @@ function ZoneService.Init()
 					ZoneService.SendToArena(player)
 				elseif targetKey == RETURN_KEY then
 					ZoneService.SendHomeFromArena(player)
+				elseif targetKey == EXPEDITION_RETURN_KEY then
+					-- The way out of an expedition map. There is deliberately no matching "in"
+					-- branch: an expedition is entered through a ProximityPrompt and a briefing
+					-- panel, not by walking into a gate, because it spends one of two daily runs
+					-- and that is not something to do by accident. See ExpeditionService.
+					local ExpeditionService = require(script.Parent.ExpeditionService)
+					ExpeditionService.HandleLeave(player)
 				else
 					-- the gate knows which zone it belongs to, so the arrival side is unambiguous
 					local fromKey = gate:FindFirstAncestorWhichIsA("Model")

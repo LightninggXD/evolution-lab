@@ -48,11 +48,12 @@ return function(hud)
 		return btn
 	end
 
-	-- 178 -> 146 each, which is what buys the select toggle its place in this row without pushing the
-	-- two counter capsules off the end: 146 + 146 + 46 + 150 + 150 + 4 gaps of 10 = 678, inside the
-	-- row's 744. Both labels still fit -- checked, not assumed.
-	local equipBestButton = actionButton(1, "Equip Best Pets", UITheme.Color.Green, 146)
-	local unequipAllButton = actionButton(2, "Unequip All Pets", UITheme.Color.Red, 146)
+	-- 146 -> 178, i.e. back to what they were authored at. The squeeze to 146 existed to fit the two
+	-- counter capsules into this row; they live in the header pill above the board now (see
+	-- `counterCapsule` below), so the row is three controls wide instead of five:
+	-- 178 + 178 + 46 + 2 gaps of 10 = 422, inside the row's 744, with room to spare.
+	local equipBestButton = actionButton(1, "Equip Best Pets", UITheme.Color.Green, 178)
+	local unequipAllButton = actionButton(2, "Unequip All Pets", UITheme.Color.Red, 178)
 
 	-- ===== SELECT MODE (11.17) =====
 	--
@@ -60,7 +61,7 @@ return function(hud)
 	-- releasing a hundred pets one confirm at a time is the reason the cap reads as a chore.
 	--
 	-- THE ROW SWAPS, IT DOES NOT GROW. While selecting, the two action buttons are hidden and one
-	-- wide red button stands in their place at exactly their combined width (146 + 10 + 146 = 302),
+	-- wide red button stands in their place at exactly their combined width (178 + 10 + 178 = 366),
 	-- so nothing in the row moves by a pixel when the mode changes -- a bar that reflows on a toggle
 	-- makes the player re-find every control. The counters stay visible throughout: "how many do I
 	-- own" is the question that got them here.
@@ -70,7 +71,7 @@ return function(hud)
 	-- State held on the cards would be wiped mid-selection by an unrelated creature dying. The set is
 	-- keyed by pet id and the rebuild reads it, so the ticks come back exactly where they were.
 	local selectToggle = actionButton(3, "\u{2611}", UITheme.Color.Blue, 46)
-	local releaseButton = actionButton(0, "RELEASE", UITheme.Color.Red, 302)
+	local releaseButton = actionButton(0, "RELEASE", UITheme.Color.Red, 366)
 	releaseButton.Visible = false
 
 	hud.petSelect = { on = false, ids = {}, n = 0 }
@@ -135,16 +136,46 @@ return function(hud)
 
 	paintSelectBar()
 
+	-- ===== THE COUNTERS CAME OFF THE BOTTOM BAR (2026-08-21) =====
+	--
+	-- Kristina's reference capture of a pet screen puts them in ONE capsule floating above the top
+	-- edge, beside the panel's name, and the bottom edge holds nothing but the actions. That split is
+	-- worth copying because it is a split by KIND: the bar is things you press that change your
+	-- collection, the pill is two facts about it. Mixed into one row, "Unequip All Pets" and "3/3"
+	-- read as four buttons of which two do nothing when pressed -- and the [+] discs, which ARE
+	-- pressable, were the least prominent thing in a row of five wide controls.
+	--
+	-- IT CLEARS THE CLOSE DISC BY CONSTRUCTION. The X is centred ON the top-right corner now and is
+	-- 52 across, so it owns x 742..794 of a 772-wide board. The pill is right-anchored 60 in from the
+	-- edge, which puts its right edge at 712 -- 30 px of daylight before the disc's left flank.
+	local headerPill = Instance.new("Frame")
+	headerPill.Name = "PetsHeaderPill"
+	headerPill.Size = UDim2.new(0, 274, 0, 46)
+	headerPill.Position = UDim2.new(1, -60, 0, -6)
+	headerPill.AnchorPoint = Vector2.new(1, 1)
+	headerPill.BackgroundTransparency = 1
+	headerPill.ZIndex = petsPanel.ZIndex + UITheme.Z.Badge
+	headerPill.Parent = petsPanel
+
+	local pillLayout = Instance.new("UIListLayout")
+	pillLayout.FillDirection = Enum.FillDirection.Horizontal
+	pillLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+	pillLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	pillLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	pillLayout.Padding = UDim.new(0, 10)
+	pillLayout.Parent = headerPill
+
 	-- The two blue counter capsules. The reference puts a green [+] on each of them -- an upsell for
 	-- more slots -- and ours is not decoration: the equipped cap really is buyable, it is the PetSlot
 	-- Diamond upgrade in the Shop, so the [+] opens that. See GameConfig.GetMaxEquippedPets.
+	-- 150 -> 132: two of them plus a 10 gap is 274, which is the pill's width above.
 	local function counterCapsule(order, emoji, onPlus)
 		local capsule = Instance.new("Frame")
 		capsule.Name = "Counter" .. order
-		capsule.Size = UDim2.new(0, 150, 0, 46)
+		capsule.Size = UDim2.new(0, 132, 0, 46)
 		capsule.LayoutOrder = order
-		capsule.ZIndex = actionRow.ZIndex
-		capsule.Parent = actionRow
+		capsule.ZIndex = headerPill.ZIndex
+		capsule.Parent = headerPill
 		styleCard(capsule, UITheme.Color.Blue, UDim.new(1, 0), 4)
 
 		local plus = Instance.new("TextButton")
@@ -160,7 +191,9 @@ return function(hud)
 
 		local count = Instance.new("TextLabel")
 		count.Name = "Count"
-		count.Size = UDim2.new(0, 62, 0, 34)
+		-- 62 -> 48 and the icon slot came in 8 px with the capsule: 7 + 34 (plus) + 5 + 48 (count)
+		-- + 4 + 26 (icon) + 8 = 132. `themeLabel` auto-shrinks, so "12/50" still fits at the floor.
+		count.Size = UDim2.new(0, 48, 0, 34)
 		count.Position = UDim2.new(0, 46, 0.5, 0)
 		count.AnchorPoint = Vector2.new(0, 0.5)
 		count.BackgroundTransparency = 1
@@ -171,7 +204,7 @@ return function(hud)
 
 		UITheme.IconSlot(capsule, {
 			name = "Icon", icon = emoji, maxTextSize = 26,
-			size = UDim2.new(0, 34, 0, 34), position = UDim2.new(1, -8, 0.5, 0),
+			size = UDim2.new(0, 26, 0, 26), position = UDim2.new(1, -8, 0.5, 0),
 			anchorPoint = Vector2.new(1, 0.5), zIndex = capsule.ZIndex + UITheme.Z.Content,
 		})
 

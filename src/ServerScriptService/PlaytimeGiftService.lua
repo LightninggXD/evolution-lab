@@ -130,7 +130,29 @@ function PlaytimeGiftService.HandleClaim(player, milestoneIndex, ladder)
 	local data = PlayerDataService.Get(player)
 	if not data then return end
 	local isDaily = ladder == "daily"
-	local milestone = (isDaily and GameConfig.DailyPlaytimeGifts or GameConfig.PlaytimeGifts)[milestoneIndex]
+	-- THROUGH `GetDailyPlaytimeGift`, NOT AN INDEX INTO THE LIST (21.4). The daily ladder no longer
+	-- ends at its fifth entry: past 240 minutes it repeats hourly, for ever, so that there is always
+	-- exactly one rung ahead of every player -- which is the whole of 21.4's guarantee. That makes
+	-- the index unbounded and a raw `list[i]` nil past five, which would have silently refused every
+	-- repeat rung the panel drew. The session ladder is a plain list and stays one; it deliberately
+	-- does not repeat (see the note over `GameConfig.DailyPlaytimeRepeat`).
+	--
+	-- The accessor also does the argument checking this remote needs -- non-numbers, fractions and
+	-- anything below 1 come back nil -- and it deliberately has no UPPER bound. It does not need
+	-- one: the clock check below is the real gate, and a rung at 900 minutes is one nobody has
+	-- played long enough to take.
+	--
+	-- WRITTEN AS AN `if`, NOT AS `isDaily and a or b`. That idiom falls through to its second branch
+	-- whenever the first one is falsy, so a daily claim with a bad index would have been answered
+	-- with a SESSION milestone and paid into the daily claim set. Both sides happen to return nil
+	-- for every index that reaches it today, which is exactly what makes it the kind of line that
+	-- stays wrong until something else changes underneath it.
+	local milestone
+	if isDaily then
+		milestone = GameConfig.GetDailyPlaytimeGift(milestoneIndex)
+	else
+		milestone = GameConfig.PlaytimeGifts[milestoneIndex]
+	end
 	if not milestone then return end
 
 	local claims, elapsedMinutes
