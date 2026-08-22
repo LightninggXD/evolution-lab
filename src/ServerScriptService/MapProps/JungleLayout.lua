@@ -131,9 +131,15 @@ local PATHS_FOREST = {
 	-- the main lane, village -> exit gate. `CreatureService.insideKeepOut` keeps |x| < 62 empty for
 	-- exactly this, so the road is 62 wide and nothing has ever been allowed to stand in it.
 	{ x1 =    0, z1 = -240, x2 =    0, z2 = -560, w = 56 },
-	-- the two side gates: out of the square, into the flank
-	{ x1 = -270, z1 =    0, x2 = -360, z2 =    0, w = 40 },
-	{ x1 =  270, z1 =    0, x2 =  360, z2 =    0, w = 40 },
+	-- The two side gates: out of the village, into the flank. **z = -100, NOT z = 0**, and that is
+	-- measured rather than chosen. At z = 0 the village half of these two roads runs straight
+	-- through the PORTAL RING (zone (-201, 15), r = 45) on one side and the LEADERBOARD RING
+	-- ((137, 7), r = 33.5) on the other -- both halls stand inside the village and both are 31.12 /
+	-- 31.17 work. A lane search over z -200..+80 found z = -100 clear of non-foliage on BOTH flanks
+	-- and z = 0 carrying 27 props on the west alone. `MapGates` cuts the village half at the same
+	-- z; the two are one road and this comment is the other end of the one written there.
+	{ x1 = -270, z1 = -100, x2 = -360, z2 = -100, w = 40 },
+	{ x1 =  270, z1 = -100, x2 =  360, z2 = -100, w = 40 },
 	-- the flank roads, running the depth of both pockets
 	{ x1 = -360, z1 =  130, x2 = -360, z2 = -230, w = 40 },
 	{ x1 =  360, z1 =  130, x2 =  360, z2 = -230, w = 40 },

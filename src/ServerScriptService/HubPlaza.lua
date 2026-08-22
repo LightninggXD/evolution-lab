@@ -134,10 +134,33 @@ local MEDALLION_POS = Vector3.new(0, 0, 267) -- the gap in the street fence, mea
 -- It took TWO steps down, photographed each time: at (212, 199, 174) the inlay finally read but the
 -- field was still washing out, so the authored value and the rendered one are roughly 40 points
 -- apart here. Do not "correct" these numbers back toward what looks like stone in a colour picker.
+-- ===== A THIRD STEP DOWN, AND A TURN TOWARD THE MAP -- 31.19 =====
+-- The note above ends "do not correct these numbers back toward what looks like stone in a colour
+-- picker", and this is not that. It is the other half of the same argument. When those two steps
+-- were taken the plaza's only neighbour was Forest's green lawn; since 31.10 it butts directly
+-- against the VILLAGE MAP, whose ground union is a warm rgb(213, 160, 116), and a capture from the
+-- arrival end reads the deck as a sheet of ice laid beside a dirt road. Her words: *"kamen se pod
+-- ovim svetlom cita skoro belo pored tople zemlje mape"*.
+--
+-- So the ramp comes down ONE more step, and -- new, and the reason a step alone would not have
+-- done it -- it turns WARM. 196,180,148 has a blue-ward channel spread of 48; the map's dirt has
+-- 97. A neutral grey-beige beside a saturated warm brown reads as the cold one whatever its value
+-- is, which is why the two previous steps helped and did not fix it. The deck is now warm stone
+-- that the road is a darker, redder version of, instead of two unrelated floors meeting at a kerb.
+--
+-- STONE_DARK WAS THE PURPLE. It is the colour of the inlay BANDS -- the grid across the deck --
+-- and 104,92,108 is a mauve: on a near-white field under this key light it renders as distinctly
+-- blue-violet stripes, which is *"ljubicaste trake na trgu"* and reads as another game's floor.
+-- The Splicer's violet is NOT touched (`ACCENT`, below) -- it is on the medallion, the lamp collars
+-- and the frame sheet, where it is the centrepiece's own colour doing the job the palette note
+-- describes. It was never the stripes.
+--
+-- The SPREAD is preserved deliberately: STONE - STONE_MID is (36, 38, 36) before and after, which
+-- is the gap the note above says had to be widened to survive being lit.
 local OUTLINE    = Color3.fromRGB(26, 22, 42)     -- near-black, never pure black
-local STONE      = Color3.fromRGB(196, 180, 148)  -- the deck: the bright mass
-local STONE_MID  = Color3.fromRGB(160, 142, 112)  -- inlay bands and the perimeter frame
-local STONE_DARK = Color3.fromRGB(104, 92, 108)
+local STONE      = Color3.fromRGB(178, 152, 116)  -- the deck: the bright mass, warm
+local STONE_MID  = Color3.fromRGB(142, 114, 80)   -- inlay bands and the perimeter frame
+local STONE_DARK = Color3.fromRGB(104, 76, 52)    -- the deck grid: earth, not mauve
 local ACCENT     = Color3.fromRGB(146, 116, 240)  -- Splicer violet
 local ACCENT2    = Color3.fromRGB(90, 240, 255)   -- Splicer cyan
 local LAMP_GLOW  = Color3.fromRGB(255, 236, 176)

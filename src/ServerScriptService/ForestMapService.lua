@@ -101,6 +101,9 @@ local MapForest = require(script.Parent.MapProps.MapForest)
 -- `CreatureService` reads too) owns every coordinate involved.
 local MapJungle = require(script.Parent.MapProps.MapJungle)
 local MapRoad = require(script.Parent.MapProps.MapRoad)
+local MapCut = require(script.Parent.MapProps.MapCut)
+local MapGates = require(script.Parent.MapProps.MapGates)
+local MapRidge = require(script.Parent.MapProps.MapRidge)
 
 local ForestMapService = {}
 
@@ -344,62 +347,33 @@ local function clearBands(map, cx, bands, protected)
 	return cleared
 end
 
--- Foliage, as opposed to the village. Two tests, because the source names its greenery two ways:
--- by name (`Pine Tree 02`, `Bush2`, `Rock 01`, `Trunk 01`, `Leaves`) and by shape -- 60 of the
--- trees in the northern wood are called nothing but `Model`, and what identifies them is that every
--- part they own is `Top` / `Bottom` / `Leaves` / `Branch`. A prop with anything else in it is a
--- building, a stall or a pedestal and is never touched by this.
-local FOLIAGE_PREFIX = { "Pine Tree", "Tree", "Bush", "Flower", "Rock", "Trunk", "Leaves", "Shrub" }
-local FOLIAGE_PART = { Top = true, Bottom = true, Leaves = true, Branch = true }
-
-local function isFoliage(c)
-	for _, p in ipairs(FOLIAGE_PREFIX) do
-		if c.Name:sub(1, #p) == p then return true end
-	end
-	if not c:IsA("Model") then return false end
-	local leafy, other = 0, 0
-	for _, d in ipairs(c:GetDescendants()) do
-		if d:IsA("BasePart") then
-			if FOLIAGE_PART[d.Name] then leafy += 1 else other += 1 end
-		end
-	end
-	return leafy > 0 and other == 0
-end
-
--- Cuts the road from the plaza to the village square. THE TEST IS THE PROP'S CENTRE, not its
--- footprint, and that is the difference between a road and a trench: a tree rooted outside the
--- corridor with its canopy hanging over it is what a road through a wood looks like, and clearing
--- by footprint would take every one of them and leave two straight walls.
+-- Foliage, the entrance corridor, and the cut that opens it all live in `MapProps/MapCut` now.
+-- They were three locals here until 31.19 needed the same rule for the village's south, west and
+-- east gates, and a second copy of `isFoliage` in `MapGates` is `evolution-lab-zone-geometry-
+-- constants` word for word: one decision written in two files. 31.5a is what that costs.
 --
--- Anything under 5 studs tall stays. Flowers and flat rocks do not block a walk and do not hide a
--- doorway, and a road scrubbed down to bare ground reads as a demolition rather than a path.
+-- Moving it out also fixed the classifier twice over -- a LOOSE `Top`/`Leaves` part is a tree, and
+-- a paper-thin blank wall inside a lane is scenery with no job -- and both of those now apply to
+-- this corridor as well, which is the point of there being one of it. See `MapCut`.
+--
+-- The `entrance` spec keeps its own four-field shape because `MapEggs`, `MapRoad` and `GetSpec`
+-- read it; it is converted to a lane here, at the single place that cuts with it.
+local ENTRANCE_DRIVE_HALF = 26   -- the strip of the funnel that has to be genuinely walkable
+local ENTRANCE_DRIVE_MIN = 2     -- ...and nothing above knee height stands on it
+
 local function cutEntrance(map, cx, e, protected)
-	local cleared = 0
-	for _, c in ipairs(map:GetChildren()) do
-		-- The protected test is load-bearing HERE in a way it is not in clearBands: the egg row sits
-		-- at zone z 91..116, inside this funnel, and `isFoliage` classifies by PART NAME as well as
-		-- by prop name -- a prop whose parts are all Top / Bottom / Leaves / Branch is foliage to it
-		-- whatever it actually is. Without this, the road is cut straight through the shop.
-		if c.Name ~= "MainPart" and c.Name ~= "Terrain"
-			and not (protected and protected[c]) and isFoliage(c) then
-			local pos, size
-			if c:IsA("Model") then
-				local cf, s = c:GetBoundingBox()
-				pos, size = cf.Position, s
-			elseif c:IsA("BasePart") then
-				pos, size = c.Position, c.Size
-			end
-			if pos and size.Y >= 5 and pos.Z >= e.zNear and pos.Z <= e.zFar then
-				local t = (pos.Z - e.zNear) / (e.zFar - e.zNear)
-				local half = e.halfNear + (e.halfFar - e.halfNear) * t
-				if math.abs(pos.X - cx) <= half then
-					c:Destroy()
-					cleared += 1
-				end
-			end
-		end
-	end
-	return cleared
+	local lane = {
+		x1 = 0, z1 = e.zNear, x2 = 0, z2 = e.zFar,
+		halfA = e.halfNear, halfB = e.halfFar,
+	}
+	local cut = MapCut.Lane(map, cx, lane, protected)
+	-- And the same narrow footprint pass `MapGates` runs, for the same reason and found the same
+	-- way: a body box walked from the spawn to the square was still stopped at (0, 106) by a
+	-- `Trunk 01` whose trunk stands outside the funnel and whose canopy hangs into it. 31.9 closed
+	-- this corridor on a 32-point walk and the two probes disagree because they sampled different
+	-- points -- which is the argument for the rule being structural rather than for a denser grid.
+	cut += MapCut.LaneFootprint(map, cx, lane, ENTRANCE_DRIVE_HALF, protected, ENTRANCE_DRIVE_MIN)
+	return cut
 end
 
 -- The spec for a mapped zone, so a consumer can read the entrance corridor rather than copying its
@@ -468,6 +442,9 @@ function ForestMapService.Init()
 				local protected = MapAnchors.Collect(zoneKey, map)
 				local cleared = spec.clear and clearBands(map, cx, spec.clear, protected) or 0
 				local road = spec.entrance and cutEntrance(map, cx, spec.entrance, protected) or 0
+				-- BEFORE the planting, because it clears the wood under a mountain it has just
+				-- moved and the planter would happily grow a fresh one back into the same rock.
+				MapRidge.Reseat(zoneKey, cx, map)
 				local planted = MapForest.Plant(map, cx, spec)
 				-- AFTER the planting, and that ordering matters: the ridge hills and the alcove
 				-- rocks are placed against authored coordinates, but the trees are scattered, and a
@@ -479,12 +456,18 @@ function ForestMapService.Init()
 				-- finished ground -- `evolution-lab-placement-search-ordering` is the standing note
 				-- that a pass only ever knows the world that existed when it ran.
 				local paved = MapRoad.Build(zoneKey, cx, map)
+				-- LAST of all, and after MapJungle rather than before it: the three village gates
+				-- are the village half of the same network the jungle trunks are the other half of,
+				-- and their relocation search is a box test against the finished world. A search
+				-- run any earlier is blind to everything placed after it, which is the whole of
+				-- `evolution-lab-placement-search-ordering`.
+				local gates = MapGates.Build(zoneKey, cx, map, protected)
 				print(("[ForestMapService] %s: dropped %d dressing, laid %d map parts at x%.2f, "
 					.. "cut %d props for the arrival and hunt bands, %d for the entrance road, "
 					.. "planted %d trees behind the village, built %d jungle camps, "
-					.. "paved %d road parts")
+					.. "paved %d road parts and %d gate parts")
 					:format(zoneKey, dropped, #map:GetDescendants(), spec.scale, cleared, road,
-						planted, camps, paved))
+						planted, camps, paved, gates))
 				print("[MapAnchors] " .. MapAnchors.Describe(zoneKey))
 			end
 		end
