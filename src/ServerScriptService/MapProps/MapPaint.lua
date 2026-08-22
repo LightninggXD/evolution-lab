@@ -58,6 +58,28 @@ local function slab(parent, name, cf, size, colour, t)
 	return p
 end
 
+-- A disc of paint on its own, which `Segment` cannot draw: a segment with both ends in the same
+-- place has zero length and is refused. Added for 30.23's camp clearings -- the floor of a camp is
+-- a round patch of the same dirt its road is made of, and that is what makes an opening in the wood
+-- read as somewhere rather than as a gap.
+function MapPaint.Disc(x, z, d, parent, cx, colour, y, thick)
+	y = y or MapPaint.Y
+	thick = thick or MapPaint.THICK
+	local p = Instance.new("Part")
+	p.Name = "PaintDisc"
+	p.Shape = Enum.PartType.Cylinder
+	p.Size = Vector3.new(thick, d, d)
+	p.CFrame = CFrame.new(cx + x, y, z) * CFrame.Angles(0, 0, math.pi / 2)
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanTouch = false
+	p.CastShadow = false
+	p.Color = colour
+	p.Material = Enum.Material.SmoothPlastic
+	p.Parent = parent
+	return 1
+end
+
 -- One road segment as a single rotated slab, plus a disc at each end. The discs are what make a
 -- corner a corner: two slabs meeting at an angle leave a wedge of bare ground on the outside of the
 -- turn, and a round cap covers it whatever the angle is.

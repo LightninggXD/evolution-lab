@@ -24,6 +24,19 @@
 -- its name and its parent, and only its CONTENTS move. Everything here is a `PivotTo` or a
 -- `Destroy`; nothing is created and nothing is renamed.
 --
+-- ===== 30.24: AND THEN THE FOUNTAIN WENT AND THEY TOOK THE MIDDLE =====
+-- *"i fontana nam ne treba tu nek jaja stoje umesto fontane znaci"*, and it is the centre circle in
+-- the owner's own drawing of the zone: a round plaza where the four roads meet, with the eggs
+-- standing in it. So the three columns move a second time -- off the artist's egg row on the
+-- northern edge and onto a 32-stud ring around the `fountain` anchor -- the fountain is destroyed,
+-- and the four map egg props go with it, because three real eggs and four decorative ones in two
+-- different places is a player walking up to the wrong egg.
+--
+-- THE MOVE IS XZ ONLY. 31.7 took a full 3D delta because it was landing a column on another prop's
+-- own spot; the fountain's centre is 12 studs up inside a 52-stud basin, and a 3D delta onto it
+-- would hang all three eggs in the air. Their height is already right -- it was measured in 31.7
+-- and the square is one flat floor -- so only two of the three axes move.
+--
 -- ===== COLUMNS, NOT PARTS =====
 -- The stall's pieces are FLAT children of `PetShop` -- `EggOddsAnchor` and `PriceCardAnchor` are
 -- siblings of the egg, not children of it -- so moving "the egg" alone would leave its own odds
@@ -31,7 +44,7 @@
 -- X first (the generated row sits at x = -32, 0, +32) and a column is moved as one thing.
 
 local MapAnchors = require(script.Parent.MapAnchors)
-local ForestMapService = require(script.Parent.Parent.ForestMapService)
+local MapPaint = require(script.Parent.MapPaint)
 
 local MapEggs = {}
 
@@ -48,10 +61,26 @@ local KEEP = {
 	Egg = true, FeaturePet = true, EggOddsAnchor = true, PriceCardAnchor = true,
 }
 
--- Which map spot each egg column takes, left to right. The map has FOUR and a zone has three eggs,
--- so the fourth (`King`, the biggest and the one furthest from the road) is left standing as the
--- artist's own scenery rather than filled with a duplicate.
-local SPOT_ORDER = { "Crazy", "Mythic", "Basic" }
+-- ===== THE CENTRE CIRCLE =====
+-- The eggs stand on a ring inside it, the first of them facing NORTH -- the way the entrance road
+-- arrives -- so a player walking in from the plaza meets an egg head on with the other two behind
+-- it to either side, rather than three in profile.
+local EGG_RING = 32
+local EGG_ANGLES = { math.pi / 2, math.pi * 7 / 6, math.pi * 11 / 6 }
+-- The paint under them. The disc is what makes the junction a roundabout instead of a hole where a
+-- fountain used to be -- `MapGates` deliberately stops its south lane at z = -30 and `MapRoad` its
+-- approach at z = 40, both to avoid painting under the fountain, and this is what now joins them.
+--
+-- ITS PLANE IS THE VILLAGE'S, NOT THE JUNGLE'S, and that is the one number here that cannot be
+-- guessed: `MapPaint.Y` (0.25, top at 0.45) is drawn on bare platform at y = 0 and would be BURIED
+-- under the map's own 0.6-stud ground union. `MapGates` paints the village at top 0.80 with 1.4 of
+-- depth, i.e. a centre of 0.10, and the rim below it at 0.72. Same two planes, same reason.
+local CIRCLE_D = 132
+local CIRCLE_Y = 0.10
+local CIRCLE_THICK = 1.4
+local RIM_EXTRA = 14
+local RIM_Y = 0.02
+local RIM_SHADE = 0.42
 
 local function isStall(name)
 	if KEEP[name] then return false end
@@ -105,73 +134,83 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 	end
 	table.sort(order)
 
-	-- 2. move each column onto its map spot. The DELTA is taken from the egg, not from the column's
-	--    average: the egg is the thing that has to land on the spot, and everything else keeps its
-	--    offset from it, which is what preserves a price card sitting in front and a feature pet
-	--    floating above.
+	-- 2. move each column onto its place on the ring. The DELTA is taken from the egg, not from the
+	--    column's average: the egg is the thing that has to land on the spot, and everything else
+	--    keeps its offset from it, which is what preserves a price card sitting in front and a
+	--    feature pet floating above. XZ only -- see the header.
+	local fountain = MapAnchors.Get(zoneKey, "fountain")
 	local moved = 0
-	for i, key in ipairs(order) do
-		local spotName = SPOT_ORDER[i]
-		local anchor = spotName and MapAnchors.Get(zoneKey, "egg", spotName)
-		if anchor then
-			local pieces = columns[key]
-			local eggPos = nil
-			for _, c in ipairs(pieces) do
-				if c.Name == "Egg" then eggPos = centreOf(c) break end
-			end
-			if eggPos then
-				local delta = anchor.cf.Position - eggPos
+	if fountain then
+		for i, key in ipairs(order) do
+			local a = EGG_ANGLES[i]
+			if a then
+				local pieces = columns[key]
+				local eggPos = nil
 				for _, c in ipairs(pieces) do
-					moveBy(c, delta)
+					if c.Name == "Egg" then eggPos = centreOf(c) break end
 				end
-				-- The map's own egg prop WAS the podium and the display egg both. Ours replaces it
-				-- rather than standing on it, because two eggs on one spot is the "village drawn
-				-- twice" the whole map pass exists to remove -- and ours is the one carrying the
-				-- tier art, the odds board and the skin the player actually bought.
-				anchor.inst:Destroy()
-				moved += 1
-			end
-		end
-	end
-
-	-- 3. THE LEFTOVER EGG PROP MUST NOT STAND IN THE ROAD.
-	-- Leaving `King` as the artist's scenery was right and it was also a 21 x 22 x 17 boulder at
-	-- (-6, 113) -- which is the middle of the entrance funnel. Measured by walking the centre line
-	-- with a body-sized box: three of thirty-two cells from spawn to the square were blocked, all
-	-- three by `King.inkubator`, and nothing anywhere reported it. A prop in a corridor is not a
-	-- decision anyone makes, it is one nobody checked.
-	--
-	-- Pushed sideways rather than deleted, and pushed by the CORRIDOR's own half-width read from
-	-- ForestMapService rather than by a number typed here -- if the funnel is ever widened, this
-	-- follows it instead of quietly becoming wrong again.
-	local spec = ForestMapService.GetSpec(zoneKey)
-	local e = spec and spec.entrance
-	local pushed = 0
-	if e then
-		for _, name in ipairs(MapAnchors.EGGS) do
-			local anchor = MapAnchors.Get(zoneKey, "egg", name)
-			local inst = anchor and anchor.inst
-			if inst and inst.Parent then
-				local pos = centreOf(inst)
-				if pos and pos.Z >= e.zNear and pos.Z <= e.zFar then
-					local t = (pos.Z - e.zNear) / (e.zFar - e.zNear)
-					local half = e.halfNear + (e.halfFar - e.halfNear) * t
-					-- Half the prop's own width of clearance past the corridor edge, so it stands
-					-- BESIDE the road rather than touching it.
-					local want = half + anchor.size.X * 0.5 + 10
-					if math.abs(pos.X) < want then
-						local side = pos.X >= 0 and 1 or -1
-						moveBy(inst, Vector3.new(side * want - pos.X, 0, 0))
-						pushed += 1
+				if eggPos then
+					local want = fountain.pos + Vector3.new(math.cos(a) * EGG_RING, 0,
+						math.sin(a) * EGG_RING)
+					local delta = Vector3.new(want.X - eggPos.X, 0, want.Z - eggPos.Z)
+					for _, c in ipairs(pieces) do
+						moveBy(c, delta)
 					end
+					moved += 1
 				end
+			end
+		end
+	else
+		warn("[MapEggs] " .. zoneKey .. ": no fountain anchor -- the eggs were left where they were")
+	end
+
+	-- 3. THE FOUNTAIN GOES, AND SO DO THE MAP'S OWN EGG PROPS.
+	-- The fountain is the one landmark in this village nothing is wired to: no prompt, no anchor
+	-- consumer but this line, no service that walks it by name (checked across `src/` --
+	-- `evolution-lab-repointing-a-door` is the standing note that one grep over the instance NAME is
+	-- what separates a move from a silent breakage). The four egg props are the artist's incubators;
+	-- 31.7 stood our columns on three of them and left `King` as scenery. With the real eggs in the
+	-- middle of the square, all four are a second egg row for a player to walk to by mistake.
+	local removed = 0
+	if fountain and fountain.inst then
+		fountain.inst:Destroy()
+		removed += 1
+	end
+	for _, name in ipairs(MapAnchors.EGGS) do
+		local anchor = MapAnchors.Get(zoneKey, "egg", name)
+		if anchor and anchor.inst and anchor.inst.Parent then
+			anchor.inst:Destroy()
+			removed += 1
+		end
+	end
+
+	-- 4. the circle itself, painted where the fountain stood. Parented into the map so a rebuild
+	--    takes it with everything else.
+	local circle = 0
+	if fountain then
+		local map = zoneModel:FindFirstChild("VillageMap")
+		if map then
+			local old = map:FindFirstChild("EggCircle")
+			if old then old:Destroy() end
+			local folder = Instance.new("Folder")
+			folder.Name = "EggCircle"
+			folder.Parent = map
+			local dirt = MapPaint.DirtColour(map)
+			-- outline first, mass second: `evolution-lab-world-look-pass`
+			circle += MapPaint.Disc(fountain.pos.X, fountain.pos.Z, CIRCLE_D + RIM_EXTRA, folder, 0,
+				MapPaint.Shade(dirt, RIM_SHADE), RIM_Y, CIRCLE_THICK)
+			circle += MapPaint.Disc(fountain.pos.X, fountain.pos.Z, CIRCLE_D, folder, 0, dirt,
+				CIRCLE_Y, CIRCLE_THICK)
+			for _, part in ipairs(folder:GetChildren()) do
+				part.CanQuery = false
 			end
 		end
 	end
 
-	print(("[MapEggs] %s: dropped %d stall pieces, moved %d egg columns onto the map's own spots, "
-		.. "pushed %d leftover props out of the entrance road")
-		:format(zoneKey, dropped, moved, pushed))
+	print(("[MapEggs] %s: dropped %d stall pieces, moved %d egg columns onto the %d-stud ring at "
+		.. "the square's centre, removed %d props (fountain + the map's egg row), painted %d circle "
+		.. "parts")
+		:format(zoneKey, dropped, moved, EGG_RING, removed, circle))
 	return moved
 end
 

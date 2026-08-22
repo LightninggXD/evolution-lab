@@ -151,29 +151,40 @@ local MAPS = {
 			{ x1 = -620, x2 = 620, z1 = -620, z2 = -(FLOOR_HALF_Z + 10) },
 			-- 31.4: THE TWO SIDE POCKETS. The ring also stands down both flanks of the village, on the
 			-- ~280 studs of platform beyond the floor's edge at x +/-341. That is the ground the wood is
-			-- widened into, so the arcs south of the square go the way the southern arc did. Stopped at
-			-- z = +150 so the ring still closes the horizon behind the arrival plaza, which is the one
-			-- place it is doing scenery work rather than standing in the way.
-			{ x1 = -620, x2 = -(FLOOR_HALF_X + 4), z1 = -620, z2 = 150 },
-			{ x1 = FLOOR_HALF_X + 4, x2 = 620, z1 = -620, z2 = 150 },
+			-- widened into, so the arcs south of the square go the way the southern arc did.
+			--
+			-- 30.23 RAN THEM TO z = 430, WHERE 31.4 STOPPED THEM AT 150. The 150 was correct while the
+			-- two north quadrants were bare platform nobody walked on: the ring was closing the horizon
+			-- behind the arrival plaza, which is the one place it was doing scenery work. It is not
+			-- correct now that those quadrants are wood with ten camps in them. MEASURED, on the boot
+			-- this row was opened by: the two arrival mountains span x 135..319 and z 94..343, and a
+			-- body-box walk from the ring road to NW1, NE1 and NE3 was stopped by `Meshes/gora` on 8 of
+			-- 226 cells -- a mountain across the approach to three camps, which is 30.19 exactly. At
+			-- 430 both score 0.25 against `CLEAR_SHARE` and go; the horizon they were holding is
+			-- `MapJungle`'s own flank ridge, which now runs north to z = 480 for this reason.
+			{ x1 = -620, x2 = -(FLOOR_HALF_X + 4), z1 = -620, z2 = 430 },
+			{ x1 = FLOOR_HALF_X + 4, x2 = 620, z1 = -620, z2 = 430 },
 		},
-		-- The forest planted behind the village. `lane` is the half-width of the street kept open
-		-- down the middle: the exit gate is at z = -575 and a tree line across it is a wall.
-		-- 31.4 PULLED `zNear` FORWARD FROM -335 TO -300 and left the rest alone. The trees now start
-		-- where the village floor ends rather than 35 studs behind it, which is what removes the bald
-		-- ring the owner's screenshots show between the last house and the first tree.
-		hunt = { zNear = -(FLOOR_HALF_Z + 5), zFar = -560, xEdge = 590, lane = 78 },
-		-- ===== THE TWO SIDE POCKETS (31.4) =====
-		-- The village floor is 682 x 580 and the platform is 1250 x 1150, so beyond the floor's edge
-		-- at x +/-341 there is ~280 studs of bare platform down each side, running the whole depth of
-		-- the zone. The map's mountain ring was standing on it; the southern arcs are cleared below,
-		-- and this is what plants the ground that frees up. It is the owner's *"samo siri mapu sa
-		-- njim da stanu svi mobovi i boss"* -- the wood stops being a strip behind the village and
-		-- wraps around it, which roughly triples the ground 74 creatures and a boss have to share.
+		-- ===== THE WOOD IS THE WHOLE PLATFORM NOW (30.23) =====
+		-- `hunt` (a band behind the village) and `flanks` (two side pockets) are gone. The owner
+		-- asked for trees over the whole map -- *"puno drveca po celoj mapi ... ko u amazonu"* --
+		-- and four quadrants of it around a cross of roads, so `MapForest` scatters over this whole
+		-- rectangle and subtracts what must stay open rather than being told where wood goes. See
+		-- that file's header for why the question is inverted.
 		--
-		-- `zNear` stops at +150 rather than at the arrival band: north of that the pockets are beside
-		-- the plaza, and a tree wall there closes in the one part of the zone meant to read as sky.
-		flanks = { xIn = FLOOR_HALF_X + 18, xOut = 600, zNear = 150, zFar = -560 },
+		-- `spacing` IS THE ONE DIAL AND IT WAS TURNED TWICE, both times against a capture rather than
+		-- an opinion: 30 gave 464 trees over the whole platform and photographs as clumps of wood
+		-- with fields of bare green between them, 24 gave 758 and still showed lawn between the
+		-- camps, 20 gives ~1,100 on 2 parts each. The trees are `CanCollide` and `CanQuery` false,
+		-- so the only cost of another thousand is drawing them.
+		--
+		-- THE EDGES ARE SET BY WHAT STANDS OUTSIDE THEM, not by the platform. `MapJungle` lays its
+		-- ridge hills on x = +/-630 and z = -585 and a hill is ~150 studs deep at 0.6 scale, so it
+		-- reaches x 555 and z -510: a tree planted past those is a tree inside a mountain, and
+		-- `MapJungle` runs AFTER the planting so nothing would ever say so. 565 / -505 keeps the
+		-- wood in front of the ridge, and still leaves `CreatureService`'s own rampart margin
+		-- (|x| > 575, |z| > 500) untouched.
+		forest = { xEdge = 565, zNorth = 500, zSouth = -505, spacing = 20 },
 		-- The way IN. See the header: the map's northern half is solid wood and the village square
 		-- is behind it, so without this the plaza opens onto a hedge. Tapered, wide end at the
 		-- plaza -- a funnel reads as an entrance and a rectangle reads as a firebreak.
@@ -356,7 +367,7 @@ end
 -- a paper-thin blank wall inside a lane is scenery with no job -- and both of those now apply to
 -- this corridor as well, which is the point of there being one of it. See `MapCut`.
 --
--- The `entrance` spec keeps its own four-field shape because `MapEggs`, `MapRoad` and `GetSpec`
+-- The `entrance` spec keeps its own four-field shape because `MapForest`, `MapRoad` and `GetSpec`
 -- read it; it is converted to a lane here, at the single place that cuts with it.
 local ENTRANCE_DRIVE_HALF = 26   -- the strip of the funnel that has to be genuinely walkable
 local ENTRANCE_DRIVE_MIN = 2     -- ...and nothing above knee height stands on it
@@ -377,9 +388,11 @@ local function cutEntrance(map, cx, e, protected)
 end
 
 -- The spec for a mapped zone, so a consumer can read the entrance corridor rather than copying its
--- four numbers. `MapEggs` is the first caller and the reason this exists: the corridor is the one
--- piece of geometry another module has to agree with exactly, and `evolution-lab-zone-geometry-
--- constants` is the standing lesson about one decision written in two files.
+-- four numbers. `MapEggs` was the first caller and the reason this exists; since 30.24 it no longer
+-- needs the corridor (the eggs moved to the square's centre) and `MapForest` is the caller that
+-- does -- it holds its wood out of the same funnel this cuts. The corridor is the one piece of
+-- geometry another module has to agree with exactly, and `evolution-lab-zone-geometry-constants` is
+-- the standing lesson about one decision written in two files.
 function ForestMapService.GetSpec(zoneKey)
 	return MAPS[zoneKey]
 end
@@ -442,10 +455,10 @@ function ForestMapService.Init()
 				local protected = MapAnchors.Collect(zoneKey, map)
 				local cleared = spec.clear and clearBands(map, cx, spec.clear, protected) or 0
 				local road = spec.entrance and cutEntrance(map, cx, spec.entrance, protected) or 0
-				-- BEFORE the planting, because it clears the wood under a mountain it has just
-				-- moved and the planter would happily grow a fresh one back into the same rock.
-				MapRidge.Reseat(zoneKey, cx, map)
-				local planted = MapForest.Plant(map, cx, spec)
+				-- BEFORE the planting, because the planter asks `MapRidge.Footprints` what is left
+				-- and would otherwise keep its wood out of rock that is about to be deleted.
+				MapRidge.Clear(zoneKey, cx, map)
+				local planted = MapForest.Plant(zoneKey, cx, map, spec)
 				-- AFTER the planting, and that ordering matters: the ridge hills and the alcove
 				-- rocks are placed against authored coordinates, but the trees are scattered, and a
 				-- tree grown where a rock already stands is a tree with a rock in it. Planting first
@@ -464,7 +477,7 @@ function ForestMapService.Init()
 				local gates = MapGates.Build(zoneKey, cx, map, protected)
 				print(("[ForestMapService] %s: dropped %d dressing, laid %d map parts at x%.2f, "
 					.. "cut %d props for the arrival and hunt bands, %d for the entrance road, "
-					.. "planted %d trees behind the village, built %d jungle camps, "
+					.. "planted %d trees over the whole platform, built %d jungle camps, "
 					.. "paved %d road parts and %d gate parts")
 					:format(zoneKey, dropped, #map:GetDescendants(), spec.scale, cleared, road,
 						planted, camps, paved, gates))

@@ -1,18 +1,32 @@
 -- MapProps/MapJungle -- the hunting ground, built out of the village map's own rock and mountain.
 --
--- `JungleLayout` says WHERE. This is the WHAT: a rock alcove around every camp, a dirt path network
+-- `JungleLayout` says WHERE. This is the WHAT: a clearing under every camp, a dirt path network
 -- joining them, and a ridge line along the south and both flanks so the zone has a horizon that is
--- not a grey slab. Nothing here decides a coordinate -- every number it stands a prop on comes out
--- of `JungleLayout`, which is the one copy (see that file's header for why that matters here).
+-- not a grey slab.
+--
+-- ===== 30.23: THE ALCOVE WALL CAME DOWN =====
+-- 31.16 built each camp as a ring of nine boulders with a gap in it. The ring was meant to say
+-- *this is a place*; the owner's next screenshot says it read as *you cannot get in there*, which
+-- is the complaint the camps were built to answer, arriving a second time by a different route.
+-- Nine rocks at chest height around a creature is a pen however wide the gap is.
+--
+-- A camp is now a CLEARING: a round floor of the village's own dirt, a handful of low stones along
+-- its far edge, and dense wood all around it that `MapForest` holds back by
+-- `JungleLayout.CLEARING_RADIUS`. The wall is the forest. Nothing rings the creature, the road
+-- arrives at the floor's edge, and from outside you see into the camp before you are standing in
+-- it -- which is the thing the ring was for and never managed.
+--
+-- Nothing here decides a coordinate -- every number it stands a prop on comes out of
+-- `JungleLayout`, which is the one copy (see that file's header for why that matters here).
 --
 -- ===== IT IS THE MAP'S OWN ART, FOR THE SAME REASON THE TREES ARE =====
 -- `MapForest` clones the village's trees rather than generating any, because a wood made of
 -- different art from the village it stands behind reads as two games stitched together. Same rule:
--- the alcove rocks are the map's `Rock 01` / `Rock 02` meshes, the ridges are its own `Meshes/gora`
+-- the clearing's stones are the map's `Rock 01` / `Rock 02` meshes, the ridges are its own `Meshes/gora`
 -- mountain, and the paths are painted in the colour of the village's own dirt ground -- READ OFF
 -- the placed map at build time, not typed here, so a re-themed map repaints its own roads.
 --
--- ===== NOTHING CHUNKY COLLIDES, AND THE WALLS COLLIDE ANYWAY =====
+-- ===== NOTHING CHUNKY COLLIDES, AND THE STONES COLLIDE ANYWAY =====
 -- `roblox-raycast-from-inside-a-part` and 30.19 are the same lesson twice: a MeshPart at
 -- CollisionFidelity.Default is a soup of convex hulls, a rock's hull is very nearly its bounding
 -- box, and every probe in the repo reports a body standing INSIDE one as standing on open ground.
@@ -20,10 +34,9 @@
 -- colliding -- a convex primitive, at 80% of the rock's footprint, which is a shape a raycast, an
 -- overlap query and a walking player all agree about.
 --
--- The ring is not closed. `JungleLayout.OPENING_ARC` is left out of every one of them, facing the
--- village, so a camp is a place you walk into rather than a pen. That opening is also the only
--- thing standing between this file and the worst bug it could ship: a wall that seals a creature
--- away from the player is indistinguishable, from the outside, from a creature that is not there.
+-- No arc of stone stands anywhere near the way in. That is the one thing this file must never get
+-- wrong, whatever shape a camp takes: a wall that seals a creature away from the player is
+-- indistinguishable, from the outside, from a creature that is not there.
 --
 -- ===== THE PATHS ARE PAINT, NOT GEOMETRY, AND `MapPaint` IS WHERE THAT LIVES =====
 -- 0.4 studs thick, `CanCollide = false`, sitting a fifth of a stud above the floor. A road you can
@@ -37,6 +50,7 @@
 
 local JungleLayout = require(script.Parent.JungleLayout)
 local MapPaint = require(script.Parent.MapPaint)
+local MapRidge = require(script.Parent.MapRidge)
 
 local MapJungle = {}
 
@@ -50,17 +64,21 @@ local FOLDER_NAME = "Jungle"
 -- **30 studs**. Twenty rings of that read as pods of sleeping whales, not as walls.
 --
 -- So the horizontal scale is set FIRST, to a real target width, and the height is a SEPARATE
--- factor on top of it. A stone ring at radius 46 has 289 studs of circumference and nine rocks in
--- it, so ~32 studs apart: a 24-stud footprint is what makes them touch and read as one wall with
--- gaps rather than as nine separate boulders.
-local ROCK_WIDTH = 24        -- studs, on the rock's larger horizontal axis
-local ROCK_MIN_H, ROCK_MAX_H = 13, 20
+-- factor on top of it. Five stones over the far half of a 46-stud clearing stand about 29 studs
+-- apart, so a 22-stud footprint leaves daylight between them -- which is what a lip of stone looks
+-- like, as opposed to the continuous wall a 24-stud footprint on a full ring produced.
+local ROCK_WIDTH = 22        -- studs, on the rock's larger horizontal axis
+-- LOWER THAN THE 13..20 THE RING USED, and that is the whole difference between furniture and a
+-- fence: 8..13 studs against an 8.4-stud player is a rock you see over. The ring's rocks were
+-- taller than the player looking at them, which is what made twenty clearings read as twenty pens.
+local ROCK_MIN_H, ROCK_MAX_H = 8, 13
 -- ...and the vertical stretch that gets there is CLAMPED, because the stock is not one shape. The
 -- map ships flat `Rock 02`s (6 studs tall) and tall `Rock 01`s (37), so an unclamped factor makes
 -- the first into a pillar and the second into a pancake. Inside the clamp both land near the target
 -- height; outside it, a tall rock stays a tall standing stone, which is variety rather than a fault.
 local ROCK_STRETCH_MIN, ROCK_STRETCH_MAX = 0.4, 2.6
-local ROCKS_PER_RING = 9
+-- Five, on the FAR half of the clearing only -- see `buildCamp`. A backstop, not a ring.
+local ROCKS_PER_CAMP = 5
 local ROCK_SINK = 1.5        -- how far a rock is buried, so it reads as planted rather than dropped
 
 -- The map's rocks are authored rgb(108, 108, 108) -- a NEUTRAL grey, which under this zone's blue
@@ -88,7 +106,7 @@ local RIDGE_LANE = 100
 -- ===== STOCK =====
 
 -- The rocks the map ships, as top-level MeshParts. They are `Rock 01` (8 of them) and `Rock 02`
--- (30), and after the band cuts 38 survive -- which is stock enough that no two rings repeat.
+-- (30), and after the band cuts 38 survive -- which is stock enough that no two clearings repeat.
 local function rockStock(map)
 	local stock = {}
 	for _, c in ipairs(map:GetChildren()) do
@@ -100,8 +118,13 @@ local function rockStock(map)
 end
 
 -- The mountain. Its parts are named `Meshes/gora`; the model around them is called `Model`, which
--- is why it is found by looking INSIDE rather than by name. Returns nil on a map that has none,
--- and a jungle with no ridge is still a jungle.
+-- is why it is found by looking INSIDE rather than by name.
+--
+-- SINCE 30.23 THE MAP USUALLY HAS NONE LEFT BY THE TIME THIS RUNS -- `MapRidge.Clear` cuts every
+-- mountain that reaches inside the ring road, which on this map is all of them -- so the fallback
+-- is not a nicety. The first boot after that change printed `0 ridge hills` and left the wood with
+-- an empty sky behind it, which nothing errored about. `MapRidge` parks a clone of the first one
+-- it cuts, at the map's own scale, and that is what this asks for.
 local function mountainStock(map)
 	for _, c in ipairs(map:GetChildren()) do
 		if c:IsA("Model") then
@@ -110,7 +133,7 @@ local function mountainStock(map)
 			end
 		end
 	end
-	return nil
+	return MapRidge.Stock()
 end
 
 -- ===== BUILDERS =====
@@ -156,25 +179,46 @@ local function standRock(proto, parent, x, z, h, rng, collide, width)
 	return rock
 end
 
--- The alcove: a ring of rocks with `OPENING_ARC` degrees of it missing, facing the village.
-local function buildCamp(camp, stock, parent, cx, rng)
-	local open = JungleLayout.OpeningAngle(camp)
-	local gap = math.rad(JungleLayout.OPENING_ARC)
-	local span = math.pi * 2 - gap
+-- ===== THE CLEARING (30.23) =====
+-- A floor, a backstop and some scree. In that order, because the floor is the outline tier's
+-- ground and everything else stands on it.
+--
+-- THE FLOOR IS WHAT MAKES IT A PLACE. It is the same dirt the roads are painted in, read off the
+-- map, so a spur arriving at a camp arrives at more of itself rather than stopping on grass -- and
+-- a round patch of bare earth in a wood is the oldest possible way of saying somebody uses this
+-- spot. Drawn dark-first and wider, the rule from `evolution-lab-chunky-look-rules` that every
+-- other painted surface in this map follows.
+--
+-- THE ROCKS ARE ON THE FAR HALF ONLY, and the half is measured from the ROAD (`OpeningAngle` now
+-- resolves to the nearest path point, not to the village). So the player always approaches across
+-- open floor with the stones behind the creatures, framing them. They still collide -- they are the
+-- only solid thing in a camp and a 10-stud boulder you walk through is worse than none -- but there
+-- is no arc of them anywhere near the way in.
+local function buildCamp(zoneKey, camp, stock, parent, cx, rng, dirt)
+	local open = JungleLayout.OpeningAngle(zoneKey, camp)
 	local built = 0
-	for i = 0, ROCKS_PER_RING - 1 do
-		-- walk the ring from one lip of the opening round to the other
-		local a = open + gap / 2 + span * (i / (ROCKS_PER_RING - 1))
-		local r = JungleLayout.CAMP_RADIUS + rng:NextNumber(-5, 8)
+
+	-- 1. the floor, and its rim
+	local d = JungleLayout.CAMP_RADIUS * 2
+	built += MapPaint.Disc(camp.x, camp.z, d + 10, parent, cx, MapPaint.Shade(dirt, 0.42),
+		MapPaint.Y - 0.06)
+	built += MapPaint.Disc(camp.x, camp.z, d, parent, cx, dirt)
+
+	-- 2. the backstop: five low stones spread over the far 180 degrees, standing just off the
+	--    floor's edge so they read as the lip of the clearing rather than as an obstacle in it
+	for i = 0, ROCKS_PER_CAMP - 1 do
+		local a = open + math.pi / 2 + math.pi * ((i + 0.5) / ROCKS_PER_CAMP)
+			+ rng:NextNumber(-0.12, 0.12)
+		local r = JungleLayout.CAMP_RADIUS + rng:NextNumber(2, 12)
 		local h = rng:NextNumber(ROCK_MIN_H, ROCK_MAX_H)
 		standRock(stock[rng:NextInteger(1, #stock)], parent,
 			cx + camp.x + math.cos(a) * r, camp.z + math.sin(a) * r, h, rng, true)
 		built += 1
 	end
-	-- scree inside the ring: three flat stones, no collider, and a THIRD of the wall's footprint.
-	-- This is what stops the floor of a camp being the same bare green as everywhere else -- the
-	-- ring says "a place", the scree says "somebody's place". They must stay small enough to walk
-	-- over and around: a chunky mesh in the middle of the ground the player fights on is 30.19.
+
+	-- 3. scree on the floor: three flat stones, no collider, a third of the backstop's footprint.
+	--    They must stay small enough to walk over and around: a chunky mesh in the middle of the
+	--    ground the player fights on is 30.19.
 	for _ = 1, 3 do
 		local a = rng:NextNumber(0, math.pi * 2)
 		local r = rng:NextNumber(10, JungleLayout.CAMP_RADIUS - 16)
@@ -223,9 +267,14 @@ local function buildRidge(proto, parent, cx, rng)
 				rng:NextNumber(0, math.pi * 2), RIDGE_SCALE_SOUTH)
 		end
 	end
-	-- and both flanks, from the village's shoulder down to the corner
+	-- and both flanks, and since 30.23 they run the WHOLE depth of the zone rather than starting at
+	-- the village's shoulder. Two reasons, and the second is load-bearing: the wood now fills the
+	-- two north quadrants as well and a wood with nothing behind it ends at a green line against the
+	-- sky -- and the map's OWN two arrival mountains, which used to close that horizon, were cut by
+	-- `ForestMapService`'s flank bands for standing across the approach to three camps. This ridge
+	-- is what replaces them, so it has to reach the arrival end.
 	for _, side in ipairs({ -1, 1 }) do
-		for z = 120, -500, -140 do
+		for z = 480, -500, -140 do
 			hill(side * RIDGE_X + rng:NextNumber(-14, 14), z + rng:NextNumber(-20, 20),
 				rng:NextNumber(0, math.pi * 2), RIDGE_SCALE_FLANK)
 		end
@@ -258,34 +307,30 @@ function MapJungle.Build(zoneKey, cx, map)
 	local rng = Random.new(20260822 + math.floor(cx))
 
 	local colour = MapPaint.DirtColour(map)
+	-- ONE list of trunks and spurs, from `JungleLayout.Segments` -- the same list `MapForest` keeps
+	-- its wood out of. Before 30.23 the spurs were derived here and the planter knew only the
+	-- trunks, so every spur was a road with a wood grown across it.
+	local segments = JungleLayout.Segments(zoneKey) or {}
+	local trunks = #(JungleLayout.Paths(zoneKey) or {})
 	local paved = 0
-	for _, seg in ipairs(JungleLayout.Paths(zoneKey) or {}) do
+	for _, seg in ipairs(segments) do
 		paved += MapPaint.Segment(seg, folder, cx, colour)
 	end
-	-- ...and the spur to every camp, generated rather than authored, so a camp that moves takes its
-	-- road with it.
-	local spurs = 0
-	for _, camp in ipairs(camps) do
-		local spur = JungleLayout.SpurFor(zoneKey, camp)
-		if spur then
-			paved += MapPaint.Segment(spur, folder, cx, colour)
-			spurs += 1
-		end
-	end
+	local spurs = #segments - trunks
 
 	local rocks = 0
 	if #stock > 0 then
 		for _, camp in ipairs(camps) do
-			rocks += buildCamp(camp, stock, folder, cx, rng)
+			rocks += buildCamp(zoneKey, camp, stock, folder, cx, rng, colour)
 		end
 	end
 
 	local mountain = mountainStock(map)
 	local ridge = mountain and buildRidge(mountain, folder, cx, rng) or 0
 
-	print(("[MapJungle] %s: %d camps ringed with %d rocks, %d path parts (%d trunk + %d spurs), "
-		.. "%d ridge hills")
-		:format(zoneKey, #camps, rocks, paved, #(JungleLayout.Paths(zoneKey) or {}), spurs, ridge))
+	print(("[MapJungle] %s: %d clearings with %d rocks and floors, %d path parts "
+		.. "(%d trunk + %d spurs), %d ridge hills")
+		:format(zoneKey, #camps, rocks, paved, trunks, spurs, ridge))
 	return #camps
 end
 

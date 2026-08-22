@@ -50,8 +50,9 @@
 -- So the doors are not extended one at a time any more. THE WHOLE RING IS LAID OUT AT ONCE, from
 -- the circle the artist drew, across a span that stops `OPENING_DEG` short of a full turn -- and
 -- the opening faces the village, so the mouth is on the side you arrive from. That is the same rule
--- `MapJungle.OPENING_ARC` follows for a camp, for the same reason written down there: a wall that
--- seals a player away is indistinguishable, from inside, from a wall that does not.
+-- `MapJungle` follows for a camp, for the same reason written down there -- a wall that seals a
+-- player away is indistinguishable, from inside, from a wall that does not. 30.23 took the rule one
+-- step further out there: a camp has no ring at all any more, only a lip of stone on the far side.
 --
 -- ===== TWENTY DOORS ONLY FIT IF THEY SHRINK =====
 -- The circle is fixed art -- 44 studs of radius, i.e. 280 of circumference -- and twenty doors at

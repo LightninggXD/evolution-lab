@@ -1,4 +1,7 @@
--- MapProps/MapRidge -- the arrival mountains stand on a ring, not in the road.
+-- MapProps/MapRidge -- no mountain of the map's own stands on ground the player walks.
+--
+-- It was called "the arrival mountains stand on a ring, not in the road" until 30.23, and the
+-- history below is kept because the measurements in it are still the reason the file exists.
 --
 -- Her note, 2026-08-22, on a capture taken from the arrival plaza: *"sivi planinski prsten koji
 -- gura desnu stranu prilaza"*. The asymmetry is real and it is not a matter of taste -- it is one
@@ -13,28 +16,58 @@
 -- mountain standing ON the plaza. That is the whole of the complaint, and it is why the left half
 -- of every capture is calm and the right half is a grey cliff.
 --
--- ===== THE RING'S RADIUS IS THE RADIUS OF THE MOUNTAIN THAT IS ALREADY RIGHT =====
--- The move is DERIVED and not typed. Taking "push it out by 95" from a measurement made today is
--- how the five hand-typed band coordinates in 31.14 ended up stale the moment the map scale
--- changed -- so instead the furthest arrival mountain defines the ring, and every other one is
--- pushed out along its own side until it stands on that ring. Add a third mountain, or change
--- `ForestMapService.MAPS.Forest.clear`, and the rule still holds with no number to re-measure.
 --
--- ===== A MOVED MOUNTAIN LANDS ON TREES =====
--- Five props over 8 studs tall stand where the east one is going. A tree poking out of a
--- mountainside is 30.19's own note about what reads as broken, so the foliage under the new
--- footprint comes down -- by CENTRE and at a FRACTION of the bounding box, because a `Meshes/gora`
--- cone fills nothing like its own box and clearing the whole box would take a quarter of the wood
--- behind the plaza for no reason.
+-- ===== 30.23: MOVING THEM STOPPED BEING ENOUGH, SO THEY GO =====
+-- `Reseat` is gone and this file CUTS now. The reason is that the ground it was arranging them on
+-- stopped being scenery: 30.23 filled both north quadrants with wood and ten camps, and a body-box
+-- walk from the ring road found `Meshes/gora` across the approach to three of them -- 8 blocked
+-- cells of 226, which is 30.19 arriving a second time. There is nowhere on this platform left to
+-- push a 192 x 247 mountain TO. Every square of it is either village, plaza, road, camp or wood.
+--
+-- Two of the three went to `ForestMapService`'s flank bands the moment they ran to z = 430. The
+-- third did not, and the reason is worth keeping because it is a pure ordering bug: the east
+-- mountain is authored at x = 132 and only ever REACHED x = 227 because Reseat put it there --
+-- and Reseat runs AFTER the bands. So the bands measured it at 132, scored 0.00 against the flank
+-- band, and left it standing on the plaza, where `HubPlaza` immediately went from 14/14 exhibit
+-- figures to 8/14 with 8 pieces skipped. A pass that moves a prop into another pass's test is a
+-- pass that has to run on the other side of it -- or, as here, stop moving things.
+--
+-- THE RULE IS ONE LINE: a mountain whose rock reaches inside the ring road is in the way. What is
+-- left of the horizon is `MapJungle`'s own ridge, which is built from this same mountain mesh, sunk
+-- and scaled, and now runs the flanks from z = 480 down for exactly this reason.
+--
+-- `Footprints` is the other half of this file and is what `MapForest` asks -- after the cut -- for
+-- every mountain still standing, so the wood is never grown inside rock.
 
-local MapCut = require(script.Parent.MapCut)
+local ServerStorage = game:GetService("ServerStorage")
 
 local MapRidge = {}
 
--- What counts as a mountain: the ring meshes are the only props in this map that are both this
--- tall and this wide. Tested against the placed clone, so it follows the map scale for free.
+-- ===== THE LAST MOUNTAIN IS KEPT AS STOCK, AND THAT IS NOT AN OPTIMISATION =====
+-- `MapJungle` builds the zone's horizon by cloning the map's own `Meshes/gora` mountain, sunk and
+-- scaled. It looks for one INSIDE THE PLACED MAP -- and the first boot after this file started
+-- cutting instead of moving printed `0 ridge hills`, because by the time it looked there were none
+-- left. The wood had a horizon of empty sky, and nothing errored.
+--
+-- So the cut parks a clone of the first mountain it takes, at the map's own scale, and `Stock()`
+-- hands it back. One module owns "where the mountain mesh comes from", which is the same rule the
+-- rock and tree stocks already follow.
+local STOCK_NAME = "RidgeStock"
+
+function MapRidge.Stock()
+	return ServerStorage:FindFirstChild(STOCK_NAME)
+end
+
+-- What counts as a mountain: the ring meshes are the only props in this map that are this tall,
+-- this wide AND this deep. Tested against the placed clone, so it follows the map scale for free.
+--
+-- MIN_THICK IS THE THIRD TEST AND IT WAS ADDED BECAUSE OF A FALSE POSITIVE, not for symmetry: the
+-- map ships a 1 x 144 x 144 `Union` at (-18, 9) -- a flat backdrop panel standing in the village --
+-- which passes "60 tall" and "100 across" and is not a mountain by any reading. It was being handed
+-- to `MapForest` as a keep-out and would have been handed to the cut below as something to delete.
 local MIN_HEIGHT = 60
 local MIN_SPAN = 100
+local MIN_THICK = 40
 -- The arrival side. The ring also runs behind the village to the south, and those are not in
 -- anybody's way -- this file only ever touches the mountains you look at while walking in.
 local ARRIVAL_Z = 60
@@ -53,60 +86,67 @@ local function measure(c)
 	return nil, nil
 end
 
-function MapRidge.Reseat(zoneKey, cx, map)
-	if not map then return 0 end
-
+-- ===== EVERY MOUNTAIN LEFT STANDING, ZONE-RELATIVE (30.23) =====
+-- Reseat used to do this scan inline. It is public now because `MapForest` needs the same answer
+-- for a different reason: since 30.23 it plants the whole platform, and a mountain is the one thing
+-- out there big enough to grow a wood inside. Two definitions of "what counts as a mountain" is
+-- exactly the drift `evolution-lab-zone-geometry-constants` is about, so there is one.
+--
+-- `hx` / `hz` are the FILL'd half extents -- what is actually rock, as opposed to what the bounding
+-- box claims. `minZ` is optional and is what makes this the ARRIVAL ring for `Reseat` and the whole
+-- ring for the planter.
+function MapRidge.Footprints(cx, map, minZ)
 	local ring = {}
+	if not map then return ring end
 	for _, c in ipairs(map:GetChildren()) do
 		if c.Name ~= "MainPart" and c.Name ~= "Terrain" then
 			local pos, size = measure(c)
 			if pos and size and size.Y >= MIN_HEIGHT
-				and math.max(size.X, size.Z) >= MIN_SPAN and pos.Z > ARRIVAL_Z then
-				ring[#ring + 1] = { inst = c, x = pos.X - cx, z = pos.Z, size = size }
+				and math.max(size.X, size.Z) >= MIN_SPAN
+				and (not minZ or pos.Z > minZ) then
+				ring[#ring + 1] = {
+					inst = c, x = pos.X - cx, z = pos.Z, size = size,
+					hx = size.X * FILL / 2, hz = size.Z * FILL / 2,
+				}
 			end
 		end
 	end
-	if #ring < 2 then
-		-- One mountain is not a ring and there is nothing to be symmetric with. Better to leave the
-		-- map as the artist drew it than to invent a radius out of a single sample.
-		print(("[MapRidge] %s: %d arrival mountain(s) -- nothing to reseat")
-			:format(zoneKey, #ring))
-		return 0
-	end
+	return ring
+end
 
-	local radius = 0
-	for _, m in ipairs(ring) do radius = math.max(radius, math.abs(m.x)) end
+-- ===== THE CUT =====
+-- Outside the ring road or gone. `JungleLayout`'s ring runs at |x| = 450 and its camps reach 530,
+-- so 470 is the first line a mountain can stand on without reaching into anything the player walks
+-- through -- and no mountain in this map is anywhere near it, which is the honest reading of what
+-- this function does today: it deletes all of them. It is written as a rule rather than as a
+-- `:Destroy()` loop because the second mapped zone will have its own ring and its own answer.
+local KEEP_BEYOND_X = 470
 
-	local movedCount, cleared = 0, 0
-	for _, m in ipairs(ring) do
-		local want = radius * (m.x < 0 and -1 or 1)
-		local shift = want - m.x
-		if math.abs(shift) >= 10 then
-			m.inst:PivotTo(m.inst:GetPivot() + Vector3.new(shift, 0, 0))
-			movedCount += 1
-
-			-- and the wood it landed in
-			local hx, hz = m.size.X * FILL / 2, m.size.Z * FILL / 2
-			for _, c in ipairs(map:GetChildren()) do
-				if c ~= m.inst and c.Name ~= "MainPart" and c.Name ~= "Terrain"
-					and MapCut.IsFoliage(c) then
-					local pos, size = measure(c)
-					if pos and size and size.Y >= MapCut.MIN_HEIGHT
-						and math.abs(pos.X - cx - want) <= hx
-						and math.abs(pos.Z - m.z) <= hz then
-						c:Destroy()
-						cleared += 1
-					end
-				end
+function MapRidge.Clear(zoneKey, cx, map)
+	if not map then return 0 end
+	local removed, kept = 0, 0
+	local names = {}
+	for _, m in ipairs(MapRidge.Footprints(cx, map, ARRIVAL_Z)) do
+		if math.abs(m.x) - m.hx < KEEP_BEYOND_X then
+			names[#names + 1] = ("(%.0f, %.0f) %.0f x %.0f"):format(m.x, m.z, m.size.X, m.size.Z)
+			if removed == 0 then
+				local old = ServerStorage:FindFirstChild(STOCK_NAME)
+				if old then old:Destroy() end
+				local keep = m.inst:Clone()
+				keep.Name = STOCK_NAME
+				keep.Parent = ServerStorage
 			end
-			print(("[MapRidge] %s: mountain x %.0f -> %.0f (ring r=%.0f), %d trees cleared under it")
-				:format(zoneKey, m.x, want, radius, cleared))
+			m.inst:Destroy()
+			removed += 1
+		else
+			kept += 1
 		end
 	end
-
-	print(("[MapRidge] %s: %d arrival mountains, ring r=%.0f, moved %d, cleared %d")
-		:format(zoneKey, #ring, radius, movedCount, cleared))
-	return movedCount
+	print(("[MapRidge] %s: cut %d arrival mountain(s) reaching inside x %d%s, kept %d, stock=%s")
+		:format(zoneKey, removed, KEEP_BEYOND_X,
+			#names > 0 and (" -- " .. table.concat(names, ", ")) or "", kept,
+			tostring(MapRidge.Stock() ~= nil)))
+	return removed
 end
 
 return MapRidge
