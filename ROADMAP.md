@@ -1094,6 +1094,54 @@ rebuild, not the first.
 
 ---
 
+## Phase 31 - The map is the game now · *opened 2026-08-22 by the owner, with six screenshots*
+
+She sent six photographs of the game running on the village map and gave one instruction: **the new
+map is the main map, and everything adapts to it.** *"ovaj novi model postaje glavni, onaj stari
+prikaz odpada ... sve treba prilagoditi da ovaj model postane kao glavna mapa ... zanemari sta smo do
+sada radili"*.
+
+Three complaints came with it, and they turned out to be one cause and two consequences:
+
+1. **"sve izgleda preveliko naspram mene"** -- 30.14 froze the player at 8.4 studs and nothing else
+   moved. Creatures were authored for a 41-stud body, the Forest boss was a ~180-stud bounding box,
+   the arcade cabinet was 34 studs, and the name plates are in PIXELS so they never shrink at all.
+2. **The furniture is drawn twice.** The map ships eight leaderboard boards, a three-step podium, a
+   spin wheel, shop / upgrades / potion pads and an egg row -- and eight services kept building
+   generated copies of the same objects in world coordinates. That is what her screenshots show
+   floating among the trees.
+3. **The hunting ground was a 225-stud strip with the boss standing in it.**
+
+**Scope, agreed with her before the first line: Forest only, taken to completion.** The other twenty
+zones keep ZoneBuilder's valley until this one is right; then the same recipe repeats.
+
+**The keystone is `MapProps/MapAnchors`**, which is what row 30.17 said the fix had to be -- *"a
+mapped zone must DECLARE its free ground"* -- and which 30.19 closed the symptom instead of building.
+Everything else in this phase asks it where something is.
+
+**Every new file is small and single-purpose, at her instruction** (*"ne pravi god script ... sve
+buduce fajlove pravi u vise manjih celina"*): `MapAnchors`, `MapForest`, `MapBoards`, `BoardStats`,
+`MapCounters`, `MapEggs`, `MapArcade` -- none over 200 lines, all under
+`ServerScriptService/MapProps`.
+
+| # | St | Task | Check | Evidence |
+|---|---|---|---|---|
+| 31.1 | `[x]` | **`MapProps/MapAnchors` -- the map declares its own furniture.** A census of the PLACED clone (never the source: it is unscaled and unseated), published by role, returning `nil` for any zone with no map so every caller falls back to what it does today. It also returns a PROTECTED SET the band cuts must skip, which is why it runs between parenting the map and cutting it -- the egg row sits inside the entrance funnel and `cutEntrance` classifies by PART NAME, so without it the road is cut through the shop. `Shop` is four different objects in this map and `Upgrades` two, told apart by THICKNESS: a pad is one stud thick and a building is not | every role resolves to a real CFrame | **VERIFIED IN PLAY 2026-08-22.** `[MapAnchors] Forest: 8/8 boards, 3/3 podium, 4/4 eggs, 2 stalls, shop=y upgrades=y wheel=y potions=y index=y` |
+| 31.2 | `[x]` | **`MapProps/MapForest` -- the planting split out, plus the two side pockets.** The village floor is 682 x 580 inside a 1250 x 1150 platform, so ~280 studs of platform run down each side of it that the map's mountain ring was standing on. The southern arcs are cleared and planted, so the wood wraps the village instead of being a strip behind it -- her *"samo siri mapu sa njim da stanu svi mobovi i boss"*. Planted foliage stays `CanCollide = false`: a 64-stud canopy hull is very nearly a 64-stud box and a hundred of them is a hundred repeats of the 30.19 trap | the wood is walkable end to end | **VERIFIED.** 104 -> 166 trees; a body-box grid over the whole band: **0 blocked of 119** |
+| 31.3 | `[x]` | **Everything shrank to the body.** Tiers 6.5/11/16/26/26 -> 5/7/9.5/13/15; the Apex unpinned from the Elite because `raisedSpots`' hard-coded 26-stud probe now reads the table; the auto-attack floor 60 -> 34, because 60 was sized against a 15.4-stud half-width that no longer exists; all three name plates halved, because a BillboardGui is in PIXELS and does not follow studs; the arcade cabinet 30x34x16 -> 16x18x9 | nothing in frame over ~3x the player | **VERIFIED.** Player 8.4 tall; a Swarmer bbox 6.5; the boss 54x42x54 where it was ~180 |
+| 31.4 | `[x]` | **The boss got smaller and left the centre line.** `BOSS_SIZE_MULT` 4.2 -> 1.45 -- the same number the map and the body are scaled by -- so Forest lands on 26 units, a ~62-stud rig at 7.5x the player. Health, DNA and retaliation untouched: they have their own multipliers, so no zone's progression moves. The centre line is the lane to the exit gate, so a mapped zone stations him in the western pocket at (-400, -430), reached by walking out of the village and turning left through the trees | the way out stays clear; no creature in his arena | **VERIFIED.** Boss at (-400, 21, -430); 74 of 74 creatures outside his disc; the village-to-boss walk **0 blocked of 11** |
+| 31.5 | `[x]` | **The map's leaderboards are the leaderboards.** `MapProps/MapBoards` adopts eight boards and the podium; ours are NOT BUILT rather than built and hidden, because an unbuilt slab cannot be found floating in the woods. The boards arrive carrying a hundred rows of somebody else's players, so `Stats` is cleared on adoption rather than on first paint. `MapProps/BoardStats` adds the five counters the game never kept -- only Rebirths and Diamonds (the map's "Total Gems") had a number behind them. No migration: every read is `(x or 0)`, because backfilling would put invented figures on a public board | boards paint real rows; no prop drawn twice | **VERIFIED.** `adopted 7 map boards, podium=true -- generated signs not built`; `workspace.Leaderboards` absent; a capture shows a live row and a "nobody yet" status |
+| 31.5a | `[x]` | <!-- found by 31.5's own boot --> **Two faults a boot found that no lint could.** `MAP_GLADE`'s `a`/`b` are SEMI-axes and the widening pass read them as full widths: 74 rigs spread x -567..748, the far ones standing over the void 123 studs past the platform edge, with nothing errored and nothing logged, because a creature over the void is a creature like any other. And the podium kept the free model's demo winners -- CV10K and Diablo19812 survived a full boot, because `clearStatue` only runs for a slot this server has already filled and on a fresh server it never has | every creature on ground; podium blank when empty | **VERIFIED.** 0 of 74 without ground under them; the podium reads `---` on all three |
+| 31.6 | `[x]` | **The shop, upgrades, potions and wheel got doors.** Three are a prompt and an attribute on the existing `PromptTriggered` dispatch -- no remote, no client change, no panel written. The wheel had no attribute route (the daily spin has never been a world object, only a HUD tile) so it is wired to the same `HandleFreeSpin` that tile calls. Forest has never sold a potion -- `ZoneShops` starts at zone 3 -- and the cost comes from `GetMysteryCost`, making zone 1's the cheapest by construction. Boot order is load-bearing: `PotionService` finds counters by scanning ONCE at its own Init | four prompts; PotionService picks the pad up | **VERIFIED.** `[MapCounters] Forest: 4 counters wired (shop, upgrades, potions(5250), wheel)`; PotionService 7 counters -> 8 |
+| 31.7 | `[x]` | **The eggs were not the problem, the stall was** (closes 30.20). Ours are 18 studs and the map's are 17.2 against an 8.4-stud player -- but `EggPlaza` drops a 123 x 47 x 45 market stand at (0, -6), the middle of the village square, and eggs standing on a structure five houses wide read as enormous. Moved onto the map's own egg spots as COLUMNS, because `EggOddsAnchor` and `PriceCardAnchor` are SIBLINGS of the egg, not children. The model keeps its name and parent throughout: `PetService.WireKiosks` finds the eggs by walking `PetShop` BY NAME | PetShop shrinks; egg buying still works | **VERIFIED.** 123x47x45 -> 66x41x59, 89 stall pieces dropped, 3 columns moved; all three prompts still carry `EggKey`, `ShopPanel=eggs` and `Wired=true` |
+| 31.8 | `[x]` | **Her own arcade cabinets, in the village.** `MapProps/MapArcade` stands four of them at (-150, 0) -- a spot MEASURED, not guessed: a 60x20x26 box test over a 20-stud grid across the village floor found 99 clear spots, and x -100..-240 at z 0 is the longest unbroken run and the closest to the Upgrades house. The mechanism is not rebuilt, only re-bodied: it REPARENTS the prompt `MinigameService` already built, so the remotes, the rate limit and the attributes stay owned by one file. The source is lifted out of `Workspace` and re-sanitised at the moment of the lift, not trusted from a roadmap row | one prompt, in the village, generated slab gone | **VERIFIED.** `4 cabinets at (-150, 0), prompt moved, generated terminal removed`; the "authored spot occupied" warnings went from 8 zones to 1 |
+| 31.9 | `[x]` | <!-- found by the walk probe --> **The map's golden egg was standing in the entrance road.** Leaving `King` as the artist's scenery was right, and it was also a 21x22x17 boulder at (-6, 113) -- the middle of the funnel. Pushed sideways by the corridor's own half-width read from `ForestMapService.GetSpec`, not by a number typed twice. **The first run of the probe counted the FLOOR as an obstacle** -- a body box spanning y 1..10 overlaps the 1-stud deck it stands on, and twelve of its fifteen hits were HubPlaza's own `Deck`. Box containment, not raycasts, and start the box above the ground | the walk from spawn is clear | **VERIFIED.** 0 blocked of 32; King at (-103, 113); nothing overhead at any of 5 points across the arrival end |
+| 31.10 | `[ ]` | **The paved road, and the look pass.** The funnel is CLEAR (47 props cut, 0 of 32 cells blocked) but it is not PAVED -- a cleared strip of grass reads as a firebreak rather than a road, which `ForestMapService`'s own header says. Also open from her message: *"sav dizajm charactera i ostatka mape treba prilagoditi ovoj zoni novoj"* | a capture from spawn reads as a road | - |
+| 31.11 | `[ ]` | <!-- found by the 31.7 capture, NOT on her list --> 👤 **The player's aura floods the square.** Deliberately not touched. The mutation aura's emitters are 5-9 studs, which is right against an 8.4-stud body, but their light washes the ground white for ~80 studs in every capture taken this session. `roblox-particle-tint-clipping` is the standing note that Brightness and LightEmission are two different levers and capping both ruins an effect. This is a look she has been playing with -- decide with her before changing it | - | - |
+| 31.12 | `[ ]` | <!-- carried from 31.5 --> **`DNA` and `Kills` have no board any more.** The map ships eight boards and neither is one of them, so both stats still refresh -- DNA drives the podium -- but neither is displayed anywhere in the world. Either repoint two of the map's boards (`Suffixes` is a static legend and could go) or accept that the podium is DNA's only surface | - | - |
+
+---
+
 ## 👤 Owner action checklist
 
 Collect these once; each one blocks agents until it exists.
@@ -1310,6 +1358,22 @@ codebase and adding it is an infrastructure layer, not a feature.
 ---
 
 ## Changelog
+
+- **2026-08-22** - **Phase 31 opened; 31.1-31.9 done and verified live in Play.** Her six
+  screenshots and one instruction: the village map is the main map now and everything adapts to it.
+  The keystone is `MapProps/MapAnchors` -- row 30.17's stated fix finally built, so the map declares
+  its own furniture and eight services stop guessing where the free ground is. Seven new modules,
+  none over 200 lines, at her instruction that a god file burns tokens on every read
+  (`evolution-lab-small-modules-rule`). Measured on one boot: 8/8 anchors resolved, 7 boards adopted
+  and our slabs never built, 4 counters wired, PetShop 123x47x45 -> 66x41x59, the boss ~180 -> 54
+  studs and moved off the exit lane, 74 of 74 creatures on ground, the wood 0 blocked of 119 and the
+  entrance road 0 of 32. **Two faults were found by boots, not by lints** -- a semi-axis read as a
+  full width put creatures 123 studs over the void, and the free model's demo winners (CV10K,
+  Diablo19812) survived a full boot standing on the podium -- which is the standing argument for why
+  a row closes on live verification. Still open: **31.10** (paving the road, the look pass),
+  **31.11** (the aura floods the square; hers to decide) and **31.12** (DNA and Kills now have no
+  board). Everything is in `src/` and pushed to Studio hash-verified; **the place is NOT saved** --
+  that is hers.
 
 - **2026-08-22** - **30.19 and 30.17 closed: the Forest zone is three bands, and the player is out of
   the mountain.** Kristina sent a photograph of herself stuck on the arrival plaza. The cause is worth
