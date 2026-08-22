@@ -25,12 +25,18 @@
 -- thing standing between this file and the worst bug it could ship: a wall that seals a creature
 -- away from the player is indistinguishable, from the outside, from a creature that is not there.
 --
--- ===== THE PATHS ARE PAINT, NOT GEOMETRY =====
+-- ===== THE PATHS ARE PAINT, NOT GEOMETRY, AND `MapPaint` IS WHERE THAT LIVES =====
 -- 0.4 studs thick, `CanCollide = false`, sitting a fifth of a stud above the floor. A road you can
 -- trip on is worse than no road, and `roblox-moving-platform-needs-velocity` / the terrace-stair
 -- work are both records of what happens when scenery is allowed to carry the player.
+--
+-- The slab, the end caps and the dirt colour moved to `MapProps/MapPaint` when the VILLAGE needed a
+-- road too (31.10). They are the same road at two ends -- the trunk lane runs south out of the
+-- square and the approach road runs north out of it -- so a second copy of "how wide, what colour,
+-- what plane" would have them meeting at the gate in two different browns.
 
 local JungleLayout = require(script.Parent.JungleLayout)
+local MapPaint = require(script.Parent.MapPaint)
 
 local MapJungle = {}
 
@@ -76,11 +82,8 @@ local RIDGE_X = 630
 -- gate readable from the whole south field instead of framed by two hills.
 local RIDGE_LANE = 100
 
--- The village's own dirt, if the map has any. Fallback is the colour measured off `ForestVillage`'s
--- ground union, so a map with no dirt in it still gets roads that match this one.
-local PATH_FALLBACK = Color3.fromRGB(213, 160, 116)
-local PATH_Y = 0.25
-local PATH_THICK = 0.4
+-- The village's own dirt and the plane the roads are drawn on both live in `MapPaint` now -- the
+-- village's approach road needs the same two and they cannot be two answers. See that file's header.
 
 -- ===== STOCK =====
 
@@ -108,20 +111,6 @@ local function mountainStock(map)
 		end
 	end
 	return nil
-end
-
--- The colour of the village's ground path, read off the map. A flat, wide UnionOperation is what
--- that asset uses for its dirt; anything thicker than two studs is a building and anything narrower
--- than eighty is a plank.
-local function pathColour(map)
-	local best, bestArea = nil, 0
-	for _, c in ipairs(map:GetDescendants()) do
-		if c:IsA("UnionOperation") and c.Size.Y <= 2 and c.Size.X >= 80 and c.Size.Z >= 80 then
-			local area = c.Size.X * c.Size.Z
-			if area > bestArea then best, bestArea = c, area end
-		end
-	end
-	return best and best.Color or PATH_FALLBACK
 end
 
 -- ===== BUILDERS =====
@@ -197,45 +186,6 @@ local function buildCamp(camp, stock, parent, cx, rng)
 	return built
 end
 
--- One road segment as a single rotated slab, plus a disc at each end. The discs are what make a
--- corner a corner: two slabs meeting at an angle leave a wedge of bare ground on the outside of the
--- turn, and a round cap covers it whatever the angle is.
-local function paveSegment(seg, parent, cx, colour)
-	local dx, dz = seg.x2 - seg.x1, seg.z2 - seg.z1
-	local len = math.sqrt(dx * dx + dz * dz)
-	if len < 1 then return 0 end
-	local mid = Vector3.new(cx + (seg.x1 + seg.x2) / 2, PATH_Y, (seg.z1 + seg.z2) / 2)
-
-	local road = Instance.new("Part")
-	road.Name = "JunglePath"
-	road.Size = Vector3.new(seg.w, PATH_THICK, len)
-	road.CFrame = CFrame.new(mid) * CFrame.Angles(0, math.atan2(dx, dz), 0)
-	road.Anchored = true
-	road.CanCollide = false
-	road.CanTouch = false
-	road.CastShadow = false
-	road.Color = colour
-	road.Material = Enum.Material.SmoothPlastic
-	road.Parent = parent
-
-	local made = 1
-	for _, e in ipairs({ { seg.x1, seg.z1 }, { seg.x2, seg.z2 } }) do
-		local cap = Instance.new("Part")
-		cap.Name = "JunglePathCap"
-		cap.Shape = Enum.PartType.Cylinder
-		cap.Size = Vector3.new(PATH_THICK, seg.w, seg.w)
-		cap.CFrame = CFrame.new(cx + e[1], PATH_Y, e[2]) * CFrame.Angles(0, 0, math.pi / 2)
-		cap.Anchored = true
-		cap.CanCollide = false
-		cap.CanTouch = false
-		cap.CastShadow = false
-		cap.Color = colour
-		cap.Material = Enum.Material.SmoothPlastic
-		cap.Parent = parent
-		made += 1
-	end
-	return made
-end
 
 -- The ridge line. Backdrop only -- `CanCollide = false` on every part of it, because the platform
 -- already has a 180-stud boundary wall doing the containing and a second colliding wall inside it
@@ -307,10 +257,10 @@ function MapJungle.Build(zoneKey, cx, map)
 	-- jungle, which is the rule `MapForest`, `raisedSpots` and `JungleLayout.Spawns` all follow.
 	local rng = Random.new(20260822 + math.floor(cx))
 
-	local colour = pathColour(map)
+	local colour = MapPaint.DirtColour(map)
 	local paved = 0
 	for _, seg in ipairs(JungleLayout.Paths(zoneKey) or {}) do
-		paved += paveSegment(seg, folder, cx, colour)
+		paved += MapPaint.Segment(seg, folder, cx, colour)
 	end
 	-- ...and the spur to every camp, generated rather than authored, so a camp that moves takes its
 	-- road with it.
@@ -318,7 +268,7 @@ function MapJungle.Build(zoneKey, cx, map)
 	for _, camp in ipairs(camps) do
 		local spur = JungleLayout.SpurFor(zoneKey, camp)
 		if spur then
-			paved += paveSegment(spur, folder, cx, colour)
+			paved += MapPaint.Segment(spur, folder, cx, colour)
 			spurs += 1
 		end
 	end

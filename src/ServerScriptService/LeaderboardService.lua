@@ -111,6 +111,13 @@ local BOARDS = {
 		title = "\u{23F1}\u{FE0F}  TIME PLAYED", color = UITheme.Color.Mint, short = false,
 		clock = true,
 	},
+	-- ===== THIS ONE HAS NO SURFACE, ON PURPOSE (31.12) =====
+	-- Nine boards here, EIGHT slots on the map's arc, and `MapBoards.REPOINT` gives the two spare
+	-- props to DNA and Kills -- the currency and the loop, neither of which had a board anywhere in
+	-- the world. `RobuxSpent` is the one left over: `MapBoards.Has("RobuxSpent")` is false, so
+	-- `pushBoard` returns early and nothing is drawn for it. The ROW STAYS, and the counter in
+	-- `BoardStats` keeps banking -- a ninth slot, or a second mapped zone, lights it up with no code
+	-- change and no backfill. Deleting it would throw away a live counter to save a table entry.
 	{
 		key = "RobuxSpent", field = BoardStats.Field.RobuxSpent,
 		title = "\u{1F4B0}  ROBUX SPENT", color = UITheme.Color.Mint, short = false,

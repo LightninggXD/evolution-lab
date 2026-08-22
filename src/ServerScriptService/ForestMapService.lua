@@ -100,6 +100,7 @@ local MapForest = require(script.Parent.MapProps.MapForest)
 -- rock alcoves, the path network and the ridge line; `JungleLayout` (which it reads, and which
 -- `CreatureService` reads too) owns every coordinate involved.
 local MapJungle = require(script.Parent.MapProps.MapJungle)
+local MapRoad = require(script.Parent.MapProps.MapRoad)
 
 local ForestMapService = {}
 
@@ -473,11 +474,17 @@ function ForestMapService.Init()
 				-- tree grown where a rock already stands is a tree with a rock in it. Planting first
 				-- means the wood is the thing that gets interrupted, which is what a wood does.
 				local camps = MapJungle.Build(zoneKey, cx, map)
+				-- LAST, and after the cut rather than before it. The approach road is paint laid
+				-- over whatever the entrance band left standing, so it has to be drawn on the
+				-- finished ground -- `evolution-lab-placement-search-ordering` is the standing note
+				-- that a pass only ever knows the world that existed when it ran.
+				local paved = MapRoad.Build(zoneKey, cx, map)
 				print(("[ForestMapService] %s: dropped %d dressing, laid %d map parts at x%.2f, "
 					.. "cut %d props for the arrival and hunt bands, %d for the entrance road, "
-					.. "planted %d trees behind the village, built %d jungle camps")
+					.. "planted %d trees behind the village, built %d jungle camps, "
+					.. "paved %d road parts")
 					:format(zoneKey, dropped, #map:GetDescendants(), spec.scale, cleared, road,
-						planted, camps))
+						planted, camps, paved))
 				print("[MapAnchors] " .. MapAnchors.Describe(zoneKey))
 			end
 		end

@@ -10,7 +10,7 @@
 -- ===== WHAT A BOARD IS, MEASURED OFF THE SOURCE =====
 --   <Board>                          e.g. `TotalClicks`, 2 x 17 x 14 before the 1.45
 --     topka (MeshPart) x3            the posts
---       BillboardGui > Name          the title, already correct per board -- never rewritten
+--       BillboardGui > Name          the title -- correct per board, and REWRITTEN for a repoint
 --     Show (Part)
 --       SurfaceGui > Frame > Players
 --         Template (Folder) > Frame  ONE prototype row
@@ -38,6 +38,7 @@
 --    out right on one screen and unscrollable on another.
 
 local MapAnchors = require(script.Parent.MapAnchors)
+local MapRing = require(script.Parent.MapRing)
 
 local MapBoards = {}
 
@@ -81,17 +82,125 @@ local function clearRows(stats)
 	end
 end
 
+-- ===== NINE STATS, EIGHT SLOTS (31.12) =====
+-- The map ships EIGHT board positions on one arc, and `LeaderboardService` has NINE things worth
+-- ranking. Two of the nine -- DNA and Kills -- had no map child at all, so `Has` was false for both
+-- and neither has been displayed anywhere in the world since the map went in. They are the two
+-- numbers this game is actually about: DNA is the currency the whole loop pays out and Kills is the
+-- loop. A leaderboard hall that ranks Robux Spent and Time Played while showing neither of them is
+-- ranking the wrong things.
+--
+-- MEASURED, so the arithmetic is not a guess: the seven real boards sit on a circle of radius 33.5
+-- about (121, 5) at a 33-degree step, `Suffixes` sits in the EIGHTH slot on that same circle, and
+-- slots nine and ten are full of bushes, a stump and a pine. There is no ninth position to be had
+-- without clearing the artist's planting, so one of the nine goes without a board.
+--
+-- `RobuxSpent` is the one that goes. Its counter keeps banking -- nothing is lost and a ninth slot
+-- would light it up immediately -- it simply has no surface, and a public ranking of who has spent
+-- the most real money is the one board this hall is better off without.
+MapBoards.REPOINT = {
+	-- the legend's slot, rebuilt below as a real board
+	Suffixes = { key = "DNA", title = "\u{1F9EC} MOST DNA" },
+	RobuxSpent = { key = "Kills", title = "\u{2694}\u{FE0F} KILLS" },
+}
+
+-- A repointed board is still physically labelled with the map's own word for it, and that label is
+-- a BillboardGui on the posts rather than anything the draw path touches -- so without this a board
+-- ranks kills under the heading ROBUX SPENT and looks, precisely, like a bug in the sorting.
+--
+-- The title is spelled here rather than read from `LeaderboardService.Boards` because that file
+-- already requires this one, and a cycle to save two strings is a bad trade. They are checked
+-- against each other by eye in one place: the table above.
+local function retitle(model, text)
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BillboardGui") then
+			local label = d:FindFirstChild("Name")
+			if label and label:IsA("TextLabel") then
+				label.Text = text
+				return true
+			end
+		end
+	end
+	return false
+end
+
+-- `Suffixes` is not a board. It is the asset's static legend of number suffixes (K, M, B, ...) and
+-- it has no `Show` part, no `Players`, no `Stats` and no row template -- which is why `findParts`
+-- has always returned nil for it and `Adopt` has always bound seven of eight.
+--
+-- So it is not repointed, it is REPLACED: a clone of a board that does have all of that, turned
+-- onto the legend's own bearing about the ring the other seven stand on. Cloning rather than
+-- building means the row structure, the fonts and the art are the map's own and cannot drift from
+-- its neighbours -- and turning rather than positioning means the artist's facing rule is carried,
+-- which is `MapRing`'s whole reason for existing.
+--
+-- The legend itself is destroyed rather than hidden. It is 12 studs tall where a board is 19, so
+-- left standing it would poke out from behind its replacement.
+local function rebuildLegend(map, legend, donor, ring)
+	-- Idempotent, because `Adopt` destroys the legend: a second call would find no prop to replace
+	-- and would silently leave DNA unbound for the rest of the server's life.
+	local already = map and map:FindFirstChild("DNABoard")
+	if already then
+		if legend then legend:Destroy() end
+		return already
+	end
+	if not (legend and donor and ring) then return nil end
+	local bearing = MapRing.Bearing(legend, ring)
+	local clone = donor:Clone()
+	for _, d in ipairs(clone:GetDescendants()) do
+		if d:IsA("BasePart") then d.Anchored = true end
+	end
+	clone.Name = "DNABoard"
+	clone.Parent = map
+	MapRing.PlaceAt(clone, ring, bearing)
+	clone.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
+	legend:Destroy()
+	return clone
+end
+
 -- Binds every board and podium step the map published. Returns how many boards were bound; 0 means
 -- the caller should build its own, which is what an unmapped zone always does.
 function MapBoards.Adopt(zoneKey)
 	if not MapAnchors.IsMapped(zoneKey) then return 0 end
 	boards, podium = {}, {}
 
-	local bound = 0
+	-- ONE PROP AT A TIME, and the order matters: the legend can only be rebuilt from a board that
+	-- has already been proved to have the row structure, so the real props are collected first and
+	-- the replacement is made out of one of them afterwards.
+	local props, real = {}, {}
 	for _, name in ipairs(MapAnchors.BOARDS) do
 		local anchor = MapAnchors.Get(zoneKey, "board", name)
-		if anchor then
-			local stats, template = findParts(anchor.inst)
+		if anchor and anchor.inst and anchor.inst.Parent then
+			props[name] = anchor.inst
+			if findParts(anchor.inst) then real[#real + 1] = anchor.inst end
+		end
+	end
+
+	-- The legend's slot, turned into a real board on the ring the other seven stand on. `MapRing.Fit`
+	-- needs three props and returns nil for a straight row, in which case there is simply no eighth
+	-- board and DNA keeps the podium as its only surface -- which is what 31.12 offered as the other
+	-- answer, reached by measurement rather than by giving up.
+	local map = #real > 0 and real[1].Parent or nil
+	local ring = MapRing.Fit(real)
+	for name, spec in pairs(MapBoards.REPOINT) do
+		local prop = props[name]
+		if prop and not findParts(prop) then
+			local rebuilt = rebuildLegend(map, prop, real[1], ring)
+			if rebuilt then
+				props[name] = rebuilt
+			else
+				props[name] = nil
+				warn(("[MapBoards] %s: '%s' is not a board and could not be rebuilt -- %s has no "
+					.. "surface in the world"):format(zoneKey, name, spec.key))
+			end
+		end
+	end
+
+	local bound = 0
+	for _, name in ipairs(MapAnchors.BOARDS) do
+		local prop = props[name]
+		if prop then
+			local stats, template = findParts(prop)
 			if stats then
 				clearRows(stats)
 				stats.AutomaticCanvasSize = Enum.AutomaticSize.Y
@@ -101,7 +210,10 @@ function MapBoards.Adopt(zoneKey)
 				-- nine of fifteen lists. These boards are bright, so the bar is dark.
 				stats.ScrollBarImageColor3 = Color3.fromRGB(40, 40, 55)
 				stats.ScrollBarImageTransparency = 0.25
-				boards[name] = { stats = stats, template = template }
+				-- ...under the key the GAME asks for, which is not always the map's own word for it
+				local spec = MapBoards.REPOINT[name]
+				if spec then retitle(prop, spec.title) end
+				boards[spec and spec.key or name] = { stats = stats, template = template }
 				bound += 1
 			end
 		end
@@ -139,6 +251,30 @@ end
 -- `rows` is an array of { name = ..., text = ... }, already sorted and ALREADY FORMATTED. The caller
 -- owns the number formatting because it owns the per-board short/long flag; this file owns nothing
 -- but the drawing.
+-- ===== THE ROW TEMPLATE IS SIZED FOR A HUNDRED ROWS, AND WE DRAW TEN =====
+-- Measured on the live build: the template's height is `{0.01, 0}` -- ONE PERCENT of the Stats
+-- frame, 5.9 pixels of a 586-pixel canvas. That is not a mistake in the asset, it is the asset's own
+-- design: the free model shipped a hundred demo rows, and a hundred rows at one percent fill the
+-- board exactly. `LeaderboardService` publishes `TOP_N` = 10, so ten of them stack into a 59-pixel
+-- sliver at the very top and the rest of the board is blank.
+--
+-- AND IT DOES NOT LOOK EMPTY, WHICH IS WHY IT SURVIVED A CAPTURE IN 31.5. The cells inside a row are
+-- much bigger than the row and nothing clips them, so all ten draw at full size on top of each
+-- other and the LAST one wins. The board shows one perfectly legible row -- `#4 Player -2 1.6K` --
+-- and the nine above it are behind it. A board that renders one plausible row is indistinguishable
+-- in a screenshot from a board with one entry, which is exactly what 31.5's "a capture shows a live
+-- row" recorded.
+--
+-- So the height is set from the COUNT, at draw time, rather than trusted from the template. Sized
+-- against `SLOTS` and not against `#rows`, so a board with three entries draws three rows the same
+-- height as a full board's -- rows that grow as the leaderboard empties would be the other bug.
+local SLOTS = 10
+local ROW_GAP = 0.004
+
+local function fitRow(clone)
+	clone.Size = UDim2.new(clone.Size.X.Scale, clone.Size.X.Offset, 1 / SLOTS - ROW_GAP, 0)
+end
+
 function MapBoards.Draw(boardName, rows)
 	local b = boards[boardName]
 	if not b then return false end
@@ -153,6 +289,7 @@ function MapBoards.Draw(boardName, rows)
 		if rankLabel then rankLabel.Text = "#" .. i end
 		if nameLabel then nameLabel.Text = row.name or "?" end
 		if valLabel then valLabel.Text = row.text or "" end
+		fitRow(clone)
 		clone.Visible = true
 		clone.Parent = b.stats
 	end
@@ -173,6 +310,7 @@ function MapBoards.DrawStatus(boardName, message)
 	if rankLabel then rankLabel.Text = "" end
 	if nameLabel then nameLabel.Text = message end
 	if valLabel then valLabel.Text = "" end
+	fitRow(clone)
 	clone.Visible = true
 	clone.Parent = b.stats
 	return true
