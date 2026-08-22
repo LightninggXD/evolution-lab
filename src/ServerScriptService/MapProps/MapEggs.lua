@@ -185,6 +185,52 @@ local function podium(parent, x, z, groundY, topY, radius, colour)
 	return 2
 end
 
+-- ===== THE PRICE CARD IS PLACED OFF THE PODIUM, NOT CARRIED FROM THE STALL (30.29) =====
+-- The card is the one piece of a column whose authored offset cannot survive the move, and 30.31
+-- made that worse rather than better. `EggPlaza` builds it at `z = +7.4` from its egg because the
+-- stall was a straight row facing +Z: every card sat 7.4 studs in FRONT of its shell. Out on a ring
+-- that offset is not radial at all. Measured on the live client before this fix, the three cards
+-- were 7.4 studs from their own egg's axis on a bearing of +Z regardless of where the egg stood --
+-- radial distances of 25.4, 15.7 and 15.7 from a ring of 18 -- so the north card pointed outward
+-- and the other two pointed sideways, INTO the circle.
+--
+-- And 7.4 is now inside the furniture. The plinth is sized off the shell (`eggSize / 2 +
+-- PODIUM_MARGIN`, plus `PODIUM_LIP`) and measured 8.2 .. 9.1 studs of radius, with its cap top at
+-- y = 7.95; the anchors were at y = 6.80, a full stud BELOW the cap and well within it. The
+-- billboard is `AlwaysOnTop = false` on purpose, so geometry occludes it -- what the capture showed
+-- was the top sliver of a 4-stud pill poking out of the plinth. That is 30.31's own fault at a new
+-- radius, the same class of stale constant as the height 30.25 paid for, so the offset is DERIVED
+-- here from the podium that was just built rather than inherited from the stall.
+--
+-- Two numbers, both relative to the podium, so a re-authored egg carries its card with it:
+-- outward along the egg's own bearing from the ring centre, clear of the plinth's outer edge...
+local PRICE_CARD_GAP = 1.5
+-- ...and lifted so the pill's bottom edge grazes the cap. The billboard is 4 studs tall with a
+-- `StudsOffset` of +0.6, so its bottom sits at `anchor + 0.6 - 2`: at +1.6 the card spans the cap
+-- top to four studs above it, alongside the egg's lower third rather than across its face.
+local PRICE_CARD_LIFT = 1.6
+-- The lift is also what settles the fence. `EGG_RING + 9.1 + 1.5` lands the card at a radius of
+-- ~28.6 and the map's own fence ring measures r 27.6 .. 29.6 -- the card hangs directly over it.
+-- That is fine, and it is why this is a lift rather than a bigger gap: every piece of that ring,
+-- fence, posts and all, tops out at y = 6.3 while the card starts at ~8. Pushing it further out
+-- instead would only walk it into the road beyond.
+--
+-- `EggOddsAnchor` is deliberately left on the delta: it is authored on the egg's own centre line
+-- (z = 0) with no radial component to be wrong about, and it rides at y = 39.6, far above all of
+-- this. A piece that was already right does not need a second rule.
+local function seatPriceCard(pieces, cx, cz, angle, outerRadius, podiumTop)
+	for _, c in ipairs(pieces) do
+		if c.Name == "PriceCardAnchor" and c:IsA("BasePart") then
+			local r = EGG_RING + outerRadius + PRICE_CARD_GAP
+			c.CFrame = CFrame.new(cx + math.cos(angle) * r,
+				podiumTop + PRICE_CARD_LIFT,
+				cz + math.sin(angle) * r)
+			return 1
+		end
+	end
+	return 0
+end
+
 -- ===== 30.32: AND THE ANCHOR ATTRIBUTE MOVES WITH THE PIECE, OR NOTHING MOVED AT ALL =====
 -- `PetFollowClient` does not READ an egg's CFrame. It WRITES it, on every client, on every frame,
 -- from the model's own `IdleAnchor` attribute -- the bob, the rock and the turntable spin are all
@@ -302,7 +348,7 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 	rayParams.FilterDescendantsInstances = { shop }
 	rayParams.IgnoreWater = true
 
-	local moved, seated = 0, {}
+	local moved, cards, seated = 0, 0, {}
 	if fountain then
 		for i, key in ipairs(order) do
 			local a = EGG_ANGLES[i]
@@ -347,8 +393,16 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 					for _, c in ipairs(pieces) do
 						moveBy(c, delta)
 					end
-					podium(shop, wantX, wantZ, groundY, eggBottom - bob,
-						eggSize(egg) / 2 + PODIUM_MARGIN, dirtColour)
+					local podiumRadius = eggSize(egg) / 2 + PODIUM_MARGIN
+					local podiumTop = eggBottom - bob
+					podium(shop, wantX, wantZ, groundY, podiumTop, podiumRadius, dirtColour)
+					-- ...and the card goes where THIS podium ended up, not where the stall left it.
+					-- The bearing is taken about `fountain.pos` rather than about the egg, because
+					-- it has to be measured from the ring centre -- the one point every column
+					-- shares -- and the radius passed is the PLINTH edge (`+ PODIUM_LIP`), which is
+					-- the widest thing the card has to clear.
+					cards += seatPriceCard(pieces, fountain.pos.X, fountain.pos.Z, a,
+						podiumRadius + PODIUM_LIP, podiumTop)
 					moved += 1
 					seated[#seated + 1] = ("%.1f/+%.1f"):format(groundY, lift)
 				end
@@ -381,10 +435,13 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 		end
 	end
 
+	-- `cards` is counted apart from `moved` on purpose: a column that seats correctly and silently
+	-- loses its price card is exactly what 30.29 was, and one number cannot report both.
 	print(("[MapEggs] %s: dropped %d stall pieces, seated %d egg columns on podiums on the %d-stud "
-		.. "ring inside the fence (ground/lift %s), removed %d props (fountain + the map's egg row), "
-		.. "painted %d circle parts")
-		:format(zoneKey, dropped, moved, EGG_RING, table.concat(seated, " "), removed, circle))
+		.. "ring inside the fence (ground/lift %s), placed %d price cards off the podium, removed "
+		.. "%d props (fountain + the map's egg row), painted %d circle parts")
+		:format(zoneKey, dropped, moved, EGG_RING, table.concat(seated, " "), cards, removed,
+			circle))
 	return moved
 end
 
