@@ -83,17 +83,15 @@ return function(hud)
 		-- A visible bar on a white shell. Outline is the kit's near-black; at 0.35 it reads as a
 		-- grip rather than a black stripe. This half applies whichever way the list runs.
 		--
-		-- ===== `ScrollInk` IS THE ESCAPE HATCH FOR A LIST THAT IS NOT ON A WHITE BOARD (31.22) =====
-		--
-		-- Every one of the fifteen lists this pass was written for hangs off a `PanelLilac` board, so
-		-- "near-black at 0.35" was a safe constant. The Auras panel is drawn on a plum well, where the
-		-- same grip is invisible -- which is the exact defect this whole pass exists to fix, arriving
-		-- from the other end. A Color3 attribute on the scroll says what its own ground needs; nothing
-		-- that does not set one changes.
-		local ink = scroll:GetAttribute("ScrollInk")
-		local hasInk = typeof(ink) == "Color3"
-		scroll.ScrollBarImageColor3 = hasInk and ink or UITheme.Color.Outline
-		scroll.ScrollBarImageTransparency = hasInk and 0.1 or 0.35
+		-- THE CONSTANT IS SAFE BECAUSE EVERY LIST IN THE GAME IS ON A LIGHT GROUND, and that is worth
+		-- stating rather than assuming. 31.22 briefly added a `ScrollInk` attribute here for the one
+		-- exception -- the Auras panel, then drawn on a plum well -- and 31.23 repainted that panel
+		-- white at Kristina's instruction, which left an attribute nothing set. It came back out in
+		-- the same pass: a branch with no caller is a safety net that is only discovered by falling
+		-- into it. If a dark board is ever drawn again, this is the line, and one attribute is still
+		-- the right shape for it.
+		scroll.ScrollBarImageColor3 = UITheme.Color.Outline
+		scroll.ScrollBarImageTransparency = 0.35
 
 		-- ===== EVERYTHING BELOW IS A VERTICAL-LIST ASSUMPTION (30.2) =====
 		--

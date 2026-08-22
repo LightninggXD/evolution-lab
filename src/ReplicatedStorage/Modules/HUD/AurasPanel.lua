@@ -30,18 +30,28 @@ local Remotes = RS.Remotes
 
 local styleCard = UIKit.styleCard
 
--- Measured off the mock-up in `StarterGui.AurasGui`: a lilac board with a sunken plum well cut into
--- it. This is the one panel in the game that is not `PanelLilac`, and that is deliberate -- it is
--- the panel Kristina drew the reference for.
+-- ===== THE BOARD IS AN ORDINARY LIGHT PANEL AGAIN (31.23) =====
 --
--- BOTH ARE DEEPER THAN THE MOCK-UP'S OWN NUMBERS, AND THAT IS NOT A DEVIATION. The mock-up painted
--- a flat `BackgroundColor3`; `PanelSurface` paints a MOULDED one -- `gradientFor` runs the fill from
--- `shade(c, 0.4)` at the top edge to `shade(c, -0.1)` at the bottom. Handing it the mock-up's
--- rgb(162,124,202) put the top third of the board at rgb(199,176,223), which photographed as a pale
--- lilac panel with a purple foot rather than as the purple board in the reference. rgb(126,78,178)
--- is that colour solved backwards: the gradient's own mid-band lands on the reference's shade.
-local BOARD = Color3.fromRGB(126, 78, 178)
-local WELL = Color3.fromRGB(58, 32, 88)
+-- 31.22 painted this board in the mock-up's own purple, reasoning that the mock-up was the
+-- reference. Kristina saw it run and reversed that half of it: *"i samo napravi da je i ovde svetla
+-- pozadina bela neka kao u ostalim panelima tipa rebirth, svetlija tema znaci"*. The CARDS are the
+-- design she asked for; the board under them was never part of it, and one purple screen in a HUD
+-- of white ones reads as a different game rather than as a themed panel.
+--
+-- `PANEL_SHELL` is the white `shopFrame`, `masteryPanel`, `rewardPanel` and the inventory are all
+-- painted, and picking it is also what hands this panel the cyan rim: `registerPanel` decides that
+-- by testing the shell's own fill for near-white, so a coloured board silently opts out of it. That
+-- is the repaint the ordering note under `styleCard` was written against.
+--
+-- `Color.Cloud` is the kit's token for the well -- "an inset rather than a raised chip: progress-bar
+-- tracks, wells, list backings" -- so the list still sits in a groove rather than flat on the board.
+--
+-- NOTHING ABOUT THE CARDS MOVED, and that is what makes this a two-constant change rather than a
+-- redraw: each is painted its own mutation's colour and carries the two-tone halo scheme `AuraCard`
+-- documents, which was chosen to survive rgb(20,20,20) through rgb(255,240,150) and therefore never
+-- depended on the board behind it being dark.
+local BOARD = UIKit.PANEL_SHELL
+local WELL = UITheme.Color.Cloud
 
 local PANEL_W, PANEL_H = 680, 520
 local CARD_GAP = 10
@@ -57,9 +67,9 @@ return function(hud)
 	panel.ZIndex = 40
 	panel.Parent = screenGui
 	-- SHELL BEFORE registerPanel, and that order is load-bearing: the cyan panel rim is chosen inside
-	-- registerPanel off a UIStroke that has to already exist. (This board is coloured, so it keeps
-	-- the ordinary dark outline rather than taking the rim -- but the ordering rule still holds, and
-	-- a later repaint to a white board would need it.)
+	-- registerPanel off a UIStroke that has to already exist. Since 31.23 this board IS white, so the
+	-- rim is live and the ordering has stopped being theoretical -- swapping these two lines would
+	-- leave the panel wearing the ordinary dark card outline with nothing to say it had.
 	styleCard(panel, BOARD, UDim.new(0, 22), 5)
 	registerPanel(panel)
 	panelClose(panel)
@@ -74,24 +84,11 @@ return function(hud)
 		top = 14,
 	})
 
-	-- ===== THE SUBTITLE'S INK HAS TO BE RE-DECIDED HERE, AND ONLY HERE =====
-	--
-	-- `PanelHeader` paints its subtitle `Color.InkSoft` unconditionally, and the comment where it
-	-- does so says why: "the board is always a light surface since PanelSurface paints it". That is
-	-- true of the other nineteen panels and false of this one. Dark ink on a mid-purple board is the
-	-- exact failure the probe cannot see and a capture always can -- every property reads correct.
-	--
-	-- The halo has to be re-armed as well as the colour. `outlineText` suppresses a stroke by setting
-	-- BOTH thickness 0 and transparency 1 (so a later width-only sweep cannot re-arm it by accident),
-	-- so writing thickness alone would leave an invisible one.
-	if headerSub then
-		headerSub.TextColor3 = Color3.fromRGB(246, 238, 255)
-		local halo = headerSub:FindFirstChildOfClass("UIStroke")
-		if halo then
-			halo.Thickness = 2.5
-			halo.Transparency = 0
-		end
-	end
+	-- THE SUBTITLE KEEPS `PanelHeader`'S OWN INK NOW. 31.22 overrode it to near-white and re-armed
+	-- the halo `outlineText` had suppressed, because that helper paints `Color.InkSoft` on the stated
+	-- assumption that "the board is always a light surface" -- true of the other nineteen panels and
+	-- false of a purple one. 31.23 puts this panel back inside the assumption, so the override is
+	-- DELETED rather than left sitting there as a no-op the next reader would have to undo.
 
 	-- ---- the sunken well the list sits in
 	local well = Instance.new("Frame")
@@ -116,7 +113,9 @@ return function(hud)
 	-- painted with `scroll.Parent:GetAttribute("BaseColor")` and falling back to PANEL_SHELL -- WHITE
 	-- -- when there is none. Every other list in the game hangs off a shelled panel, which carries
 	-- that attribute because `applyShell` stamps it. This well is drawn by hand, so it has to stamp
-	-- its own or it gets a white gradient down the bottom of a plum box.
+	-- its own. It survived the 31.23 repaint on purpose: `Cloud` is near-white but it is not PANEL
+	-- SHELL white, and an unstamped fade would paint the foot of the groove a shade too light -- a
+	-- soft horizontal band across the last card rather than a fade into the well's own colour.
 	well:SetAttribute("BaseColor", WELL)
 
 	local list = Instance.new("ScrollingFrame")
@@ -134,10 +133,10 @@ return function(hud)
 	list.ScrollBarThickness = 10
 	list.ZIndex = well.ZIndex + UITheme.Z.Content
 	list.Parent = well
-	-- The bar `ScrollAffordance` would otherwise give this list is `Color.Outline` at 0.35 -- a
-	-- near-black grip chosen for a near-white board, and invisible on a plum one. The attribute is
-	-- read by that pass; see the note there.
-	list:SetAttribute("ScrollInk", Color3.fromRGB(196, 160, 240))
+	-- No `ScrollInk` here any more. 31.22 added one because `ScrollAffordance`'s near-black grip at
+	-- 0.35 was invisible on the plum well; on `Cloud` that constant is exactly what it was written
+	-- for, and the hook it needed came back out of that file in the same pass (31.23) rather than
+	-- being left behind as a branch with no caller.
 
 	local layout = Instance.new("UIListLayout")
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
