@@ -92,7 +92,7 @@ scan(game:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts"))
 
 return HttpService:JSONEncode(results)
 """
-        resp = s.call("execute_luau", {"code": luau_code, "datamodel_type": "Edit", "studio_id": os.environ.get("STUDIO_ID")})
+        resp = s.call("execute_luau", {"code": luau_code, "datamodel_type": os.environ.get("STUDIO_DM", "Edit"), "studio_id": os.environ.get("STUDIO_ID")})
         res_text = text_of(resp)
         if res_text.startswith("ERROR:"):
             print(res_text)
