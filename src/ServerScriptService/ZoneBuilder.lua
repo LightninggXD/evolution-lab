@@ -88,7 +88,7 @@ local ZoneBuilder = {}
 -- Roblox's default grey -- in every village in the game since the palette was introduced. The
 -- declaration moved above `addZoneProps`; colour is baked into the part at build time, so the
 -- fix is invisible without this bump.
-local BUILD_VERSION = 136
+local BUILD_VERSION = 137
 
 -- ================= the build vocabulary =================
 -- THE KIT LEFT THIS FILE (18.9). `newPart` -- with the shadow-by-size rule and the

@@ -40,6 +40,7 @@ local BoardStats = require(ServerScriptService.MapProps.BoardStats)
 local MapCounters = require(ServerScriptService.MapProps.MapCounters)
 local MapEggs = require(ServerScriptService.MapProps.MapEggs)
 local MapArcade = require(ServerScriptService.MapProps.MapArcade)
+local MapPortals = require(ServerScriptService.MapProps.MapPortals)
 local Telemetry = require(ServerScriptService.Telemetry)
 
 -- ===== STREAMING =====
@@ -87,6 +88,13 @@ ForestMapService.Init()
 -- and the pad is a prompt that does nothing, with no error anywhere -- which is exactly the failure
 -- shape 30.17 spent a session on.
 MapCounters.Init("Forest")
+-- 31.17: the map's thirteen zone doors were advertising "1K REBIRTHS" ... "500Qd REBIRTHS" over the
+-- ASSET's zone names, in a game where a zone costs a stage and a boss kill and nothing else. They
+-- now carry our zones, our requirements and a prompt into `ZoneService.HandleTeleportRequest` --
+-- which is the server's own unlock rule, not a second copy of it. Anywhere after ForestMapService
+-- would do; it is here so the whole "the map's furniture becomes the game's furniture" block reads
+-- in one place.
+MapPortals.Init("Forest")
 -- Row 30.20, carried since 30.19: `EggPlaza` drops a 123 x 47 x 45 market stand at (0, -6), which is
 -- the middle of the village square. The eggs move onto the map's own egg spots and the stall goes.
 -- The PetShop model keeps its name and its parent throughout -- `PetService.WireKiosks` finds the

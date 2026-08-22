@@ -93,19 +93,35 @@ local EGG_TIER_STYLE = {
 -- same problem: sized (5.4, 5.4, 2.2) they were drawn as 2.2 pellets, not as patches.
 -- A Block carrying a SpecialMesh of MeshType Sphere DOES scale on all three axes, so the shell is a
 -- true ellipsoid and the marks are true flat discs. Anything round in here goes through eggBall().
-local EGG_A, EGG_B = 5.9, 9.0         -- body ellipsoid: half width, half height
-local EGG_CAP_A, EGG_CAP_B = 4.2, 6.8 -- the taper that turns an ellipsoid into an egg
-local EGG_CAP_Y = 4.4                 -- it is narrower than the body below +6.6 and wider above it,
+-- ===== 31.13: ONE SCALE, AND IT IS THE BODY AGAIN =====
+-- The owner, on a screenshot of the village square: *"jaja su ogromna trebaju bas dosta manje"*.
+-- 31.7 measured the eggs and cleared them -- ours were 18 studs and the MAP's own egg props were
+-- 17.2, so the stall was the fault and the eggs were not. That was true of the stall and it was not
+-- the whole answer: 18 studs against an 8.4-stud player is an egg TWICE YOUR HEIGHT standing on a
+-- podium, and no amount of removing furniture from around it changes that ratio.
+--
+-- EVERY EGG DIMENSION IN THIS FILE HANGS OFF EGG_A/EGG_B, so the shrink is one number rather than
+-- twenty. The mesh path scales its clone to `EGG_SHELL_SIZE.Y`, the primitive path builds the
+-- ellipsoid out of them, the marks ride `eggSurface`, the podium rest height is
+-- `eggY - EGG_SHELL_SIZE.Y/2` and the showcase billboards are expressed against the shell's TOP
+-- below -- so the whole stand follows the shell down instead of leaving it in a hole.
+--
+-- 0.62 puts the shell at 11.2 studs, i.e. 1.33x the player, which is the ratio the reference games
+-- use: an egg you can see over. It was 2.14x.
+local EGG_SCALE = 0.62
+local EGG_A, EGG_B = 5.9 * EGG_SCALE, 9.0 * EGG_SCALE -- body ellipsoid: half width, half height
+local EGG_CAP_A, EGG_CAP_B = 4.2 * EGG_SCALE, 6.8 * EGG_SCALE -- the taper that makes it an egg
+local EGG_CAP_Y = 4.4 * EGG_SCALE     -- it is narrower than the body below +6.6 and wider above it,
                                       -- so it takes over the silhouette exactly where an egg points
--- 11.8 wide by 20.2 tall, i.e. 1 : 1.71. It was 1 : 1.44 and read as rounded rather than as an egg;
--- the width came DOWN as well as the height going up, because at a fixed width a taller shell just
--- reads as a bigger egg.
+-- 11.8 wide by 20.2 tall at EGG_SCALE 1, i.e. 1 : 1.71. It was 1 : 1.44 and read as rounded rather
+-- than as an egg; the width came DOWN as well as the height going up, because at a fixed width a
+-- taller shell just reads as a bigger egg. The ratio is what EGG_SCALE must never touch.
 local EGG_BODY = Vector3.new(EGG_A * 2, EGG_B * 2, EGG_A * 2)
 local EGG_CAP = Vector3.new(EGG_CAP_A * 2, EGG_CAP_B * 2, EGG_CAP_A * 2)
 -- What the plaza measures the egg by: eggY = podiumTop + Y/2 stands the shell on the stone, and
 -- addEggShowcase runs the same subtraction backwards to find the podium again.
 local EGG_SHELL_SIZE = Vector3.new(EGG_A * 2, EGG_B * 2, EGG_A * 2)
-local EGG_PIVOT_Y = 13
+local EGG_PIVOT_Y = 13 * EGG_SCALE
 
 -- Shape stays Block: the sphere comes from the mesh, which is the only thing here that scales on
 -- all three axes.
@@ -404,7 +420,9 @@ local function buildEgg(shop, ex, tierSuffix, pivotY, zoneKey)
 	newPart({
 		Name = "EggShadow",
 		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(0.2, 11, 11),
+		-- 11 against an 11.8-wide shell, i.e. 0.93 of the egg's own width. Written as a ratio so it
+		-- follows EGG_SCALE: a fixed 11-stud shadow under a 7.3-stud egg is a puddle, not a shadow.
+		Size = Vector3.new(0.2, EGG_A * 1.86, EGG_A * 1.86),
 		Orientation = Vector3.new(0, 0, 90),
 		Position = Vector3.new(ex, (pivotY or EGG_PIVOT_Y) - EGG_SHELL_SIZE.Y / 2 + 0.37, 0),
 		Color = Color3.fromRGB(12, 10, 20),
@@ -1015,13 +1033,18 @@ local function buildEggPlaza(shop, zone, cx, eggs)
 		-- billboards move instead. (They also had to clear the shells, which grew 40% earlier.)
 		-- The odds strip goes ABOVE the featured pet, not between it and the egg. The pet is a real
 		-- model about seven studs tall, so anything hung at +22 gets stood in front of by it.
-		buildEggFeaturePet(shop, egg, ex, eggY + 19)
-		buildEggOddsBoard(shop, egg, ex, eggY + 29)
+		-- MEASURED FROM THE SHELL'S TOP, NOT FROM ITS CENTRE. These were `eggY + 19` and `+ 29`,
+		-- which is 10 and 20 studs of clearance over an 18-stud shell -- and 13 and 23 over an
+		-- 11.2-stud one, i.e. a featured pet floating a body's height off an egg it belongs to.
+		-- The clearances are the authored numbers; only the thing they clear changed size.
+		local eggTop = eggY + EGG_SHELL_SIZE.Y / 2
+		buildEggFeaturePet(shop, egg, ex, eggTop + 10)
+		buildEggOddsBoard(shop, egg, ex, eggTop + 20)
 
 		-- halo above the egg doubles as the spotlight source: a bare PointLight with nothing
 		-- visible making it reads as the shell glowing on its own. It sits above the featured
 		-- pet so the pet reads as lit from over its head rather than clipping through the disc.
-		local halo = newPart({ Name = "PodiumHalo", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.7, 13, 13), Orientation = Vector3.new(0, 0, 90), Position = Vector3.new(ex, eggY + 33, 0), Color = lighten(accent, 0.3), Material = Enum.Material.Neon, Transparency = 0.55, CanCollide = false, Parent = shop })
+		local halo = newPart({ Name = "PodiumHalo", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.7, 13, 13), Orientation = Vector3.new(0, 0, 90), Position = Vector3.new(ex, eggY + EGG_SHELL_SIZE.Y / 2 + 24, 0), Color = lighten(accent, 0.3), Material = Enum.Material.Neon, Transparency = 0.55, CanCollide = false, Parent = shop })
 		addLight(halo, lighten(accent, 0.3), 20, 1.1)
 
 		-- one price card per podium, tier and cost on two lines. Both were nearly put on the back

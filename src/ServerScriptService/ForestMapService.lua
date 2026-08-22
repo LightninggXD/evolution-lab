@@ -96,11 +96,38 @@ local ZoneKit = require(script.Parent.ZoneKit)
 -- and cutting the bands, and every consumer of it lives in a different service.
 local MapAnchors = require(script.Parent.MapProps.MapAnchors)
 local MapForest = require(script.Parent.MapProps.MapForest)
+-- 31.16: the hunting ground stopped being a green slab with trees on it. `MapJungle` builds the
+-- rock alcoves, the path network and the ridge line; `JungleLayout` (which it reads, and which
+-- `CreatureService` reads too) owns every coordinate involved.
+local MapJungle = require(script.Parent.MapProps.MapJungle)
 
 local ForestMapService = {}
 
--- See the header: this is the player's size, not a fitting factor.
-local SCALE = 1.45
+-- ===== 31.14: THE SCALE CAME DOWN, AND THE HEADER ABOVE IS NOW HALF TRUE =====
+-- 1.45 made a doorway read to our 8.4-stud player exactly as it read to the 5.7-stud avatar the
+-- artist drew it for. That was the correct answer to "does the map fit the body" and it is not the
+-- answer the owner wanted: *"ostatak mape isto tako dosta dosta manje"*, on a screenshot of the
+-- square. A village drawn at the player's own scale is a village the player is merely IN. She is
+-- building a game where the player LOOMS -- the reference art is a chunky body among small chunky
+-- props -- so the map is deliberately drawn a fifth smaller than the body now, not equal to it.
+--
+-- 1.15 rather than 1.0: at 1.0 the props are the artist's own size against a body 47% taller than
+-- the one they were drawn for, and the gaps between houses, fences and stalls close to about six
+-- studs, which is under the player's own 9-stud box. 1.15 is the largest visible step down that
+-- keeps every gap the walk probe measured open. If it is still too big the next stop is 1.0 and the
+-- probe has to be re-run, not assumed.
+--
+-- EVERYTHING BELOW THAT USED TO BE A MEASURED CONSTANT NOW HANGS OFF IT. The village floor's half
+-- extents scale with the map (it IS part of the map), and the bands were authored against the
+-- floor's edge -- so at a new scale a hand-typed -300 leaves a 60-stud ring of bald platform
+-- between the last house and the first tree, which is exactly the fault 31.4 was opened to fix.
+local SCALE = 1.15
+
+-- The village floor (`MainPart`) measured 682 x 580 in the placed 1.45 map, so its half extents are
+-- 235.2 x 200 per unit of scale. Written as a derivation rather than re-measured, because the two
+-- numbers below are the only thing every band in this file is positioned against.
+local FLOOR_HALF_X = 235.2 * SCALE
+local FLOOR_HALF_Z = 200 * SCALE
 
 -- One entry per zone that has a map. The table exists so the second one costs a row rather than a
 -- rewrite -- and so the bands, which are the only hand-tuned numbers here, are visible in one place.
@@ -117,21 +144,21 @@ local MAPS = {
 			-- a wall across the mouth of the hunting ground at x = -250, -120 and 250, measured by
 			-- walking a grid over it. At -300 they score 0.24 and go, and the only village prop that
 			-- goes with them is one tree on the southern fringe.
-			{ x1 = -620, x2 = 620, z1 = -620, z2 = -300 },
+			{ x1 = -620, x2 = 620, z1 = -620, z2 = -(FLOOR_HALF_Z + 10) },
 			-- 31.4: THE TWO SIDE POCKETS. The ring also stands down both flanks of the village, on the
 			-- ~280 studs of platform beyond the floor's edge at x +/-341. That is the ground the wood is
 			-- widened into, so the arcs south of the square go the way the southern arc did. Stopped at
 			-- z = +150 so the ring still closes the horizon behind the arrival plaza, which is the one
 			-- place it is doing scenery work rather than standing in the way.
-			{ x1 = -620, x2 = -345, z1 = -620, z2 = 150 },
-			{ x1 = 345, x2 = 620, z1 = -620, z2 = 150 },
+			{ x1 = -620, x2 = -(FLOOR_HALF_X + 4), z1 = -620, z2 = 150 },
+			{ x1 = FLOOR_HALF_X + 4, x2 = 620, z1 = -620, z2 = 150 },
 		},
 		-- The forest planted behind the village. `lane` is the half-width of the street kept open
 		-- down the middle: the exit gate is at z = -575 and a tree line across it is a wall.
 		-- 31.4 PULLED `zNear` FORWARD FROM -335 TO -300 and left the rest alone. The trees now start
 		-- where the village floor ends rather than 35 studs behind it, which is what removes the bald
 		-- ring the owner's screenshots show between the last house and the first tree.
-		hunt = { zNear = -300, zFar = -560, xEdge = 590, lane = 78 },
+		hunt = { zNear = -(FLOOR_HALF_Z + 5), zFar = -560, xEdge = 590, lane = 78 },
 		-- ===== THE TWO SIDE POCKETS (31.4) =====
 		-- The village floor is 682 x 580 and the platform is 1250 x 1150, so beyond the floor's edge
 		-- at x +/-341 there is ~280 studs of bare platform down each side, running the whole depth of
@@ -142,11 +169,17 @@ local MAPS = {
 		--
 		-- `zNear` stops at +150 rather than at the arrival band: north of that the pockets are beside
 		-- the plaza, and a tree wall there closes in the one part of the zone meant to read as sky.
-		flanks = { xIn = 360, xOut = 600, zNear = 150, zFar = -560 },
+		flanks = { xIn = FLOOR_HALF_X + 18, xOut = 600, zNear = 150, zFar = -560 },
 		-- The way IN. See the header: the map's northern half is solid wood and the village square
 		-- is behind it, so without this the plaza opens onto a hedge. Tapered, wide end at the
 		-- plaza -- a funnel reads as an entrance and a rectangle reads as a firebreak.
 		entrance = { zNear = 30, zFar = 312, halfNear = 72, halfFar = 108 },
+		-- Published so no consumer ever re-measures the village. `MapJungle`, `JungleLayout` and
+		-- `CreatureService` all need to know where the houses stop and the open ground starts, and
+		-- `evolution-lab-zone-geometry-constants` is the standing lesson about what happens when
+		-- that is one decision written in four files.
+		floorHalfX = FLOOR_HALF_X,
+		floorHalfZ = FLOOR_HALF_Z,
 	},
 }
 
@@ -435,10 +468,16 @@ function ForestMapService.Init()
 				local cleared = spec.clear and clearBands(map, cx, spec.clear, protected) or 0
 				local road = spec.entrance and cutEntrance(map, cx, spec.entrance, protected) or 0
 				local planted = MapForest.Plant(map, cx, spec)
+				-- AFTER the planting, and that ordering matters: the ridge hills and the alcove
+				-- rocks are placed against authored coordinates, but the trees are scattered, and a
+				-- tree grown where a rock already stands is a tree with a rock in it. Planting first
+				-- means the wood is the thing that gets interrupted, which is what a wood does.
+				local camps = MapJungle.Build(zoneKey, cx, map)
 				print(("[ForestMapService] %s: dropped %d dressing, laid %d map parts at x%.2f, "
 					.. "cut %d props for the arrival and hunt bands, %d for the entrance road, "
-					.. "planted %d trees behind the village")
-					:format(zoneKey, dropped, #map:GetDescendants(), spec.scale, cleared, road, planted))
+					.. "planted %d trees behind the village, built %d jungle camps")
+					:format(zoneKey, dropped, #map:GetDescendants(), spec.scale, cleared, road,
+						planted, camps))
 				print("[MapAnchors] " .. MapAnchors.Describe(zoneKey))
 			end
 		end

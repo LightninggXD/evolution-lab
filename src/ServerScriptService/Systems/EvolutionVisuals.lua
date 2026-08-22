@@ -39,13 +39,41 @@ end
 --     max-stage flourish is still the brightest thing worn on a player in this game.
 -- Stages 1-4 are untouched by the clamp (they were already under it); this only bites where the
 -- report is.
-local AURA_LIGHT_MAX_BRIGHTNESS = 2.5
+-- 2.5 -> 1.8 with 31.11. Brightness is how hard the pool is painted and range is how far it
+-- reaches; the range above is what fixes the flood, and this is what stops the smaller pool simply
+-- being the same white in a tighter circle.
+local AURA_LIGHT_MAX_BRIGHTNESS = 1.8
 
 -- One formula, three call sites. It used to be written out three times -- here and twice inside
 -- playEvolveBurst, which tweens UP from it and then back DOWN to it -- so changing it in one place
 -- would have left an evolve permanently parking the light at the old value.
 local function auraBrightness(stageIndex)
 	return math.min(1 + stageIndex * 0.35, AURA_LIGHT_MAX_BRIGHTNESS)
+end
+
+-- ===== 31.11: THE LIGHT IS AN AURA, NOT A FLOODLIGHT =====
+-- Every capture taken in the village on 2026-08-22 has the ground washed near-white for roughly
+-- eighty studs around the player, and the roadmap row parked it as hers to decide. She decided:
+-- *"smanji domet svetla"*, keep the colour and the sparkle.
+--
+-- THE PARTICLES WERE NEVER THE FAULT. `roblox-particle-tint-clipping` is the standing note that
+-- Brightness and LightEmission are two different levers and that capping both ruins an effect, and
+-- the emitters here are 5-9 studs, which is right against an 8.4-stud body. The wash is this
+-- PointLight: `6 + stageIndex * 1.2` reaches Range 30 at the last stage, and a Range-30 light at
+-- Brightness 2.5 lays a lit pool about sixty studs across on a flat green floor. Nothing about the
+-- aura's SIZE says that -- a light's range is not its sprite's size, and only a screenshot connects
+-- the two.
+--
+-- The ramp is NOT capped flat, for the reason 15.22 wrote down about Auto Collect: a curve that
+-- stops a third of the way up sells eleven stages that buy nothing. It CONTINUES at a quarter of
+-- the rate past stage 8, so the light still grows the whole way and lands at 17 instead of 30 --
+-- about two body-heights of glow, which is a character who is lit rather than a lamp post.
+local AURA_LIGHT_KNEE = 8
+
+local function auraRange(stageIndex)
+	local fast = math.min(stageIndex, AURA_LIGHT_KNEE)
+	local slow = math.max(stageIndex - AURA_LIGHT_KNEE, 0)
+	return 6 + fast * 1.0 + slow * 0.25
 end
 
 -- Builds (or fetches) the persistent aura attached to a character's HumanoidRootPart:
@@ -63,7 +91,7 @@ local function setupAura(character, stage, stageIndex, color)
 
 	local light = getOrCreate(root, "PointLight", "EvolutionAuraLight")
 	light.Color = color
-	light.Range = 6 + stageIndex * 1.2
+	light.Range = auraRange(stageIndex)
 	light.Brightness = auraBrightness(stageIndex)
 	light.Shadows = false
 

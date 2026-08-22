@@ -9,6 +9,10 @@ local UITheme = require(RS.Modules.UITheme)
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local Telemetry = require(script.Parent.Telemetry)
 local BoardStats = require(script.Parent.MapProps.BoardStats)
+-- 31.16: where a mapped zone's creatures stand. Pure data + geometry, no side effects, and the ONE
+-- copy of those coordinates -- `MapJungle` builds the rock alcoves from the same table. See the
+-- block where `MAP_GLADE` used to be, below, for why that is not how it used to work.
+local JungleLayout = require(script.Parent.MapProps.JungleLayout)
 local DNAService = require(script.Parent.DNAService)
 local SeasonPassService = require(script.Parent.SeasonPassService)
 -- 11.6: the terraces drop pets, so the kill path needs the one function that creates one. No cycle
@@ -328,63 +332,32 @@ end
 -- ground height because they are placed after the world exists and can simply ask it.
 local VALLEY_X = 395
 
--- ===== A ZONE WHOSE GROUND IS A MAP GETS ITS CREATURES IN ONE PLACE =====
+-- ===== A ZONE WHOSE GROUND IS A MAP GETS ITS CREATURES IN CAMPS (31.16) =====
 --
--- `ForestMapService` replaces a zone's generated valley with a hand-built map, and the map is the
--- VILLAGE -- there is no open ground inside it. The scatter above spreads across the whole
--- 1250 x 1150 platform, which on a mapped zone puts most of the rigs inside a house or a tree:
--- measured 2026-08-21 on the first live build, **61 of 74 outside the glade**.
+-- `MAP_GLADE` and `toGlade` used to live here. They folded the whole relative scatter into one
+-- 500 x 144 ellipse behind the village, which was the right fix for the bug it was written for --
+-- 61 of 74 rigs were standing inside a house or a tree -- and it left the owner looking at
+-- seventy-four creatures evenly sprinkled over a flat green slab: "ne moze se doci do njih".
 --
--- The glade is therefore the HUNT BAND behind the village, `ForestMapService`'s third band
--- (z -330 .. -575), which that file plants a forest into. Village at the front, hunting wood behind
--- it, exit gate past that.
+-- Two things are gone with them and both are improvements.
 --
--- This FOLDS the existing layout into the glade rather than re-authoring it. The relative spread is
--- preserved, so a swarm is still a cluster and a fringe point is still on the fringe; only the
--- extent changes. Re-authoring would have meant a second set of points to keep in step with the
--- four keep-out rules above, and those rules exist because every mistake they prevent has already
--- shipped once.
+-- THE ELLIPSE. A fold is a way of not deciding where anything stands: the layout was still the
+-- twenty-zone scatter, squeezed. Camps are a decision -- a named group, in a rock alcove, at the
+-- end of a path -- and they are AUTHORED, in `MapProps/JungleLayout`, next to the rocks that ring
+-- them and the roads that reach them.
 --
--- IT HAS TO STAY IN STEP WITH `ForestMapService.MAPS` -- one decision written in two files. The
--- alternative is this module requiring a server service it otherwise knows nothing about, at module
--- scope, to read four numbers. The ellipse is inset from the band on every side: `toGlade` reaches
--- 88% of it.
+-- THE SECOND COPY. `MAP_GLADE`'s own comment said "IT HAS TO STAY IN STEP WITH
+-- ForestMapService.MAPS -- one decision written in two files", and 31.5a is precisely the bug that
+-- comment predicted: `a` and `b` are semi-axes, one of the two files read them as full widths, and
+-- 74 rigs spread to x = 748 with the far ones standing over the void, 123 studs past the platform
+-- edge. Nothing errored, because a creature over the void is a creature like any other. There is
+-- now one file, and both consumers ask it.
 --
--- ===== 31.4 WIDENED IT, AND MOVED ITS CENTRE EAST =====
--- The owner asked for the wood to hold everything -- *"treba samo rasporediti drveca malo ih
--- udaljiti da mobovi stanu tu"* -- and 500 x 100 was a corridor: 74 rigs in a strip 176 studs deep
--- is a queue, not a hunting ground. The band behind the village is not the only free ground either.
--- The village FLOOR is 682 x 580 inside a 1250 x 1150 platform, so there is a ~280-stud pocket of
--- platform down each side of it that the map's mountain ring was standing on; clearing the southern
--- arcs (see `ForestMapService.MAPS.Forest.clear`) hands both pockets to the wood.
---
--- `a` AND `b` ARE SEMI-AXES, NOT WIDTHS -- `toGlade` reaches `x +/- a * 0.88`. A first cut at this
--- read them as full widths, doubled both, and put creatures at x = 748: measured live, 74 rigs
--- spread x -567..748 with the far ones standing over the void 123 studs past the platform edge.
--- Nothing errored and nothing logged, because a creature over the void is a creature like any other.
---
--- THREE BOUNDS SET THE NUMBERS, AND NONE IS ARBITRARY:
---   * PLATFORM EDGE at +/-625, so nothing may reach past about +/-590.
---   * THE BOSS, who moved to (-400, -430) in 31.4 with a ~79-stud arena disc covering x -440..-360.
---     The east offset of +115 is what buys the gap; the west reach stops at -325, 35 studs clear.
---   * THE EXIT GATE at z = -575 and the village floor's southern edge at z = -290.
---
--- 500 x 144 at (115, -420) reaches x -325..555 and z -547..-293. Against the 500 x 100 at (0, -448)
--- it replaces that is ~40% more ground and it is all of the width the platform has to give here:
--- south of the village floor there is no floor edge to respect, only the platform's.
-local MAP_GLADE = {
-	Forest = { x = 115, z = -420, a = 500, b = 144 },
-}
-
--- Normalised by the extent the points above were actually drawn in, then clamped to the unit DISC
--- rather than the unit square: clamping the square would leave the corner points outside the
--- ellipse, which is the one place a creature would still end up in a tree.
-local function toGlade(g, rel)
-	local u, v = rel.X / VALLEY_X, rel.Z / 492
-	local m = math.sqrt(u * u + v * v)
-	if m > 1 then u, v = u / m, v / m end
-	return g.x + u * g.a * 0.88, g.z + v * g.b * 0.88
-end
+-- WHAT DID NOT CHANGE: `RELATIVE_SPAWN_POINTS` below, and the four keep-out rules above it. They
+-- are still what every unmapped zone uses, and the camp table is placed against those same rules
+-- (its header restates all four). The tier COUNTS did not move either -- the roster sums to exactly
+-- the 74 this file spawns, and `JungleLayout.Describe` prints that sum against these tables at boot
+-- rather than asserting it in a comment.
 
 local function scatterPoints(count, minGap, placed)
 	local out = {}
@@ -3927,17 +3900,34 @@ function CreatureService.Init()
 		local spots = raisedSpots(zone)
 		local taken = 0
 
-		-- nil for every zone that is still ZoneBuilder's valley, which is nineteen of the twenty
-		local glade = MAP_GLADE[zone.key]
+		-- nil for every zone that is still ZoneBuilder's valley, which is twenty of the twenty-one
+		local jungle = JungleLayout.Spawns(zone.key)
+
+		if jungle then
+			-- ===== THE MAPPED ZONE: ONE LOOP, AND THE LAYER RIDES ALONG =====
+			-- Both spawn loops collapse into this one. `layer` is what makes a creature able to drop
+			-- an Evolution Shard, pay its multiplier and refuse a player who has not rebirthed
+			-- enough (11.6); on an unmapped zone it comes from `RAISED_LAYOUT`, here it comes off
+			-- the camp's roster, and `spawnCreature` cannot tell the difference. That is the whole
+			-- reason the fourteen gated creatures could move off the invisible terrace shelves they
+			-- were standing on and into the three deep camps without touching a drop table.
+			for _, spawn in ipairs(jungle) do
+				local tier = TIERS[spawn.tier]
+				if tier then
+					spawnCreature(
+						Vector3.new(zone.offset + spawn.x, tier.size * 0.56, spawn.z),
+						spawn.tier, zone, spawn.layer)
+				end
+			end
+			continue
+		end
 
 		for _, tierName in ipairs({ "Swarmer", "Critter", "Brute", "Elite" }) do
 			for _, rel in ipairs(RELATIVE_SPAWN_POINTS[tierName] or {}) do
-				local rx, rz = rel.X, rel.Z
-				if glade then rx, rz = toGlade(glade, rel) end
 				-- The Y column in the table is ignored, and so is the one passed here: spawnCreature
 				-- asks the ground how high it is once the point is final. Every rig reaches about half
 				-- its size below the body centre, which is where the 0.56 comes from.
-				local pos = Vector3.new(zone.offset + rx, TIERS[tierName].size * 0.56, rz)
+				local pos = Vector3.new(zone.offset + rel.X, TIERS[tierName].size * 0.56, rel.Z)
 				spawnCreature(pos, tierName, zone)
 			end
 		end
@@ -3945,26 +3935,16 @@ function CreatureService.Init()
 		-- ...and then the cliffs, highest shelf first -- see RAISED_LAYOUT for the order and why the
 		-- Apexes are at the top of it.
 		--
-		-- A MAPPED ZONE HAS NO CLIFFS, AND `raisedSpots` FOUND SOME ANYWAY. It accepts a point only
-		-- when the part under it is named `TerraceTop`, which `ForestMapService` drops -- but the
-		-- shell keeps its own copies loaded (`keepShellLoaded` reparents them out of the zone model,
-		-- so the drop pass never sees them), and 14 of Forest's 74 creatures were standing on
-		-- terraces the player cannot see, in the middle of the village. On a mapped zone these go in
-		-- the glade with everything else; they keep `band.layer`, which is the only thing about them
-		-- that matters to the drop tables.
-		local raisedRng = glade and Random.new(20260822 + math.floor(zone.offset)) or nil
+		-- A MAPPED ZONE NEVER REACHES HERE -- it took the `continue` above -- and the reason is
+		-- worth keeping. `raisedSpots` accepts a point only when the part under it is named
+		-- `TerraceTop`, which `ForestMapService` drops; but the shell keeps its own copies loaded
+		-- (`keepShellLoaded` reparents them out of the zone model, so the drop pass never sees them),
+		-- and 14 of Forest's 74 creatures were standing on terraces the player cannot see, in the
+		-- middle of the village. 31.4 put them in the glade with everything else. 31.16 gives them
+		-- what the altitude was for: the three gated camps at the deep end of the jungle.
 		for _, band in ipairs(RAISED_LAYOUT) do
 			local tierName = band.tier
 			for _ = 1, band.count do
-				if glade then
-					local rel = Vector3.new(
-						raisedRng:NextNumber(-VALLEY_X, VALLEY_X), 0, raisedRng:NextNumber(-492, 492))
-					local gx, gz = toGlade(glade, rel)
-					spawnCreature(
-						Vector3.new(zone.offset + gx, TIERS[tierName].size * 0.56, gz),
-						tierName, zone, band.layer)
-					continue
-				end
 				taken += 1
 				local spot = spots[taken]
 				-- A zone whose shelves are all too narrow or too full of boulders simply gets fewer
@@ -3977,6 +3957,26 @@ function CreatureService.Init()
 				spawnCreature(
 					Vector3.new(zone.offset + spot.rel, spot.y + TIERS[tierName].size * 0.56, spot.z),
 					tierName, zone, band.layer)
+			end
+		end
+	end
+
+	-- ===== THE CAMP ROSTER IS COUNTED, NOT ASSERTED IN A COMMENT =====
+	-- The counts live in three places -- `RELATIVE_SPAWN_POINTS` here, `RAISED_LAYOUT` here, and the
+	-- rosters in `JungleLayout` -- and a camp table that quietly spawns 71 of 74 looks exactly like
+	-- one that spawns all of them. So the expected tally is composed from what this file really
+	-- holds and printed against what the layout really produces.
+	do
+		local expected = {}
+		for tierName, list in pairs(RELATIVE_SPAWN_POINTS) do
+			expected[tierName] = (expected[tierName] or 0) + #list
+		end
+		for _, band in ipairs(RAISED_LAYOUT) do
+			expected[band.tier] = (expected[band.tier] or 0) + band.count
+		end
+		for _, zone in ipairs(GameConfig.Zones) do
+			if JungleLayout.Camps(zone.key) then
+				print("[JungleLayout] " .. JungleLayout.Describe(zone.key, expected))
 			end
 		end
 	end

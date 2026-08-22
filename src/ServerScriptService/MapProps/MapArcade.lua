@@ -37,13 +37,35 @@ local MapArcade = {}
 local SOURCE_NAME = "Arcade Machines"
 local CABINET_HEIGHT = 11        -- studs, against an 8.4-stud player
 
--- Zone-relative. Measured, not guessed: a 60 x 20 x 26 box test over a 20-stud grid across the whole
--- village floor found 99 clear spots, and the run along x = -100..-240 at z = 0 is the longest
--- unbroken one and the closest to the Upgrades house -- which is where the owner asked for it.
+-- ===== 31.15: TWO CABINETS, AND THE SPOT IS A FRACTION OF THE FLOOR =====
+-- The owner, on a screenshot of the row: *"ovde ima previse arcades"*. Four of them along one side
+-- of a village square is an arcade hall; the feature is ONE terminal with one prompt, and the other
+-- three were never anything but art standing beside it. Two reads as "there is an arcade here"
+-- without the row becoming the thing you look at.
+local CABINET_COUNT = 2
+
+-- Zone-relative, and expressed as a FRACTION OF THE VILLAGE FLOOR'S HALF-WIDTH rather than as the
+-- studs it was measured in. The original -150 came from a real measurement -- a 60 x 20 x 26 box
+-- test over a 20-stud grid found 99 clear spots on the floor, and x -100..-240 at z 0 was the
+-- longest unbroken run and the closest to the Upgrades house, which is where she asked for it --
+-- but that measurement was taken on the 1.45 map. 31.14 took the map to 1.15, which moves every
+-- house 21% closer to the centre and leaves a hand-typed -150 standing in open field outside them.
+-- -150 / 341 = -0.44 of the floor's half-width, and that fraction is what actually holds.
 -- The row runs along Z and faces +X, into the square, so you read the screens on the way past.
 local SPOTS = {
-	Forest = { x = -150, z = 0, step = 22, yaw = math.rad(90) },
+	Forest = { xFrac = -0.44, z = 0, step = 22, yaw = math.rad(90) },
 }
+
+-- The placed village floor, so `xFrac` can be resolved against the map that actually exists rather
+-- than against the one this file was written for. nil when a zone has a registry entry but no
+-- MainPart, which is a map that failed to seat and is already warned about by ForestMapService.
+local function floorHalfWidth(zoneKey)
+	local zones = workspace:FindFirstChild("Zones")
+	local zone = zones and zones:FindFirstChild(zoneKey)
+	local map = zone and zone:FindFirstChild("VillageMap")
+	local main = map and map:FindFirstChild("MainPart")
+	return main and main.Size.X / 2 or nil
+end
 
 -- Where MinigameService parks its terminals, and what it calls them.
 local TERMINAL_FOLDER = "MinigameTerminals"
@@ -126,7 +148,7 @@ function MapArcade.Init(zoneKey, zoneOffset)
 
 	local cabinets = {}
 	for _, c in ipairs(proto:GetChildren()) do
-		if c:IsA("Model") then cabinets[#cabinets + 1] = c end
+		if c:IsA("Model") and #cabinets < CABINET_COUNT then cabinets[#cabinets + 1] = c end
 	end
 	if #cabinets == 0 then
 		warn("[MapArcade] " .. SOURCE_NAME .. " holds no cabinet models")
@@ -145,12 +167,19 @@ function MapArcade.Init(zoneKey, zoneOffset)
 	row.Name = "ArcadeRow_" .. zoneKey
 	row.Parent = terminals or workspace
 
+	local halfW = floorHalfWidth(zoneKey)
+	if not halfW then
+		warn("[MapArcade] " .. zoneKey .. ": no placed MainPart -- the generated terminal is left alone")
+		return 0
+	end
+	local spotX = spot.xFrac * halfW
+
 	local cx = zoneOffset or 0
 	local span = (#cabinets - 1) * spot.step
 	local middle = nil
 	for i, proto2 in ipairs(cabinets) do
 		local z = spot.z - span / 2 + (i - 1) * spot.step
-		local c = place(proto2, row, cx + spot.x, 0, z, spot.yaw)
+		local c = place(proto2, row, cx + spotX, 0, z, spot.yaw)
 		if i == math.ceil(#cabinets / 2) then middle = c end
 	end
 
@@ -173,7 +202,7 @@ function MapArcade.Init(zoneKey, zoneOffset)
 	row.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
 
 	print(("[MapArcade] %s: %d cabinets at (%d, %d), prompt %s, generated terminal %s%s")
-		:format(zoneKey, #cabinets, spot.x, spot.z,
+		:format(zoneKey, #cabinets, spotX, spot.z,
 			prompt and "moved" or "NOT FOUND", generated and "removed" or "absent",
 			stripped > 0 and (", stripped " .. stripped .. " scripts/prompts from the source") or ""))
 	return #cabinets
