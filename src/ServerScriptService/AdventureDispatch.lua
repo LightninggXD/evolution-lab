@@ -104,6 +104,15 @@ function AdventureDispatch.Send(player, routeKey, petId)
 	print(("[AdventureDispatch] %s sent %s on %s for %d min (%d away, %d/%d today)")
 		:format(player.Name, pet.key, route.key, route.autoMinutes,
 			#ledger.Dispatch, ledger.DayDispatch, GameConfig.AdventureDailyDispatch))
+
+	-- ===== 30.8  THE SECOND BEAT, AND ITS VALUE IS THE WAIT =====
+	--
+	-- `autoMinutes` is the length of the wait the player just accepted, and it is the number 30.9
+	-- will be asked to move. Sent per dispatch rather than read out of the config later, because a
+	-- config edit changes what the NEXT one is worth and the dashboard has to keep describing the
+	-- dispatches that were actually made.
+	local Telemetry = require(script.Parent.Telemetry)
+	Telemetry.Custom(player, "AdventureDispatched", route.autoMinutes)
 	return true
 end
 
@@ -157,6 +166,22 @@ function AdventureDispatch.Claim(player, petId)
 
 	print(("[AdventureDispatch] %s claimed %s (%d roll(s), %d still away)")
 		:format(player.Name, tostring(entry.routeKey), summary and summary.rolls or 0, #ledger.Dispatch))
+
+	-- ===== 30.8  THE THIRD BEAT, AND ITS VALUE IS THE LATENESS =====
+	--
+	-- Sent against `AdventureDispatched`, this is the whole verdict on autoplay: how many sent
+	-- against how many ever came back for it. The count is that half. The VALUE is the other half
+	-- -- MINUTES BETWEEN THE PET BEING DUE AND THE PLAYER COLLECTING IT -- because a wait nobody
+	-- returns for and a wait everybody collects to the minute are the same number of claims and two
+	-- completely different features. `endsAt`, not `startedAt`: the wait itself is already known
+	-- from the dispatch event, and adding it in here would bury the signal under the config.
+	--
+	-- `FinishNow` moves `endsAt` to now before calling this, so a bought claim lands at 0. That is
+	-- correct and not a hole -- it IS a prompt collection, and the diamonds it cost are already on
+	-- the economy stream as the `adventureFinishNow` sink.
+	local Telemetry = require(script.Parent.Telemetry)
+	Telemetry.Custom(player, "AdventureClaimed",
+		math.max(0, math.floor((now - (tonumber(entry.endsAt) or now)) / 60)))
 	return true, summary
 end
 

@@ -183,6 +183,11 @@ function RelicService.HandleOpenChest(player, source)
 	-- why: a collection wants the next piece, and only hands back a duplicate once the rolled tier
 	-- is complete. Same luck and the same chest bias as the roll above, so a bought chest is
 	-- better on both layers at once rather than only on one.
+	-- 30.8: before the grant, reported after the push. A chest is the second of the three faucets
+	-- that can finish a set -- see `RelicMilestones`.
+	local RelicMilestones = require(script.Parent.Systems.RelicMilestones)
+	local setsBefore = RelicMilestones.Count(data)
+
 	local setRelic = GameConfig.RollUnownedSetRelic(data, zoneKey, luck, bias)
 	local setNew, setDust = false, 0
 	if setRelic then
@@ -190,6 +195,7 @@ function RelicService.HandleOpenChest(player, source)
 	end
 
 	PlayerDataService.PushToClient(player)
+	RelicMilestones.Report(player, data, setsBefore)
 
 	-- AFTER the push, so the toast never arrives before the data that justifies it.
 	Remotes.Notify:FireClient(player, {

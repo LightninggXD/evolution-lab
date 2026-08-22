@@ -370,6 +370,18 @@ function AdventureService.HandleEnter(player, routeKey, petId)
 	-- a character that is mid-handshake has not necessarily got its Humanoid where we can see it.
 	applyCourseProfile(player)
 	pushState(player)
+
+	-- ===== 30.8  THE FIRST OF THE FOUR ADVENTURE BEATS =====
+	--
+	-- HERE, NOT AT THE TOP OF THE FUNCTION. Everything above this line can refuse -- no route, no
+	-- data, the daily cap, a travel that did not happen -- and a "started" logged at the door would
+	-- count doors that never opened, which is exactly the ratio 30.8 exists to measure.
+	--
+	-- The value is the route's TIER rather than a flat 1. Roblox graphs the value as a distribution,
+	-- so tier answers "which end of the ladder is actually being played" for free; the count of
+	-- events answers "how many starts" either way.
+	local Telemetry = require(script.Parent.Telemetry)
+	Telemetry.Custom(player, "AdventureStarted", route.tier)
 	return true
 end
 
@@ -430,6 +442,18 @@ function AdventureService.HandleFinish(player)
 		:format(player.Name, run.key, seconds, par,
 			summary and summary.rolls or 0,
 			summary and summary.record and ", NEW BEST" or ""))
+
+	-- ===== 30.8  THE FINISH, AND THE VALUE IS THE TIME =====
+	--
+	-- Seconds, rounded, against `parSeconds` -- which is what makes the pair of events answerable:
+	-- `AdventureStarted` counts entries, `AdventureFinished` counts the ones that reached the pad,
+	-- and the distribution of this value says whether par is set anywhere near the truth.
+	--
+	-- A DISPATCH DOES NOT FIRE THIS. It has no time at all (`PayFinish` is handed nil for it, and
+	-- refuses to stamp a record for the same reason), so folding the two together would drag a
+	-- pile of zeroes through the only distribution that measures the course.
+	local Telemetry = require(script.Parent.Telemetry)
+	Telemetry.Custom(player, "AdventureFinished", math.floor(seconds + 0.5))
 	return true, seconds, summary
 end
 

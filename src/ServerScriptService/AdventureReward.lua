@@ -53,6 +53,12 @@ function AdventureReward.PayFinish(player, route, seconds, pet, source)
 	local luck = GameConfig.GetAdventureLuck(data, route, pet)
 	local summary = { rolls = rolls, underPar = underPar, luck = luck, relics = {} }
 
+	-- 30.8: taken BEFORE the rolls, reported after them. Two rolls can finish two different sets,
+	-- and the loop below is the reason this is one count around the whole payout rather than one
+	-- per grant -- see `RelicMilestones`'s header.
+	local RelicMilestones = require(script.Parent.Systems.RelicMilestones)
+	local setsBefore = RelicMilestones.Count(data)
+
 	for _ = 1, rolls do
 		-- No chest bias: a bias is what a DIAMOND chest buys (`RelicChestDiamondBias`), and an
 		-- adventure is bought with a daily run. The route's ladder is already inside `luck`.
@@ -88,6 +94,7 @@ function AdventureReward.PayFinish(player, route, seconds, pet, source)
 	end
 
 	PlayerDataService.PushToClient(player)
+	RelicMilestones.Report(player, data, setsBefore)
 
 	-- AFTER the push, the standing rule: a toast must never arrive before the data that justifies
 	-- it. One toast per relic, on the `relic` kind, because MainUI's `relic` branch already draws

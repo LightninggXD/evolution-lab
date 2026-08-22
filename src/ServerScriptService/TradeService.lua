@@ -88,6 +88,8 @@ local AnnounceService = require(script.Parent.AnnounceService)
 -- relic line looks like, and the policy check Roblox requires in front of the whole feature.
 local TradeItems = require(RS.Modules.TradeItems)
 local TradePolicy = require(script.Parent.Systems.TradePolicy)
+-- 30.8: a trade is one of the three ways a relic set can be finished.
+local RelicMilestones = require(script.Parent.Systems.RelicMilestones)
 
 local TradeService = {}
 
@@ -718,6 +720,13 @@ function TradeService.Commit(tradeId)
 		end
 	end
 
+	-- 30.8: the third faucet that can finish a relic set, and the only one where the relic is not
+	-- rolled. Counted here rather than inside the swap because the block below must not grow a
+	-- statement whose cost depends on how much either player owns; reported far below, once both
+	-- Player objects have been resolved for the saves.
+	local setsBeforeA = RelicMilestones.Count(dataA)
+	local setsBeforeB = RelicMilestones.Count(dataB)
+
 	session.state = "committing"
 
 	-- =========================================================================
@@ -820,6 +829,10 @@ function TradeService.Commit(tradeId)
 	-- (which is also per-player). A trade that committed is the only one that counts.
 	if playerA then Telemetry.Custom(playerA, "TradeCompleted") end
 	if playerB then Telemetry.Custom(playerB, "TradeCompleted") end
+	-- 30.8: and a set finished by a trade is a set finished. `dataA`/`dataB` are the same tables the
+	-- swap wrote into, so the count is read off the collection as it now stands.
+	RelicMilestones.Report(playerA, dataA, setsBeforeA)
+	RelicMilestones.Report(playerB, dataB, setsBeforeB)
 	tell(record.a.userId, { kind = "reward", message = "\u{1F91D} Trade complete!" })
 	tell(record.b.userId, { kind = "reward", message = "\u{1F91D} Trade complete!" })
 
