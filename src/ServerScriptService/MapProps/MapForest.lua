@@ -41,6 +41,7 @@
 
 local GameConfig = require(game:GetService("ReplicatedStorage").Modules.GameConfig)
 local JungleLayout = require(script.Parent.JungleLayout)
+local MapJungle = require(script.Parent.MapJungle)
 local MapRidge = require(script.Parent.MapRidge)
 
 local MapForest = {}
@@ -68,6 +69,23 @@ local UNDER_PER_TREE = { 0, 2 }
 local UNDER_SPREAD = 40
 -- ...and the shrub layer, which is the one thing here NOT made of trees. The map ships bushes and
 -- flowers and they are what stops the forest floor being flat green between the trunks.
+-- ===== LAYER 5: THE ROCKS (30.31) =====
+-- *"da drveca i ovih stena sto vise ima po mapi, znaci jungle vibe neki da bude"*. Boulders through
+-- the wood are what stop a forest floor being a flat green plane between trunks, and they are the
+-- one piece of the map's art that reads at a distance without being a tree.
+--
+-- NON-COLLIDING AND NON-QUERYABLE, like everything else this file plants. A `MeshPart` at
+-- CollisionFidelity.Default is a soup of convex hulls very close to its own bounding box, and a few
+-- hundred of those through the ground the player fights on is the 30.19 mountain trap at scale --
+-- the camp rocks that DO collide carry a separate invisible box for exactly that reason.
+local ROCK_CHANCE = 0.55      -- of a planted cell, so rocks follow the wood rather than the grid
+local ROCK_PER_CELL = { 1, 2 }
+local ROCK_HEIGHT = { 4, 11 }
+local ROCK_WIDTH = { 7, 16 }
+local ROCK_SPREAD = 46
+local ROCK_SINK = 0.8
+local ROCK_TINT = Color3.fromRGB(138, 126, 116)   -- MapJungle's warm stone; the map's own grey reads blue
+
 local SHRUB_PER_TREE = { 1, 2 }
 local SHRUB_SCALE = { 0.7, 1.4 }
 local SHRUB_SPREAD = 44
@@ -238,11 +256,40 @@ function MapForest.Plant(zoneKey, cx, map, spec)
 	local ridges = MapRidge.Footprints(cx, map)
 
 	local shrubs = shrubStock(map)
+	local rocks = MapJungle.RockStock(map)
+
+	-- One boulder, sized to a real width and height rather than by a single factor: `Rock 02` is
+	-- 13 x 6 x 16 in the source, i.e. FLAT, so scaling it to a target HEIGHT multiplies its
+	-- footprint by three as well. That arithmetic is `MapJungle.standRock`'s own note and it is the
+	-- difference between a boulder and a sleeping whale.
+	local function dropRock(x, z)
+		if #rocks == 0 then return 0 end
+		local proto = rocks[rng:NextInteger(1, #rocks)]
+		local r = proto:Clone()
+		local sz = proto.Size
+		local k = rng:NextNumber(ROCK_WIDTH[1], ROCK_WIDTH[2]) / math.max(sz.X, sz.Z, 0.01)
+		local ky = math.clamp(rng:NextNumber(ROCK_HEIGHT[1], ROCK_HEIGHT[2])
+			/ math.max(sz.Y * k, 0.01), 0.4, 2.6)
+		r.Size = Vector3.new(sz.X * k * rng:NextNumber(0.85, 1.25), sz.Y * k * ky,
+			sz.Z * k * rng:NextNumber(0.85, 1.25))
+		r.Color = ROCK_TINT
+		r.Material = Enum.Material.Slate
+		r.Anchored = true
+		r.CanCollide = false
+		r.CanQuery = false
+		r.CastShadow = false
+		r.CFrame = CFrame.new(x, r.Size.Y / 2 - ROCK_SINK, z)
+			* CFrame.Angles(rng:NextNumber(-0.16, 0.16), rng:NextNumber(0, math.pi * 2),
+				rng:NextNumber(-0.16, 0.16))
+		r.Name = "HuntRock"
+		r.Parent = folder
+		return 1
+	end
 
 	-- One counter per layer, because "planted 2,900 trees" says nothing about whether the wood has
 	-- any structure and a boot log that cannot tell an emergent from a bush cannot catch the day one
 	-- of the three layers silently stops being planted.
-	local tall, canopy, under, floorBits, tested = 0, 0, 0, 0, 0
+	local tall, canopy, under, floorBits, stones, tested = 0, 0, 0, 0, 0, 0
 	local half = f.spacing / 2
 
 	-- Drawn from the same generator as the trees so the whole wood is one seed: two servers of the
@@ -293,19 +340,32 @@ function MapForest.Plant(zoneKey, cx, map, spec)
 				-- trunks is not flat green. This is what you actually walk past.
 				floorBits += scatter(px, pz, rng:NextInteger(SHRUB_PER_TREE[1], SHRUB_PER_TREE[2]),
 					SHRUB_SPREAD, shrubs, SHRUB_SCALE[1], SHRUB_SCALE[2])
+
+				-- LAYER 5, the rocks. Hung off a planted cell rather than off the grid so they sit
+				-- among the trees instead of forming a second, independent scatter over the top.
+				if rng:NextNumber() < ROCK_CHANCE then
+					for _ = 1, rng:NextInteger(ROCK_PER_CELL[1], ROCK_PER_CELL[2]) do
+						local ox = px + rng:NextNumber(-ROCK_SPREAD, ROCK_SPREAD)
+						local oz = pz + rng:NextNumber(-ROCK_SPREAD, ROCK_SPREAD)
+						if isOpenGround(zoneKey, ox, oz, spec, segments, ridges) then
+							stones += dropRock(cx + ox, oz)
+						end
+					end
+				end
 			end
 			z += f.spacing
 		end
 		x += f.spacing
 	end
 
-	local planted = tall + canopy + under + floorBits
+	local planted = tall + canopy + under + floorBits + stones
 
 	print(("[MapForest] %s: planted %d over %d cells at spacing %d -- %d emergent / %d canopy / "
-		.. "%d undergrowth / %d shrub (of %d tree and %d shrub protos); keep-outs: village, plaza, "
-		.. "funnel, boss, %d road segments, %d camps, %d mountains")
-		:format(zoneKey or "?", planted, tested, f.spacing, tall, canopy, under, floorBits,
-			#stock, #shrubs, #(segments or {}), #(JungleLayout.Camps(zoneKey) or {}), #ridges))
+		.. "%d undergrowth / %d shrub / %d rock (of %d tree, %d shrub, %d rock protos); keep-outs: "
+		.. "village, plaza, funnel, boss, %d road segments, %d camps, %d mountains")
+		:format(zoneKey or "?", planted, tested, f.spacing, tall, canopy, under, floorBits, stones,
+			#stock, #shrubs, #rocks, #(segments or {}), #(JungleLayout.Camps(zoneKey) or {}),
+			#ridges))
 	return planted
 end
 

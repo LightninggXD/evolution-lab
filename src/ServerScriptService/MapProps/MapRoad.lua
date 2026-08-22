@@ -58,6 +58,10 @@ local TO = Vector2.new(-15, 40)
 local W_PLAZA, W_VILLAGE = 44, 58
 local QUADS = 10
 
+-- The approach road as one segment, for anything that has to keep off it. Same reason `MapGates`
+-- publishes its lanes: the alternative is a second copy of these coordinates somewhere else.
+MapRoad.LANE = { x1 = FROM.X, z1 = FROM.Y, x2 = TO.X, z2 = TO.Y, w = math.max(W_PLAZA, W_VILLAGE) }
+
 -- The top face, and every number here is against a floor measured on the live build. HubPlaza draws
 -- on four planes -- kerb 0.66, deck 1.04, inlay 1.14, cross band 1.18 -- and its own `GROUND_CLEAR`
 -- is 1.40: anything topping out below that it treats as floor rather than as an obstruction. So the

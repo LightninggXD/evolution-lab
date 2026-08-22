@@ -68,6 +68,13 @@ local LANES = {
 -- standing right on the boundary, because a threshold always collects the cases that sit on it.
 -- 24 puts 48 studs of guaranteed clear ground under a 9-stud body on a road painted 52 to 56 wide,
 -- which leaves the outermost few studs of paint to the leaning canopy that makes it a road.
+-- Published, because 30.31 needs it: `MapSquare` moves buildings around the square and has to know
+-- where the roads are. A second copy of these three lanes in that file is
+-- `evolution-lab-zone-geometry-constants` word for word -- and the fault it would ship is precisely
+-- the one the owner photographed, a shop standing in a road.
+MapGates.LANES = LANES
+MapGates.CLEAR_HALF = 24
+
 local CLEAR_HALF = 24
 -- Nothing above knee height stands on the driving line, against the 5-stud floor the verge keeps.
 -- See the note on `MapCut.LaneFootprint`: a 3-stud rock on the centre line survived two passes.

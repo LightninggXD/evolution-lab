@@ -117,6 +117,11 @@ local function rockStock(map)
 	return stock
 end
 
+-- Published for `MapForest`, which scatters the same stock through the wood as ground clutter
+-- (30.31, the owner's *"da drveca i ovih stena sto vise ima po mapi, znaci jungle vibe"*). One
+-- definition of "what is a rock in this map", two consumers.
+MapJungle.RockStock = rockStock
+
 -- The mountain. Its parts are named `Meshes/gora`; the model around them is called `Model`, which
 -- is why it is found by looking INSIDE rather than by name.
 --

@@ -65,7 +65,10 @@ local KEEP = {
 -- The eggs stand on a ring inside it, the first of them facing NORTH -- the way the entrance road
 -- arrives -- so a player walking in from the plaza meets an egg head on with the other two behind
 -- it to either side, rather than three in profile.
-local EGG_RING = 32
+-- 18, not 32. The map draws a low fence ring of radius ~28 about the square's centre and at 32 the
+-- eggs stood just OUTSIDE it, which is what *"jaja u centar ove ograde staviti"* is about. At 18
+-- all three are inside the pen, and three 18-stud eggs on that ring still stand 37 studs apart.
+local EGG_RING = 18
 local EGG_ANGLES = { math.pi / 2, math.pi * 7 / 6, math.pi * 11 / 6 }
 -- The paint under them. The disc is what makes the junction a roundabout instead of a hole where a
 -- fountain used to be -- `MapGates` deliberately stops its south lane at z = -30 and `MapRoad` its
@@ -75,10 +78,27 @@ local EGG_ANGLES = { math.pi / 2, math.pi * 7 / 6, math.pi * 11 / 6 }
 -- guessed: `MapPaint.Y` (0.25, top at 0.45) is drawn on bare platform at y = 0 and would be BURIED
 -- under the map's own 0.6-stud ground union. `MapGates` paints the village at top 0.80 with 1.4 of
 -- depth, i.e. a centre of 0.10, and the rim below it at 0.72. Same two planes, same reason.
--- A hair of daylight under the shell, so a seated egg reads as standing on the ground rather than
--- growing out of it -- and so a floor that is a fraction higher than the ray reported cannot swallow
--- the bottom of it.
-local EGG_LIFT = 0.4
+-- ===== THE EGGS STAND ON A PODIUM, AND IT IS NOT DECORATION (30.31) =====
+-- 30.25 seated each egg's own bottom on the ground, which was right about the egg and wrong about
+-- everything welded to it. A COLUMN is an egg plus a `PriceCardAnchor` and an `EggOddsAnchor`, and
+-- those offsets were authored while the egg stood on a 17-stud incubator -- the price card hangs
+-- 1.6 studs BELOW the egg's own bottom. Drop the egg to the floor and the price card goes under it:
+-- measured on the live build at **y = -0.56**, buried, which is exactly the owner's *"i cene"*.
+--
+-- Her own suggestion is the fix -- *"i ako vec malo lebde, nesto na cemu lebde"*. The egg is lifted
+-- onto a podium instead of being pushed into the dirt, so the whole column rides up with it and the
+-- price card clears the ground by two studs. The lift is DERIVED from the column rather than typed:
+-- it is whatever it takes to put the lowest piece of the column at `PODIUM_CLEAR` above the floor,
+-- so a re-authored egg prop moves its own podium without anybody re-measuring.
+local PODIUM_CLEAR = 2.0
+-- ...and the podium is at least this tall whatever the column asks for, because a 0.5-stud plinth
+-- reads as an egg sunk in the ground rather than as an egg standing on something.
+local PODIUM_MIN_H = 4.0
+-- 2.0, and the floor under it was dropped. Measured on the live build the egg shells are only
+-- 10..12 studs across -- not the 17 the stall-era comments assume -- so a margin of 4 over a floor
+-- of 12 gave a 20-stud plinth under an 11-stud egg: the egg read as a pebble left on a table, and
+-- from the square the nearest podium looked empty. The podium should be read as the egg's own base.
+local PODIUM_MARGIN = 2.0
 local CIRCLE_D = 132
 local CIRCLE_Y = 0.10
 local CIRCLE_THICK = 1.4
@@ -118,6 +138,53 @@ local function halfHeight(inst)
 	return 0
 end
 
+-- The wider of a piece's two horizontal extents, so a podium is sized off the shell it carries
+-- rather than off a number typed here.
+local function eggSize(inst)
+	if inst:IsA("Model") then
+		local _, size = inst:GetBoundingBox()
+		return math.max(size.X, size.Z)
+	elseif inst:IsA("BasePart") then
+		return math.max(inst.Size.X, inst.Size.Z)
+	end
+	return 0
+end
+
+-- ===== THE PODIUM =====
+-- Two cylinders: a dark plinth and a brighter cap sitting a little proud of it. That is the outline
+-- tier from `evolution-lab-chunky-look-rules` -- draw the dark edge first and the bright mass inside
+-- it -- and it is the same two-part recipe the camp clearings use, at a different scale.
+--
+-- It CARRIES the egg, so unlike everything else this file touches it collides: an egg standing on a
+-- plinth you can walk through is an egg standing in mid-air. `CanQuery` stays on for the same
+-- reason -- a placement search should see this as occupied ground, because it is.
+local PODIUM_LIP = 1.2        -- how far the dark plinth stands out past the cap
+local PODIUM_SHADE = 0.42
+
+local function podium(parent, x, z, groundY, topY, radius, colour)
+	local height = math.max(topY - groundY, 0.6)
+	local function tier(name, r, h, centreY, c)
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Shape = Enum.PartType.Cylinder
+		p.Size = Vector3.new(h, r * 2, r * 2)
+		-- a Cylinder's length runs down its X axis, so it is stood on end by a quarter turn on Z
+		p.CFrame = CFrame.new(x, centreY, z) * CFrame.Angles(0, 0, math.pi / 2)
+		p.Anchored = true
+		p.CanCollide = true
+		p.CastShadow = false
+		p.Color = c
+		p.Material = Enum.Material.Slate
+		p.Parent = parent
+		return p
+	end
+	tier("EggPodiumBase", radius + PODIUM_LIP, height, groundY + height / 2,
+		MapPaint.Shade(colour, PODIUM_SHADE))
+	-- the cap is shorter, so the dark plinth shows as a rim beneath it rather than around it
+	tier("EggPodiumTop", radius, height * 0.72, groundY + height * 0.72 / 2 + height * 0.28, colour)
+	return 2
+end
+
 local function moveBy(inst, delta)
 	if inst:IsA("Model") then
 		inst:PivotTo(inst:GetPivot() + delta)
@@ -133,6 +200,12 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 
 	-- 1. group what survives into columns by X. Rounded to the nearest 4 studs because the pieces of
 	--    one column are not all exactly on its centre line -- a price card sits forward of its egg.
+	-- Idempotent: a second call must not stand a second podium inside the first. Same rule
+	-- `ForestMapService.Init` follows and for the same reason.
+	for _, c in ipairs(shop:GetChildren()) do
+		if c.Name:sub(1, 9) == "EggPodium" then c:Destroy() end
+	end
+
 	local columns, order = {}, {}
 	local dropped = 0
 	for _, c in ipairs(shop:GetChildren()) do
@@ -192,6 +265,8 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 	-- taken from the EGG and applied to every piece in the column, which is what preserves a price
 	-- card sitting in front and a feature pet floating above; and it is a full 3D delta now, where
 	-- 30.24's was XZ only.
+	local villageMap = zoneModel:FindFirstChild("VillageMap")
+	local dirtColour = villageMap and MapPaint.DirtColour(villageMap) or MapPaint.DIRT_FALLBACK
 	local fountainTop = fountain and fountain.top or nil
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -212,6 +287,12 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 				if eggPos then
 					local wantX = fountain.pos.X + math.cos(a) * EGG_RING
 					local wantZ = fountain.pos.Z + math.sin(a) * EGG_RING
+					-- the lowest piece in the whole column, which is what decides the lift
+					local columnLow = math.huge
+					for _, c in ipairs(pieces) do
+						local cp = centreOf(c)
+						if cp then columnLow = math.min(columnLow, cp.Y - halfHeight(c)) end
+					end
 					-- Started well above the square and thrown far enough to pass through it: the
 					-- village floor is near y = 0 and the ray has to clear the tallest thing it may
 					-- legitimately land on.
@@ -221,13 +302,19 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 					-- ray that finds nothing means the square is not where this thinks it is, and
 					-- an egg dropped to y = 0 is a visible fault rather than a silent one.
 					local groundY = hit and hit.Position.Y or fountainTop or 0
-					local wantY = groundY + halfHeight(egg) + EGG_LIFT
-					local delta = Vector3.new(wantX - eggPos.X, wantY - eggPos.Y, wantZ - eggPos.Z)
+					-- Lift the COLUMN, not the egg: whatever puts its lowest piece `PODIUM_CLEAR`
+					-- above the floor, and never less than `PODIUM_MIN_H`. See the header -- this is
+					-- the number that stopped the price cards being buried.
+					local lift = math.max(groundY + PODIUM_CLEAR - columnLow, PODIUM_MIN_H)
+					local eggBottom = eggPos.Y - halfHeight(egg) + lift
+					local delta = Vector3.new(wantX - eggPos.X, lift, wantZ - eggPos.Z)
 					for _, c in ipairs(pieces) do
 						moveBy(c, delta)
 					end
+					podium(shop, wantX, wantZ, groundY, eggBottom,
+						eggSize(egg) / 2 + PODIUM_MARGIN, dirtColour)
 					moved += 1
-					seated[#seated + 1] = ("%.1f"):format(groundY)
+					seated[#seated + 1] = ("%.1f/+%.1f"):format(groundY, lift)
 				end
 			end
 		end
@@ -258,10 +345,10 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 		end
 	end
 
-	print(("[MapEggs] %s: dropped %d stall pieces, seated %d egg columns on the %d-stud ring at the "
-		.. "square's centre (ground y %s), removed %d props (fountain + the map's egg row), painted "
-		.. "%d circle parts")
-		:format(zoneKey, dropped, moved, EGG_RING, table.concat(seated, "/"), removed, circle))
+	print(("[MapEggs] %s: dropped %d stall pieces, seated %d egg columns on podiums on the %d-stud "
+		.. "ring inside the fence (ground/lift %s), removed %d props (fountain + the map's egg row), "
+		.. "painted %d circle parts")
+		:format(zoneKey, dropped, moved, EGG_RING, table.concat(seated, " "), removed, circle))
 	return moved
 end
 

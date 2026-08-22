@@ -118,7 +118,7 @@ do
 	forestZone = forestZone and forestZone:FindFirstChild("Forest")
 	if forestZone then
 		MapEggs.Reseat("Forest", forestZone)
-		MapSquare.Arrange("Forest")
+		MapSquare.Arrange("Forest", forestZone)
 	end
 end
 
