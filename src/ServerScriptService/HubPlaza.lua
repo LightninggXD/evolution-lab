@@ -75,7 +75,8 @@ local HubPlaza = {}
 -- below WITHOUT moving this number is a silent no-op on a world that already has a plaza in it.
 -- 3: the photo spot gained the prompt it had been missing since it was built (17.3).
 -- 4: the Exhibit -- fourteen locked-but-visible skins flanking the walk from the spawn (26.5).
-local PLAZA_VERSION = 4
+-- 5: the trading floor -- the marked circle 30.7 gives 21.1's proximity tags to point at.
+local PLAZA_VERSION = 5
 
 -- What the first photo pays, once per save, ever. Diamonds rather than DNA because DNA is
 -- stage-scaled and a fixed figure means nothing across twenty zones -- the same reasoning the
@@ -549,6 +550,130 @@ local function buildGateSign(model, centre)
 	sub.Parent = shell
 
 	return post
+end
+
+-- ============================================================================
+-- THE TRADING FLOOR (30.7)
+-- ============================================================================
+-- WHAT A MARKED CIRCLE IS FOR, given that trading needs no building. The rule that makes trading
+-- safe in this game is PROXIMITY -- `TradeService.PROXIMITY_STUDS`, checked at the request and
+-- again at the commit, and the reason one machine holds both save tables and duplication cannot be
+-- expressed. 21.1 turned that rule into a tag over the head of anybody standing near enough. Both
+-- of those are invisible until two players are ALREADY together, which is the thing a new player
+-- has no way to arrange: "stand next to somebody" is not a place.
+--
+-- So this is not scenery and it is not a shop. It is somewhere to say "meet me on the circle", and
+-- the whole feature it unlocks is people finding each other.
+--
+-- IT IS FLOOR, NOT FURNITURE, and every number below turns on that. The two discs top out at 1.24
+-- and 1.30, under `GROUND_CLEAR` (1.4), so `occupied` reads them as ground: nothing built after
+-- this refuses a spot because the circle is there, and a player walks onto it rather than into it.
+-- They are also above `BANDX_TOP` (1.18) and a clear step apart from each other, because two
+-- painted surfaces sharing a plane is the z-fighting patchwork the road pass spent a session on.
+local TRADE_R = 26
+local TRADE_RIM_TOP = 1.24
+local TRADE_TOP = 1.30
+-- PROBED AGAINST THE LIVE WORLD, not chosen on the map -- the same lesson `LAMP_SPOTS` records
+-- one screen down, and it bit twice here. `standAt` cannot see the plaza's own furniture when this
+-- runs: the model is not parented to workspace until the end of `build`, so the lamps, banners,
+-- gate signs and exhibit stands do not exist yet and its search would happily put a 52-stud circle
+-- around a lamp. So the preference was measured instead, with a box query over the WHOLE deck
+-- against the built plaza plus Forest's own trees, requiring the circle AND its sign to be clear
+-- and the circle to sit wholly on the deck (x +-172, z 80..416).
+--
+-- The first two guesses were both wrong and neither was obviously so. (-84, 160) is under two tree
+-- crowns, and `standAt` slid it 24 studs east to (-60, 160) -- which put the rim ONE STUD off the
+-- walking lane, legal by the corridor test and plainly an accident to look at. (-60, 312) has the
+-- photo spot's own pad in it. The nearest clear spot to the spawn is this one, 147 studs out: the
+-- whole near half of the deck is already spoken for.
+local TRADE_SPOT = Vector3.new(-118, 0, 278)
+local TRADE_FOOT = Vector3.new(TRADE_R * 2 + 6, 3, TRADE_R * 2 + 6)
+-- NORTH of the circle, i.e. between it and the spawn, so the sign is the thing you meet first
+-- walking down from the gate rather than the thing you read on your way out.
+local SIGN_OFFSET = 34
+
+local function buildTradeFloor(model)
+	local pos = standAt(TRADE_SPOT, TRADE_FOOT)
+	if not pos then return nil end
+
+	-- Outline first and wider, the one rule the world look pass wrote down: a dark rim around a
+	-- bright field reads as a marked circle from above, where a shell bigger on every axis would
+	-- swallow it.
+	paveDisc(model, "TradeFloorRim", pos, TRADE_R + 3, TRADE_RIM_TOP, OUTLINE)
+	local floor = paveDisc(model, "TradeFloor", pos, TRADE_R, TRADE_TOP, ACCENT2)
+	-- Named AND attributed. The name is what a person reads in the explorer; the attribute is what
+	-- anything looking for "where do people trade" can find without matching on a string that a
+	-- later rename would break.
+	floor:SetAttribute("TradeFloor", true)
+	model:SetAttribute("TradeFloorPos", pos)
+
+	local sign = pos + Vector3.new(0, 0, SIGN_OFFSET)
+	-- The sign is real furniture -- it tops out well above GROUND_CLEAR -- so it gets its own
+	-- clearance test. A blocked sign is skipped and the circle stays: the floor is the feature and
+	-- the board is the label on it.
+	if occupied(sign, SIGN_FOOT) then return floor end
+
+	newPart({
+		Name = "TradeSignBase", Size = Vector3.new(6, 1.6, 6),
+		Position = Vector3.new(sign.X, DECK_TOP + 0.8, sign.Z),
+		Color = OUTLINE, CanCollide = true, Parent = model,
+	})
+	newPart({
+		Name = "TradeSignPost", Size = Vector3.new(2, 14, 2),
+		Position = Vector3.new(sign.X, DECK_TOP + 8.6, sign.Z),
+		Color = OUTLINE, CanCollide = true, Parent = model,
+	})
+	local board = newPart({
+		Name = "TradeSignBoard", Size = Vector3.new(19, 8, 1.4),
+		Position = Vector3.new(sign.X, DECK_TOP + 17.5, sign.Z),
+		Color = ACCENT2, CanCollide = false, Parent = model,
+	})
+
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "TradeSign"
+	gui.Size = UDim2.fromScale(26, 9)          -- scale on a BillboardGui is STUDS, not pixels
+	gui.StudsOffsetWorldSpace = Vector3.new(0, 8, 0)
+	gui.MaxDistance = 260
+	gui.AlwaysOnTop = false
+	gui.Adornee = board
+	gui.Parent = board
+
+	local shell = Instance.new("Frame")
+	shell.Size = UDim2.fromScale(1, 1)
+	shell.BackgroundColor3 = UITheme.Color.PanelWhite
+	shell.BorderSizePixel = 0
+	shell.Parent = gui
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 14)
+	corner.Parent = shell
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = 4
+	stroke.Color = OUTLINE
+	stroke.Parent = shell
+
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.fromScale(1, 0.56)
+	title.Position = UDim2.fromScale(0, 0.04)
+	title.BackgroundTransparency = 1
+	title.Font = UITheme.Font.Display
+	title.Text = "\u{1F91D}  TRADING FLOOR"
+	title.TextColor3 = Color3.fromRGB(38, 132, 148)
+	title.TextScaled = true
+	title.Parent = shell
+
+	-- Dark ink on a white sheet needs no stroke -- UITheme's default outline is the same near black
+	-- as the glyph and renders as a blob. 12.3 and 12.6 both paid for this one twice.
+	local sub = Instance.new("TextLabel")
+	sub.Size = UDim2.fromScale(1, 0.36)
+	sub.Position = UDim2.fromScale(0, 0.58)
+	sub.BackgroundTransparency = 1
+	sub.Font = UITheme.Font.Body
+	sub.Text = "stand together, then click them"
+	sub.TextColor3 = Color3.fromRGB(70, 78, 98)
+	sub.TextScaled = true
+	sub.Parent = shell
+
+	return floor
 end
 
 -- ============================================================================
@@ -1073,6 +1198,11 @@ local function build()
 
 	buildDeck(model)
 
+	-- Straight after the deck, because it IS deck: it tops out under `GROUND_CLEAR`, so every
+	-- search below still reads the ground it covers as free and no lamp is skipped for standing on
+	-- a painted circle.
+	local tradeFloor = buildTradeFloor(model)
+
 	-- The model is parented to workspace at the very END of this function, so every search below
 	-- runs against a world that does not yet contain any of this -- no self-blocking, and no need
 	-- for the exclusion list to carry parts that are not in the datamodel yet. (The list still
@@ -1109,10 +1239,12 @@ local function build()
 		model.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
 	end)
 
-	print(("[HubPlaza] built v%d: %d parts, %d lamps, %d banners, %d gate signs, %d/%d exhibit figures, photo spot %s (%d pieces nudged, %d skipped)")
+	print(("[HubPlaza] built v%d: %d parts, %d lamps, %d banners, %d gate signs, %d/%d exhibit figures, photo spot %s, trade floor %s (%d pieces nudged, %d skipped)")
 		:format(PLAZA_VERSION, #model:GetDescendants(), lamps, banners, signs,
 			figures, #GameConfig.VipCharacters + #GameConfig.EventCharacters,
-			photo and ("at %d,%d"):format(photo.X, photo.Z) or "SKIPPED", moved, skipped))
+			photo and ("at %d,%d"):format(photo.X, photo.Z) or "SKIPPED",
+			tradeFloor and ("at %d,%d"):format(tradeFloor.Position.X, tradeFloor.Position.Z) or "SKIPPED",
+			moved, skipped))
 
 	return model
 end

@@ -28,6 +28,12 @@ local TweenService = game:GetService("TweenService")
 
 local GameConfig = require(RS.Modules.GameConfig)
 local UITheme = require(RS.Modules.UITheme)
+-- 30.7: a collection relic is drawn from the icon library, by NAME, the same way `RelicsPanel`
+-- draws it -- see the note in `makeSlotCard`.
+local IconLibrary = require(RS.Modules:WaitForChild("IconLibrary"))
+-- 30.7: the offer grammar, shared with `TradeService`. Both halves of a trade now describe the
+-- same two kinds of line, and describing them twice is how the two halves drift apart.
+local TradeItems = require(RS.Modules.TradeItems)
 local UIKit = require(RS.Modules:WaitForChild("UIKit"))
 
 local Remotes = RS.Remotes
@@ -51,8 +57,29 @@ return function(hud)
 	-- no tag on either side, and it never came back. See ROADMAP 21.1.
 	local currentTradeId = nil
 	local currentSession = nil
-	local myOfferIds = {}
+	-- 30.7: a list of TYPED LINES -- `{kind="pet", id=...}` or `{kind="relic", key=..., n=...}` --
+	-- where it used to be a list of pet id strings. It is what goes on the wire, unchanged, so the
+	-- shape here and the shape the server parses are one decision in one file (`TradeItems`).
+	local myOffer = {}
+	-- Which half of the inventory the picker is showing. Pets, because that is what trading was
+	-- for two phases and what a returning player expects to see when the window opens.
+	local invTab = "pets"
 	local countdownActive = false
+
+	-- Index of a line in `myOffer`, by identity rather than by position: the server re-orders
+	-- nothing, but a line is removed by what it IS, and two relic lines differ only by key.
+	local function offerIndexOf(item)
+		local key = TradeItems.Key(item)
+		for i, held in ipairs(myOffer) do
+			if TradeItems.Key(held) == key then return i end
+		end
+		return nil
+	end
+
+	local function sendOffer()
+		local offerRemote = Remotes:FindFirstChild("TradeSetOffer")
+		if offerRemote then offerRemote:FireServer(myOffer) end
+	end
 
 	-- 1. TRADE INVITE PROMPT (HUD Pop-in)
 	local inviteFrame = Instance.new("Frame")
@@ -169,7 +196,7 @@ return function(hud)
 
 	local header, topY = UITheme.PanelHeader(tradeModal, {
 		title = "🤝 Secure Trading",
-		subtitle = "Trade pets safely with other players (Anti-scam verified)",
+		subtitle = "Trade pets and spare relics safely with other players (Anti-scam verified)",
 		accent = UITheme.Color.PanelBlue,
 		maxTextSize = 26,
 		margin = 16,
@@ -277,7 +304,8 @@ return function(hud)
 
 	-- Middle Section: My Inventory Picker
 	local invLabel = Instance.new("TextLabel")
-	invLabel.Size = UDim2.new(1, -32, 0, 20)
+	-- narrower since 30.7: the two picker tabs stand at the right-hand end of this row
+	invLabel.Size = UDim2.new(1, -252, 0, 20)
 	invLabel.Position = UDim2.new(0, 16, 0, topY + 208)
 	invLabel.BackgroundTransparency = 1
 	invLabel.Text = "Your Pet Inventory (Click to offer/remove):"
@@ -346,7 +374,13 @@ return function(hud)
 	countdownBanner.Parent = tradeModal
 	themeLabel(countdownBanner, 24, UITheme.Color.Gold)
 
-	-- Helper to render pet slot
+	-- Helper to render one line of an offer, or one pickable thing in the inventory strip.
+	--
+	-- 30.7: IT DRAWS BOTH KINDS, off `item.kind`, and the difference is deliberately small -- a
+	-- relic borrows the same tile, the same rarity border and the same name line, and adds a count
+	-- badge when the line is a stack. A collection relic has no rarity in `GameConfig.GetRarity`'s
+	-- table (the relic layer keeps its own ladder), so a relic paints its border with its SET'S
+	-- TINT, which is the colour the Relics panel identifies it by everywhere else.
 	local function makeSlotCard(pet, parent, isRemovable, onRemove)
 		local tile = Instance.new("TextButton")
 		tile.Size = UDim2.new(1, 0, 1, 0)
@@ -359,21 +393,66 @@ return function(hud)
 		-- with "Common"/"Legendary"/... -- keys that table has never held -- so every tile in the
 		-- window fell to the same grey and the rarity border said nothing. `GetRarity` is what the
 		-- Pets panel, the Journal and the hatch reveal all read.
-		local rarityColor = GameConfig.GetRarity(pet.rarity).color
+		local isRelic = (pet.kind == TradeItems.RELIC)
+		local rarityColor = (isRelic and typeof(pet.tint) == "Color3")
+			and pet.tint
+			or GameConfig.GetRarity(pet.rarity).color
 		local border = styleCard(tile, UITheme.Color.PanelWhite, UDim.new(0, 10), 3)
 		border.Color = rarityColor
 
-		local icon = UITheme.IconSlot(tile, {
-			name = "Icon", icon = pet.emoji or "🐾", maxTextSize = 30,
-			size = UDim2.new(1, 0, 0, 34), position = UDim2.new(0, 0, 0, 3),
-		})
-		icon.ZIndex = tile.ZIndex + UITheme.Z.Content
+		-- A RELIC IS AN IMAGE, NOT A GLYPH, and this is the one that would have shipped. A
+		-- collection relic's `icon` is an `IconLibrary` NAME ("relic_shard"); `IconLibrary`
+		-- resolves BY EMOJI and returns nil for it, so `UITheme.IconSlot` would have laid the
+		-- literal string `relic_shard` across the tile -- text that fits, in the right colour, in
+		-- the right place, and completely wrong. Resolved through the fallback exactly as
+		-- `RelicsPanel` does, for the reason written there: a bare `Id[icon]` gives `Image = ""`,
+		-- which is a hole and not a placeholder.
+		if isRelic then
+			local art = Instance.new("ImageLabel")
+			art.Name = "Icon"
+			art.Size = UDim2.new(0, 30, 0, 30)
+			art.Position = UDim2.new(0.5, 0, 0, 5)
+			art.AnchorPoint = Vector2.new(0.5, 0)
+			art.BackgroundTransparency = 1
+			art.Image = IconLibrary.Id[pet.icon]
+				or IconLibrary.Id[GameConfig.RelicSetFallbackIcon]
+				or ""
+			-- `ImageColor3` MULTIPLIES, and the set art is drawn white on purpose: the zone's tint
+			-- is what gives two hundred relics twenty looks out of ten uploads.
+			art.ImageColor3 = (typeof(pet.tint) == "Color3") and pet.tint or Color3.new(1, 1, 1)
+			art.ScaleType = Enum.ScaleType.Fit
+			art.ZIndex = tile.ZIndex + UITheme.Z.Content
+			art.Parent = tile
+		else
+			local icon = UITheme.IconSlot(tile, {
+				name = "Icon", icon = pet.emoji or "🐾", maxTextSize = 30,
+				size = UDim2.new(1, 0, 0, 34), position = UDim2.new(0, 0, 0, 3),
+			})
+			icon.ZIndex = tile.ZIndex + UITheme.Z.Content
+		end
+
+		-- THE COUNT IS ON THE CARD OR IT IS NOWHERE. A relic line is a stack, and a tile that
+		-- reads "Forest Shard" whether it moves one or six is the card 8.5's summary rule exists to
+		-- prevent -- the player has to be able to read what they are giving away.
+		if isRelic and (pet.n or 1) > 1 then
+			local count = Instance.new("TextLabel")
+			count.Name = "Count"
+			count.Size = UDim2.new(0, 26, 0, 16)
+			count.Position = UDim2.new(1, -28, 0, 2)
+			count.BackgroundTransparency = 1
+			count.Text = ("x%d"):format(pet.n)
+			count.ZIndex = tile.ZIndex + UITheme.Z.Content + 1
+			count.Parent = tile
+			themeLabel(count, 15, UITheme.Color.Gold)
+		end
 
 		local name = Instance.new("TextLabel")
 		name.Size = UDim2.new(1, -4, 0, 24)
 		name.Position = UDim2.new(0, 2, 0, 36)
 		name.BackgroundTransparency = 1
-		name.Text = pet.name or pet.key
+		-- `short` on a relic is its FORM ("Shard", "Sigil"); the zone is already said by the tint,
+		-- and the full name does not fit a 56 px tile -- see the note where the server sets it.
+		name.Text = pet.short or pet.name or pet.key
 		name.TextTruncate = Enum.TextTruncate.AtEnd
 		name.ZIndex = tile.ZIndex + UITheme.Z.Content
 		name.Parent = tile
@@ -381,7 +460,7 @@ return function(hud)
 
 		if isRemovable and onRemove then
 			tile.Activated:Connect(function()
-				onRemove(pet.id)
+				onRemove(pet)
 			end)
 		end
 		return tile
@@ -404,68 +483,106 @@ return function(hud)
 			if c:IsA("TextButton") or c:IsA("Frame") then c:Destroy() end
 		end
 
-		-- Populate My Offer
-		for _, pet in ipairs(currentSession.myOffer or {}) do
-			makeSlotCard(pet, mySlotsGrid, not currentSession.myConfirmed, function(id)
-				for idx, val in ipairs(myOfferIds) do
-					if val == id then
-						table.remove(myOfferIds, idx)
-						break
-					end
-				end
-				local offerRemote = Remotes:FindFirstChild("TradeSetOffer")
-				if offerRemote then offerRemote:FireServer(myOfferIds) end
+		-- Populate My Offer. A card here is REMOVED by clicking it -- one press takes the whole
+		-- line, stack and all, because a card that shed one relic per press would need a second
+		-- affordance to say so and this side of the window is for reviewing, not for building.
+		for _, item in ipairs(currentSession.myOffer or {}) do
+			makeSlotCard(item, mySlotsGrid, not currentSession.myConfirmed, function(clicked)
+				local idx = offerIndexOf(clicked)
+				if idx then table.remove(myOffer, idx) end
+				sendOffer()
 			end)
 		end
 
 		-- Populate Partner Offer
-		for _, pet in ipairs(currentSession.partnerOffer or {}) do
-			makeSlotCard(pet, partnerSlotsGrid, false)
+		for _, item in ipairs(currentSession.partnerOffer or {}) do
+			makeSlotCard(item, partnerSlotsGrid, false)
 		end
 
-		-- Populate Inventory picker
+		-- Populate the picker -- pets or spare relics, whichever tab is up.
 		local data = hud.getData()
-		if data and data.Pets then
+		local shown = 0
+		if data and invTab == "relics" then
+			invLabel.Text = "Your spare relics (click to add one, click again for another):"
+			-- WALKED IN SET ORDER rather than over `data.SetRelics`, so the strip is stable
+			-- between refreshes: a pairs() walk of the save would re-order itself every push and
+			-- the tile under the player's finger would move while they were clicking it.
+			for _, set in ipairs(GameConfig.RelicSets) do
+				for _, relic in ipairs(set.relics) do
+					local spare = GameConfig.GetSpareSetRelics(data, relic.key)
+					if spare > 0 then
+						-- The badge here is HOW MANY YOU HOLD SPARE; the badge on an offer card is
+						-- how many you are giving. Same tile, two questions, and they are the two
+						-- an inventory strip and a review card respectively have to answer.
+						local card = {
+							kind = TradeItems.RELIC,
+							key = relic.key,
+							n = spare,
+							name = relic.name,
+							rarity = relic.rarity,
+							icon = relic.icon,
+							tint = relic.tint,
+							short = (GameConfig.RelicSetForms[relic.order] or {}).name or relic.name,
+						}
+						local offered = offerIndexOf(card)
+						local btn = makeSlotCard(card, invScroll, true, function(clicked)
+							local idx = offerIndexOf(clicked)
+							if not idx then
+								if #myOffer < TradeItems.MaxLines then
+									table.insert(myOffer, { kind = TradeItems.RELIC, key = clicked.key, n = 1 })
+								end
+							elseif myOffer[idx].n < spare then
+								-- one more of the same, up to what is actually spare
+								myOffer[idx].n = myOffer[idx].n + 1
+							else
+								-- past the top of the stack the next press takes the line away, so
+								-- one tile can both build and clear a line with the single input a
+								-- phone has
+								table.remove(myOffer, idx)
+							end
+							sendOffer()
+						end)
+						if offered then
+							btn.BackgroundColor3 = Color3.fromRGB(40, 55, 75)
+						end
+						shown = shown + 1
+					end
+				end
+			end
+		elseif data and data.Pets then
+			invLabel.Text = "Your Pet Inventory (Click to offer/remove):"
 			local equippedSet = {}
 			for _, eqId in ipairs(data.EquippedPetIds or {}) do equippedSet[eqId] = true end
-			local offeredSet = {}
-			for _, offId in ipairs(myOfferIds) do offeredSet[offId] = true end
 
 			for _, pet in ipairs(data.Pets) do
 				if not equippedSet[pet.id] then
 					local def = GameConfig.GetPetDef(pet.key)
 					local pObj = {
+						kind = TradeItems.PET,
 						id = pet.id,
 						key = pet.key,
 						name = def and def.name or pet.key,
 						rarity = def and def.rarity or "Common",
 						emoji = def and def.emoji or "🐾",
 					}
-					local isOffered = offeredSet[pet.id]
-					local btn = makeSlotCard(pObj, invScroll, true, function(id)
-						if isOffered then
-							for idx, val in ipairs(myOfferIds) do
-								if val == id then
-									table.remove(myOfferIds, idx)
-									break
-								end
-							end
-						else
-							if #myOfferIds < 10 then
-								table.insert(myOfferIds, id)
-							end
+					local isOffered = offerIndexOf(pObj) ~= nil
+					local btn = makeSlotCard(pObj, invScroll, true, function(clicked)
+						local idx = offerIndexOf(clicked)
+						if idx then
+							table.remove(myOffer, idx)
+						elseif #myOffer < TradeItems.MaxLines then
+							table.insert(myOffer, { kind = TradeItems.PET, id = clicked.id })
 						end
-						local offerRemote = Remotes:FindFirstChild("TradeSetOffer")
-						if offerRemote then offerRemote:FireServer(myOfferIds) end
+						sendOffer()
 					end)
 					if isOffered then
 						btn.BackgroundColor3 = Color3.fromRGB(40, 55, 75)
 					end
+					shown = shown + 1
 				end
 			end
-			local count = #data.Pets
-			invScroll.CanvasSize = UDim2.new(0, 0, 0, math.ceil(count / 8) * 90 + 10)
 		end
+		invScroll.CanvasSize = UDim2.new(0, 0, 0, math.ceil(shown / 8) * 90 + 10)
 
 		-- Status labels
 		if currentSession.myConfirmed then
@@ -501,6 +618,44 @@ return function(hud)
 		end
 	end
 
+	-- ========================================================================
+	-- THE PICKER'S TWO TABS (30.7)
+	-- ========================================================================
+	-- Built here, below `refreshTradeUI`, and not up with the rest of the modal: a button created
+	-- earlier that called `refreshTradeUI` would capture a GLOBAL of that name rather than the
+	-- local declared afterwards -- the exact fault `tools/luascope.py` exists to catch, and one
+	-- Luau compiles happily.
+	-- `= nil` is not decoration: `tools/luanames.py` swallows a RUN of assignment-free `local`
+	-- lines into one match and then binds none of them, so the `local function` under two bare
+	-- forward declarations reads to it as an undefined global.
+	local relicTabBtn = nil
+	local petTabBtn = nil
+	local function setTab(name)
+		invTab = name
+		UITheme.SetColor(petTabBtn, name == "pets" and UITheme.Color.Blue or UITheme.Color.Locked)
+		UITheme.SetColor(relicTabBtn, name == "relics" and UITheme.Color.Blue or UITheme.Color.Locked)
+		refreshTradeUI()
+	end
+
+	petTabBtn = UITheme.Button(tradeModal, {
+		text = "Pets",
+		color = UITheme.Color.Blue,
+		size = UDim2.new(0, 106, 0, 24),
+		position = UDim2.new(1, -232, 0, topY + 206),
+		fontSize = 14,
+		zIndex = 43,
+	})
+	relicTabBtn = UITheme.Button(tradeModal, {
+		text = "Relics",
+		color = UITheme.Color.Locked,
+		size = UDim2.new(0, 106, 0, 24),
+		position = UDim2.new(1, -122, 0, topY + 206),
+		fontSize = 14,
+		zIndex = 43,
+	})
+	petTabBtn.Activated:Connect(function() setTab("pets") end)
+	relicTabBtn.Activated:Connect(function() setTab("relics") end)
+
 	-- Cancel button
 	cancelTradeBtn.Activated:Connect(function()
 		local cancelRemote = Remotes:FindFirstChild("TradeCancel")
@@ -508,7 +663,7 @@ return function(hud)
 		tradeModal.Visible = false
 		currentSession = nil
 		currentTradeId = nil
-		myOfferIds = {}
+		myOffer = {}
 	end)
 
 	-- Confirm button
@@ -533,17 +688,24 @@ return function(hud)
 				-- because most trades do not end on this client's own button: the other side
 				-- cancels, somebody walks out of range, or the trade completes.
 				currentTradeId = nil
-				myOfferIds = {}
+				myOffer = {}
 				return
 			end
 
 			currentSession = payload
 			currentTradeId = payload.tradeId
 
-			-- sync myOfferIds
-			myOfferIds = {}
-			for _, p in ipairs(payload.myOffer or {}) do
-				table.insert(myOfferIds, p.id)
+			-- Re-seeded from what the SERVER says this side is offering, never from what this
+			-- client last sent. 30.7 makes that matter: `resolveOffer` clamps a relic line to the
+			-- spares actually held, so a line the server shrank has to shrink here too or the next
+			-- press would send the old number back and be refused.
+			myOffer = {}
+			for _, line in ipairs(payload.myOffer or {}) do
+				if line.kind == TradeItems.RELIC then
+					table.insert(myOffer, { kind = TradeItems.RELIC, key = line.key, n = line.n })
+				else
+					table.insert(myOffer, { kind = TradeItems.PET, id = line.id })
+				end
 			end
 
 			if not tradeModal.Visible then

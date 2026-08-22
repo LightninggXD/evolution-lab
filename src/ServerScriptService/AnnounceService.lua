@@ -109,7 +109,10 @@ local TOPIC = "GlobalAnnouncements_v1"
 function AnnounceService.Broadcast(payload, fromMessaging)
 	remote():FireAllClients(payload)
 
-	if not fromMessaging and type(payload) == "table" and (payload.kind == "hatch" or payload.kind == "mutation" or payload.kind == "boss" or payload.kind == "rebirth") then
+	-- 30.7 added "relic" to this list, and adding it is the whole point of the row's sentence about
+	-- AnnounceService: a Mythic collection relic that only lit up its own server would be a rare
+	-- thing nobody else ever hears about, and the reason to want one is that other people do.
+	if not fromMessaging and type(payload) == "table" and (payload.kind == "hatch" or payload.kind == "mutation" or payload.kind == "boss" or payload.kind == "rebirth" or payload.kind == "relic") then
 		task.spawn(function()
 			pcall(function()
 				local crossPayload = {
@@ -166,6 +169,34 @@ function AnnounceService.PetObtained(player, petDef, verb)
 		-- payload between servers the receiving client needs no second code path to phrase it.
 		headline = ("%s %s!"):format(rarity.name:upper(), verb or "HATCH"),
 		subline = ("%s got %s %s"):format(player.DisplayName, petDef.emoji or "", petDef.name or "a pet"),
+	})
+end
+
+-- THE COLLECTION RELIC PUBLISHER (30.7). The rarity gate is at the CALL SITE for this one, the
+-- same split `MutationRolled` uses and for the same reason: "rare enough to announce" here means
+-- Mythic out of the collection layer's own ladder, and this module has no business knowing where
+-- that sits. What belongs here is the cooldown, the position rule and the wording.
+--
+-- Its own cooldown key, so a traded relic and a hatch cannot eat each other -- they are different
+-- events and neither is the other's spam.
+function AnnounceService.RelicObtained(player, relicDef, verb)
+	if not player or not relicDef then return end
+
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	if onCooldown(player, "relic") then return end
+
+	AnnounceService.Broadcast({
+		kind = "relic",
+		position = root.Position,
+		rarity = relicDef.rarity,
+		-- The set's own tint rather than a rarity colour: a collection relic is identified by the
+		-- zone it belongs to, and the panel paints it that way everywhere else.
+		color = relicDef.tint,
+		headline = ("%s RELIC %s!"):format(tostring(relicDef.rarity):upper(), verb or "FOUND"),
+		subline = ("%s got %s %s"):format(player.DisplayName, relicDef.icon or "", relicDef.name or "a relic"),
 	})
 end
 

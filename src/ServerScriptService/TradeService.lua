@@ -83,12 +83,19 @@ local RS = game:GetService("ReplicatedStorage")
 local GameConfig = require(RS.Modules.GameConfig)
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local Telemetry = require(script.Parent.Telemetry)
+local AnnounceService = require(script.Parent.AnnounceService)
+-- 30.7: the offer grammar, shared with `TradePanel` so the two halves cannot disagree about what a
+-- relic line looks like, and the policy check Roblox requires in front of the whole feature.
+local TradeItems = require(RS.Modules.TradeItems)
+local TradePolicy = require(script.Parent.Systems.TradePolicy)
 
 local TradeService = {}
 
 -- Ten a side. Not a storage limit -- a REVIEWABILITY limit: 8.5's summary card exists so a player
 -- can read what they are giving away, and a window holding forty pets is a window nobody reads.
-local MAX_OFFER = 10
+-- 30.7: it moved into `TradeItems` with the rest of the grammar, and it now counts LINES rather
+-- than pets -- a relic line can be a stack of four, and "Forest Shard x4" is one thing to read.
+local MAX_OFFER = TradeItems.MaxLines
 -- Both characters must be within this of each other, at the request AND at the commit. It is the
 -- anti-scam half of 8.1 (a stranger cannot open a window at you from across the map) and the
 -- reason property 1 above holds.
@@ -177,22 +184,60 @@ local function petIndexById(data, petId)
 	return nil
 end
 
-local function resolveOfferPets(userId, offerIds)
+-- RESOLVED FRESH ON EVERY PUSH, and that is what makes the board honest: a pet fused away or a
+-- relic spent since the offer was built simply stops being drawn, on both screens, rather than
+-- lingering as a card the commit is going to refuse.
+--
+-- 30.7: it resolves both kinds now, and every card carries `kind` -- the client has to draw them
+-- differently and must never have to guess from which fields happen to be present.
+local function resolveOffer(userId, offer)
 	local data = dataOf(userId)
 	if not data then return {} end
 	local list = {}
-	for _, id in ipairs(offerIds or {}) do
-		local _, pet = petIndexById(data, id)
-		if pet then
-			local def = GameConfig.GetPetDef(pet.key)
-			table.insert(list, {
-				id = pet.id,
-				key = pet.key,
-				tier = pet.tier or 1,
-				name = def and def.name or pet.key,
-				rarity = def and def.rarity or "Common",
-				emoji = def and def.emoji or "🐾",
-			})
+	for _, item in ipairs(offer or {}) do
+		if item.kind == TradeItems.RELIC then
+			local relic = GameConfig.GetSetRelic(item.key)
+			-- Clamped to what is SPARE right now rather than to what was offered: a player who
+			-- spends a spare mid-window watches their own card shrink instead of watching a
+			-- promise the commit is about to break.
+			local spare = GameConfig.GetSpareSetRelics(data, item.key)
+			local n = math.min(item.n, spare)
+			if relic and n > 0 then
+				table.insert(list, {
+					kind = TradeItems.RELIC,
+					key = relic.key,
+					n = n,
+					name = relic.name,
+					rarity = relic.rarity,
+					-- `icon`, NOT `emoji`: it is an `IconLibrary` name and the client resolves it
+					-- as an image. Naming the field `emoji` is what would put the literal string
+					-- "relic_shard" on a tile.
+					icon = relic.icon,
+					tint = relic.tint,
+					zoneName = relic.zoneName,
+					-- THE NAME DOES NOT FIT AND THE HALF THAT SURVIVES IS THE WRONG HALF. A tile is
+					-- 56 px: "Forest Shard" truncates to "Forest...", and "Desert Sigil" and
+					-- "Desert Shard" then read identically -- photographed 2026-08-22, two tiles
+					-- side by side saying "Desert" and "Volcano" for a Sigil and a Core. The ZONE
+					-- is already said by the tint, which is the whole reason the sets are tinted,
+					-- so the form is what the label has to carry.
+					short = (GameConfig.RelicSetForms[relic.order] or {}).name or relic.name,
+				})
+			end
+		else
+			local _, pet = petIndexById(data, item.id)
+			if pet then
+				local def = GameConfig.GetPetDef(pet.key)
+				table.insert(list, {
+					kind = TradeItems.PET,
+					id = pet.id,
+					key = pet.key,
+					tier = pet.tier or 1,
+					name = def and def.name or pet.key,
+					rarity = def and def.rarity or "Common",
+					emoji = def and def.emoji or "🐾",
+				})
+			end
 		end
 	end
 	return list
@@ -205,8 +250,8 @@ local function pushSession(session, stateOverride)
 	local pA = Players:GetPlayerByUserId(session.a.userId)
 	local pB = Players:GetPlayerByUserId(session.b.userId)
 
-	local petsA = resolveOfferPets(session.a.userId, session.a.offer)
-	local petsB = resolveOfferPets(session.b.userId, session.b.offer)
+	local petsA = resolveOffer(session.a.userId, session.a.offer)
+	local petsB = resolveOffer(session.b.userId, session.b.offer)
 
 	local state = stateOverride or session.state
 
@@ -259,6 +304,21 @@ local function describe(pet)
 	return ("%s %s %s"):format(def.emoji or "", pet.tier or "Normal", def.name or pet.key)
 end
 
+-- The same sentence for a relic line, for the trade log. The count is part of the description
+-- because a relic line is a stack: "Forest Shard" and "Forest Shard x6" are different trades and
+-- a support investigation reading the log has nothing else to tell them apart by.
+--
+-- THE GLYPH IS THE ZONE'S, NOT `relic.icon`. A collection relic's `icon` is an `IconLibrary` NAME
+-- ("relic_shard") and not an emoji -- the first run of this row's probe printed
+-- `relic_shard Forest Shard x2` into the log, which is how the same mistake was caught on the
+-- client tile before anybody photographed it. The set carries the zone's emoji.
+local function describeRelic(key, n)
+	local relic = GameConfig.GetSetRelic(key)
+	if not relic then return ("%s x%d"):format(tostring(key), n) end
+	local set = GameConfig.RelicSetsByZone[relic.zoneKey]
+	return ("%s %s x%d"):format((set and set.emoji) or "", relic.name or key, n)
+end
+
 -- ============================================================================
 -- THE RATE LIMIT (8.4)
 -- ============================================================================
@@ -295,9 +355,15 @@ local function side(session, userId)
 	return nil, nil
 end
 
+-- ONLY PETS ARE RESERVED, and 30.7 deliberately did not add a second table for relics. A pet is a
+-- unique object two windows could name at once; a relic line is a COUNT taken out of one player's
+-- pile, and `sessionOf` already allows that player exactly one live window. What protects the count
+-- is the recheck at commit -- `GetSpareSetRelics` re-read against the save as it stands at that
+-- instant -- which is the same protection a pet has, and the only one that survives the owner
+-- spending it themselves in the meantime.
 local function releaseReservations(session)
 	for _, s in ipairs({ session.a, session.b }) do
-		for _, petId in ipairs(s.offer) do
+		for _, petId in ipairs(TradeItems.PetIds(s.offer)) do
 			if reserved[petId] == session.id then reserved[petId] = nil end
 		end
 	end
@@ -364,6 +430,24 @@ function TradeService.Request(fromUserId, toUserId)
 		return nil, "Stand closer to trade"
 	end
 
+	-- ===== 30.7: ROBLOX'S OWN GATE, IN FRONT OF THE WHOLE FEATURE =====
+	--
+	-- Both sides, because a trade moves goods in both directions and the receiver is acquiring
+	-- exactly as much as the sender is giving. It is here rather than at the commit for two
+	-- reasons. `TradePolicy.Allows` CAN YIELD -- only on the path where the join-time fetch failed,
+	-- but the commit block must never yield at all, so the check cannot live there. And a window
+	-- that opens, fills up and then refuses at the last second is a worse thing to do to somebody
+	-- than one that never opens.
+	--
+	-- The yield is why the two session tests are taken AGAIN below: everything above ran before it,
+	-- and a second press arriving during the round trip would otherwise open a second window.
+	local okFrom, whyFrom = TradePolicy.Allows(fromUserId)
+	if not okFrom then return refuse(fromUserId, whyFrom) end
+	local okTo = TradePolicy.Allows(toUserId)
+	if not okTo then return refuse(fromUserId, "They cannot trade right now") end
+	if TradeService.GetSession(fromUserId) then return refuse(fromUserId, "You are already in a trade") end
+	if TradeService.GetSession(toUserId) then return refuse(fromUserId, "They are already in a trade") end
+
 	lastRequest[fromUserId] = now
 
 	local session = {
@@ -421,54 +505,94 @@ end
 -- ============================================================================
 -- 8.5 (SERVER HALF) -- THE OFFER, AND THE CONFIRMATION RESET
 -- ============================================================================
-function TradeService.SetOffer(userId, petIds)
+-- 30.7 ROUTES EVERY REFUSAL HERE THROUGH `refuse`, which is 15.18's fix arriving one function
+-- late. `SetOffer`'s reasons were returned to a caller that throws them away -- the remote handler
+-- at the bottom of this file ignores the second return -- so a rejected offer did nothing visible
+-- whatsoever. That was survivable while the only reachable refusals were "you do not own that pet"
+-- (a tampered client) and "unequip that pet first" (which the picker already hides). It stops being
+-- survivable now: "that is your only one" is a sentence a normal player meets on their first
+-- attempt to trade a relic, and meeting it in silence is a dead button.
+function TradeService.SetOffer(userId, items)
 	local session = TradeService.GetSession(userId)
-	if not session then return nil, "You are not in a trade" end
+	if not session then return refuse(userId, "You are not in a trade") end
 	-- covers "pending" (not accepted yet) and "committing" (too late) in one test
-	if session.state ~= "open" then return nil, "The trade is not open" end
-	if type(petIds) ~= "table" then return nil, "Bad offer" end
-	if #petIds > MAX_OFFER then return nil, ("At most %d pets each"):format(MAX_OFFER) end
+	if session.state ~= "open" then return refuse(userId, "The trade is not open") end
 
-	local me, them = side(session, userId)
-	if not me then return nil, "You are not in this trade" end
+	-- The grammar check, and the ONLY place the wire's shape is interpreted. Everything below this
+	-- line works on canonical items and never has to ask what type a field is.
+	local offered, badShape = TradeItems.Normalise(items)
+	if not offered then return refuse(userId, badShape) end
+	if #offered > MAX_OFFER then return refuse(userId, ("At most %d things each"):format(MAX_OFFER)) end
+
+	local me = side(session, userId)
+	if not me then return refuse(userId, "You are not in this trade") end
 
 	local data = dataOf(userId)
-	if not data then return nil, "Your data is not loaded" end
+	if not data then return refuse(userId, "Your data is not loaded") end
 
 	-- Validated into a NEW list first and only swapped in once the whole thing is legal, so a
 	-- rejected offer leaves the previous one standing rather than half-applied.
-	local seen, accepted = {}, {}
-	for _, petId in ipairs(petIds) do
-		if type(petId) ~= "string" then return nil, "Bad offer" end
-		if seen[petId] then return nil, "The same pet twice" end
-		local _, pet = petIndexById(data, petId)
-		if not pet then return nil, "You do not own that pet" end
-		-- reserved by SOMEBODY ELSE'S session, or by this one already -- the second is fine
-		if reserved[petId] and reserved[petId] ~= session.id then
-			return nil, "That pet is in another trade"
+	local accepted = {}
+	for _, item in ipairs(offered) do
+		if item.kind == TradeItems.RELIC then
+			-- ===== ONLY THE COLLECTION LAYER, AND ONLY A SPARE =====
+			--
+			-- The fifteen worn relics get their own sentence rather than falling through this
+			-- lookup, because "that relic does not exist" about the Melon Slice in your second slot
+			-- reads as the game being broken. `SetRelicsByKey` and `RelicsByKey` are disjoint by
+			-- construction -- see the header of `GameConfig/Relics.lua` -- so the test is exact
+			-- rather than a guess at the shape of the key.
+			local relic = GameConfig.GetSetRelic(item.key)
+			if not relic then
+				if GameConfig.RelicsByKey[item.key] then
+					return refuse(userId, "Equipped relics are not tradeable")
+				end
+				return refuse(userId, "That relic does not exist")
+			end
+			-- A SPARE IS `copies - 1`, and that rule is written down in `GameConfig/Relics.lua`
+			-- with 30.7 named in it: a trade that could hand over your only copy would break the
+			-- set you are collecting, which is the one thing the collection layer promises. It also
+			-- means a traded key can never leave `data.SetRelics` -- so no trade can un-complete a
+			-- set, and the commit below leans on exactly that.
+			local spare = GameConfig.GetSpareSetRelics(data, item.key)
+			if spare < item.n then
+				if spare <= 0 then
+					return refuse(userId, ("%s is your only one"):format(relic.name))
+				end
+				return refuse(userId, ("You have %d spare %s"):format(spare, relic.name))
+			end
+			table.insert(accepted, item)
+		else
+			local petId = item.id
+			local _, pet = petIndexById(data, petId)
+			if not pet then return refuse(userId, "You do not own that pet") end
+			-- reserved by SOMEBODY ELSE'S session, or by this one already -- the second is fine
+			if reserved[petId] and reserved[petId] ~= session.id then
+				return refuse(userId, "That pet is in another trade")
+			end
+			-- An equipped pet is refused rather than silently unequipped. Unequipping somebody's
+			-- loadout as a side effect of opening a window is the sort of thing that reads as the
+			-- game stealing from you, and the fix is one deliberate press on their side.
+			for _, equippedId in ipairs(data.EquippedPetIds or {}) do
+				if equippedId == petId then return refuse(userId, "Unequip that pet first") end
+			end
+			-- 30.5: AND NOT ONE THAT IS AWAY. The same blind spot as the equipped check above it,
+			-- one step worse: a trade COMMITS by moving the pet into somebody else's save, so an
+			-- away pet traded out leaves its owner holding a dispatch entry for a pet that is now
+			-- another player's -- and the claim would pay the wrong person's collection.
+			if GameConfig.IsPetAway(data, petId) then
+				return refuse(userId, "That pet is away on an adventure")
+			end
+			table.insert(accepted, item)
 		end
-		-- An equipped pet is refused rather than silently unequipped. Unequipping somebody's
-		-- loadout as a side effect of opening a window is the sort of thing that reads as the game
-		-- stealing from you, and the fix is one deliberate press on their side.
-		for _, equippedId in ipairs(data.EquippedPetIds or {}) do
-			if equippedId == petId then return nil, "Unequip that pet first" end
-		end
-		-- 30.5: AND NOT ONE THAT IS AWAY. The same blind spot as the equipped check above it, one
-		-- step worse: a trade COMMITS by moving the pet into somebody else's save, so an away pet
-		-- traded out leaves its owner holding a dispatch entry for a pet that is now another
-		-- player's -- and the claim would pay the wrong person's collection.
-		if GameConfig.IsPetAway(data, petId) then
-			return nil, "That pet is away on an adventure"
-		end
-		seen[petId] = true
-		table.insert(accepted, petId)
 	end
 
-	-- release what this side had claimed, then claim the new list
-	for _, petId in ipairs(me.offer) do
+	-- release what this side had claimed, then claim the new list. Pets only -- see the note over
+	-- `releaseReservations` for why a relic line needs no claim of its own.
+	for _, petId in ipairs(TradeItems.PetIds(me.offer)) do
 		if reserved[petId] == session.id then reserved[petId] = nil end
 	end
-	for _, petId in ipairs(accepted) do
+	for _, petId in ipairs(TradeItems.PetIds(accepted)) do
 		reserved[petId] = session.id
 	end
 	me.offer = accepted
@@ -539,29 +663,56 @@ function TradeService.Commit(tradeId)
 	-- ===== THE RECHECK =====
 	-- Resolved fresh against the current inventories. An id captured when the offer was built can
 	-- have been fused away, and the reservation deliberately does not stop its owner doing that.
+	--
+	-- 30.7: A RELIC LINE IS RE-CHECKED THE SAME WAY AND FOR A STRONGER REASON. It has no
+	-- reservation at all -- there is nothing unique to reserve -- so this test is the only thing
+	-- standing between an offer of four spares and an owner who spent three of them at the forge
+	-- while the window was open. `GetSpareSetRelics` is re-read here rather than trusted from
+	-- `SetOffer`, exactly as `petIndexById` is.
 	local takeA, takeB = {}, {}
-	for _, petId in ipairs(session.a.offer) do
-		local index, pet = petIndexById(dataA, petId)
-		if not index then return nil, "One of those pets is gone" end
-		table.insert(takeA, { index = index, pet = pet })
+	local function gather(data, offer, out)
+		for _, item in ipairs(offer) do
+			if item.kind == TradeItems.RELIC then
+				local relic = GameConfig.GetSetRelic(item.key)
+				if not relic then return "One of those relics is gone" end
+				if GameConfig.GetSpareSetRelics(data, item.key) < item.n then
+					return ("One of those relics is no longer spare (%s)"):format(relic.name)
+				end
+				table.insert(out, { kind = TradeItems.RELIC, key = item.key, n = item.n, relic = relic })
+			else
+				local index, pet = petIndexById(data, item.id)
+				if not index then return "One of those pets is gone" end
+				table.insert(out, { kind = TradeItems.PET, index = index, pet = pet })
+			end
+		end
+		return nil
 	end
-	for _, petId in ipairs(session.b.offer) do
-		local index, pet = petIndexById(dataB, petId)
-		if not index then return nil, "One of those pets is gone" end
-		table.insert(takeB, { index = index, pet = pet })
-	end
+	local gone = gather(dataA, session.a.offer, takeA) or gather(dataB, session.b.offer, takeB)
+	if gone then return nil, gone end
 
 	-- Neither side may be pushed past the collection cap. Counted as a net change, because an even
-	-- swap at exactly 600 is legal and refusing it would be wrong.
-	if #dataA.Pets - #takeA + #takeB > MAX_PETS then return nil, "Their collection is full" end
-	if #dataB.Pets - #takeB + #takeA > MAX_PETS then return nil, "Your collection is full" end
+	-- swap at exactly the cap is legal and refusing it would be wrong.
+	--
+	-- COUNTS PETS, NOT LINES. `MAX_PETS` is the pet collection's ceiling and a relic line has
+	-- nothing to do with it -- counting `#takeA` here after 30.7 would have made a trade of four
+	-- relics look like four pets arriving and refused a legal swap near the cap.
+	local function petCount(list)
+		local n = 0
+		for _, entry in ipairs(list) do
+			if entry.kind == TradeItems.PET then n = n + 1 end
+		end
+		return n
+	end
+	local petsFromA, petsFromB = petCount(takeA), petCount(takeB)
+	if #dataA.Pets - petsFromA + petsFromB > MAX_PETS then return nil, "Their collection is full" end
+	if #dataB.Pets - petsFromB + petsFromA > MAX_PETS then return nil, "Your collection is full" end
 
 	-- Equipped is refused at SetOffer, so this should never fire -- it is here because "should
 	-- never" and "cannot" are different, and a pet that left an inventory while still listed in
 	-- EquippedPetIds is a permanent phantom bonus.
 	for _, s in ipairs({ { session.a.userId, dataA, session.a.offer }, { session.b.userId, dataB, session.b.offer } }) do
 		for _, equippedId in ipairs(s[2].EquippedPetIds or {}) do
-			for _, petId in ipairs(s[3]) do
+			for _, petId in ipairs(TradeItems.PetIds(s[3])) do
 				if equippedId == petId then return nil, "A pet in the trade is equipped" end
 			end
 		end
@@ -576,19 +727,52 @@ function TradeService.Commit(tradeId)
 	-- inventories, and Roblox schedules a fuse or a hatch into exactly that moment eventually.
 	-- =========================================================================
 	local movedA, movedB = {}, {}
-	-- removed by DESCENDING index, so earlier removals cannot shift the ones still to come
-	table.sort(takeA, function(x, y) return x.index > y.index end)
-	table.sort(takeB, function(x, y) return x.index > y.index end)
-	for _, entry in ipairs(takeA) do
-		table.remove(dataA.Pets, entry.index)
-		table.insert(movedA, entry.pet)
+
+	local function moveOut(data, list, moved)
+		-- PETS FIRST AND BY DESCENDING INDEX, so earlier removals cannot shift the ones still to
+		-- come. The relic lines are separated out rather than sorted with them: they carry no
+		-- index at all, and `table.sort` over a mixed list would compare a number with nil.
+		local petEntries = {}
+		for _, entry in ipairs(list) do
+			if entry.kind == TradeItems.PET then table.insert(petEntries, entry) end
+		end
+		table.sort(petEntries, function(x, y) return x.index > y.index end)
+		for _, entry in ipairs(petEntries) do
+			table.remove(data.Pets, entry.index)
+			table.insert(moved, { kind = TradeItems.PET, pet = entry.pet })
+		end
+		for _, entry in ipairs(list) do
+			if entry.kind == TradeItems.RELIC then
+				-- Never below 1, because only spares were offered and the recheck above re-proved
+				-- it a few lines ago. The key therefore stays in the table and the giver's set
+				-- stays complete -- which is the whole reason the spare rule exists.
+				data.SetRelics[entry.key] = (tonumber(data.SetRelics[entry.key]) or 0) - entry.n
+				table.insert(moved, { kind = TradeItems.RELIC, key = entry.key, n = entry.n, relic = entry.relic })
+			end
+		end
 	end
-	for _, entry in ipairs(takeB) do
-		table.remove(dataB.Pets, entry.index)
-		table.insert(movedB, entry.pet)
+
+	local function moveIn(data, moved)
+		for _, entry in ipairs(moved) do
+			if entry.kind == TradeItems.PET then
+				table.insert(data.Pets, entry.pet)
+			else
+				-- **NOT `GameConfig.AddSetRelic`**, and this is the one line in the row where the
+				-- obvious call is the wrong one. `AddSetRelic` pays `RelicDust` for every copy past
+				-- the first -- which is right for a DROP, where the dust is the whole value of a
+				-- duplicate, and is currency MINTING here. Two players with a spare each could
+				-- trade it back and forth and print dust forever. A trade moves goods; it does not
+				-- pay anybody.
+				if type(data.SetRelics) ~= "table" then data.SetRelics = {} end
+				data.SetRelics[entry.key] = (tonumber(data.SetRelics[entry.key]) or 0) + entry.n
+			end
+		end
 	end
-	for _, pet in ipairs(movedA) do table.insert(dataB.Pets, pet) end
-	for _, pet in ipairs(movedB) do table.insert(dataA.Pets, pet) end
+
+	moveOut(dataA, takeA, movedA)
+	moveOut(dataB, takeB, movedB)
+	moveIn(dataB, movedA)
+	moveIn(dataA, movedB)
 	-- =========================================================================
 	-- ...and the swap is done. Everything below may yield freely.
 	-- =========================================================================
@@ -600,12 +784,15 @@ function TradeService.Commit(tradeId)
 		a = { userId = session.a.userId, gave = {} },
 		b = { userId = session.b.userId, gave = {} },
 	}
-	for _, pet in ipairs(movedA) do
-		table.insert(record.a.gave, { id = pet.id, key = pet.key, tier = pet.tier, text = describe(pet) })
+	local function line(entry)
+		if entry.kind == TradeItems.RELIC then
+			return { kind = TradeItems.RELIC, key = entry.key, n = entry.n, text = describeRelic(entry.key, entry.n) }
+		end
+		local pet = entry.pet
+		return { kind = TradeItems.PET, id = pet.id, key = pet.key, tier = pet.tier, text = describe(pet) }
 	end
-	for _, pet in ipairs(movedB) do
-		table.insert(record.b.gave, { id = pet.id, key = pet.key, tier = pet.tier, text = describe(pet) })
-	end
+	for _, entry in ipairs(movedA) do table.insert(record.a.gave, line(entry)) end
+	for _, entry in ipairs(movedB) do table.insert(record.b.gave, line(entry)) end
 
 	closeSession(session, "committed")
 	noteTrade(record.a.userId)
@@ -635,6 +822,29 @@ function TradeService.Commit(tradeId)
 	if playerB then Telemetry.Custom(playerB, "TradeCompleted") end
 	tell(record.a.userId, { kind = "reward", message = "\u{1F91D} Trade complete!" })
 	tell(record.b.userId, { kind = "reward", message = "\u{1F91D} Trade complete!" })
+
+	-- ===== 30.7: THE ONE THING IN A TRADE WORTH TELLING THE OTHER SERVERS ABOUT =====
+	--
+	-- A Mythic collection relic is the top of a twenty-set, two-hundred-relic chase, and
+	-- `AnnounceService` is the only cross-server channel this game has. Announcing it is what makes
+	-- a rare relic worth trading FOR rather than only worth owning -- the point is that other
+	-- people hear about it.
+	--
+	-- Fired for the RECEIVER, because that is who now has it, and after the saves rather than
+	-- inside the swap, because `Broadcast` publishes to MessagingService and therefore yields.
+	-- One per side: `AnnounceService` holds its own per-player cooldown and would swallow the rest
+	-- anyway, and a trade of six Mythics is one event, not six.
+	local function announceMythic(player, moved)
+		if not player then return end
+		for _, entry in ipairs(moved) do
+			if entry.kind == TradeItems.RELIC and entry.relic and entry.relic.rarity == "Mythic" then
+				AnnounceService.RelicObtained(player, entry.relic, "TRADE")
+				return
+			end
+		end
+	end
+	announceMythic(playerB, movedA)
+	announceMythic(playerA, movedB)
 
 	return record
 end
@@ -672,6 +882,10 @@ end
 -- INIT
 -- ============================================================================
 function TradeService.Init()
+	-- 30.7: the policy cache warms itself from here rather than from `ServerMain`, because this is
+	-- the only file that asks it anything -- a second wiring point is a second thing to forget.
+	TradePolicy.Init()
+
 	-- A player leaving is a cancel, not a pause. Their reservations have to go back or the pets
 	-- are locked out of every future trade until the server restarts, and the other side has to be
 	-- told rather than left looking at a window that will never resolve.
@@ -732,8 +946,12 @@ function TradeService.Init()
 	end)
 
 	local offerRemote = ensureRemote("TradeSetOffer")
-	offerRemote.OnServerEvent:Connect(function(player, petIds)
-		TradeService.SetOffer(player.UserId, petIds)
+	-- `items` since 30.7, not `petIds`: the payload is a list of typed lines now and the old name
+	-- would tell the next reader the wrong thing about what arrives here. A bare string is still
+	-- read as a pet id -- see `TradeItems.Normalise` -- so a client that has not reloaded keeps
+	-- working through the update.
+	offerRemote.OnServerEvent:Connect(function(player, items)
+		TradeService.SetOffer(player.UserId, items)
 	end)
 
 	local confirmRemote = ensureRemote("TradeConfirm")
