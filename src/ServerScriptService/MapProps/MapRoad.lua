@@ -63,13 +63,37 @@ local QUADS = 10
 -- is 1.40: anything topping out below that it treats as floor rather than as an obstruction. So the
 -- road's top has to clear 1.18 and stay under 1.40, which leaves very little room and exactly one
 -- sensible answer.
+-- ===== 30.26: IT IS TWO HEIGHTS NOW, AND THE OWNER PHOTOGRAPHED WHY =====
+-- 1.30 is still right AT THE PLAZA and was never right at the other end. The village half of this
+-- road runs over the map's own 0.6-stud ground union, where `MapGates` paints the three village
+-- lanes at 0.80 -- so a ribbon held at 1.30 the whole way stands half a stud proud of the roads it
+-- joins, and its dark rim at 1.22 is drawn straight OVER their bright surface. That is the hard
+-- brown band across the entrance in her capture: not a texture, an outline tier winning a fight it
+-- should never have been in.
+--
+-- So the road DESCENDS -- `MapPaint.Taper`'s `y2`, added for this. 1.30 at the plaza clears
+-- HubPlaza's 1.18 cross band under its own 1.40 `GROUND_CLEAR` ceiling; 0.80 at the village is
+-- `MapGates.TOP` exactly, so the two surfaces meet flush and neither has an edge over the other.
+-- The 1.4 studs of depth are what let it do that without leaving a hole: the slab's underside is
+-- below every floor it crosses at both ends.
+-- ===== AND ITS OWN PLANE IN THE VILLAGE LADDER (30.26) =====
+-- `MapGates` tops its three lanes at 0.80 and this used to top out there too, which is flush and
+-- ALSO coplanar -- the same z-fight as the jungle junctions, in the one place every player walks
+-- through. The village ladder, lowest first, is: egg circle rim 0.64, egg circle 0.72, approach
+-- road 0.76, gate lanes 0.80. Four surfaces, 0.16 of a stud apart end to end, each one drawn over
+-- the one it should be read as lying on.
 local TOP = 1.30
+local TOP_VILLAGE = 0.76
 local THICK = 1.4
 -- The dark rim, drawn first and wider, with its top BELOW the road's. A shell bigger on all three
 -- axes encloses a shape instead of outlining it -- that is HubPlaza's own note about what made the
 -- Splicer a black blob -- so this one is wider and LOWER, never taller.
 local EDGE_TOP = 1.22
-local EDGE_W = 7
+local EDGE_TOP_VILLAGE = 0.68   -- the rim descends with the road it edges, a step under it
+-- 4, not 7. A rim is an OUTLINE and 7 studs of it at the mouth of a 58-stud road is a band. The
+-- village lanes use 6 and are 46 wide; this one is the widest road in the zone and wants the
+-- thinnest proportion, not the thickest.
+local EDGE_W = 4
 local EDGE_SHADE = 0.42
 
 function MapRoad.Build(zoneKey, cx, map)
@@ -87,9 +111,11 @@ function MapRoad.Build(zoneKey, cx, map)
 
 	-- outline first, mass second: `evolution-lab-world-look-pass`
 	local made = MapPaint.Taper(FROM, TO, W_PLAZA + EDGE_W * 2, W_VILLAGE + EDGE_W * 2,
-		folder, cx, edge, EDGE_TOP - THICK / 2, THICK, QUADS, false, true)
+		folder, cx, edge, EDGE_TOP - THICK / 2, THICK, QUADS, false, true,
+		EDGE_TOP_VILLAGE - THICK / 2)
 	made += MapPaint.Taper(FROM, TO, W_PLAZA, W_VILLAGE,
-		folder, cx, dirt, TOP - THICK / 2, THICK, QUADS, false, true)
+		folder, cx, dirt, TOP - THICK / 2, THICK, QUADS, false, true,
+		TOP_VILLAGE - THICK / 2)
 
 	-- The road is street furniture with no prompt on it, but it is the thing that tells a player
 	-- arriving for the first time which way the village is -- so it does not stream out.
@@ -97,8 +123,8 @@ function MapRoad.Build(zoneKey, cx, map)
 		if p:IsA("BasePart") then p.CanQuery = false end
 	end
 
-	print(("[MapRoad] %s: %d parts, %.0f -> %.0f studs wide, z %.0f -> %.0f, top y=%.2f")
-		:format(zoneKey, made, W_PLAZA, W_VILLAGE, FROM.Y, TO.Y, TOP))
+	print(("[MapRoad] %s: %d parts, %.0f -> %.0f studs wide, z %.0f -> %.0f, top y %.2f -> %.2f")
+		:format(zoneKey, made, W_PLAZA, W_VILLAGE, FROM.Y, TO.Y, TOP, TOP_VILLAGE))
 	return made
 end
 

@@ -139,22 +139,48 @@ GameConfig.BossReviveTTL = 180
 -- while they crossed the street would be the same complaint with a receipt attached.
 GameConfig.BossReviveFreeze = 30
 
--- ===== WHERE A BOSS STANDS WHEN THE ZONE IS A MAP (31.4) =====
+-- ===== WHERE A BOSS STANDS WHEN THE ZONE IS A MAP (31.4, MOVED AGAIN IN 30.27) =====
 -- `BossStationZ` puts every boss on the zone's centre line at -368, which in a valley zone is the
--- middle of the street and is exactly right. In the mapped zone it is not: -368 is inside the
--- hunting ground the creatures were folded into, and the centre line is the lane kept open so the
--- player can reach the exit gate at (0, -575). A boss on that line is a wall across the way out.
+-- middle of the street and is exactly right. In the mapped zone it was not: -368 sat inside the
+-- hunting ground the creatures had been folded into, so 31.4 pushed him out into the WESTERN
+-- pocket at (-400, -430) on the owner's *"negde dalje da bude"*.
 --
--- The owner asked for him further away and off in the woods -- *"boss je sad preogroman za ovu mapu
--- treba manji biti ... negde dalje da bude"* -- so a mapped zone puts him in the WESTERN pocket:
--- the strip of platform beyond the village floor's edge (the floor is 682 x 580, the platform is
--- 1250 x 1150), reached by walking out of the village and turning left through the trees. The exit
--- lane stays straight ahead and empty.
+-- **30.23 then filled that pocket with camps and the pocket stopped being empty ground.** He ended
+-- up standing between the `SW3` and `SW4` camps with wood on all sides and no landmark near him,
+-- and the owner photographed exactly that: *"boss stoji random ovde ... boss mora biti kod
+-- portala"*. Confirmed with her this session -- the SOUTH GATE, the door to Desert.
+--
+-- THE Z IS DERIVED AND NOT CHOSEN. The gate stands on the platform's own south wall at
+-- `-PLATFORM_DEPTH / 2` = -575 and its approach steps begin at -502, both recorded above.
+-- `GATE_STANDOFF` is what keeps the rig off those steps: a Forest boss is ~110 studs across its
+-- solid geometry, so 105 studs of standoff leaves its back clear of the stairs while its face is
+-- the last thing between the player and the door. Change the platform depth and this follows; it is
+-- the same rule `MapRidge.Clear` and `MapForest`'s edges are written to.
+--
+-- IT IS BACK ON THE CENTRE LINE, WHICH 31.4 CALLED "a wall across the way out", AND THAT IS THE
+-- POINT NOW. A boss standing in the lane at -368 blocks a walk to a door 200 studs behind it; a
+-- boss standing AT the door is the door's guard, which is what every one of these fights was
+-- designed to be (`BossStationZ`'s own comment, forty lines up: *"the boss is the thing standing in
+-- front of the next door"*). Nothing is blocked either way -- a boss has exactly ONE colliding
+-- part, `BossCollision` at 64 across, so a player walks round it at 32 studs.
 --
 -- Zone-relative, so `zone.offset` is still added. A zone with no entry here keeps BossStationZ.
+local GATE_Z = -575
+local GATE_STANDOFF = 105
 GameConfig.BossStationOverride = {
-	Forest = Vector3.new(-400, 0, -430),
+	Forest = Vector3.new(0, 0, GATE_Z + GATE_STANDOFF),
 }
+
+-- ===== ONE PLACE ASKS, FOUR PLACES USED TO RESTATE =====
+-- `CreatureService.insideKeepOut`, `MapProps/MapForest` and `MapProps/JungleLayout` each reserved
+-- ground for the boss by writing its coordinates out again -- and all three said `(0, -320)` while
+-- the boss had stood at -368 since the platform rescale `BossService.lua:96` records, and at
+-- (-400, -430) since 31.4. Three keep-outs, none of them over the boss. That is
+-- `evolution-lab-zone-geometry-constants` in its purest form, so they ask this instead.
+function GameConfig.GetBossStation(zoneKey)
+	return (GameConfig.BossStationOverride or {})[zoneKey]
+		or Vector3.new(0, 0, GameConfig.BossStationZ)
+end
 
 -- The bosses were tuned as a speed bump on the way to the next portal, and at 18-60 studs they
 -- read as a big mob rather than the raid monster the art brief asks for. Applied as one pass over

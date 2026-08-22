@@ -39,10 +39,38 @@
 -- what `evolution-lab-relocating-a-prop` means by *trees are not an obstruction to a building, they
 -- are what it stands in*.
 
+local GameConfig = require(game:GetService("ReplicatedStorage").Modules.GameConfig)
 local JungleLayout = require(script.Parent.JungleLayout)
 local MapRidge = require(script.Parent.MapRidge)
 
 local MapForest = {}
+
+-- ===== 30.28: THE WOOD IS THREE LAYERS, NOT ONE BAND =====
+-- 1,124 trees at one size band (0.82..1.28) photographs as an orchard however tight the spacing --
+-- evenly sized trunks in a jittered grid, with bare green between them. Her note was
+-- *"hocu da bas bude ko amazon suma pa da se prolazi kroz nju"*, and what makes rainforest read as
+-- rainforest is the vertical structure: a few EMERGENTS standing clear above everything, a closed
+-- CANOPY at one height, and a floor of UNDERGROWTH dense enough that you cannot see far through it.
+-- All three are drawn from the map's own stock at different scales, so the wood is still made of
+-- the village's art and cannot drift from it.
+-- ===== "RAZDVOJI DRVECE": THE CLUMPS ARE PUSHED APART (30.28, second pass) =====
+-- The first cut clumped undergrowth within 24 studs of a canopy tree whose own crown is 30..85
+-- studs across, so a clump was one merged green mass rather than several trees -- her *"samo
+-- razdvoji drvece i copy paste po mapi"*. The spread is wider than the crown now, so a neighbour
+-- stands BESIDE a tree instead of inside it, and the emergent band came down from 2.15 (a 183-stud
+-- tree, taller than the village is wide) to something that still breaks the canopy line without
+-- becoming the thing you look at.
+local EMERGENT_CHANCE = 0.05
+local EMERGENT_SCALE = { 1.35, 1.7 }
+local CANOPY_SCALE = { 0.80, 1.20 }
+local UNDER_SCALE = { 0.38, 0.62 }
+local UNDER_PER_TREE = { 0, 2 }
+local UNDER_SPREAD = 40
+-- ...and the shrub layer, which is the one thing here NOT made of trees. The map ships bushes and
+-- flowers and they are what stops the forest floor being flat green between the trunks.
+local SHRUB_PER_TREE = { 1, 2 }
+local SHRUB_SCALE = { 0.7, 1.4 }
+local SHRUB_SPREAD = 44
 
 -- A tree, for the purposes of this file, is a top-level child holding a mesh named `Top` -- the
 -- name the source's own foliage uses, 162 of them across the map at 30..85 studs. Sized 30..110 so
@@ -62,6 +90,32 @@ local function treeStock(map)
 				local _, size = c:GetBoundingBox()
 				if size.Y >= 30 and size.Y <= 110 then
 					stock[#stock + 1] = c
+				end
+			end
+		end
+	end
+	return stock
+end
+
+-- The floor layer's stock: the map's own bushes, shrubs and flowers, by the same prefixes
+-- `MapCut.FOLIAGE_PREFIX` uses to decide what a road may cut. Capped at 20 studs so a "Bush" that
+-- is really a tree does not join the undergrowth, and it is fine for this to come back EMPTY -- a
+-- map with no shrubs still gets a three-layer wood, just without a floor.
+local SHRUB_NAMES = { "Bush", "Shrub", "Flower" }
+local function shrubStock(map)
+	local stock = {}
+	for _, c in ipairs(map:GetChildren()) do
+		local size
+		if c:IsA("Model") then
+			size = select(2, c:GetBoundingBox())
+		elseif c:IsA("BasePart") then
+			size = c.Size
+		end
+		if size and size.Y >= 2 and size.Y <= 20 then
+			for _, prefix in ipairs(SHRUB_NAMES) do
+				if c.Name:sub(1, #prefix) == prefix then
+					stock[#stock + 1] = c
+					break
 				end
 			end
 		end
@@ -102,8 +156,10 @@ end
 -- size regardless of the map scale, so a keep-out derived from the map would miss it.
 local PLAZA_HALF_X = 200      -- the deck is 344 wide (|x| <= 172); 200 leaves its kerb a verge
 local PLAZA_Z_NEAR = 55       -- ...and it runs from z = 74 to 422, with the portal behind it
-local BOSS_CLEAR = 150        -- `insideKeepOut` reserves 132 at (0, -320); a canopy is wider
-local BOSS_Z = -320
+-- The boss's ground, ASKED rather than restated (30.27). `BOSS_Z = -320` was typed here while the
+-- boss actually stood at (-400, -430), so for a whole phase the wood was held off an empty disc and
+-- planted straight through the arena. `GameConfig.GetBossStation` is the one answer now.
+local BOSS_CLEAR = 150        -- `insideKeepOut` reserves 132; a canopy is wider than a footprint
 local ROAD_VERGE = 14         -- how far the first trunk stands back from the paint's own edge
 -- ...and the mountains. `MapRidge.Footprints` is asked AFTER `Reseat` has run (see the call order
 -- in `ForestMapService.Init`), so what comes back is where the rock actually ended up rather than
@@ -125,8 +181,9 @@ local function isOpenGround(zoneKey, x, z, spec, segments, ridges)
 		local t = (z - e.zNear) / math.max(e.zFar - e.zNear, 1)
 		if math.abs(x) <= e.halfNear + (e.halfFar - e.halfNear) * t + 20 then return false end
 	end
-	-- the boss's clearing
-	if math.sqrt(x * x + (z - BOSS_Z) ^ 2) < BOSS_CLEAR then return false end
+	-- the boss's clearing, wherever it actually is
+	local boss = GameConfig.GetBossStation(zoneKey)
+	if math.sqrt((x - boss.X) ^ 2 + (z - boss.Z) ^ 2) < BOSS_CLEAR then return false end
 	-- every road, trunk and spur alike
 	if JungleLayout.RoadClearance(zoneKey, x, z, segments) < ROAD_VERGE then return false end
 	-- and every camp: this is what makes a clearing a room rather than a coordinate
@@ -180,8 +237,31 @@ function MapForest.Plant(zoneKey, cx, map, spec)
 	local segments = JungleLayout.Segments(zoneKey)
 	local ridges = MapRidge.Footprints(cx, map)
 
-	local planted, tested = 0, 0
+	local shrubs = shrubStock(map)
+
+	-- One counter per layer, because "planted 2,900 trees" says nothing about whether the wood has
+	-- any structure and a boot log that cannot tell an emergent from a bush cannot catch the day one
+	-- of the three layers silently stops being planted.
+	local tall, canopy, under, floorBits, tested = 0, 0, 0, 0, 0
 	local half = f.spacing / 2
+
+	-- Drawn from the same generator as the trees so the whole wood is one seed: two servers of the
+	-- same place must grow the same forest.
+	local function scatter(px, pz, n, spread, stockList, lo, hi)
+		local made = 0
+		if #stockList == 0 then return 0 end
+		for _ = 1, n do
+			local ox = px + rng:NextNumber(-spread, spread)
+			local oz = pz + rng:NextNumber(-spread, spread)
+			if isOpenGround(zoneKey, ox, oz, spec, segments, ridges) then
+				plantOne(stockList[rng:NextInteger(1, #stockList)], folder, cx + ox, oz, rng,
+					rng:NextNumber(lo, hi))
+				made += 1
+			end
+		end
+		return made
+	end
+
 	local x = -f.xEdge
 	while x <= f.xEdge do
 		local z = f.zSouth
@@ -193,32 +273,39 @@ function MapForest.Plant(zoneKey, cx, map, spec)
 				and isOpenGround(zoneKey, px, pz, spec, segments, ridges)
 				and rng:NextNumber() < density(px, pz, f)
 			then
-				plantOne(stock[rng:NextInteger(1, #stock)], folder, cx + px, pz, rng)
-				planted += 1
-				-- UNDERGROWTH: a smaller tree at the foot of a big one, sometimes two. This is the
-				-- single thing that separates a planted wood from scattered decor -- real forest is
-				-- clumped, and a grid of evenly sized trunks reads as an orchard however well it is
-				-- jittered. They are drawn from the same stock at 0.45..0.7 so they are the same
-				-- art, half-grown.
-				for _ = 1, rng:NextInteger(0, 2) do
-					local ox = px + rng:NextNumber(-22, 22)
-					local oz = pz + rng:NextNumber(-22, 22)
-					if isOpenGround(zoneKey, ox, oz, spec, segments, ridges) then
-						plantOne(stock[rng:NextInteger(1, #stock)], folder, cx + ox, oz, rng,
-							rng:NextNumber(0.45, 0.70))
-						planted += 1
-					end
-				end
+				-- LAYER 1, the emergent: one tree in sixteen, half again as tall as the canopy it
+				-- stands out of. Sparse on purpose -- an emergent that is common is just a canopy at
+				-- a bigger scale, and the whole job of this layer is to break the flat green ceiling
+				-- a single size band draws against the sky.
+				local isTall = rng:NextNumber() < EMERGENT_CHANCE
+				local band = isTall and EMERGENT_SCALE or CANOPY_SCALE
+				plantOne(stock[rng:NextInteger(1, #stock)], folder, cx + px, pz, rng,
+					rng:NextNumber(band[1], band[2]))
+				if isTall then tall += 1 else canopy += 1 end
+
+				-- LAYER 2, the undergrowth: young trees clumped at the foot of the one just
+				-- planted, never sprinkled evenly. Clumping is the single rule that separates a
+				-- planted wood from scattered decor.
+				under += scatter(px, pz, rng:NextInteger(UNDER_PER_TREE[1], UNDER_PER_TREE[2]),
+					UNDER_SPREAD, stock, UNDER_SCALE[1], UNDER_SCALE[2])
+
+				-- LAYER 3, the floor: the map's own bushes and flowers, so the ground between the
+				-- trunks is not flat green. This is what you actually walk past.
+				floorBits += scatter(px, pz, rng:NextInteger(SHRUB_PER_TREE[1], SHRUB_PER_TREE[2]),
+					SHRUB_SPREAD, shrubs, SHRUB_SCALE[1], SHRUB_SCALE[2])
 			end
 			z += f.spacing
 		end
 		x += f.spacing
 	end
 
-	print(("[MapForest] %s: planted %d trees over %d grid cells, spacing %d, keep-outs: village, "
-		.. "plaza, funnel, boss, %d road segments, %d camps, %d mountains")
-		:format(zoneKey or "?", planted, tested, f.spacing, #(segments or {}),
-			#(JungleLayout.Camps(zoneKey) or {}), #ridges))
+	local planted = tall + canopy + under + floorBits
+
+	print(("[MapForest] %s: planted %d over %d cells at spacing %d -- %d emergent / %d canopy / "
+		.. "%d undergrowth / %d shrub (of %d tree and %d shrub protos); keep-outs: village, plaza, "
+		.. "funnel, boss, %d road segments, %d camps, %d mountains")
+		:format(zoneKey or "?", planted, tested, f.spacing, tall, canopy, under, floorBits,
+			#stock, #shrubs, #(segments or {}), #(JungleLayout.Camps(zoneKey) or {}), #ridges))
 	return planted
 end
 

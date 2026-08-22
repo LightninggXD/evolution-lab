@@ -40,6 +40,7 @@ local ForestMapService = require(ServerScriptService.ForestMapService)
 local BoardStats = require(ServerScriptService.MapProps.BoardStats)
 local MapCounters = require(ServerScriptService.MapProps.MapCounters)
 local MapEggs = require(ServerScriptService.MapProps.MapEggs)
+local MapSquare = require(ServerScriptService.MapProps.MapSquare)
 local MapArcade = require(ServerScriptService.MapProps.MapArcade)
 local MapPortals = require(ServerScriptService.MapProps.MapPortals)
 local MapAdventureBoard = require(ServerScriptService.MapProps.MapAdventureBoard)
@@ -101,10 +102,24 @@ MapPortals.Init("Forest")
 -- the middle of the village square. The eggs move onto the map's own egg spots and the stall goes.
 -- The PetShop model keeps its name and its parent throughout -- `PetService.WireKiosks` finds the
 -- eggs by walking it BY NAME, and a rename kills egg buying and Auto Hatch with no error at all.
+--
+-- 30.24 moved the eggs again, off the map's egg row and onto a ring at the square's own centre where
+-- the fountain stood; 30.25 stopped them floating by asking the ground how high it is instead of
+-- carrying the height they had on props this pass deletes.
+--
+-- `MapSquare` runs immediately after and is the "okolo" half of her drawing -- shop, upgrades and
+-- potions ringed around those eggs. IT MUST RUN AFTER EVERY READER OF `MapAnchors`' CACHED `pos`:
+-- moving an instance leaves the census's measured position stale, and `MapCounters` (which wired its
+-- prompts fifteen lines above) is exactly such a reader. It finds its target through the registry's
+-- INSTANCE, so the doors travel with the props -- but a consumer that trusted the coordinate would
+-- not.
 do
 	local forestZone = workspace:FindFirstChild("Zones")
 	forestZone = forestZone and forestZone:FindFirstChild("Forest")
-	if forestZone then MapEggs.Reseat("Forest", forestZone) end
+	if forestZone then
+		MapEggs.Reseat("Forest", forestZone)
+		MapSquare.Arrange("Forest")
+	end
 end
 
 -- Before PlayerDataService, and therefore before anyone can join. The three SoundGroups have to

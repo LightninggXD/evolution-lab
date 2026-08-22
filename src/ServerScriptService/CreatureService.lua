@@ -303,10 +303,29 @@ local SPAWN_RNG = Random.new(20260804)
 
 -- The four keep-out tests, in zone-relative coordinates. Shared by the spawn placer below and by
 -- the roaming target picker in the idle driver -- one definition, so the two can never drift.
-local function insideKeepOut(x, z)
+-- A zone's centre line is unique to it, and it is the only identifier the callers below actually
+-- carry -- `clearOfScenery` takes `zoneX` and a live rig stores it. Built once so the keep-out can
+-- ask `GameConfig` where THIS zone's boss stands rather than restating a coordinate.
+local ZONE_KEY_BY_X = {}
+for _, z in ipairs(GameConfig.Zones) do
+	ZONE_KEY_BY_X[z.offset or 0] = z.key
+end
+
+-- `zoneX` is OPTIONAL and its absence is not a bug. The valley spawn placer works in one zone's
+-- relative frame at a time and never had it; those zones have no boss override, so the default
+-- station is the right answer for them. The two callers that matter for a mapped zone -- the
+-- scenery search and the roaming driver -- both have it.
+local function insideKeepOut(x, z, zoneX)
 	if math.abs(x) < 62 then return true end                                        -- the street
 	if (Vector2.new(x, z) - Vector2.new(0, 490)).Magnitude < 110 then return true end -- arrival
-	if (Vector2.new(x, z) - Vector2.new(0, -320)).Magnitude < 132 then return true end -- the boss
+	-- THE BOSS, ASKED RATHER THAN RESTATED (30.27). This line said `(0, -320)` while the boss stood
+	-- first at -368 and then, from 31.4, at (-400, -430) -- so for two phases the reserved circle
+	-- was up to 250 studs from the thing it was reserving ground for, and creatures were free to
+	-- roam into the arena while an empty disc of the hunting ground stayed bald.
+	local bossStation = GameConfig.GetBossStation(zoneX and ZONE_KEY_BY_X[zoneX] or nil)
+	if (Vector2.new(x, z) - Vector2.new(bossStation.X, bossStation.Z)).Magnitude < 132 then
+		return true
+	end
 	if (Vector2.new(x, z) - Vector2.new(0, -4)).Magnitude < 96 then return true end   -- egg plaza
 	-- and the platform's own edge. NOT the floor's edge: the boundary wall has a rock rampart
 	-- standing in front of it on the playable side, and it reaches up to 38 studs in from the X
@@ -522,7 +541,7 @@ local function clearOfScenery(position, size, zoneX)
 			local a = (i / 8) * math.pi * 2 + ring * 0.4
 			local x = position.X + math.cos(a) * r
 			local z = position.Z + math.sin(a) * r
-			if not insideKeepOut(x - zoneX, z) and not blockedAt(x, position.Y, z, size) then
+			if not insideKeepOut(x - zoneX, z, zoneX) and not blockedAt(x, position.Y, z, size) then
 				return Vector3.new(x, position.Y, z)
 			end
 		end
@@ -534,7 +553,7 @@ local function clearOfScenery(position, size, zoneX)
 	local inward = Vector3.new(zoneX, position.Y, 0)
 	for step = 1, 5 do
 		local p = position:Lerp(inward, step * 0.16)
-		if not insideKeepOut(p.X - zoneX, p.Z) and not blockedAt(p.X, p.Y, p.Z, size) then
+		if not insideKeepOut(p.X - zoneX, p.Z, zoneX) and not blockedAt(p.X, p.Y, p.Z, size) then
 			return p
 		end
 	end
@@ -2667,7 +2686,7 @@ local function driveCreatures(dt)
 							-- and standing in mid-air, or wading through the shelf above it up to its chest.
 							-- Two studs of tolerance covers the ground's own small dressing, nothing more.
 							-- Cheapest test first: a ray costs less than the box query behind it.
-							if not insideKeepOut(cx - rig.zoneX, cz)
+							if not insideKeepOut(cx - rig.zoneX, cz, rig.zoneX)
 								and math.abs(floorAt(cx, cz, rig.floorY) - rig.floorY) <= 2
 								and not blockedAt(cx, rig.home.Y, cz, rig.size) then
 								newTarget = Vector3.new(cx, rig.home.Y, cz)
@@ -2688,7 +2707,7 @@ local function driveCreatures(dt)
 							rig.probeAt = now + 0.25
 							solid = blockedAt(nextPos.X, nextPos.Y, nextPos.Z, rig.size)
 						end
-						if solid or insideKeepOut(nextPos.X - rig.zoneX, nextPos.Z) then
+						if solid or insideKeepOut(nextPos.X - rig.zoneX, nextPos.Z, rig.zoneX) then
 							rig.target = nil
 							rig.waitUntil = now + 0.4
 						else

@@ -176,8 +176,14 @@ local PATHS_FOREST = {
 	{ id = "RE", x1 =  450, z1 =  350, x2 =  450, z2 = -400, w = 40 },
 	{ id = "RNW", x1 = -450, z1 = 350, x2 = -150, z2 =  390, w = 38 },
 	{ id = "RNE", x1 =  450, z1 = 350, x2 =  150, z2 =  390, w = 38 },
-	{ id = "RSW", x1 = -450, z1 = -400, x2 = -30, z2 = -470, w = 38 },
-	{ id = "RSE", x1 =  450, z1 = -400, x2 =  30, z2 = -470, w = 38 },
+	-- The two south legs stop at z = -400 and NOT at -470, which is where they ran until 30.27 moved
+	-- the boss onto the centre line in front of the south gate. Its solid geometry is ~110 studs
+	-- across, so an inner end at (+/-30, -470) was 30 studs from the arena's centre -- a road
+	-- vanishing under a boss. At (+/-30, -400) they are 76 studs out, clear of the body, still
+	-- overlapping the 56-wide main lane so the ring closes, and the walk to the gate is the lane
+	-- itself: out of the village, straight down, boss at the end of it.
+	{ id = "RSW", x1 = -450, z1 = -400, x2 = -30, z2 = -400, w = 38 },
+	{ id = "RSE", x1 =  450, z1 = -400, x2 =  30, z2 = -400, w = 38 },
 }
 
 local ZONES = {
@@ -238,14 +244,28 @@ function JungleLayout.OpeningAngle(zoneKey, camp)
 end
 
 -- The spur that connects one camp to the network: from the nearest trunk point to the camp's own
--- OPENING, not to its centre, so the path ends at the mouth of the clearing rather than in the
--- middle of the creatures. Returns nil when the camp is already standing on a road.
+-- OPENING, so the path arrives at the way in rather than at the back of the camp. Returns nil when
+-- the camp is already standing on a road.
+--
+-- ===== IT OVERSHOOTS THE FLOOR'S EDGE, AND THAT IS 30.26 =====
+-- It used to end at exactly `CAMP_RADIUS`, which is where the clearing's floor disc ends -- and the
+-- floor's dark rim is drawn WIDER than the floor. So the road stopped, the rim carried on for five
+-- more studs, and every one of the twenty camps had a dark band lying across its mouth. The owner
+-- photographed it. `SPUR_OVERSHOOT` runs the road under the rim and onto the floor proper, so the
+-- two dirt surfaces overlap instead of abutting -- which is the same rule `MapPaint`'s end caps
+-- follow, applied at the other kind of join.
+--
+-- It stops short of the leader, not at it: `ESCORT_RING` is 22, so 24 keeps the paint clear of the
+-- creature standing at the centre.
+JungleLayout.SPUR_OVERSHOOT = 14
+
 function JungleLayout.SpurFor(zoneKey, camp)
 	local px, pz, d = JungleLayout.NearestPathPoint(zoneKey, camp.x, camp.z)
 	if not px or d < JungleLayout.CAMP_RADIUS then return nil end
 	local a = JungleLayout.OpeningAngle(zoneKey, camp)
-	local mouthX = camp.x + math.cos(a) * JungleLayout.CAMP_RADIUS
-	local mouthZ = camp.z + math.sin(a) * JungleLayout.CAMP_RADIUS
+	local r = JungleLayout.CAMP_RADIUS - JungleLayout.SPUR_OVERSHOOT
+	local mouthX = camp.x + math.cos(a) * r
+	local mouthZ = camp.z + math.sin(a) * r
 	return { id = camp.id .. "spur", x1 = px, z1 = pz, x2 = mouthX, z2 = mouthZ, w = 26 }
 end
 

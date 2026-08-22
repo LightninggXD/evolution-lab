@@ -22,6 +22,20 @@ MapPaint.DIRT_FALLBACK = Color3.fromRGB(213, 160, 116)
 MapPaint.Y = 0.25            -- clear of a 0.6-stud ground union and under the 0.95 patch ceiling
 MapPaint.THICK = 0.4
 
+-- ===== NO TWO PAINTED SURFACES MAY SHARE A PLANE (30.26) =====
+-- The owner, on a capture of a junction in the wood: *"put je ne jednak"*. It is not the widths and
+-- it is not the colour -- every road here is the same dirt at the same width it was authored at.
+-- It is Z-FIGHTING. A junction stacks a trunk road, a spur, two end caps and a camp floor on top of
+-- one another AT EXACTLY THE SAME Y, and the depth buffer picks a different winner per pixel per
+-- frame, which renders as patches of slightly different tan with ragged edges between them. It is
+-- the terrace shimmer from `evolution-lab-terrace-zfighting`, in a file whose entire job is drawing
+-- coplanar sheets -- so that file's own rule applies: overlapping surfaces get their own plane.
+--
+-- `STEP` is the separation. Big enough for the depth buffer to be certain at any camera distance,
+-- far too small to read as a step underfoot on a 0.4-stud sheet, and the whole ladder still fits
+-- under the 0.95 ceiling `MapPaint.Y` was chosen against.
+MapPaint.STEP = 0.04
+
 -- The colour of the village's ground path, read off the map. A flat, wide UnionOperation is what
 -- that asset uses for its dirt; anything thicker than two studs is a building and anything narrower
 -- than eighty is a plank.
@@ -123,7 +137,11 @@ function MapPaint.Segment(seg, parent, cx, colour, y, thick, caps)
 		cap.Name = "PaintCap"
 		cap.Shape = Enum.PartType.Cylinder
 		cap.Size = Vector3.new(thick, seg.w, seg.w)
-		cap.CFrame = CFrame.new(cx + e[1], y, e[2]) * CFrame.Angles(0, 0, math.pi / 2)
+		-- HALF A STEP BELOW ITS OWN SLAB. A cap is a patch for the notch at a join, so it is always
+		-- overlapped by the road it belongs to -- and a disc coplanar with the slab lying on top of
+		-- it is the single most common z-fight in this file, one per road end, every road.
+		cap.CFrame = CFrame.new(cx + e[1], y - MapPaint.STEP / 2, e[2])
+			* CFrame.Angles(0, 0, math.pi / 2)
 		cap.Anchored = true
 		cap.CanCollide = false
 		cap.CanTouch = false
@@ -145,10 +163,21 @@ end
 -- up and a straight butt would leave a notch down both edges of the road.
 -- `capA` / `capB` default true and are the ROAD's two ends, not each quad's -- every interior join
 -- is capped regardless, because that is the notch the discs are there for.
-function MapPaint.Taper(a, b, wA, wB, parent, cx, colour, y, thick, n, capA, capB)
+--
+-- ===== `y2`: A ROAD MAY DESCEND, AND 30.26 IS WHY IT HAS TO =====
+-- `y` is one plane for the whole ribbon unless `y2` is given, in which case the quads walk from one
+-- to the other. That is not a flourish. The approach road crosses HubPlaza's stone deck at the
+-- plaza end -- where it has to top out at 1.30 to clear the 1.18 cross band -- and the village's own
+-- 0.6-stud ground union at the other, where `MapGates` paints at 0.80. At ONE plane it is either
+-- buried at the plaza or standing 0.5 studs proud of the village with its dark rim drawn OVER the
+-- gate roads, which is exactly the band the owner photographed. A road that descends is the only
+-- shape that is flush at both ends, and the rim descends with it because it is drawn by the same
+-- call.
+function MapPaint.Taper(a, b, wA, wB, parent, cx, colour, y, thick, n, capA, capB, y2)
 	n = n or 8
 	if capA == nil then capA = true end
 	if capB == nil then capB = true end
+	y2 = y2 or y
 	local made = 0
 	for i = 0, n - 1 do
 		local t0, t1 = i / n, (i + 1) / n
@@ -158,10 +187,11 @@ function MapPaint.Taper(a, b, wA, wB, parent, cx, colour, y, thick, n, capA, cap
 		local caps = "b"
 		if i == 0 and capA then caps = "both" end
 		if i == n - 1 and not capB then caps = (caps == "both") and "a" or "none" end
+		local mid = (t0 + t1) / 2
 		made += MapPaint.Segment({
 			x1 = p0.X, z1 = p0.Y, x2 = p1.X, z2 = p1.Y,
-			w = wA + (wB - wA) * ((t0 + t1) / 2),
-		}, parent, cx, colour, y, thick, caps)
+			w = wA + (wB - wA) * mid,
+		}, parent, cx, colour, y + (y2 - y) * mid, thick, caps)
 	end
 	return made
 end

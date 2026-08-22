@@ -75,11 +75,19 @@ local EGG_ANGLES = { math.pi / 2, math.pi * 7 / 6, math.pi * 11 / 6 }
 -- guessed: `MapPaint.Y` (0.25, top at 0.45) is drawn on bare platform at y = 0 and would be BURIED
 -- under the map's own 0.6-stud ground union. `MapGates` paints the village at top 0.80 with 1.4 of
 -- depth, i.e. a centre of 0.10, and the rim below it at 0.72. Same two planes, same reason.
+-- A hair of daylight under the shell, so a seated egg reads as standing on the ground rather than
+-- growing out of it -- and so a floor that is a fraction higher than the ray reported cannot swallow
+-- the bottom of it.
+local EGG_LIFT = 0.4
 local CIRCLE_D = 132
 local CIRCLE_Y = 0.10
 local CIRCLE_THICK = 1.4
-local RIM_EXTRA = 14
-local RIM_Y = 0.02
+-- 6, not 14. A rim is an OUTLINE: seven studs of it on the radius of a 132-stud circle is the wide
+-- dark band the owner photographed lying across the square, because the three village lanes stop
+-- at the circle's edge and the rim carries on past them. Same arithmetic as the camp clearings and
+-- the approach road, all three fixed together in 30.26.
+local RIM_EXTRA = 6
+local RIM_Y = -0.06
 local RIM_SHADE = 0.42
 
 local function isStall(name)
@@ -97,6 +105,17 @@ local function centreOf(inst)
 		return inst.Position
 	end
 	return nil
+end
+
+-- The half-height of a piece, so a column can be seated by its FEET rather than by its centre.
+local function halfHeight(inst)
+	if inst:IsA("Model") then
+		local _, size = inst:GetBoundingBox()
+		return size.Y / 2
+	elseif inst:IsA("BasePart") then
+		return inst.Size.Y / 2
+	end
+	return 0
 end
 
 local function moveBy(inst, delta)
@@ -134,43 +153,21 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 	end
 	table.sort(order)
 
-	-- 2. move each column onto its place on the ring. The DELTA is taken from the egg, not from the
-	--    column's average: the egg is the thing that has to land on the spot, and everything else
-	--    keeps its offset from it, which is what preserves a price card sitting in front and a
-	--    feature pet floating above. XZ only -- see the header.
-	local fountain = MapAnchors.Get(zoneKey, "fountain")
-	local moved = 0
-	if fountain then
-		for i, key in ipairs(order) do
-			local a = EGG_ANGLES[i]
-			if a then
-				local pieces = columns[key]
-				local eggPos = nil
-				for _, c in ipairs(pieces) do
-					if c.Name == "Egg" then eggPos = centreOf(c) break end
-				end
-				if eggPos then
-					local want = fountain.pos + Vector3.new(math.cos(a) * EGG_RING, 0,
-						math.sin(a) * EGG_RING)
-					local delta = Vector3.new(want.X - eggPos.X, 0, want.Z - eggPos.Z)
-					for _, c in ipairs(pieces) do
-						moveBy(c, delta)
-					end
-					moved += 1
-				end
-			end
-		end
-	else
-		warn("[MapEggs] " .. zoneKey .. ": no fountain anchor -- the eggs were left where they were")
-	end
-
-	-- 3. THE FOUNTAIN GOES, AND SO DO THE MAP'S OWN EGG PROPS.
+	-- ===== 2. THE FOUNTAIN AND THE MAP'S EGG PROPS GO FIRST =====
+	-- BEFORE the seating and not after, and the ordering is the whole reason step 3 works. The
+	-- fountain is a 55 x 52 x 55 prop standing at the exact point the eggs are about to be seated
+	-- against, so a ray cast down there while it is still standing measures its rim, not the ground,
+	-- and all three eggs end up on top of a fountain that is then deleted out from under them.
+	-- `evolution-lab-placement-search-ordering` is this same lesson from the other side: a pass only
+	-- ever knows the world that existed when it ran.
+	--
 	-- The fountain is the one landmark in this village nothing is wired to: no prompt, no anchor
 	-- consumer but this line, no service that walks it by name (checked across `src/` --
 	-- `evolution-lab-repointing-a-door` is the standing note that one grep over the instance NAME is
 	-- what separates a move from a silent breakage). The four egg props are the artist's incubators;
 	-- 31.7 stood our columns on three of them and left `King` as scenery. With the real eggs in the
 	-- middle of the square, all four are a second egg row for a player to walk to by mistake.
+	local fountain = MapAnchors.Get(zoneKey, "fountain")
 	local removed = 0
 	if fountain and fountain.inst then
 		fountain.inst:Destroy()
@@ -182,6 +179,60 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 			anchor.inst:Destroy()
 			removed += 1
 		end
+	end
+
+	-- ===== 3. SEAT EACH COLUMN ON THE GROUND IT NOW STANDS OVER (30.25) =====
+	-- 30.24 moved these in XZ and KEPT the Y they had, and the owner photographed three eggs hanging
+	-- in the air. That Y was never a height above the ground: 31.7 landed each egg on the CENTRE of
+	-- a 17.2-stud incubator prop, so it only ever looked right because something solid was under it,
+	-- and this pass deletes exactly those props. A remembered height is not a height.
+	--
+	-- So the floor is ASKED rather than assumed -- one ray per column, at the point the egg is going
+	-- to, with the shop itself excluded so an egg cannot measure its own neighbour. The delta is
+	-- taken from the EGG and applied to every piece in the column, which is what preserves a price
+	-- card sitting in front and a feature pet floating above; and it is a full 3D delta now, where
+	-- 30.24's was XZ only.
+	local fountainTop = fountain and fountain.top or nil
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	rayParams.FilterDescendantsInstances = { shop }
+	rayParams.IgnoreWater = true
+
+	local moved, seated = 0, {}
+	if fountain then
+		for i, key in ipairs(order) do
+			local a = EGG_ANGLES[i]
+			if a then
+				local pieces = columns[key]
+				local egg = nil
+				for _, c in ipairs(pieces) do
+					if c.Name == "Egg" then egg = c break end
+				end
+				local eggPos = egg and centreOf(egg)
+				if eggPos then
+					local wantX = fountain.pos.X + math.cos(a) * EGG_RING
+					local wantZ = fountain.pos.Z + math.sin(a) * EGG_RING
+					-- Started well above the square and thrown far enough to pass through it: the
+					-- village floor is near y = 0 and the ray has to clear the tallest thing it may
+					-- legitimately land on.
+					local hit = workspace:Raycast(Vector3.new(wantX, 300, wantZ),
+						Vector3.new(0, -600, 0), rayParams)
+					-- Falls back to the fountain's own measured surface, then to the map floor. A
+					-- ray that finds nothing means the square is not where this thinks it is, and
+					-- an egg dropped to y = 0 is a visible fault rather than a silent one.
+					local groundY = hit and hit.Position.Y or fountainTop or 0
+					local wantY = groundY + halfHeight(egg) + EGG_LIFT
+					local delta = Vector3.new(wantX - eggPos.X, wantY - eggPos.Y, wantZ - eggPos.Z)
+					for _, c in ipairs(pieces) do
+						moveBy(c, delta)
+					end
+					moved += 1
+					seated[#seated + 1] = ("%.1f"):format(groundY)
+				end
+			end
+		end
+	else
+		warn("[MapEggs] " .. zoneKey .. ": no fountain anchor -- the eggs were left where they were")
 	end
 
 	-- 4. the circle itself, painted where the fountain stood. Parented into the map so a rebuild
@@ -207,10 +258,10 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 		end
 	end
 
-	print(("[MapEggs] %s: dropped %d stall pieces, moved %d egg columns onto the %d-stud ring at "
-		.. "the square's centre, removed %d props (fountain + the map's egg row), painted %d circle "
-		.. "parts")
-		:format(zoneKey, dropped, moved, EGG_RING, removed, circle))
+	print(("[MapEggs] %s: dropped %d stall pieces, seated %d egg columns on the %d-stud ring at the "
+		.. "square's centre (ground y %s), removed %d props (fountain + the map's egg row), painted "
+		.. "%d circle parts")
+		:format(zoneKey, dropped, moved, EGG_RING, table.concat(seated, "/"), removed, circle))
 	return moved
 end
 

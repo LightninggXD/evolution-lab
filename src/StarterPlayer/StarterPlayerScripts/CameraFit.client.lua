@@ -13,18 +13,26 @@
 -- is right -- a half-dissolved player is not a fix -- and the consequence is that an opaque
 -- 35-stud body then fills the frame. Fitting the distance is what makes both correct at once.
 --
--- WHY THIS IS A NUDGE AND NOT A LOCK.
+-- ===== 30.29: IT IS A BAND NOW, NOT A NUDGE, AND THE OLD REASONING WAS WRONG =====
+-- The owner, on a screenshot of her character at the fitted distance: *"vodi se logikom da player
+-- uvek treba biti ovoliko zumiran, eventualno da moze malo da odzumira charactera"* -- this is the
+-- view, permanently, with a little room to pull back and none to push in.
 --
--- `CameraMinZoomDistance` is a floor, and raising it pushes the live camera out immediately;
--- lowering it again does NOT pull the camera back in (measured: min 62.5 put the camera at 64.7,
--- and dropping min to 30 left it at 67.4). So setting the floor for one frame and restoring it
--- moves the camera exactly once and hands the whole range straight back -- somebody who wants to
--- stand in their own eyes at stage 20 can still scroll in, and nobody is fighting the mouse wheel
--- on a timer. A permanent floor would also break the one legitimate close-up the game has: the
--- evolve and hatch reveals both drive the camera themselves.
+-- What was here before set the floor for one frame and handed the whole range straight back, so a
+-- player could scroll to 0.5 and stand inside their own eyes. The stated reason not to keep the
+-- floor was that *"the evolve and hatch reveals both drive the camera themselves"* -- and that is
+-- not a conflict, because **both close-ups in this game set `CameraType.Scriptable`**
+-- (`FirstJoin.client:200`, `PhotoSpot.client:213`), which writes the camera's CFrame directly and
+-- ignores `CameraMinZoomDistance` and `CameraMaxZoomDistance` entirely. A permanent floor cannot
+-- reach them. So the floor stays, and the range is a band: `MIN_FIT` to `MAX_FIT` of the body's own
+-- height.
 --
--- It also never pulls anyone IN. The floor only moves a camera that is closer than the fit, so a
--- player who has zoomed out to look at the zone keeps their view.
+-- WHAT IS STILL TRUE, AND IS WHY THE SHRINK NEEDS ITS OWN LINE. Raising the floor pushes the live
+-- camera out immediately; LOWERING it does not pull the camera back in (measured: min 62.5 put the
+-- camera at 64.7, and dropping min to 30 left it at 67.4). A rebirth takes a stage-20 body back to
+-- stage 1, so without help the player would keep a camera fitted to a body eight times the size of
+-- the one they now have. The CEILING is what pulls a camera in, so a shrink clamps the max to the
+-- new fit for a frame and then opens it back up.
 --
 -- SIZED OFF THE DRAWN BODY, NOT OFF `BodyScale` AND NOT OFF `HipHeight`.
 --
@@ -49,12 +57,15 @@ local player = Players.LocalPlayer
 -- 1.15x of that is closer than the camera has ever been, which would be a change nobody asked for.
 local DEFAULT_ZOOM = 12.5
 
--- How much of the frame the character should take. 1.15x the body's own height, so the fit is a
--- statement about the character rather than about the stage it happens to be at.
-local FIT = 1.15
-
--- The authored floor, restored the moment the nudge has landed.
-local FREE_MIN = 0.5
+-- How much of the frame the character should take. Both are multiples of the body's OWN height, so
+-- the band is a statement about the character rather than about the stage it happens to be at.
+--
+-- 1.15 is the measured fit: a 39.7-stud body at 45.6 studs fills about a third of the frame height
+-- at the game's 70 degree FOV, which is the screenshot she pointed at. 1.9 is *"malo odzumirati"* --
+-- about a fifth of the frame height at the far end, enough to read the zone around you and not
+-- enough to lose the character you are looking at.
+local MIN_FIT = 1.15
+local MAX_FIT = 1.9
 
 -- Height of everything currently DRAWN on the character. Invisible parts are skipped: the
 -- HumanoidRootPart is 13 studs of nothing and the R15 limbs under a generated skin are all at
@@ -89,6 +100,9 @@ local function settledHeight(character)
 end
 
 local fitToken = 0
+-- What the floor was set to last time, so a SHRINK can be told from a growth. Starts at zero, which
+-- makes the first fit of a session a growth and never triggers the pull-in.
+local lastMin = 0
 
 local function fit(character)
 	fitToken += 1
@@ -96,18 +110,28 @@ local function fit(character)
 
 	local height = settledHeight(character)
 	-- A newer evolve started while this one was settling: that fit is the current one, and two
-	-- nudges racing would set the floor off the older body.
+	-- fits racing would set the band off the older body.
 	if token ~= fitToken or not height or not character.Parent then return end
 
-	local target = math.max(DEFAULT_ZOOM, height * FIT)
-	if player.CameraMaxZoomDistance < target then
-		-- The max is a ceiling on the min; without this the floor is silently clamped down to it
-		-- and the nudge does nothing (measured -- a min of 30 read back as a max of 30).
-		player.CameraMaxZoomDistance = target
+	local near = math.max(DEFAULT_ZOOM, height * MIN_FIT)
+	local far = math.max(near, height * MAX_FIT)
+
+	-- ORDER MATTERS BOTH WAYS. The max is a ceiling on the min, so raising the floor through a
+	-- lower ceiling silently clamps it (measured -- a min of 30 read back as a max of 30); and the
+	-- ceiling is the only thing that pulls a live camera IN. So on a growth the ceiling goes up
+	-- first and on a shrink it goes down first, which is also exactly the pull-in a rebirth needs.
+	if near < lastMin then
+		-- shrink: drop the ceiling onto the new fit to drag the camera in, then open the band
+		player.CameraMaxZoomDistance = near
+		player.CameraMinZoomDistance = near
+		task.wait(0.2)
+		if token ~= fitToken or not character.Parent then return end
+		player.CameraMaxZoomDistance = far
+	else
+		player.CameraMaxZoomDistance = far
+		player.CameraMinZoomDistance = near
 	end
-	player.CameraMinZoomDistance = target
-	task.wait(0.2) -- one frame is enough for the camera to take it; 0.2 is enough for a slow one
-	player.CameraMinZoomDistance = FREE_MIN
+	lastMin = near
 end
 
 local function bind(character)

@@ -194,15 +194,21 @@ end
 -- open floor with the stones behind the creatures, framing them. They still collide -- they are the
 -- only solid thing in a camp and a 10-stud boulder you walk through is worse than none -- but there
 -- is no arc of them anywhere near the way in.
-local function buildCamp(zoneKey, camp, stock, parent, cx, rng, dirt)
+local function buildCamp(zoneKey, camp, stock, parent, cx, rng, dirt, yRim, yFloor)
 	local open = JungleLayout.OpeningAngle(zoneKey, camp)
 	local built = 0
 
-	-- 1. the floor, and its rim
+	-- 1. the floor, and its rim.
+	--
+	-- THE RIM IS 3 STUDS ON THE RADIUS AND IT USED TO BE 5, which the owner photographed as a dark
+	-- band lying across the way in. The arithmetic is the whole of 30.26: the rim is drawn WIDER and
+	-- LOWER than the floor, and `SpurFor` used to end the road exactly at the floor's edge -- so
+	-- between the last of the road paint and the outside of the rim there were five studs of dark
+	-- ground, right at the mouth, twenty times over. The spur runs INTO the floor now (see
+	-- `JungleLayout.SpurFor`) and the rim is thin enough to read as an outline rather than a step.
 	local d = JungleLayout.CAMP_RADIUS * 2
-	built += MapPaint.Disc(camp.x, camp.z, d + 10, parent, cx, MapPaint.Shade(dirt, 0.42),
-		MapPaint.Y - 0.06)
-	built += MapPaint.Disc(camp.x, camp.z, d, parent, cx, dirt)
+	built += MapPaint.Disc(camp.x, camp.z, d + 6, parent, cx, MapPaint.Shade(dirt, 0.42), yRim)
+	built += MapPaint.Disc(camp.x, camp.z, d, parent, cx, dirt, yFloor)
 
 	-- 2. the backstop: five low stones spread over the far 180 degrees, standing just off the
 	--    floor's edge so they read as the lip of the clearing rather than as an obstacle in it
@@ -307,21 +313,33 @@ function MapJungle.Build(zoneKey, cx, map)
 	local rng = Random.new(20260822 + math.floor(cx))
 
 	local colour = MapPaint.DirtColour(map)
+	-- ===== A PLANE PER KIND, LOWEST FIRST (30.26) =====
+	-- Everything the jungle paints overlaps something else it paints: spurs run onto camp floors by
+	-- design since this row, trunk roads cross at junctions, and a floor's rim is under both. Drawn
+	-- at one Y they z-fight into the patchwork the owner photographed. The order is what the eye
+	-- should see from the bottom up -- rim, trunk, spur, floor -- and the whole ladder spans 0.16 of
+	-- a stud, which is nothing to walk on and everything to a depth buffer.
+	local Y_RIM = MapPaint.Y - MapPaint.STEP * 2
+	local Y_TRUNK = MapPaint.Y
+	local Y_SPUR = MapPaint.Y + MapPaint.STEP
+	local Y_FLOOR = MapPaint.Y + MapPaint.STEP * 2
 	-- ONE list of trunks and spurs, from `JungleLayout.Segments` -- the same list `MapForest` keeps
 	-- its wood out of. Before 30.23 the spurs were derived here and the planter knew only the
 	-- trunks, so every spur was a road with a wood grown across it.
 	local segments = JungleLayout.Segments(zoneKey) or {}
 	local trunks = #(JungleLayout.Paths(zoneKey) or {})
 	local paved = 0
-	for _, seg in ipairs(segments) do
-		paved += MapPaint.Segment(seg, folder, cx, colour)
+	for i, seg in ipairs(segments) do
+		-- `Segments` returns the trunks first and then one spur per camp, in that order, which is
+		-- what makes the index the test. See `JungleLayout.Segments`.
+		paved += MapPaint.Segment(seg, folder, cx, colour, i <= trunks and Y_TRUNK or Y_SPUR)
 	end
 	local spurs = #segments - trunks
 
 	local rocks = 0
 	if #stock > 0 then
 		for _, camp in ipairs(camps) do
-			rocks += buildCamp(zoneKey, camp, stock, folder, cx, rng, colour)
+			rocks += buildCamp(zoneKey, camp, stock, folder, cx, rng, colour, Y_RIM, Y_FLOOR)
 		end
 	end
 

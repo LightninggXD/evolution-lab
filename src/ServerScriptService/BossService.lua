@@ -2100,9 +2100,10 @@ local function spawnBoss(zone)
 	local boss = zone.boss
 	if not boss then return end
 
-	-- A mapped zone names its own station (31.4): the centre line is the lane to the exit gate
-	-- there, so the boss stands off in the western pocket instead of across it.
-	local station = (GameConfig.BossStationOverride or {})[zone.key] or BOSS_RELATIVE_OFFSET
+	-- A mapped zone names its own station: since 30.27 the Forest boss stands in front of the south
+	-- gate, which is the door it guards. `GetBossStation` is the ONE place that answers this --
+	-- three keep-outs used to restate the coordinates and all three had gone stale.
+	local station = GameConfig.GetBossStation(zone.key) or BOSS_RELATIVE_OFFSET
 	local position = Vector3.new(zone.offset, 0, 0) + station + Vector3.new(0, boss.size * 0.55, 0)
 	-- Built facing +Z, i.e. back up the street toward the arrival gate, so the first thing a player
 	-- coming into the zone sees is the boss's face. The rigs are authored facing local -Z and the

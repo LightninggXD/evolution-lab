@@ -184,7 +184,7 @@ local MAPS = {
 		-- `MapJungle` runs AFTER the planting so nothing would ever say so. 565 / -505 keeps the
 		-- wood in front of the ridge, and still leaves `CreatureService`'s own rampart margin
 		-- (|x| > 575, |z| > 500) untouched.
-		forest = { xEdge = 565, zNorth = 500, zSouth = -505, spacing = 20 },
+		forest = { xEdge = 565, zNorth = 500, zSouth = -505, spacing = 16 },
 		-- The way IN. See the header: the map's northern half is solid wood and the village square
 		-- is behind it, so without this the plaza opens onto a hedge. Tapered, wide end at the
 		-- plaza -- a funnel reads as an entrance and a rectangle reads as a firebreak.
