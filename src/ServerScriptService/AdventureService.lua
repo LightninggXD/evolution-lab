@@ -143,6 +143,43 @@ local function flashPad(pad)
 	end)
 end
 
+-- ===== WHAT THE RUN HUD IS TOLD (30.6) =====
+--
+-- ONE REMOTE, OUTBOUND ONLY, and it is created here rather than in `AdventureRemotes` for the
+-- reason `ExpeditionService` writes over its own `ensureRemote`: which file loads first is a fact
+-- about `ServerMain`'s ordering, and that gets re-ordered. Find-or-create on both sides lands on
+-- the same instance whichever wins, and an unconnected RemoteEvent does nothing.
+--
+-- THE PAYLOAD IS THE RUN, NOT THE COURSE. The client already holds `GameConfig.GetAdventure(key)`
+-- -- every static fact about the route (name, glyph, par, sections) is in a module it can read --
+-- so sending them again would be a second copy that can go stale against a rebuilt strip. What
+-- only the server knows is which checkpoint you are on and when you started.
+--
+-- `startedAt` IS SERVER TIME, NOT `os.clock()`. The run's own clock is `os.clock()` because it is
+-- a duration measured entirely inside one machine; a HUD counting up has to survive the trip, and
+-- `workspace:GetServerTimeNow()` is the one clock both sides can subtract from.
+local AdventureState = Remotes:FindFirstChild("AdventureState")
+if not AdventureState then
+	AdventureState = Instance.new("RemoteEvent")
+	AdventureState.Name = "AdventureState"
+	AdventureState.Parent = Remotes
+end
+
+local function pushState(player)
+	local run = runs[player]
+	if not run then
+		AdventureState:FireClient(player, { running = false })
+		return
+	end
+	AdventureState:FireClient(player, {
+		running = true,
+		key = run.key,
+		index = run.index,
+		sections = run.sections,
+		startedAt = run.serverStart,
+	})
+end
+
 -- ===== BUILDING AND WIRING =====
 
 local function registerAnimated(model)
@@ -196,6 +233,8 @@ local function wireMap(model)
 					-- mutation toast all over again. 30.6 owns the run HUD; this is what the world
 					-- says on its own.
 					flashPad(part)
+					-- ...and the HUD's own "2 / 4" moves with it (30.6).
+					pushState(player)
 				end)
 			elseif part.Name == "FinishPad" then
 				part.Touched:Connect(function(hit)
@@ -262,20 +301,13 @@ function AdventureService.HandleEnter(player, routeKey, petId)
 	local pet = GameConfig.GetPetById(data, petId)
 	local status = GameConfig.GetAdventureStatus(data, route.key, pet)
 	if not status.ready then
-		local message
-		if status.reason == "capped" then
-			message = "\u{1F5FA} That is both adventures for today -- come back tomorrow!"
-		elseif status.reason == "nopet" then
-			message = "Pick a pet to take with you!"
-		elseif status.reason == "away" then
-			message = "That pet is already out on an adventure!"
-		elseif status.reason == "power" then
-			message = ("\u{1F512} %s wants a pet of power %.2f -- yours is %.2f.")
-				:format(route.name, route.minPetPower, status.petPower)
-		else
-			message = "That adventure is not available."
-		end
-		Remotes.Notify:FireClient(player, { kind = "error", message = message })
+		-- QUOTED, NOT WRITTEN (30.6). The four sentences used to live here; they live beside the
+		-- function that decides them now, because the panel greys the PLAY button with the same
+		-- `status.reason` and has to say why in the same words. See the note over the function.
+		Remotes.Notify:FireClient(player, {
+			kind = "error",
+			message = GameConfig.GetAdventureRefusal(status, "play"),
+		})
 		return false, status.reason
 	end
 
@@ -313,6 +345,8 @@ function AdventureService.HandleEnter(player, routeKey, petId)
 		-- -- `GetPetById` at the finish line simply returns nil and the luck loses that one term.
 		petId = petId,
 		startedAt = os.clock(),
+		-- The same instant on a clock the CLIENT can read too -- see the note over `pushState`.
+		serverStart = workspace:GetServerTimeNow(),
 		-- PER RUN, because the twenty lanes sit on five different decks (`AdventureMap`'s lane
 		-- block). One `voidY` read once at Init would catch route 1's fall 1,280 studs above
 		-- route 5's floor -- i.e. it would teleport a player who had not fallen at all.
@@ -335,6 +369,7 @@ function AdventureService.HandleEnter(player, routeKey, petId)
 	-- AFTER the travel, not before: `travel` anchors the root part and hands it back at the end, and
 	-- a character that is mid-handshake has not necessarily got its Humanoid where we can see it.
 	applyCourseProfile(player)
+	pushState(player)
 	return true
 end
 
@@ -342,6 +377,10 @@ local function endRun(player)
 	local run = runs[player]
 	runs[player] = nil
 	restoreProfile(player)
+	-- HERE AND NOT IN THE CALLERS. `HandleLeave` and `HandleFinish` both end up in this function,
+	-- and a HUD left on screen after a run ended is the shape of bug that survives a whole session
+	-- because the panel it belongs to is shut.
+	pushState(player)
 	return run
 end
 
@@ -411,6 +450,10 @@ function AdventureService.Init()
 		player.CharacterAdded:Connect(function()
 			if runs[player] then
 				runs[player] = nil
+				-- Not through `endRun`: the profile belongs to a body that no longer exists, and
+				-- `restoreProfile` on a fresh character would apply the OLD run's speed to it. The
+				-- HUD still has to be told, or it counts up forever beside a respawned player.
+				pushState(player)
 			end
 		end)
 	end)

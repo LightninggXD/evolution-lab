@@ -35,12 +35,14 @@ local TradeService = require(ServerScriptService.TradeService)
 local MinigameService = require(ServerScriptService.MinigameService)
 local ExpeditionService = require(ServerScriptService.ExpeditionService)
 local AdventureService = require(ServerScriptService.AdventureService)
+local AdventureRemotes = require(ServerScriptService.AdventureRemotes)
 local ForestMapService = require(ServerScriptService.ForestMapService)
 local BoardStats = require(ServerScriptService.MapProps.BoardStats)
 local MapCounters = require(ServerScriptService.MapProps.MapCounters)
 local MapEggs = require(ServerScriptService.MapProps.MapEggs)
 local MapArcade = require(ServerScriptService.MapProps.MapArcade)
 local MapPortals = require(ServerScriptService.MapProps.MapPortals)
+local MapAdventureBoard = require(ServerScriptService.MapProps.MapAdventureBoard)
 local Telemetry = require(ServerScriptService.Telemetry)
 
 -- ===== STREAMING =====
@@ -224,6 +226,18 @@ MapArcade.Init("Forest", 0)
 -- lazily built map can never be in that scan whatever order this runs in. `AdventureService` wires
 -- its own gates at build time instead -- see the header of that file.
 AdventureService.Init()
+-- AFTER IT, AND ONLY BECAUSE OF ONE REMOTE. `AdventureService` find-or-creates `AdventureState`
+-- for its own outbound run pushes and this file find-or-creates the five inbound doors, so either
+-- order lands on the same instances -- but the doors call into that service, and a door connected
+-- before the folder it drives exists is the shape of bug 30.6 spent the whole row avoiding.
+AdventureRemotes.Init()
+-- ...and the board those doors are opened FROM. It reads no other service's state -- not even
+-- `MapAnchors`, because the village map ships no adventure board to adopt -- so its only ordering
+-- constraint is that it stands after the Forest furniture which searches the plaza for a clear spot
+-- (`SplicerService` and `HubPlaza` above), and it does. Its coordinate is authored and never
+-- searched for, which cuts both ways: it cannot be displaced by anything, and it cannot get out of
+-- anything's way either. If it lands on top of a house, that is a coordinate to re-measure.
+MapAdventureBoard.Init("Forest", 0)
 
 -- Hook evolution -> zone unlock checks + visual update (kept out of DNAService to avoid circular requires)
 DNAService.OnEvolve = function(player, data)

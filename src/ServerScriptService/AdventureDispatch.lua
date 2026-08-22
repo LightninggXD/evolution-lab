@@ -61,20 +61,10 @@ function AdventureDispatch.Send(player, routeKey, petId)
 	local pet = GameConfig.GetPetById(data, petId)
 	local status = GameConfig.GetAdventureStatus(data, route.key, pet)
 	if not status.canSend then
-		if status.sendReason == "nopet" then
-			refuse(player, "Pick a pet to send!")
-		elseif status.sendReason == "away" then
-			refuse(player, "That pet is already out on an adventure!")
-		elseif status.sendReason == "power" then
-			refuse(player, ("\u{1F512} %s wants a pet of power %.2f -- yours is %.2f.")
-				:format(route.name, route.minPetPower, status.petPower))
-		elseif status.sendReason == "slots" then
-			refuse(player, ("All %d adventure slots are full -- rebirth for another!"):format(status.slots))
-		elseif status.sendReason == "capped" then
-			refuse(player, "\u{1F5FA} That is every pet you can send today -- come back tomorrow!")
-		else
-			refuse(player, "That adventure is not available.")
-		end
+		-- QUOTED, NOT WRITTEN (30.6). The five sentences moved to `GetAdventureRefusal`, beside the
+		-- function that decides them, so the SEND button's greyed-out caption on the panel and this
+		-- toast are one string. See the note over it.
+		refuse(player, GameConfig.GetAdventureRefusal(status, "send"))
 		return false, status.sendReason
 	end
 

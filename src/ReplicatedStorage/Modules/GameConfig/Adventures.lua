@@ -431,6 +431,49 @@ function GameConfig.GetAdventureStatus(data, key, pet, now)
 	return status
 end
 
+-- ===== AND WHAT THE REFUSAL SAYS -- ALSO ONE FUNCTION (30.6) =====
+--
+-- Every branch above already had a sentence written for it, TWICE: `AdventureService.HandleEnter`
+-- worded the four PLAY refusals and `AdventureDispatch.Send` worded the five SEND ones, each in its
+-- own file, each fired down `Remotes.Notify`. That was correct while the client had no door -- and
+-- the moment 30.6 draws a greyed-out button it becomes three copies, because the button has to say
+-- why as well. Three copies of a sentence is how a panel ends up saying "not available" to a player
+-- the server is about to refuse with something specific.
+--
+-- So the wording moves HERE, beside the function that decides it, and both services quote it. The
+-- panel prints the same string under the button that the server would have sent as a toast.
+--
+-- `which` IS "play" OR "send", because two of the reasons genuinely differ by button: `capped`
+-- means "that is both adventures for today" on one and "that is every pet you can send today" on
+-- the other, and `slots` can only ever happen to SEND. The rest are shared word for word, which is
+-- the point -- a pet that is too weak is too weak for both, and being told so twice differently
+-- would read as two different rules.
+--
+-- Takes the STATUS, not the reason string, because three of the sentences quote a number that only
+-- the status holds (the route's ask, the pet's power, the slot count).
+function GameConfig.GetAdventureRefusal(status, which)
+	if not status then return "That adventure is not available." end
+	local route = status.route
+	local reason = (which == "send") and status.sendReason or status.reason
+	if reason == "ready" then return nil end
+
+	if reason == "nopet" then
+		return (which == "send") and "Pick a pet to send!" or "Pick a pet to take with you!"
+	elseif reason == "away" then
+		return "That pet is already out on an adventure!"
+	elseif reason == "power" then
+		return ("\u{1F512} %s wants a pet of power %.2f -- yours is %.2f.")
+			:format(route and route.name or "That route", status.minPetPower or 0, status.petPower or 0)
+	elseif reason == "slots" then
+		return ("All %d adventure slots are full -- rebirth for another!"):format(status.slots or 1)
+	elseif reason == "capped" then
+		return (which == "send")
+			and "\u{1F5FA} That is every pet you can send today -- come back tomorrow!"
+			or "\u{1F5FA} That is both adventures for today -- come back tomorrow!"
+	end
+	return "That adventure is not available."
+end
+
 -- ===== THREE THINGS THAT ARE BUGS, AND THEY SAY SO AT LOAD =====
 --
 -- All three run once, cost a couple of dozen lookups, and name the route. They exist because each
