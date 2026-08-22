@@ -162,14 +162,26 @@ return function(hud)
 		end
 	end
 
-	buildTabs(petsPanel, 1, 94)
-	-- 94 is the band's own bottom edge: top 14 + height 68 + gap 12, written out rather than read
-	-- off PanelHeader's second return value, which would cost a top-level register this file has not
-	-- got. The row is 38 tall carrying 34 px tabs, so it ends at 132 and the rule below clears it.
-	buildTabs(inventoryPanel, 2, 94)
+	-- ===== 52, AND 94 WAS A BAND THAT NO LONGER EXISTS (30.10) =====
+	--
+	-- 94 was `PanelHeader`'s content line while the header was a painted accent band: top 14 +
+	-- height 68 + gap 12. **27.1 took the band off the board** and the subtitle became one 26 px
+	-- line, which moved that contract to 14 + 26 + 12 = 52 -- and its own note said every panel
+	-- "gains 42 px of content height for free". These three strips are the panels that did not,
+	-- because the number was written out here rather than read off the second return value (which
+	-- would cost a top-level register this file has not got), and everything in all three panels is
+	-- authored below the strip. That is the 42 px of empty sheet 30.10 photographed across the top
+	-- of the Relics panel; the Pets and Inventory panels carried the identical band and are moved in
+	-- the same pass, because the strip is what a player clicks ACROSS and a strip that sits at two
+	-- heights on three panels jumps under the cursor.
+	--
+	-- The row is 38 tall carrying 34 px tabs, so it now ends at 90 and every content block below it
+	-- came up by the same 42.
+	buildTabs(petsPanel, 1, 52)
+	buildTabs(inventoryPanel, 2, 52)
 	-- Guarded, unlike the two above: those two panels are built in MainUI itself and cannot be
 	-- absent, where this one comes from a sibling module that a future split could reorder.
 	if relicsPanel then
-		buildTabs(relicsPanel, 3, 94)
+		buildTabs(relicsPanel, 3, 52)
 	end
 end

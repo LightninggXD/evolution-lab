@@ -111,7 +111,11 @@ return function(hud)
 	local sockets = Instance.new("Frame")
 	sockets.Name = "Sockets"
 	sockets.Size = UDim2.new(1, -32, 0, 108)
-	sockets.Position = UDim2.new(0, 16, 0, 150)
+	-- 150 -> 108 (30.10): the whole block came up by the 42 px the tab strip above it gave back --
+	-- see the note over `buildTabs`. The 18 px gap under the strip is unchanged; what went is the
+	-- empty sheet that used to sit between the subtitle and a strip still parked on the old
+	-- content line. Every `y` below moved by the same 42, and the page grew by it.
+	sockets.Position = UDim2.new(0, 16, 0, 108)
 	sockets.BackgroundTransparency = 1
 	sockets.ZIndex = baseZ
 	sockets.Parent = panel
@@ -232,7 +236,7 @@ return function(hud)
 	local chestRow = Instance.new("Frame")
 	chestRow.Name = "ChestRow"
 	chestRow.Size = UDim2.new(1, -32, 0, 48)
-	chestRow.Position = UDim2.new(0, 16, 0, 272)
+	chestRow.Position = UDim2.new(0, 16, 0, 230)   -- 272 - 42, see `sockets` (30.10)
 	chestRow.BackgroundTransparency = 1
 	chestRow.ZIndex = baseZ
 	chestRow.Parent = panel
@@ -307,7 +311,7 @@ return function(hud)
 	-- the `gap of N shows as N - 15` rule the HUD layout carries, in its smallest form. At 34 the
 	-- tabs' outlines were cut off along both edges and the strip read as a row of torn labels.
 	tabs.Size = UDim2.new(1, -32, 0, 40)
-	tabs.Position = UDim2.new(0, 16, 0, 326)
+	tabs.Position = UDim2.new(0, 16, 0, 284)   -- 326 - 42, see `sockets` (30.10)
 	tabs.BackgroundTransparency = 1
 	tabs.BorderSizePixel = 0
 	-- HORIZONTAL ONLY. `AutomaticCanvasSize` on a strip that also has a Y canvas of 0 will happily
@@ -336,8 +340,12 @@ return function(hud)
 	-- grid whose children were swapped would have to destroy and rebuild on every tab press --
 	-- which is the flicker the Pets panel carries its own note about -- and would throw away the
 	-- lazy build the moment a player looked at two sets.
-	local PAGE_POS = UDim2.new(0, 16, 0, 370)
-	local PAGE_SIZE = UDim2.new(1, -32, 1, -386)
+	-- 370 - 42, and the height is the one number that GAINS the 42 rather than moving by it: the
+	-- page still ends where it did (528 - 344 = 184 tall from y = 328, i.e. the same bottom edge at
+	-- 512), so the detail strip pinned at `1, -80` still lands fully on the sheet and the grid is
+	-- 42 px taller instead of the top of the panel being empty. That is the whole point of 30.10.
+	local PAGE_POS = UDim2.new(0, 16, 0, 328)
+	local PAGE_SIZE = UDim2.new(1, -32, 1, -344)
 
 	local pages, tabRefs = {}, {}
 	local currentTab = "forge"
@@ -386,8 +394,9 @@ return function(hud)
 	-- room, where one line telling them when the door opens is the true statement.
 	local locked = Instance.new("Frame")
 	locked.Name = "LockedState"
-	locked.Size = UDim2.new(1, -32, 1, -166)
-	locked.Position = UDim2.new(0, 16, 0, 150)
+	-- Covers what the sockets and the grid cover, so it moves and grows with them (30.10).
+	locked.Size = UDim2.new(1, -32, 1, -124)
+	locked.Position = UDim2.new(0, 16, 0, 108)
 	locked.BackgroundTransparency = 1
 	locked.ZIndex = baseZ + 5
 	locked.Visible = false

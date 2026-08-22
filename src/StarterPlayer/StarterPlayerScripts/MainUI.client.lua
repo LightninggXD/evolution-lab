@@ -1482,8 +1482,10 @@ petsScroll.Name = "PetsScroll"
 -- bottom edge is unmoved, so only the top of the scroll changed.
 -- 144 -> 162 and -218 -> -236 (2026-08-17): the odds strip stopped SHARING the tab row and took a
 -- row of its own -- see the note where it is built. 18 px off the top of the scroll, nothing else.
-petsScroll.Size = UDim2.new(1, -44, 1, -236)
-petsScroll.Position = UDim2.new(0, 22, 0, 162)
+-- 162 -> 120 and -236 -> -194 (30.10): the tab row above went back to `PanelHeader`'s real content
+-- line, 42 px up. The action bar on the bottom edge is unmoved, so the shelf simply grew by 42.
+petsScroll.Size = UDim2.new(1, -44, 1, -194)
+petsScroll.Position = UDim2.new(0, 22, 0, 120)
 petsScroll.BackgroundTransparency = 1
 petsScroll.BorderSizePixel = 0
 petsScroll.ScrollBarThickness = 6
@@ -1514,7 +1516,7 @@ petsEmptyLabel.Size = UDim2.new(1, -60, 0, 60)
 -- 120 -> 196: it used to clip the bottom of the odds line by 4 px and would have taken 22 of it
 -- once that line moved down into its own row. 196 also centres it better in the empty scroll area
 -- it is standing in front of.
-petsEmptyLabel.Position = UDim2.new(0, 30, 0, 196)
+petsEmptyLabel.Position = UDim2.new(0, 30, 0, 154)   -- 196 - 42, with the scroll it stands in (30.10)
 petsEmptyLabel.BackgroundTransparency = 1
 petsEmptyLabel.TextWrapped = true
 petsEmptyLabel.ZIndex = petsPanel.ZIndex + UITheme.Z.Content
@@ -1578,7 +1580,7 @@ do
 	-- lines of 345 px do fit in 360 -- but `themeLabel` leaves the label auto-shrinking, so what you
 	-- get is not a clean two-line block, it is the same shrink with a wrap in it.
 	odds.Size = UDim2.new(1, -44, 0, 22)
-	odds.Position = UDim2.new(0, 22, 0, 136)
+	odds.Position = UDim2.new(0, 22, 0, 94)   -- 136 - 42, with the tab row above it (30.10)
 	odds.BackgroundTransparency = 1
 	odds.RichText = true
 	odds.TextXAlignment = Enum.TextXAlignment.Left
@@ -2908,9 +2910,11 @@ local inventoryBoostLine = select(4, UITheme.PanelHeader(inventoryPanel, {
 -- colour was given at all, so an explicit dark one survives, which is the whole point here.
 local INK_ON_WHITE = Color3.fromRGB(108, 116, 140)
 -- One heading now, not two: "Resources" titled a section that no longer exists (10.16).
--- 112 -> 144: header band 14 + 68 + 12 = 94, then the 34 px tab row and a 16 gap. Margin 18 -> 16,
--- which is the one every converted panel uses.
-for _, sec in ipairs({ { "Potions", 144 } }) do
+-- 112 -> 144 -> 102 (30.10): the derivation is unchanged and its first term is not. The header
+-- band went in 27.1, so `PanelHeader`'s content line is 14 + 26 + 12 = 52 rather than 94, and the
+-- tab row above this rule moved with it -- 52 + the 38 px row + a 12 gap. Margin 18 -> 16, which
+-- is the one every converted panel uses.
+for _, sec in ipairs({ { "Potions", 102 } }) do
 	local head = Instance.new("TextLabel")
 	head.Name = "Section_" .. sec[1]
 	head.Size = UDim2.new(1, -32, 0, 30)
@@ -2987,10 +2991,11 @@ end
 -- panel is ever resized again. `PotionEmpty` covers the same rectangle and moves with it.
 local potionScroll = Instance.new("ScrollingFrame")
 potionScroll.Name = "PotionScroll"
--- 146 -> 186 and 18 -> 16: header 94 + tab row 34 + gap 16 = 144 for the "Potions" rule, + 30 + 12.
--- 202 is that 186 plus the 16 of bottom margin, so all four margins agree (16.7's rule, new numbers).
-potionScroll.Size = UDim2.new(1, -32, 1, -202)
-potionScroll.Position = UDim2.new(0, 16, 0, 186)
+-- 146 -> 186 -> 144 (30.10): content line 52 + the 38 px tab row + a 12 gap = 102 for the
+-- "Potions" rule, + its own 30 + 12. 160 is that 144 plus the 16 of bottom margin, so all four
+-- margins still agree (16.7's rule, new numbers) and the shelf is 42 px taller than it was.
+potionScroll.Size = UDim2.new(1, -32, 1, -160)
+potionScroll.Position = UDim2.new(0, 16, 0, 144)
 potionScroll.BackgroundTransparency = 1
 potionScroll.BorderSizePixel = 0
 potionScroll.ScrollBarThickness = 6
@@ -3028,8 +3033,8 @@ end
 -- anything. One grey line over the whole shelf is the honest answer, and the rows go with it.
 local potionEmptyLabel = Instance.new("TextLabel")
 potionEmptyLabel.Name = "PotionEmpty"
-potionEmptyLabel.Size = UDim2.new(1, -32, 1, -202) -- the shelf's rectangle exactly; see 16.7 above
-potionEmptyLabel.Position = UDim2.new(0, 16, 0, 186)
+potionEmptyLabel.Size = UDim2.new(1, -32, 1, -160) -- the shelf's rectangle exactly; see 16.7 above
+potionEmptyLabel.Position = UDim2.new(0, 16, 0, 144)
 potionEmptyLabel.BackgroundTransparency = 1
 potionEmptyLabel.Visible = false
 potionEmptyLabel.Text = "You don't have any Potions!"
