@@ -330,6 +330,25 @@ function GameConfig.GetAdventureLuck(data, route, pet)
 	return luck * ((route and route.luckMult) or 1)
 end
 
+-- ===== WHAT A FINISH IS WORTH (30.4) =====
+--
+-- ONE RELIC ROLL FOR ARRIVING, A SECOND FOR BEATING PAR -- the whole of the manual run's reward,
+-- and the reason the cap note at the top of this file says "at most 9". It is a pure function of
+-- the route and the clock so the panel can promise it before the run and the server can pay it
+-- after, out of the same line.
+--
+-- `seconds` IS ALLOWED TO BE NIL, and that is what the panel passes: no time yet means no par
+-- bonus yet, i.e. one roll, which is exactly what a briefing should quote as the floor.
+--
+-- PAR IS INCLUSIVE. Finishing on the second is beating it -- a strictly-less comparison would make
+-- the one finish a player can actually feel proud of look like a bug.
+function GameConfig.GetAdventureRolls(route, seconds)
+	if not route then return 0, false end
+	local par = tonumber(route.parSeconds) or 0
+	local underPar = seconds ~= nil and par > 0 and seconds <= par
+	return underPar and 2 or 1, underPar
+end
+
 -- ===== WHAT THE PANEL SAYS AND WHAT THE SERVER REFUSES -- ONE FUNCTION =====
 --
 -- Pure over the save, the `GetExpeditionStatus` / `GetSplicerRollCost` shape and for the same

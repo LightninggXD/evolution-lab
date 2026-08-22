@@ -1,15 +1,17 @@
 -- AdventureService -- who is on a course, where their last checkpoint was, and the one Heartbeat
 -- that moves every platform in the feature.
 --
--- 30.3 SCOPE, AND WHAT IS DELIBERATELY NOT HERE YET. This file owns the COURSE: building it on
--- demand, wiring its pads, catching a fall, and getting a player in and out. It owns none of the
--- economy -- no daily run is spent, no relic is rolled, no par bonus is paid, and there is NO
--- RemoteEvent. 30.4 adds the billing and the payout, 30.5 the dispatch, 30.6 the panel.
+-- SCOPE. This file owns the COURSE: building it on demand, wiring its pads, catching a fall, and
+-- getting a player in and out. 30.4 gave the door a PRICE and the finish line a PAYOUT, and the
+-- payout itself lives in `AdventureReward` because 30.5's dispatch claim pays the same table.
+-- 30.5 is the dispatch, 30.6 the panel.
 --
--- **The missing remote is the point, not an omission.** An entry that costs nothing and pays
--- nothing is harmless; an entry wired to the client before it is billed is a free faucet, and this
--- game has shipped one of those before. `HandleEnter` is a server function until 30.4 gives it a
--- price.
+-- **THERE IS STILL NO RemoteEvent, and that is deliberate.** An entry wired to the client before
+-- the panel that explains it exists is a door with no frame -- the client cannot say which pet is
+-- going, and the pet is the whole of the luck. 30.6 opens it, and by then `HandleEnter` refuses
+-- everything it has to refuse: no pet, a pet that is away, a pet under the route's power, and the
+-- daily cap. Each of those is a real branch here, tested from a probe, rather than a promise the
+-- panel will make on the server's behalf.
 --
 -- =====================================================================================
 -- THE GATE TRAP, AND WHY THIS FILE HAS TO WIRE ITS OWN
@@ -52,6 +54,9 @@ local Remotes = RS.Remotes
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local ZoneService = require(script.Parent.ZoneService)
 local AdventureMap = require(script.Parent.AdventureMap)
+-- Not lazy, unlike `EvolutionVisuals` below: `AdventureReward` requires only `GameConfig` and
+-- `PlayerDataService`, both of which this file already holds at the top of itself.
+local AdventureReward = require(script.Parent.AdventureReward)
 
 local AdventureService = {}
 
@@ -234,14 +239,45 @@ end
 
 -- ===== IN, OUT, AND FINISHED =====
 
--- 30.3: no price and no reward. See the header. `HandleEnter` is deliberately not reachable from a
--- client until 30.4 has given it both.
-function AdventureService.HandleEnter(player, routeKey)
+-- ===== THE DOOR, AND IT IS BILLED (30.4) =====
+--
+-- THE RUN IS SPENT ON ENTRY, NOT ON THE FINISH LINE. `ExpeditionService.HandleEnter` settled this
+-- argument in 29.6 and it does not need relitigating: a cost taken at the end is not a cost, it is
+-- a tax on finishing -- walk in, look at the first jump, walk out, and repeat until a course you
+-- like comes up. Everything a player can do with an entry they did not pay for is worth something
+-- (seeing the layout, timing the movers), so the entry is what is charged for.
+--
+-- THE PET IS REQUIRED, ON A RUN THE PLAYER MAKES THEMSELVES. It is not scenery: `GetAdventureLuck`
+-- multiplies the pet's own luck term into the roll this run pays out, and `GetAdventureStatus`
+-- refuses PLAY for a missing, away or under-powered pet before it looks at anything else. The
+-- refusals are quoted from that ONE function rather than re-derived, so the panel's greyed-out
+-- button and the server's `false` can never disagree about why.
+function AdventureService.HandleEnter(player, routeKey, petId)
 	local route = GameConfig.GetAdventure(routeKey)
 	if not route then return false, "no such route" end
 	local data = PlayerDataService.Get(player)
 	if not data then return false, "no data" end
 	if runs[player] then return false, "already running" end
+
+	local pet = GameConfig.GetPetById(data, petId)
+	local status = GameConfig.GetAdventureStatus(data, route.key, pet)
+	if not status.ready then
+		local message
+		if status.reason == "capped" then
+			message = "\u{1F5FA} That is both adventures for today -- come back tomorrow!"
+		elseif status.reason == "nopet" then
+			message = "Pick a pet to take with you!"
+		elseif status.reason == "away" then
+			message = "That pet is already out on an adventure!"
+		elseif status.reason == "power" then
+			message = ("\u{1F512} %s wants a pet of power %.2f -- yours is %.2f.")
+				:format(route.name, route.minPetPower, status.petPower)
+		else
+			message = "That adventure is not available."
+		end
+		Remotes.Notify:FireClient(player, { kind = "error", message = message })
+		return false, status.reason
+	end
 
 	local model = AdventureService.EnsureMap(route)
 	if not model then return false, "no adventures folder" end
@@ -257,6 +293,14 @@ function AdventureService.HandleEnter(player, routeKey)
 			break
 		end
 	end
+	-- SPENT HERE, and before the travel: `SendToAdventure` yields on a client handshake, and a
+	-- second entry fired while the first is mid-handshake would find `runs[player]` still empty.
+	-- The `runs` guard above cannot cover that window; the ledger write can, because it is on the
+	-- save the second call re-reads.
+	local ledger = GameConfig.GetAdventureLedger(data)
+	ledger.DayRuns += 1
+	PlayerDataService.PushToClient(player)
+
 	runs[player] = {
 		key = route.key,
 		tier = route.tier,
@@ -264,6 +308,10 @@ function AdventureService.HandleEnter(player, routeKey)
 		map = model,
 		index = 1,
 		checkpoint = start,
+		-- The ID, not the pet table. A pet can be fused, released or traded while its owner is out
+		-- on the course, and a captured table would pay the finish for a pet that no longer exists
+		-- -- `GetPetById` at the finish line simply returns nil and the luck loses that one term.
+		petId = petId,
 		startedAt = os.clock(),
 		-- PER RUN, because the twenty lanes sit on five different decks (`AdventureMap`'s lane
 		-- block). One `voidY` read once at Init would catch route 1's fall 1,280 studs above
@@ -278,6 +326,10 @@ function AdventureService.HandleEnter(player, routeKey)
 	})
 	if not moved then
 		runs[player] = nil
+		-- GIVEN BACK. The run was spent on a door that then did not open, and a player who is
+		-- standing where they started with one adventure fewer has been charged for nothing.
+		ledger.DayRuns = math.max(ledger.DayRuns - 1, 0)
+		PlayerDataService.PushToClient(player)
 		return false, "could not travel"
 	end
 	-- AFTER the travel, not before: `travel` anchors the root part and hands it back at the end, and
@@ -300,16 +352,32 @@ function AdventureService.HandleLeave(player)
 	return true
 end
 
--- THE SEAM 30.4 OPENS. Everything the finish line is worth -- the par bonus, the two relic rolls,
--- the best-time write into `data.Adventures.Best` and the telemetry beat -- belongs to that row.
--- What 30.3 owes is the other half: the line is reachable, it knows who crossed it and how long
--- they took, and it does not leave the player standing on a platform in the void.
+-- ===== THE FINISH LINE (30.4) =====
+--
+-- THE CLOCK IS READ BEFORE ANYTHING ELSE HAPPENS. `endRun` restores the movement profile, which
+-- requires `EvolutionVisuals` -- half the server -- and `SendHomeFromAdventure` yields on a travel
+-- handshake. Either can take a frame or twenty, and a par bonus decided after them would be paid
+-- for the server's latency rather than the player's run.
+--
+-- THE PAYOUT IS `AdventureReward`'s, NOT THIS FILE'S. See that module's header: 30.5's claim pays
+-- the same table, and the roll must have exactly one implementation.
+--
+-- THE ORDER IS PAY, THEN TRAVEL. A relic granted after `SendHomeFromAdventure` would land while
+-- the screen cover is up, and if the travel were to fail the player would have finished a course
+-- they were charged for and been paid nothing at all.
 function AdventureService.HandleFinish(player)
 	local run = runs[player]
 	if not run then return false end
 	local seconds = os.clock() - run.startedAt
 	local route = GameConfig.GetAdventure(run.key)
 	local par = route and route.parSeconds or 0
+
+	local summary
+	if route then
+		local data = PlayerDataService.Get(player)
+		local pet = data and GameConfig.GetPetById(data, run.petId) or nil
+		summary = AdventureReward.PayFinish(player, route, seconds, pet, "run")
+	end
 
 	endRun(player)
 	ZoneService.SendHomeFromAdventure(player)
@@ -319,9 +387,11 @@ function AdventureService.HandleFinish(player)
 		message = ("\u{1F3C1} %s finished in %.1fs (par %ds)"):format(
 			route and route.name or run.key, seconds, par),
 	})
-	print(("[AdventureService] %s finished %s in %.1fs (par %d)")
-		:format(player.Name, run.key, seconds, par))
-	return true, seconds
+	print(("[AdventureService] %s finished %s in %.1fs (par %d) -- %d roll(s)%s")
+		:format(player.Name, run.key, seconds, par,
+			summary and summary.rolls or 0,
+			summary and summary.record and ", NEW BEST" or ""))
+	return true, seconds, summary
 end
 
 -- ===== INIT =====

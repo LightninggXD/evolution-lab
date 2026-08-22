@@ -952,6 +952,26 @@ function GameConfig.GetPetPower(pet, data)
 	return GameConfig.GetPetBonus(pet.tier, def and def.rarity, pet.key, data, pet.enchant).share
 end
 
+-- ONE PET OUT OF A SAVE, BY ITS ID (30.4).
+--
+-- Three services now take a pet id off a client and have to turn it into the pet: the adventure
+-- door, the dispatch that sends it away, and the claim that brings it back. Every one of them was
+-- about to write the same four-line loop over `data.Pets`, which is the shape this file already
+-- refuses everywhere else -- `GetPetPower` and `GetPetDef` exist for exactly that reason.
+--
+-- It resolves against THIS player's own collection and nothing else, so an id that names somebody
+-- else's pet, a released pet or a fused one comes back `nil` rather than a table the caller then
+-- has to re-check. The id is compared as a string because `HttpService:GenerateGUID` makes one and
+-- a RemoteEvent will happily deliver a number that looks like it.
+function GameConfig.GetPetById(data, petId)
+	if not (data and petId) then return nil end
+	local want = tostring(petId)
+	for _, pet in ipairs(data.Pets or {}) do
+		if tostring(pet.id) == want then return pet end
+	end
+	return nil
+end
+
 -- Strongest first. Ties are broken by key, then tier, then id -- not left to table.sort -- so a
 -- list of duplicates keeps the same order every refresh instead of shuffling under the cursor
 -- while the player is reaching for a button.
