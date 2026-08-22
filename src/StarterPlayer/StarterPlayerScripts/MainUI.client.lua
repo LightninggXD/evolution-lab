@@ -3795,14 +3795,16 @@ require(RS.Modules:WaitForChild("HUD"):WaitForChild("WelcomeBack"))(hudRefs)
 -- * The unfound entries are drawn, named and priced. That is the Journal's rule ("what is still
 --   out there is the whole point of a collection screen"), and here it also does a second job --
 --   the locked row is the only place in the game that says WHERE a mutation comes from.
--- * The chip carries the COUNT, not another glyph. All seven rows would otherwise show the same
---   emoji; the colour is what identifies an aura (it is literally the colour of the particles on
---   your body) and the number beside it is the one fact the save holds that nothing displayed.
+-- * The count is on the card, not on a chip. All seven rows would otherwise show the same emoji;
+--   the colour is what identifies an aura (it is literally the colour of the particles on your
+--   body) and the number is the one fact the save holds that nothing displayed.
 -- * Wearing a WEAKER one is allowed. Both stats rise together with rarity, so this is never an
---   optimisation -- it is the look. The row prints the multiplier it costs you and 15.24's card
+--   optimisation -- it is the look. The card prints the multiplier it costs you and 15.24's card
 --   keeps printing the one you are on, so the trade is stated twice before it is made.
--- MOVED OUT (18.9) to `ReplicatedStorage.Modules.HUD.Quests` -- 200 lines, unchanged.
-require(RS.Modules:WaitForChild("HUD"):WaitForChild("Quests"))(hudRefs)
+-- MOVED OUT (18.9), and RENAMED (31.22). It lived in `HUD.Quests` for three months -- a name it
+-- inherited from the IIFE it was cut out of and which never described it -- and it is
+-- `HUD.AurasPanel` + `HUD.AuraCard` now, redrawn in the card style Kristina photographed.
+require(RS.Modules:WaitForChild("HUD"):WaitForChild("AurasPanel"))(hudRefs)
 
 Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 	local firstPayload = (currentData == nil)
