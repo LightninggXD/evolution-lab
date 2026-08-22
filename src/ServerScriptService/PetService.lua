@@ -460,6 +460,15 @@ function PetService.HandleEquip(player, petId)
 	end
 	if not owned then return end
 
+	-- 30.5: AWAY IS NOT EQUIPPABLE. `AdventureDispatch.Send` takes the pet off the team precisely
+	-- so it stops paying `GetEquippedBonus` while it is somewhere else; without this line the
+	-- player puts it straight back on and the dispatch becomes a way to have the pet twice.
+	if GameConfig.IsPetAway(data, petId) then
+		Remotes.Notify:FireClient(player, { kind = "error",
+			message = "That pet is away on an adventure!" })
+		return
+	end
+
 	for _, id in ipairs(data.EquippedPetIds) do
 		if id == petId then return end -- already equipped
 	end
@@ -502,7 +511,14 @@ function PetService.HandleEquipBest(player)
 	-- `data` threaded through so the ranking honours the zone axis: without it Equip Best would
 	-- keep choosing the pet that was strongest in the zone it hatched in rather than the one that
 	-- is strongest where the player is standing now.
-	local ranked = GameConfig.SortedPetsByPower(data.Pets or {}, data)
+	-- 30.5: THE AWAY PETS ARE FILTERED OUT BEFORE THE RANKING, not after. Equip Best takes the top
+	-- N, so filtering afterwards would silently equip fewer than the slots allow every time the
+	-- strongest pet is the one that was sent -- which is exactly the pet a player sends.
+	local here = {}
+	for _, p in ipairs(data.Pets or {}) do
+		if not GameConfig.IsPetAway(data, p.id) then table.insert(here, p) end
+	end
+	local ranked = GameConfig.SortedPetsByPower(here, data)
 	if #ranked == 0 then
 		Remotes.Notify:FireClient(player, { kind = "error", message = "No pets to equip yet!" })
 		return
@@ -571,11 +587,16 @@ function PetService.HandleDeletePets(player, petIds)
 	local equippedLookup = {}
 	for _, id in ipairs(data.EquippedPetIds or {}) do equippedLookup[id] = true end
 
-	local doomed, equippedHits = {}, 0
+	-- 30.5: AWAY PETS ARE HELD BACK EXACTLY AS EQUIPPED ONES ARE, and counted separately so the
+	-- refusal can say which of the two it was. Releasing a pet that is out on a route would leave
+	-- a dispatch entry pointing at nothing -- a slot the player can never get back.
+	local doomed, equippedHits, awayHits = {}, 0, 0
 	for _, p in ipairs(data.Pets) do
 		if wanted[p.id] then
 			if equippedLookup[p.id] then
 				equippedHits += 1
+			elseif GameConfig.IsPetAway(data, p.id) then
+				awayHits += 1
 			else
 				doomed[p.id] = true
 			end
@@ -585,7 +606,10 @@ function PetService.HandleDeletePets(player, petIds)
 	local count = 0
 	for _ in pairs(doomed) do count += 1 end
 	if count == 0 then
-		if equippedHits > 0 then
+		if awayHits > 0 then
+			Remotes.Notify:FireClient(player, { kind = "error",
+				message = "That pet is away on an adventure!" })
+		elseif equippedHits > 0 then
 			Remotes.Notify:FireClient(player, { kind = "error",
 				message = "Unequip a pet before releasing it!" })
 		end
@@ -623,14 +647,27 @@ function PetService.HandleFuse(player, petKey, tier)
 		return
 	end
 
-	local matches = {}
+	-- 30.5: A COPY THAT IS AWAY IS NOT A COPY YOU HAVE. It is skipped rather than refused, so a
+	-- player with four copies and one out on a route can still fuse the other three -- and the
+	-- away ones are COUNTED, because "Need 3 copies" said to somebody looking at three copies on
+	-- their own screen is the refusal that gets reported as a bug.
+	local matches, awayCopies = {}, 0
 	for _, p in ipairs(data.Pets) do
 		if p.key == petKey and p.tier == tier then
-			table.insert(matches, p)
+			if GameConfig.IsPetAway(data, p.id) then
+				awayCopies += 1
+			else
+				table.insert(matches, p)
+			end
 		end
 	end
 	if #matches < GameConfig.FuseRequirement then
-		Remotes.Notify:FireClient(player, { kind = "error", message = "Need " .. GameConfig.FuseRequirement .. " copies to fuse!" })
+		local message = "Need " .. GameConfig.FuseRequirement .. " copies to fuse!"
+		if awayCopies > 0 then
+			message = ("%d of those copies %s away on an adventure!")
+				:format(awayCopies, awayCopies == 1 and "is" or "are")
+		end
+		Remotes.Notify:FireClient(player, { kind = "error", message = message })
 		return
 	end
 
@@ -755,6 +792,14 @@ function PetService.HandleEnchant(player, petId)
 	end
 	if not pet then return end
 
+	-- 30.5: not while it is out. The roll writes `pet.enchant`, and a stat changing under a pet
+	-- that is away would move the luck of a dispatch already priced and running.
+	if GameConfig.IsPetAway(data, petId) then
+		Remotes.Notify:FireClient(player, { kind = "error",
+			message = "That pet is away on an adventure!" })
+		return
+	end
+
 	local cost = GameConfig.GetEnchantCost(pet)
 	if (data.Diamonds or 0) < cost then
 		Remotes.Notify:FireClient(player, { kind = "error",
@@ -827,6 +872,14 @@ function PetService.HandleTierUp(player, petId)
 		if p.id == petId then pet = p break end
 	end
 	if not pet then return end
+
+	-- 30.5: same as the enchant above -- a Catalyst rewrites `pet.tier`, which is the pet's power,
+	-- which is what the route was gated on when it left.
+	if GameConfig.IsPetAway(data, petId) then
+		Remotes.Notify:FireClient(player, { kind = "error",
+			message = "That pet is away on an adventure!" })
+		return
+	end
 
 	-- Two different refusals with two different messages, because they mean different things to the
 	-- player: one is "this pet is finished", the other is "this is as far as buying goes".

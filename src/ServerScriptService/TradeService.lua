@@ -453,6 +453,13 @@ function TradeService.SetOffer(userId, petIds)
 		for _, equippedId in ipairs(data.EquippedPetIds or {}) do
 			if equippedId == petId then return nil, "Unequip that pet first" end
 		end
+		-- 30.5: AND NOT ONE THAT IS AWAY. The same blind spot as the equipped check above it, one
+		-- step worse: a trade COMMITS by moving the pet into somebody else's save, so an away pet
+		-- traded out leaves its owner holding a dispatch entry for a pet that is now another
+		-- player's -- and the claim would pay the wrong person's collection.
+		if GameConfig.IsPetAway(data, petId) then
+			return nil, "That pet is away on an adventure"
+		end
 		seen[petId] = true
 		table.insert(accepted, petId)
 	end

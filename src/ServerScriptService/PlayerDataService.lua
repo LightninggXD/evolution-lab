@@ -303,6 +303,60 @@ local function fetch(player)
 		LOAD_ATTEMPTS, player.Name, tostring(lastErr)))
 	return false
 end
+-- ===== THE TRIM, LIFTED OUT OF `Load` SO IT CAN BE RUN AGAINST A TABLE (30.5) =====
+--
+-- It was eight lines inside a 400-line load path, which meant the only way to exercise it was to
+-- load a save -- and the only saves over the cap belong to real players. 30.5 made that a problem
+-- worth fixing rather than noting: the rule now decides whether a pet that is AWAY on an adventure
+-- survives, and getting that wrong destroys a pet and strands the dispatch entry that names it.
+--
+-- Pure over `data`, so a probe can hand it a fabricated collection of 105 pets with one away and
+-- read what comes back. `label` is only for the warn line; nothing here touches a `Player`.
+function PlayerDataService.TrimCollection(data, label)
+	if type(data.Pets) == "table" and #data.Pets > GameConfig.MaxOwnedPets
+		and data.PetsTrimmedAt ~= GameConfig.MaxOwnedPets then
+		local before = #data.Pets
+		local equippedLookup = {}
+		for _, id in ipairs(data.EquippedPetIds or {}) do equippedLookup[id] = true end
+
+		-- 30.5: AN AWAY PET IS SEEDED LIKE AN EQUIPPED ONE, and it is not the same argument. An
+		-- equipped pet is kept so the player does not log in to a dismantled team; an away pet is
+		-- kept because `data.Adventures.Dispatch` holds its id, and trimming it would leave an
+		-- entry pointing at nothing -- an adventure slot that can never be freed. It is also the
+		-- one case the ranking cannot protect: `AdventureDispatch.Send` takes the pet OFF the
+		-- equipped list, so a strong pet that is out on a route looks to this trim like any other
+		-- spare copy.
+		local kept, keptLookup = {}, {}
+		for _, p in ipairs(data.Pets) do
+			if (equippedLookup[p.id] or GameConfig.IsPetAway(data, p.id))
+				and #kept < GameConfig.MaxOwnedPets then
+				table.insert(kept, p)
+				keptLookup[p.id] = true
+			end
+		end
+		for _, p in ipairs(GameConfig.SortedPetsByPower(data.Pets, data)) do
+			if #kept >= GameConfig.MaxOwnedPets then break end
+			if not keptLookup[p.id] then
+				table.insert(kept, p)
+				keptLookup[p.id] = true
+			end
+		end
+		data.Pets = kept
+
+		-- an equipped id whose pet did not survive would leave a phantom paying bonuses forever
+		local liveEquipped = {}
+		for _, id in ipairs(data.EquippedPetIds or {}) do
+			if keptLookup[id] then table.insert(liveEquipped, id) end
+		end
+		data.EquippedPetIds = liveEquipped
+
+		data.PetsTrimmedAt = GameConfig.MaxOwnedPets
+		data.PetsReleased = before - #kept
+		warn(("[PlayerDataService] trimmed %s: %d pets -> %d (released %d)")
+			:format(label, before, #kept, data.PetsReleased))
+	end
+	return data.PetsReleased or 0
+end
 
 function PlayerDataService.Load(player)
 	local data = fetch(player)
@@ -475,40 +529,7 @@ function PlayerDataService.Load(player)
 	-- `PetsReleased` is left on the table for the session so PetService can tell the player what
 	-- happened. It is a count, not the pets: keeping the discarded list would defeat the point of a
 	-- ceiling that exists to bound the save.
-	if type(data.Pets) == "table" and #data.Pets > GameConfig.MaxOwnedPets
-		and data.PetsTrimmedAt ~= GameConfig.MaxOwnedPets then
-		local before = #data.Pets
-		local equippedLookup = {}
-		for _, id in ipairs(data.EquippedPetIds or {}) do equippedLookup[id] = true end
-
-		local kept, keptLookup = {}, {}
-		for _, p in ipairs(data.Pets) do
-			if equippedLookup[p.id] and #kept < GameConfig.MaxOwnedPets then
-				table.insert(kept, p)
-				keptLookup[p.id] = true
-			end
-		end
-		for _, p in ipairs(GameConfig.SortedPetsByPower(data.Pets, data)) do
-			if #kept >= GameConfig.MaxOwnedPets then break end
-			if not keptLookup[p.id] then
-				table.insert(kept, p)
-				keptLookup[p.id] = true
-			end
-		end
-		data.Pets = kept
-
-		-- an equipped id whose pet did not survive would leave a phantom paying bonuses forever
-		local liveEquipped = {}
-		for _, id in ipairs(data.EquippedPetIds or {}) do
-			if keptLookup[id] then table.insert(liveEquipped, id) end
-		end
-		data.EquippedPetIds = liveEquipped
-
-		data.PetsTrimmedAt = GameConfig.MaxOwnedPets
-		data.PetsReleased = before - #kept
-		warn(("[PlayerDataService] trimmed %d (%s): %d pets -> %d (released %d)")
-			:format(player.UserId, player.Name, before, #kept, data.PetsReleased))
-	end
+	PlayerDataService.TrimCollection(data, ("%d (%s)"):format(player.UserId, player.Name))
 		-- no field-by-field migration for these two: SeasonPassService rebuilds either one whenever
 		-- its stamp does not match the current season/period, which covers a save that predates them
 		if type(data.Season) ~= "table" then data.Season = {} end
