@@ -185,11 +185,40 @@ local function podium(parent, x, z, groundY, topY, radius, colour)
 	return 2
 end
 
+-- ===== 30.32: AND THE ANCHOR ATTRIBUTE MOVES WITH THE PIECE, OR NOTHING MOVED AT ALL =====
+-- `PetFollowClient` does not READ an egg's CFrame. It WRITES it, on every client, on every frame,
+-- from the model's own `IdleAnchor` attribute -- the bob, the rock and the turntable spin are all
+-- layered on that one stored CFrame, and a `FeaturePet` is driven the same way off `SpinAnchor`.
+-- So a column moved by `PivotTo` alone is moved on the server and put straight back by every client
+-- on the next frame.
+--
+-- THAT IS WHY 30.31 MEASURED PERFECT AND SHE PHOTOGRAPHED THREE EGGS BESIDE THEIR PODIUMS. On the
+-- server every egg bottom sat on its podium top to within two hundredths of a stud; on her screen
+-- the eggs were still standing in the old stall row at x = -32 / 0 / +32, z = 0, with three empty
+-- plinths out on the ring. The price cards, the odds boards and the podiums are plain parts and had
+-- all replicated correctly, which is exactly what made it read as "the eggs are not on the pads"
+-- rather than as "nothing moved".
+--
+-- No server-side measurement can ever see this. `evolution-lab-probe-routes-blocked` is the standing
+-- note and this is a new instance of it: the only datamodel that holds the truth is the CLIENT, and
+-- the one-line check is `workspace.Zones.Forest.PetShop` read in the Client datamodel.
+local ANCHOR_ATTR = { Egg = "IdleAnchor", FeaturePet = "SpinAnchor" }
+
 local function moveBy(inst, delta)
 	if inst:IsA("Model") then
 		inst:PivotTo(inst:GetPivot() + delta)
 	elseif inst:IsA("BasePart") then
 		inst.CFrame = inst.CFrame + delta
+	end
+	-- Shifted rather than recomputed from the piece: the anchor is the SHELL's CFrame and not the
+	-- model's pivot (`EggPlaza` stamps `shell.CFrame`), so re-deriving it here would need to know
+	-- which part the client places from. A delta needs to know nothing.
+	local attr = ANCHOR_ATTR[inst.Name]
+	if attr then
+		local cf = inst:GetAttribute(attr)
+		if typeof(cf) == "CFrame" then
+			inst:SetAttribute(attr, cf + delta)
+		end
 	end
 end
 
@@ -306,12 +335,19 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 					-- above the floor, and never less than `PODIUM_MIN_H`. See the header -- this is
 					-- the number that stopped the price cards being buried.
 					local lift = math.max(groundY + PODIUM_CLEAR - columnLow, PODIUM_MIN_H)
+					-- The egg's REST bottom. It does not stay there: the client bobs it through
+					-- +/- `BobHeight` about this, so a podium topped out exactly here is a podium
+					-- the egg sinks half a stud into twice a second. The plinth stops one bob
+					-- short and the egg kisses it at the bottom of the cycle, which is also her
+					-- own note on what the podium was for -- *"ako vec malo lebde, nesto na cemu
+					-- lebde"*. Read off the model rather than typed, because `EggPlaza` owns it.
 					local eggBottom = eggPos.Y - halfHeight(egg) + lift
+					local bob = egg:GetAttribute("BobHeight") or 0
 					local delta = Vector3.new(wantX - eggPos.X, lift, wantZ - eggPos.Z)
 					for _, c in ipairs(pieces) do
 						moveBy(c, delta)
 					end
-					podium(shop, wantX, wantZ, groundY, eggBottom,
+					podium(shop, wantX, wantZ, groundY, eggBottom - bob,
 						eggSize(egg) / 2 + PODIUM_MARGIN, dirtColour)
 					moved += 1
 					seated[#seated + 1] = ("%.1f/+%.1f"):format(groundY, lift)

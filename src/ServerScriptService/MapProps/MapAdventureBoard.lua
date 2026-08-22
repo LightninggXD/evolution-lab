@@ -38,10 +38,11 @@
 -- the rebuild is a silent no-op.
 
 local ZoneKit = require(script.Parent.Parent.ZoneKit)
+local MapSquare = require(script.Parent.MapSquare)
 
 local MapAdventureBoard = {}
 
-local BOARD_VERSION = 1
+local BOARD_VERSION = 2
 local MODEL_NAME = "AdventureBoard"
 
 -- ===== WHERE IT STANDS =====
@@ -71,9 +72,36 @@ local MODEL_NAME = "AdventureBoard"
 -- z = 10 is the nearest spot on the same X that a footprint scan finds clear -- 18 studs south,
 -- ground at 0.64, with the strip a player stands in to read it clear as well. It also happens to
 -- point the board straight across the square at the fountain, which is what the +X facing was for.
+--
+-- ===== 30.32: AND IT WAS STANDING IN A ROAD, WHICH THAT SCAN COULD NOT SEE =====
+-- *"avanture su na putu"*, and measured she is exactly right: a ray at (-80, 10) lands on
+-- `VillageMap.Union` in a colour that matches `MapPaint.DirtColour` to 0.000, and so does every
+-- neighbour sampled 16 studs out in four directions. This is the artist's own dirt road, and the
+-- footprint scan that cleared this spot only ever asked whether anything was STANDING here -- open
+-- road is the most open ground in the village and passes that test better than anywhere else.
+--
+-- The village already owns the answer. `MapSquare` rings the shops about the eggs and its
+-- `clearOfRoads` is three tests, not one: the generated lanes, the artist's dirt read off the
+-- surface by colour, and whether a building is already there. The board is a door like the other
+-- three, so it asks for a spot on the SAME RING with the SAME TESTS instead of carrying a
+-- hand-measured coordinate that goes stale the next time the map moves. `evolution-lab-zone-geometry
+-- -constants` is the standing note -- one decision, one file.
+--
+-- The entry below is now a FALLBACK and nothing else: where the board goes if the ring is full. A
+-- board on a road is still better than no board, and the log says which one happened.
 local SPOTS = {
 	Forest = { x = -80, z = 10 },
 }
+
+-- Where on the ring it asks to stand. 45 degrees is the north-east quarter -- between the shop's
+-- own bearing (0) and the mouth the approach road arrives through (90), so it is the first corner
+-- of the square a player walking in from the plaza turns to look at.
+local RING_BEARING = 45
+-- The footprint it reserves. The board is 12 x 19.2 on the ground, so 9.6 is its widest half-extent
+-- -- but it is TURNED to face the middle now, and a turned box reaches its half-DIAGONAL, which is
+-- 11.3. Rounded up. `evolution-lab-relocating-a-prop`'s first rule is to measure the thing that
+-- actually has to fit, and after a rotation that is the corner, not the side.
+local RING_HALF_WIDTH = 11.5
 
 local PROMPT_DISTANCE = 46 -- the band the other walk-up landmarks sit in (PhotoPad 46, Pet Shop 42)
 
@@ -284,9 +312,10 @@ local function buildBoard(cx, cz)
 end
 
 --- Build (or rebuild) the board for a zone. `zoneOffset` is the zone's X offset, exactly as
---- `MapArcade.Init` takes it. Returns the model, or nil for a zone with no authored spot -- which
---- is every zone but the mapped one, and is not a fault.
-function MapAdventureBoard.Init(zoneKey, zoneOffset)
+--- `MapArcade.Init` takes it, and `zoneModel` is what the ring search needs to read the map off.
+--- Returns the model, or nil for a zone with no authored spot -- which is every zone but the mapped
+--- one, and is not a fault.
+function MapAdventureBoard.Init(zoneKey, zoneOffset, zoneModel)
 	local spot = SPOTS[zoneKey]
 	if not spot then return nil end
 
@@ -310,22 +339,51 @@ function MapAdventureBoard.Init(zoneKey, zoneOffset)
 		return existing
 	end
 
-	local x = (zoneOffset or 0) + spot.x
-	local model = buildBoard(x, spot.z)
+	-- THE RING FIRST, THE AUTHORED SPOT ONLY IF IT IS FULL. Asked before anything is built, because
+	-- the ground has to be measured where the board actually ends up -- the square's floor is 0.64
+	-- and the bare platform beyond it 0.00, and seating a board on a height taken somewhere else is
+	-- the whole reason `groundAt` exists.
+	local ringX, ringZ, bearing, sqX, sqZ =
+		MapSquare.FindSpot(zoneKey, zoneModel, RING_BEARING, RING_HALF_WIDTH)
+	local x = ringX or ((zoneOffset or 0) + spot.x)
+	local z = ringZ or spot.z
+
+	local model = buildBoard(x, z)
 	model.Name = name
 	-- Lifted as ONE model rather than by adding the ground to every authored Y above: the parts are
 	-- positioned against each other and a per-part offset is one place for one of them to be missed.
-	local ground = groundAt(x, spot.z)
+	local ground = groundAt(x, z)
 	if ground ~= 0 then
 		model:PivotTo(model:GetPivot() + Vector3.new(0, ground, 0))
 	end
+
+	-- ===== AND NOW IT IS TURNED, WHICH THE HEADER SPENT A PARAGRAPH REFUSING TO DO =====
+	-- That paragraph is still right about the trap and wrong about the conclusion once the board can
+	-- stand anywhere on a ring: a spot at bearing 300 with a face pointed at +X shows the square the
+	-- board's back. The yaw is derived rather than guessed, and it is derived from the FACE's own
+	-- axis and not from a LookVector -- `roblox-model-facing-and-scaling` is a note about
+	-- LookVector starting at (0, 0, -1), which is exactly why nothing here goes near it.
+	--
+	-- `CFrame.Angles(0, yaw, 0)` sends local +X to `(cos yaw, 0, -sin yaw)`. The board's face has to
+	-- point from the ring INWARD, i.e. along `(-cos b, 0, -sin b)`. Those are equal at `yaw = pi - b`
+	-- -- and the sanity check that costs nothing: at b = 0 (due east of the middle) that is a half
+	-- turn, which points the face west, back at the eggs.
+	if bearing then
+		local p = model:GetPivot().Position
+		model:PivotTo(CFrame.new(p) * CFrame.Angles(0, math.pi - bearing, 0))
+	end
+
 	model.Parent = map
 	-- Never streamed out: this is a landmark a player walks toward, and a board that arrives a
 	-- second after they get there is a prompt that was not on the screen when they pressed E.
 	model.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
 
-	print(("[MapAdventureBoard] %s: board at (%d, %.2f, %d) facing +X, prompt reach %d")
-		:format(zoneKey, x, ground, spot.z, PROMPT_DISTANCE))
+	print(("[MapAdventureBoard] %s: board at (%.0f, %.2f, %.0f) %s, prompt reach %d")
+		:format(zoneKey, x, ground, z,
+			bearing and ("on the square's ring at %.0f deg facing (%.0f, %.0f)")
+				:format(math.deg(bearing), sqX, sqZ)
+				or "on the AUTHORED FALLBACK spot facing +X -- the ring was full",
+			PROMPT_DISTANCE))
 	return model
 end
 

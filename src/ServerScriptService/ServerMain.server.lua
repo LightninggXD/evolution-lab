@@ -246,13 +246,18 @@ AdventureService.Init()
 -- order lands on the same instances -- but the doors call into that service, and a door connected
 -- before the folder it drives exists is the shape of bug 30.6 spent the whole row avoiding.
 AdventureRemotes.Init()
--- ...and the board those doors are opened FROM. It reads no other service's state -- not even
--- `MapAnchors`, because the village map ships no adventure board to adopt -- so its only ordering
--- constraint is that it stands after the Forest furniture which searches the plaza for a clear spot
--- (`SplicerService` and `HubPlaza` above), and it does. Its coordinate is authored and never
--- searched for, which cuts both ways: it cannot be displaced by anything, and it cannot get out of
--- anything's way either. If it lands on top of a house, that is a coordinate to re-measure.
-MapAdventureBoard.Init("Forest", 0)
+-- ...and the board those doors are opened FROM.
+--
+-- 30.32 gave it a second ordering constraint and it is a hard one: the board now asks `MapSquare`
+-- for a spot on the square's ring, so it must run AFTER `MapSquare.Arrange` -- which is where the
+-- shops take their bearings and fill `MapSquare.Placed`. It does, by about a hundred and thirty
+-- lines. Run it earlier and the board picks a bearing a shop is about to be moved onto, and the
+-- shop's own `taken` test never sees the board because the board is not one of its anchors.
+--
+-- Its old note said the coordinate "is authored and never searched for, which cuts both ways: it
+-- cannot be displaced by anything, and it cannot get out of anything's way either". The second half
+-- is what she photographed -- the authored spot was the artist's dirt road.
+MapAdventureBoard.Init("Forest", 0, workspace.Zones:FindFirstChild("Forest"))
 
 -- Hook evolution -> zone unlock checks + visual update (kept out of DNAService to avoid circular requires)
 DNAService.OnEvolve = function(player, data)

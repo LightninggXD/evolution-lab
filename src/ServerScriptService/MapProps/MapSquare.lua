@@ -125,15 +125,52 @@ end
 -- blocker: **trees are not an obstruction to a building, they are what it stands in**, while a wall
 -- is. Planted foliage never even reaches this query -- `MapForest` marks it `CanQuery = false` --
 -- and the map's own foliage is filtered by name through the classifier `MapCut` already owns.
+-- ===== A PART'S SIZE IS IN ITS OWN FRAME, AND THAT COST TWO OF THE THREE GROUPS (30.32) =====
+-- `Size.Y` is the height of a part ALONG ITS OWN UP AXIS. Turn the part on its side and that number
+-- stops being a height. The village square's paving is exactly that case: a `UnionOperation` lying
+-- flat at y = 0.1, one stud thick, whose `Size` reads **(1, 143.8, 144)** because the union was
+-- authored standing up and rotated down. Read as a height, a 1-stud floor is a 143-stud tower, and
+-- the test below called every point on the square occupied.
+--
+-- What that shipped: `[MapSquare] Forest: 2 props in 1 of 3 groups ... LEFT WHERE THEY WERE (no
+-- clear bearing): upgrades, potions`. Two thirds of her *"i okolo ti sopovi"* silently did not
+-- happen, and the log said so in a line that reads like a map quirk rather than a bug.
+--
+-- The world height is the box's support along Y -- the same projection `MapCut.LaneFootprint` takes
+-- along a lane's normal, on the vertical axis. Same family as
+-- `roblox-ball-part-min-axis` and `roblox-extentsoffset-is-half-size`: a number in the part's frame
+-- read as a number in the world's.
+local function worldHeight(part)
+	local cf, size = part.CFrame, part.Size
+	return math.abs(cf.RightVector.Y) * size.X
+		+ math.abs(cf.UpVector.Y) * size.Y
+		+ math.abs(cf.LookVector.Y) * size.Z
+end
+
 local function occupied(x, z, hw, map, params)
 	local hits = workspace:GetPartBoundsInBox(CFrame.new(x, 20, z), Vector3.new(hw * 2, 40, hw * 2),
 		params)
 	for _, part in ipairs(hits) do
-		if part.Size.Y >= BLOCKER_MIN_H then
+		if worldHeight(part) >= BLOCKER_MIN_H then
 			-- climb to the top-level child of the map, which is what the classifier reads
 			local top = part
 			while top.Parent and top.Parent ~= map do top = top.Parent end
-			if top.Parent == map and not MapCut.IsFoliage(top) then return true end
+			if top.Parent == map then
+				if not MapCut.IsFoliage(top) then return true end
+			else
+				-- ===== AND EVERYTHING THAT IS NOT THE MAP BLOCKS TOO (30.32) =====
+				-- This used to be `if top.Parent == map and not IsFoliage(top)`, which reads as
+				-- "reject map buildings" and behaves as "**accept everything that is not this map**".
+				-- The ring is 88 studs out and the village floor ends near there, so a candidate on
+				-- the far side of it is standing in `HubPlaza`'s lamps, or a portal arch, or the
+				-- arcade -- none of which are children of `VillageMap`, and every one of which came
+				-- back as open ground.
+				--
+				-- Planted foliage never reaches this query at all: `MapForest` marks its 3,461 trees
+				-- `CanQuery = false`, so the one class that would flood this is already filtered by
+				-- the engine rather than by a name test that cannot know their conventions.
+				return true
+			end
 		end
 	end
 	return false
@@ -142,12 +179,25 @@ end
 -- True when the ground here is the artist's own painted path. A building on it is the same fault as
 -- a building in a generated lane; the map's road network simply is not expressed as coordinates
 -- anywhere, so it is read off the surface instead.
-local function onArtistDirt(x, z, dirt, rayParams)
-	local hit = workspace:Raycast(Vector3.new(x, 200, z), Vector3.new(0, -400, 0), rayParams)
-	if not hit then return false end
+-- ...and the SAME RAY answers the other question worth asking, which is whether this is ground at
+-- all. `occupied` only sees a blocker `BLOCKER_MIN_H` tall; a prop built out of a stack of shorter
+-- pieces is invisible to it and a candidate on the roof of one comes back clear. Measured on the
+-- live build, a search around the adventure board's spot offered four such candidates in its first
+-- clear ring -- ground at 32.1, 23.6, 21.2 and 10.9 studs, every one of them the top of something.
+-- That is the fault `MapAdventureBoard` already shipped once, a board standing on a mannequin's hat.
+-- The village floor is 0.64 and the bare platform under it 0.00, so anything materially above that
+-- is a roof.
+local FLAT_MAX = 4
+local function groundFault(x, z, ctx)
+	local hit = workspace:Raycast(Vector3.new(x, 200, z), Vector3.new(0, -400, 0), ctx.rayParams)
+	if not hit then return "void" end
+	if hit.Position.Y > FLAT_MAX then return "roof" end
 	local c = hit.Instance.Color
-	return math.abs(c.R - dirt.R) + math.abs(c.G - dirt.G) + math.abs(c.B - dirt.B)
-		< DIRT_TOLERANCE
+	if math.abs(c.R - ctx.dirt.R) + math.abs(c.G - ctx.dirt.G) + math.abs(c.B - ctx.dirt.B)
+		< DIRT_TOLERANCE then
+		return "road"
+	end
+	return nil
 end
 
 -- True when a group of half-width `hw` standing at (x, z) is clear of every road, of the artist's
@@ -161,7 +211,7 @@ local function clearOfRoads(x, z, hw, lanes, taken, ctx)
 		if math.sqrt((x - t.x) ^ 2 + (z - t.z) ^ 2) < t.hw + hw + VERGE then return false end
 	end
 	if ctx then
-		if onArtistDirt(x, z, ctx.dirt, ctx.rayParams) then return false end
+		if groundFault(x, z, ctx) then return false end
 		if occupied(x, z, hw, ctx.map, ctx.boxParams) then return false end
 	end
 	return true
@@ -176,6 +226,76 @@ local function measure(inst)
 	end
 	return nil, nil
 end
+
+-- ===== THE CONTEXT THE TWO WORLD TESTS NEED =====
+-- Lifted out of `Arrange` so a LATER pass can run the same tests -- see `MapSquare.FindSpot`. Every
+-- slot's anchors are excluded whoever is asking, which is deliberate and older than this split: the
+-- inter-group spacing is `taken`'s job, and a prop that measured its neighbour as a wall would find
+-- nowhere on a ring three buildings already stand on.
+--
+-- THE MAP IS TAKEN FROM THE ZONE, NOT FROM AN ANCHOR, and that is a bug this file already shipped:
+-- it reached the map through `MapAnchors.Get(zoneKey, "fountain").inst.Parent`, and `MapEggs` --
+-- which runs immediately before -- DESTROYS the fountain. A destroyed instance has no parent, so
+-- `map` came back nil, `ctx` was never built, and both world tests silently did nothing while the
+-- search reported success. The shop went back on top of a house.
+local function buildContext(zoneKey, zoneModel, extra)
+	local map = zoneModel and zoneModel:FindFirstChild("VillageMap")
+	if not map then return nil end
+
+	local exclude = { workspace:FindFirstChild("Creatures"), map:FindFirstChild("HuntForest") }
+	for _, slot in ipairs(SLOTS) do
+		for _, role in ipairs(slot.roles) do
+			local a = MapAnchors.Get(zoneKey, role)
+			if a and a.inst then exclude[#exclude + 1] = a.inst end
+		end
+	end
+	for _, inst in ipairs(extra or {}) do
+		if inst then exclude[#exclude + 1] = inst end
+	end
+
+	local boxParams = OverlapParams.new()
+	boxParams.FilterType = Enum.RaycastFilterType.Exclude
+	boxParams.FilterDescendantsInstances = exclude
+	boxParams.MaxParts = 24
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	rayParams.FilterDescendantsInstances = exclude
+	return { map = map, dirt = MapPaint.DirtColour(map),
+		boxParams = boxParams, rayParams = rayParams }
+end
+
+-- ===== AND THE RING WALK ITSELF =====
+-- From the asked-for bearing outward, both ways, and the first spot that is clear wins. A caller
+-- that finds nothing gets nil and is expected to leave its prop where the artist put it -- the map's
+-- own arrangement is a working arrangement, and moving a building into a road is strictly worse than
+-- not moving it.
+--
+-- `grows` is what the shops never had: if the whole ring is taken, step the RADIUS out and walk it
+-- again. A one-dimensional search cannot solve a junction is the second rule in
+-- `evolution-lab-relocating-a-prop`, and a ring at one radius is still one dimension.
+local GROWS = { 0, 24, 48 }
+
+local function ringWalk(cx, cz, bearing, halfWidth, lanes, taken, ctx)
+	for _, grow in ipairs(GROWS) do
+		local r = CIRCLE_R + halfWidth + VERGE + grow
+		for step = 0, TRY_MAX do
+			for _, dir in ipairs(step == 0 and { 1 } or { 1, -1 }) do
+				local a = math.rad(bearing + dir * step * TRY_STEP)
+				local tx, tz = cx + math.cos(a) * r, cz + math.sin(a) * r
+				if clearOfRoads(tx, tz, halfWidth, lanes, taken, ctx) then
+					return a, tx, tz
+				end
+			end
+		end
+	end
+	return nil
+end
+
+-- ===== WHAT THIS PASS PUT ON THE RING, KEPT AFTER IT ENDS =====
+-- `MapAdventureBoard` is built long after `Arrange` has returned and stands on the same ring. Its
+-- own search has to know where the shops ended up or it will ask for a bearing one of them is
+-- already standing on -- which is the `taken` test doing its job, one pass too late.
+MapSquare.Placed = {}
 
 function MapSquare.Arrange(zoneKey, zoneModel)
 	if not MapAnchors.IsMapped(zoneKey) then return 0 end
@@ -193,36 +313,10 @@ function MapSquare.Arrange(zoneKey, zoneModel)
 
 	local lanes = villageLanes()
 
-	-- Everything the two world tests need, resolved once. The shop's own group is excluded from both
-	-- -- a prop must never measure itself as the thing blocking its own move.
-	--
-	-- THE MAP IS TAKEN FROM THE ZONE, NOT FROM AN ANCHOR, and that is a bug this file already
-	-- shipped: it reached the map through `MapAnchors.Get(zoneKey, "fountain").inst.Parent`, and
-	-- `MapEggs` -- which runs immediately before -- DESTROYS the fountain. A destroyed instance has
-	-- no parent, so `map` came back nil, `ctx` was never built, and both world tests silently did
-	-- nothing while the search reported success. The shop went back on top of a house.
-	local map = zoneModel and zoneModel:FindFirstChild("VillageMap")
-	local ctx = nil
-	if map then
-		local exclude = { workspace.Creatures, map:FindFirstChild("HuntForest") }
-		for _, slot in ipairs(SLOTS) do
-			for _, role in ipairs(slot.roles) do
-				local a = MapAnchors.Get(zoneKey, role)
-				if a and a.inst then exclude[#exclude + 1] = a.inst end
-			end
-		end
-		local boxParams = OverlapParams.new()
-		boxParams.FilterType = Enum.RaycastFilterType.Exclude
-		boxParams.FilterDescendantsInstances = exclude
-		boxParams.MaxParts = 24
-		local rayParams = RaycastParams.new()
-		rayParams.FilterType = Enum.RaycastFilterType.Exclude
-		rayParams.FilterDescendantsInstances = exclude
-		ctx = { map = map, dirt = MapPaint.DirtColour(map),
-			boxParams = boxParams, rayParams = rayParams }
-	end
+	local ctx = buildContext(zoneKey, zoneModel)
 
 	local taken = {}
+	MapSquare.Placed = taken
 	local moved, report, stuck = 0, {}, {}
 	for _, slot in ipairs(SLOTS) do
 		-- Every anchor in the group that actually exists. `shopHouse` is absent on a map that ships
@@ -244,29 +338,39 @@ function MapSquare.Arrange(zoneKey, zoneModel)
 			local pos, size = measure(lead)
 			if pos and size then
 				local halfWidth = math.max(size.X, size.Z) / 2
-				local r = CIRCLE_R + halfWidth + VERGE
+
+				-- ===== A GROUP ALREADY OUT ON THE RING AND CLEAR IS NOT MOVED AGAIN (30.32) =====
+				-- Every test below is a test of a SPOT, so the spot the prop is standing on can be
+				-- put to them like any other. If it passes, the ring walk is not run at all. That is
+				-- what stops the village rearranging itself a little differently on each boot --
+				-- `Arrange` was not idempotent, and a pass that reads the world and then changes it
+				-- has to be, or its own second run measures a world its first run made.
+				--
+				-- AND CLEAR IS NOT ENOUGH ON ITS OWN, which is the trap this nearly shipped with.
+				-- The artist's own arrangement is mostly clear ground -- that is why she could walk
+				-- it -- so "clear, therefore leave it" would quietly cancel the whole file: measured,
+				-- all three groups sit 63..67 studs from the middle, INSIDE the circle they are
+				-- supposed to ring. So the spot also has to already BE on the ring, and the test for
+				-- that is the bare radius rather than the exact one, because `ringWalk` is allowed to
+				-- step the radius outward and a prop it pushed out to 112 must not be dragged back.
+				local onRing = math.sqrt((pos.X - cx) ^ 2 + (pos.Z - cz) ^ 2) >= CIRCLE_R + halfWidth
+				if onRing and clearOfRoads(pos.X, pos.Z, halfWidth, lanes, taken, ctx) then
+					taken[#taken + 1] = { x = pos.X, z = pos.Z, hw = halfWidth, id = slot.roles[1] }
+					report[#report + 1] = ("%s x%d kept (%.0f,%.0f)")
+						:format(slot.roles[1], #group, pos.X, pos.Z)
+					continue
+				end
 
 				-- WALK THE RING FROM THE ASKED-FOR BEARING OUTWARD, both ways, and take the first
 				-- spot that is clear. A group that finds nowhere is LEFT WHERE THE ARTIST PUT IT and
 				-- said so in the log -- the map's own arrangement is a working arrangement, and
 				-- moving a shop into a road is strictly worse than not moving it.
-				local want, wantX, wantZ = nil, nil, nil
-				for step = 0, TRY_MAX do
-					for _, dir in ipairs(step == 0 and { 1 } or { 1, -1 }) do
-						local a = math.rad(slot.bearing + dir * step * TRY_STEP)
-						local tx, tz = cx + math.cos(a) * r, cz + math.sin(a) * r
-						if clearOfRoads(tx, tz, halfWidth, lanes, taken, ctx) then
-							want, wantX, wantZ = a, tx, tz
-							break
-						end
-					end
-					if want then break end
-				end
+				local want, wantX, wantZ = ringWalk(cx, cz, slot.bearing, halfWidth, lanes, taken, ctx)
 
 				if not want then
 					stuck[#stuck + 1] = slot.roles[1]
 				else
-					taken[#taken + 1] = { x = wantX, z = wantZ, hw = halfWidth }
+					taken[#taken + 1] = { x = wantX, z = wantZ, hw = halfWidth, id = slot.roles[1] }
 
 				-- The bearing the group currently sits at, so the turn is the DIFFERENCE. A prop
 				-- standing on the centre has no bearing and is left unturned rather than spun by a
@@ -303,6 +407,30 @@ function MapSquare.Arrange(zoneKey, zoneModel)
 			#stuck > 0 and ("  LEFT WHERE THEY WERE (no clear bearing): "
 				.. table.concat(stuck, ", ")) or ""))
 	return moved
+end
+
+--- Where a NEW thing of half-width `hw` can stand on the square's ring, asking for `bearing` and
+--- walking outward from it. Returns `x, z, angle, cx, cz` -- the spot, the bearing it landed on, and
+--- the square's centre, which is what a caller needs to turn its prop to face the middle.
+---
+--- Returns nil when the whole ring is taken, and a caller is expected to fall back to its own
+--- authored spot rather than dropping its prop on a road anyway.
+---
+--- `exclude` is the caller's own instances: a prop must never measure itself as the thing blocking
+--- its own move. Anything placed here JOINS `MapSquare.Placed`, so two late callers cannot pick the
+--- same bearing.
+function MapSquare.FindSpot(zoneKey, zoneModel, bearing, hw, exclude)
+	if not MapAnchors.IsMapped(zoneKey) then return nil end
+	local centre = MapAnchors.Get(zoneKey, "fountain")
+	if not centre then return nil end
+
+	local cx, cz = centre.pos.X, centre.pos.Z
+	local ctx = buildContext(zoneKey, zoneModel, exclude)
+	local a, x, z = ringWalk(cx, cz, bearing, hw, villageLanes(), MapSquare.Placed, ctx)
+	if not a then return nil end
+
+	MapSquare.Placed[#MapSquare.Placed + 1] = { x = x, z = z, hw = hw, id = "found" }
+	return x, z, a, cx, cz
 end
 
 return MapSquare
