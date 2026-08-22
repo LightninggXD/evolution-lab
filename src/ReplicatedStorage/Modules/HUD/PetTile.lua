@@ -51,9 +51,10 @@ PetTile.PAD = 10
 --- Builds one tile into `parent`.
 ---
 --- `opts` carries everything the tile cannot work out for itself:
----   pet, info, rarity, isEquipped, damageText, order, selecting, selected
----   onPrimary(pet)  -- the click: equip/unequip AND select into the detail board
----   onPick(pet)     -- select mode's tick
+---   pet, info, rarity, isEquipped, damageText, order, selecting, selected, shown
+---   onPrimary(pet)  -- the click: opens this pet on the detail board (or ticks it, in select mode)
+---
+--- `selected` and `shown` are two different things -- see the note over `SelectionPlate`.
 ---
 --- Returns the tile and a `setTicked(bool)` that repaints the select box WITHOUT a grid rebuild --
 --- the same reason the old card carried one: a rebuild is ~30 parts per pet and ticking a checkbox
@@ -71,6 +72,31 @@ function PetTile.Build(parent, opts)
 	tile.Size = UDim2.new(0, PetTile.CELL_W, 0, PetTile.CELL_H)
 	tile.ZIndex = parent.ZIndex + UITheme.Z.Content
 	tile.Parent = parent
+
+	-- ===== "THE ONE THE BOARD IS SHOWING" IS A PLATE, NOT A BADGE (2026-08-23) =====
+	--
+	-- Kristina photographed the action row's ☑ toggle and said these already have a selector -- and
+	-- she is right: the bag now has TWO different senses of "selected" and they must not be drawn the
+	-- same way. Select mode's corner checkbox means *this pet is in the batch I am about to release*;
+	-- the new one means *this is the pet the board is describing*. A second tick in a second corner
+	-- would make them one thing at a glance.
+	--
+	-- So this one is a PLATE BEHIND THE WHOLE TILE rather than a mark on it. It cannot be mistaken
+	-- for the checkbox (different shape, different place, no glyph), it cannot be mistaken for the
+	-- equipped tick, and it does not compete with the rarity rim -- which is already spoken for,
+	-- carrying equipped/not. A highlighted row is also what every list in this game already means by
+	-- "the one you are looking at".
+	local plate = Instance.new("Frame")
+	plate.Name = "SelectionPlate"
+	plate.Size = UDim2.new(1, 8, 1, 4)
+	plate.Position = UDim2.new(0.5, 0, 0, -4)
+	plate.AnchorPoint = Vector2.new(0.5, 0)
+	-- BELOW the tile's own contents. `Z.Shell` is the kit's bottom rung, so the disc, the rig, the
+	-- tick and the number all keep drawing over it.
+	plate.ZIndex = tile.ZIndex - 1
+	plate.Visible = opts.shown == true
+	plate.Parent = tile
+	styleCard(plate, UITheme.Color.Aqua, UDim.new(0, 16), 3)
 
 	-- ===== THE DISC CARRIES THE RARITY, BOLDLY =====
 	--
@@ -243,7 +269,13 @@ function PetTile.Build(parent, opts)
 		if opts.onPrimary then opts.onPrimary(pet) end
 	end)
 
-	return tile, setTicked, rigEntry
+	-- Handed back for the same reason `setTicked` is: moving the highlight from one tile to another
+	-- must cost two property writes, not a rebuild of every rig in the bag.
+	local function setShown(on)
+		plate.Visible = on == true
+	end
+
+	return tile, setTicked, rigEntry, setShown
 end
 
 return PetTile

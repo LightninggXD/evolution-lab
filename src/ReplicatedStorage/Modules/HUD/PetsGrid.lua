@@ -13,13 +13,23 @@
 --   * `PetDetail` -- one pet, described, plus the two actions that came off the tile.
 --   * this file   -- the collection: what order, what is worn, what is selected, what to rebuild.
 --
--- ===== THE CLICK STILL EQUIPS, AND THAT IS KRISTINA'S CALL (2026-08-23) =====
+-- ===== THE CLICK SELECTS; THE BOARD'S BUTTON EQUIPS (KRISTINA, 2026-08-23) =====
 --
--- Her reference has a detail board, which raises an obvious question: does clicking a tile equip it,
--- or select it into the board? Asked and answered -- *"ostaje to prvo"* -- the click **equips**, and
--- the board simply follows whatever was last touched. Equipping is the panel's main verb and a main
--- verb does not get to cost two clicks; the board's own EQUIP button is then a second door for the
--- pet you are already reading about, not the only one.
+-- Asked before building, her first answer was that the click should equip. **She reversed it after
+-- seeing it run** -- *"kad ga kliknem automatski se equipa a ima pored equip opcija desno"* -- and
+-- the objection is exact: with an EQUIP button on the board, a click that also equips makes the
+-- button a second control for a thing that has already happened. One of the two had to go, and the
+-- one she kept is the button.
+--
+-- So a tile click **opens the pet on the board and does nothing else**. It costs the main verb a
+-- second click, which is the real price of the choice, and buys two things: browsing a hundred pets
+-- can no longer re-equip your team by accident, and every verb in the panel now lives in exactly one
+-- place -- equip, enchant and release are all buttons on the board, and the grid is for choosing
+-- what to look at.
+--
+-- **AND "SELECTED" NOW MEANS TWO THINGS, WHICH IS ITS OWN TRAP.** Select mode's corner checkbox
+-- means *in the batch I am about to release*; this new one means *the pet the board is describing*.
+-- They are drawn differently on purpose -- see `SelectionPlate` in `PetTile`.
 --
 -- ===== SHUT MEANS SKIPPED (11.32), AND IT IS WHY THIS IS AFFORDABLE =====
 --
@@ -41,8 +51,6 @@ local PetTile = require(RS.Modules:WaitForChild("HUD"):WaitForChild("PetTile"))
 local PetDetail = require(RS.Modules:WaitForChild("HUD"):WaitForChild("PetDetail"))
 
 local themeLabel = UIKit.themeLabel
-
-local Remotes = RS:WaitForChild("Remotes")
 
 -- ===== THE GEOMETRY, WHICH IS ONE DECISION IN FOUR NUMBERS =====
 --
@@ -140,6 +148,10 @@ return function(hud)
 	-- Live rigs shown in the tiles, kept in a list so ONE RenderStepped turns all of them.
 	local rigs = {}
 
+	-- The tile currently wearing the selection plate. Held as a SETTER rather than as the tile, so
+	-- moving the highlight cannot accidentally reach for anything else on a destroyed instance.
+	local clearShown
+
 	local function refresh()
 		local data = hud.getData and hud.getData()
 		if not data then return end
@@ -217,7 +229,7 @@ return function(hud)
 			local bonus = GameConfig.GetPetBonus(pet.tier, info.rarity, pet.key, data, pet.enchant)
 			local damageText = ("+%d%%"):format(math.floor((bonus.damageMult - 1) * 100 + 0.5))
 
-			local _, setTicked, rigEntry = PetTile.Build(petsScroll, {
+			local _, setTicked, rigEntry, setShown = PetTile.Build(petsScroll, {
 				pet = pet,
 				info = info,
 				rarity = rarity,
@@ -226,6 +238,8 @@ return function(hud)
 				order = i,
 				selecting = selecting,
 				selected = selecting and sel.ids[pet.id] == true or false,
+				-- survives the rebuild: the board's own pet keeps its plate through every push
+				shown = (pet.id == shownId),
 				onPrimary = function(p)
 					-- Read at CLICK time, not captured: the mode can be toggled between a refresh and
 					-- a click, and a captured flag would leave a grid still equipping while the bar
@@ -241,21 +255,29 @@ return function(hud)
 						if setTicked then setTicked(s.ids[p.id] == true) end
 						return
 					end
-					-- The board first, so it is already showing this pet when the server's push
-					-- arrives and the refresh below re-reads it off fresh data.
+					-- ===== AND THAT IS ALL A CLICK DOES NOW =====
+					-- No remote. See the header: the EQUIP button on the board is the only thing
+					-- that equips, because two controls for one verb is what she objected to.
+					if clearShown then clearShown(false) end
+					setShown(true)
+					clearShown = setShown
 					detail.Show(p, hud.getData and hud.getData() or data)
-					if isEquipped then
-						Remotes.UnequipPet:FireServer(p.id)
-					else
-						Remotes.EquipPet:FireServer(p.id)
-					end
 				end,
 			})
 			if rigEntry then table.insert(rigs, rigEntry) end
+			-- The old tiles were destroyed at the top of this function, so a `clearShown` captured
+			-- before the rebuild points at a dead plate. Re-pointed at the tile that inherited the
+			-- highlight, or dropped below if that pet is gone.
+			if pet.id == shownId then clearShown = setShown end
 		end
 
 		if shownId then
-			if stillThere then detail.Show(stillThere, data) else detail.Clear() end
+			if stillThere then
+				detail.Show(stillThere, data)
+			else
+				detail.Clear()
+				clearShown = nil
+			end
 		end
 
 		-- Five to a row, cell + padding tall.
