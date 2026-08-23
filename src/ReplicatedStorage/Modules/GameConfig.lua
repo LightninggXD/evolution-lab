@@ -57,6 +57,13 @@ for _, part in ipairs({
 	-- `PetBaseBonus` from `Pets`. Nothing above it reads `GameConfig.AdventureList`, so appending
 	-- is again the only move that cannot produce the silent nil this list's header warns about.
 	"Adventures",
+	-- LAST, and the same argument that put each of the four above it last in turn applies again:
+	-- `Swords` reads nothing from the table at load time (its ladder is literal), and nothing above
+	-- it reads `GameConfig.Swords` at load time -- `Rebirth`'s boss divisor quotes
+	-- `GetSwordDamageMult` at CALL time, which is why the part it lives in may load after `Rebirth`.
+	-- Appending is therefore the only move that cannot produce the silent nil this list's header
+	-- warns about.
+	"Swords",
 }) do
 	require(script:WaitForChild(part))(GameConfig)
 end

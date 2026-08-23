@@ -5,6 +5,12 @@ local GameConfig = require(RS.Modules.GameConfig)
 local StageCostume = require(RS.Modules.StageCostume)
 local VFXLibrary = require(RS.Modules.VFXLibrary)
 local PlayerDataService = require(script.Parent.Parent.PlayerDataService)
+-- 32.6. Required for `dress` alone, at the bottom of it: the sword hangs off `BodyHand`, which the
+-- costume builds, so the ONE moment in the game when it is safe to weld a blade is the instant
+-- StageCostume.Apply returns -- which is here and nowhere else. A timer would race the body
+-- settling ([[evolution-lab-body-settles-late]]) and a weld to a destroyed limb does not error, it
+-- just leaves the sword hanging in mid-air.
+local SwordModel = require(script.Parent.Parent.Sword.SwordModel)
 
 local EvolutionVisuals = {}
 
@@ -762,6 +768,14 @@ function EvolutionVisuals.ApplyStage(player, stageIndex, opts)
 		local liveStage = GameConfig.Stages[liveIndex] or stage
 		character:SetAttribute("CharacterKey", liveEntry and liveEntry.key or nil)
 		StageCostume.Apply(character, liveIndex, liveStage, liveEntry)
+
+		-- AFTER the costume, on the same line of execution, and read off `liveData` for the same
+		-- reason the skin above is: the save can change during the settle wait, and the blade the
+		-- player is holding must be the one the save says now. `SwordModel.Apply` clears its own
+		-- folder first, so a re-dress replaces the sword rather than stacking a second one.
+		if liveData then
+			SwordModel.Apply(character, GameConfig.GetSwordTier(liveData), GameConfig.GetSwordLevel(liveData))
+		end
 	end
 
 	if opts.animate then

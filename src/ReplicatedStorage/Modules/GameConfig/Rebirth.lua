@@ -96,9 +96,29 @@ end
 -- than to whoever happened to arrive first. It costs nothing on screen: the boss path sends
 -- `bossBar` (hp and max) and never a damage number, so there is no figure for a player to read as
 -- wrong. The creature beside it is untouched and still shows the full number.
+-- ===== AND SINCE 32.6 THE SWORD IS CANCELLED HERE TOO =====
+--
+-- The paragraph above says only the rebirth term is cancelled, and the sword joining it is not a
+-- change of mind -- it is the same test applied to a second term that passes it. The four
+-- multipliers 14.1 deliberately left ALONE are each bounded and each gated on something other than
+-- time: Stage Mastery caps at x3.4 the moment you reach stage 20, the pets and the passes cap at
+-- what is on sale. The weapon ladder is not like those. It is x5.00, always on, bought with a
+-- currency whose only limit is how long you farm, and every player will end the game holding the
+-- last blade -- which is the exact shape of the rebirth term, and the exact shape this divisor was
+-- built for.
+--
+-- Without this line the phase ships twenty trivial bosses. Measured against the reading 14.1 took:
+-- the endgame stack was x166.6 with the rebirth term (x23 at eight rebirths) cancelled out of it,
+-- leaving a ~21-blow fight. An uncancelled x5 makes that ~4 blows -- back inside the "died on the
+-- first blow" band this function exists to have fixed.
+--
+-- **WHAT IT COSTS, STATED SO IT IS A DECISION AND NOT A DISCOVERY:** the sword shortens every
+-- creature fight in the game by its full amount and shortens a boss fight by nothing. If she would
+-- rather feel the blade on a boss, deleting the second factor below is the whole reversal -- and
+-- the boss curve then has to be re-tuned against it, which is 32.7's job and not a one-liner.
 function GameConfig.GetBossDamageDivisor(data)
-	-- >= 1 for every rebirth count, so this can never turn a blow into a heal
-	return math.max(GameConfig.GetRebirthDamageMult(data), 1)
+	-- >= 1 for every rebirth count and every blade, so this can never turn a blow into a heal
+	return math.max(GameConfig.GetRebirthDamageMult(data) * GameConfig.GetSwordDamageMult(data), 1)
 end
 
 -- Which rebirth tier (1-4) a given stage index has reached. Tier 0 = not eligible yet.

@@ -120,6 +120,17 @@ function DNAService.GetCombatDamage(data)
 	mult = mult * PetService.GetEquippedBonus(data).damageMult
 	-- permanent Stage Mastery unlocks, bought with Diamonds and kept through Rebirth
 	mult = mult * GameConfig.GetStageMasteryBonus(data).damageMult
+	-- THE BLADE IN THE PLAYER'S HAND (32.6), and this is the only line in the game that reads it.
+	-- The other Diamond purchase, and it sits beside Stage Mastery for that reason: both are bought
+	-- rather than climbed to, and both are kept through a rebirth. x1.00 at the rusty stub every
+	-- save starts with, x5.00 at the last blade -- see the ladder in GameConfig.Swords, whose prices
+	-- are derived from 32.5's measured diamonds-per-hour and not typed.
+	--
+	-- **IT IS CANCELLED AGAINST BOSSES**, in GetBossDamageDivisor, for the reason written out over
+	-- that function: boss health is derived from a BARE player and knows about no multiplier anyone
+	-- owns, so an uncancelled x5 turns a ~21-blow endgame boss into a ~4-blow one. Creatures feel
+	-- the whole of it; a boss feels none of it, exactly as with a rebirth.
+	mult = mult * GameConfig.GetSwordDamageMult(data)
 	-- and every rebirth the player has ever done. This is what a rebirth buys -- see the note over
 	-- GameConfig.GetRebirthDamageMult for why it is damage and not income.
 	mult = mult * GameConfig.GetRebirthDamageMult(data)

@@ -138,12 +138,31 @@ local function handTrail(character, hand, isR6)
 	local part = character:FindFirstChild(isR6 and (hand .. " Arm") or (hand .. "Hand"))
 	if not part then return end
 
+	-- ===== THE RIBBON DRAWS THE BLADE THAT IS ACTUALLY IN THE HAND (32.6) =====
+	--
+	-- This used to be hard-coded white-into-gold at a fixed 1.7 hand-lengths, and its own comment
+	-- said the length was chosen so the ribbon read as "roughly a weapon's length". There is a real
+	-- weapon there now, so the guess becomes a reading: `SwordModel` stamps the worn tier's colour
+	-- and reach onto the CHARACTER, which is the one channel that reaches this function -- it runs
+	-- on every machine for every player it can see and has access to nobody's save.
+	--
+	-- Both fall back to what was hard-coded before, so a body with no sword yet (the frames between
+	-- a spawn and the dress, or a stage the geometry declined) swings exactly as it always did.
+	--
+	-- MEASURED IN THE HOST'S OWN UNITS, and the host here is the AVATAR's hand while the blade
+	-- hangs off the costume's mitt -- which is 1.5x taller. `SwordReach` is in mitt-heights, so it
+	-- is multiplied by that 1.5 to land the ribbon's far end on the steel's own tip rather than a
+	-- third of the way up it.
+	local swordColor = character:GetAttribute("SwordColor")
+	local swordReach = character:GetAttribute("SwordReach")
+	local ribbon = swordReach and (swordReach * 1.5) or 1.7
+
 	local a0 = Instance.new("Attachment")
 	a0.Position = Vector3.new(0, part.Size.Y * 0.6, 0)
 	a0.Parent = part
 	local a1 = Instance.new("Attachment")
 	-- reaches PAST the hand, so the ribbon is roughly a weapon's length rather than a finger's
-	a1.Position = Vector3.new(0, -part.Size.Y * 1.7, 0)
+	a1.Position = Vector3.new(0, -part.Size.Y * ribbon, 0)
 	a1.Parent = part
 
 	local trail = Instance.new("Trail")
@@ -153,7 +172,9 @@ local function handTrail(character, hand, isR6)
 	trail.MinLength = 0
 	trail.FaceCamera = true
 	trail.LightEmission = 1
-	trail.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(255, 224, 128))
+	-- White at the leading edge whatever the blade is -- a swoosh that starts in the tier's own
+	-- colour reads as a coloured smear rather than as speed -- and the blade's colour at the tail.
+	trail.Color = ColorSequence.new(Color3.new(1, 1, 1), swordColor or Color3.fromRGB(255, 224, 128))
 	trail.Transparency = NumberSequence.new({
 		NumberSequenceKeypoint.new(0, 0.15),
 		NumberSequenceKeypoint.new(1, 1),

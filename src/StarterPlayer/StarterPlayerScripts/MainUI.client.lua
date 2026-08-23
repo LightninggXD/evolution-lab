@@ -1373,6 +1373,24 @@ local function refreshMasteryPanel()
 	end
 end
 
+-- ===== The sword (32.6) =====
+--
+-- The other Diamond sink, and it sits beside Stage Mastery for that reason. Ten blades bought
+-- strictly in order, worn on the body -- see `GameConfig.Swords` for the ladder and
+-- `ServerScriptService.Sword.SwordModel` for the steel.
+--
+-- ONE LINE AND ZERO TOP-LEVEL LOCALS, which is what this file's 200-register ceiling demands
+-- ([[evolution-lab-mainui-register-limit]]). The module builds its own tile through
+-- `hudRefs.columnTile`, its own panel through `registerPanel`/`panelClose`, and its own DataUpdate
+-- hook -- so nothing here has to hold a handle to any of them.
+--
+-- HERE AND NOT LOWER: `TileColumnFit` (near the bottom of this file) collects its tiles ONCE, by
+-- walking `screenGui`'s children when it runs, and a tile created after that walk is never laid out
+-- at all. Everything the module reads off `hud` -- getData, screenGui, PANEL_ANCHOR, registerPanel,
+-- toggleOnly, columnTile, panelClose -- is filled above this point; nothing it uses is below it,
+-- which is the rule in `docs/SPLIT.md` §3.
+require(RS.Modules:WaitForChild("HUD"):WaitForChild("SwordPanel"))(hudRefs)
+
 -- ===== Pets panel =====
 --
 -- BUILT AGAINST A REFERENCE SCREENSHOT, not against the rest of this HUD. The player asked for the
@@ -4084,6 +4102,9 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		showNotification(text, Color3.fromRGB(255, 180, 60), notifRank)
 	elseif payload.kind == "stageMastery" then
 		showNotification("⭐ " .. payload.emoji .. " " .. payload.stage .. " MASTERED! (" .. payload.owned .. "/" .. #GameConfig.Stages .. ")", Color3.fromRGB(255, 215, 70), notifRank)
+	elseif payload.kind == "sword" then
+		showNotification(payload.emoji .. " " .. payload.name .. " forged!  (x" ..
+			string.format("%.2f", payload.mult or 1) .. " damage)", Color3.fromRGB(255, 198, 45), notifRank)
 	elseif payload.kind == "diamondUpgrade" then
 		local def = GameConfig.DiamondUpgrades[payload.upgrade]
 		showNotification("💎 " .. (def and def.displayName or payload.upgrade) .. " upgraded to Lv." .. payload.level .. "!", Color3.fromRGB(120, 200, 255), notifRank)

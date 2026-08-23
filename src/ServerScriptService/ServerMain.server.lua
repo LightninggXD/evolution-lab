@@ -45,6 +45,7 @@ local MapArcade = require(ServerScriptService.MapProps.MapArcade)
 local MapPortals = require(ServerScriptService.MapProps.MapPortals)
 local MapSigns = require(ServerScriptService.MapProps.MapSigns)
 local MapAdventureBoard = require(ServerScriptService.MapProps.MapAdventureBoard)
+local SwordService = require(ServerScriptService.Sword.SwordService)
 local Telemetry = require(ServerScriptService.Telemetry)
 
 -- ===== STREAMING =====
@@ -149,6 +150,16 @@ SoundLibrary.EnsureGroups()
 Telemetry.Init()
 PlayerDataService.Init()
 DNAService.Init()
+-- AFTER DNAService, and the order is a preference rather than a constraint: it connects one remote
+-- and reads nothing at Init time. It is placed here because it is the other half of the same
+-- purchase surface -- `SwordService.HandleBuy` is `HandleBuyDiamondUpgrade` beat for beat -- and
+-- because the sword's damage term is quoted from `DNAService.GetCombatDamage`, so a reader
+-- following that line arrives at the two Init calls together.
+--
+-- NOTE THE BLADE ITSELF IS NOT WELDED FROM HERE. `SwordModel.Apply` is called from
+-- `EvolutionVisuals.dress`, the one place that knows when the costume has finished building the
+-- hand it hangs on.
+SwordService.Init()
 -- BEFORE ZoneService, and that is the whole ordering constraint. An expedition map is parented
 -- into `workspace.Zones` and its exit gate is a `PortalGate` -- which ZoneService.Init wires by
 -- scanning that folder ONCE, at startup. Build the map after that scan and the way home is a

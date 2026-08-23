@@ -162,6 +162,20 @@ local function defaultData()
 			MegaLuck = 0,
 			PetSlot = 0,
 		},
+		-- THE WEAPON LADDER, AND IT IS ONE SCALAR BECAUSE THE COUNT IS THE POSITION -- exactly as
+		-- `Rebirths` is. Ten blades bought strictly in order (see GameConfig.Swords), so a separate
+		-- "owned" set would be a second source of truth that could disagree with the counter, and
+		-- every save in existence would need repairing to build it.
+		--
+		-- DEFAULTS TO 1, NOT 0: tier 1 is the rusty stub every player starts holding, so the
+		-- geometry path is exercised from the first spawn and rung one is a visible UPGRADE rather
+		-- than a mechanic appearing out of nothing. A save written before this feature gets the 1
+		-- from the top-level nil-fill below and needs no migration.
+		--
+		-- SURVIVES A REBIRTH, by not appearing in RebirthService's wipe list -- the same rule
+		-- Diamonds, DiamondUpgrades and MasteredStages already follow. The argument is written out
+		-- at the bottom of `Sword/SwordService.lua`.
+		SwordLevel = 1,
 		UnlockedZones = { "Forest" },
 		CurrentZone = "Forest",
 		DefeatedBosses = {}, -- list of zone keys whose boss this player has personally defeated
