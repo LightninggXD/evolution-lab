@@ -1,49 +1,51 @@
 -- src/ServerScriptService/MapProps/MapSolids.lua
+-- WHAT THIS OWNS: The invisible collision boxes for trees and rocks.
+-- WHERE THE LINE IS: MapForest plants the visible art; MapSolids decides which
+-- items get colliders to prevent trapping the player.
+-- WHY A SEPARATE PART: A CanCollide mesh for a tree has a chunky hull that 
+-- acts like a huge invisible box. We use a separate upright box for precise collision.
 local JungleLayout = require(script.Parent.JungleLayout)
 
 local MapSolids = {}
 
-local MIN_TREE_HEIGHT = 18
-local MIN_ROCK_HEIGHT = 3.5
-local TRUNK_FRACTION = 1.0
-local TRUNK_CAP = 8
+-- tree heights p25 = 5, p50 = 19 -- 10 excludes the shrub layer and keeps real small trees
+local MIN_TREE_HEIGHT = 10
+-- the wood is on a 16-stud grid and the median collider is 6.4 wide, so a gap rule of 10 rejected 55% of candidates
+local GAP_MIN = 7
+-- maximum width of a trunk collider
+local TRUNK_CAP = 6
+-- minimum width of a trunk collider
 local TRUNK_FLOOR = 2.5
+-- scale factor for rock colliders
 local ROCK_FRACTION = 0.8
+-- depth to sink colliders into the ground
+local SINK = 2
+-- clearance buffer around roads
+local ROAD_KEEP = 2
+
+local MIN_ROCK_HEIGHT = 3.5
 local COLLIDER_HEIGHT_FRAC = 0.6
 local MIN_COLLIDER_HEIGHT = 10
-local SINK = 2
-local GAP_MIN = 10
-local ROAD_KEEP = 2
 local DEBUG_SHOW = false
 
 MapSolids.DEBUG_SHOW = DEBUG_SHOW
 
-local state = {
-	zoneKey = nil,
-	segments = nil,
-	cells = {},
-	treesMade = 0,
-	rocksMade = 0,
-	skippedShort = 0,
-	skippedClumped = 0,
-	skippedRoad = 0,
-	tightestGap = math.huge,
-	tightestRoad = math.huge,
-	treeCandidates = 0
-}
+local state = {}
 
 function MapSolids.Begin(zoneKey, segments)
-	state.zoneKey = zoneKey
-	state.segments = segments
-	state.cells = {}
-	state.treesMade = 0
-	state.rocksMade = 0
-	state.skippedShort = 0
-	state.skippedClumped = 0
-	state.skippedRoad = 0
-	state.tightestGap = math.huge
-	state.tightestRoad = math.huge
-	state.treeCandidates = 0
+	state = {
+		zoneKey = zoneKey,
+		segments = segments,
+		cells = {},
+		treesMade = 0,
+		rocksMade = 0,
+		skippedShort = 0,
+		skippedClumped = 0,
+		skippedRoad = 0,
+		tightestGap = math.huge,
+		tightestRoad = math.huge,
+		candidates = {}
+	}
 end
 
 local function checkGap(x, z, hX, hZ)
@@ -88,7 +90,7 @@ end
 
 local function checkRoad(x, z, hX, hZ)
 	local clearance = JungleLayout.RoadClearance(state.zoneKey, x, z, state.segments)
-	local req = ROAD_KEEP + math.sqrt(hX * hX + hZ * hZ)
+	local req = ROAD_KEEP + math.max(hX, hZ)
 	if clearance < req then
 		return false
 	end
@@ -117,124 +119,127 @@ local function buildBox(name, x, groundY, z, yaw, w, h, d, parent)
 	return box
 end
 
-function MapSolids.TreeCollider(model, parent)
-	local cf, bb = model:GetBoundingBox()
+function MapSolids.Offer(inst, parent)
+	local kind = inst.Name == "HuntTree" and "tree" or "rock"
+	local cf, bb = inst:GetBoundingBox()
 	local height = bb.Y
 	
-	if height < MIN_TREE_HEIGHT then
-		state.skippedShort = state.skippedShort + 1
-		return false
-	end
-	
-	state.treeCandidates = state.treeCandidates + 1
-	
-	local trunkMinX, trunkMinZ = math.huge, math.huge
-	local trunkMaxX, trunkMaxZ = -math.huge, -math.huge
-	local hasTrunkParts = false
-	
-	for _, part in ipairs(model:GetDescendants()) do
-		if part:IsA("BasePart") and part.Name ~= "Top" then
-			hasTrunkParts = true
-			local sX, sY, sZ = part.Size.X / 2, part.Size.Y / 2, part.Size.Z / 2
-			local pCf = part.CFrame
-			local corners = {
-				pCf * Vector3.new(sX, sY, sZ), pCf * Vector3.new(-sX, sY, sZ),
-				pCf * Vector3.new(sX, -sY, sZ), pCf * Vector3.new(-sX, -sY, sZ),
-				pCf * Vector3.new(sX, sY, -sZ), pCf * Vector3.new(-sX, sY, -sZ),
-				pCf * Vector3.new(sX, -sY, -sZ), pCf * Vector3.new(-sX, -sY, -sZ)
-			}
-			for _, c in ipairs(corners) do
-				local localPos = cf:Inverse() * c
-				trunkMinX = math.min(trunkMinX, localPos.X)
-				trunkMinZ = math.min(trunkMinZ, localPos.Z)
-				trunkMaxX = math.max(trunkMaxX, localPos.X)
-				trunkMaxZ = math.max(trunkMaxZ, localPos.Z)
-			end
+	if kind == "tree" then
+		if height < MIN_TREE_HEIGHT then
+			state.skippedShort += 1
+			return
 		end
-	end
-	
-	local w, d
-	if hasTrunkParts then
-		w = trunkMaxX - trunkMinX
-		d = trunkMaxZ - trunkMinZ
-		w = math.clamp(w * TRUNK_FRACTION, TRUNK_FLOOR, TRUNK_CAP)
-		d = math.clamp(d * TRUNK_FRACTION, TRUNK_FLOOR, TRUNK_CAP)
 	else
-		local modelMin = math.min(bb.X, bb.Z)
-		w = math.clamp(modelMin * 0.18, TRUNK_FLOOR, TRUNK_CAP)
-		d = w
+		if inst.Size.Y - 0.8 < MIN_ROCK_HEIGHT then
+			state.skippedShort += 1
+			return
+		end
+		cf = inst.CFrame
+		height = inst.Size.Y
 	end
 	
-	local hX = w / 2
-	local hZ = d / 2
-	
-	if not checkRoad(cf.X, cf.Z, hX, hZ) then
-		state.skippedRoad = state.skippedRoad + 1
-		return false
-	end
-	
-	if not checkGap(cf.X, cf.Z, hX, hZ) then
-		state.skippedClumped = state.skippedClumped + 1
-		return false
-	end
-	
-	addCell(cf.X, cf.Z, hX, hZ)
-	
-	local _, yaw, _ = cf:ToEulerAnglesYXZ()
-	local groundY = cf.Y - (height / 2)
-	
-	local h = math.max(height * COLLIDER_HEIGHT_FRAC, MIN_COLLIDER_HEIGHT)
-	buildBox("HuntTreeCollider", cf.X, groundY, cf.Z, yaw, w, h, d, parent)
-	state.treesMade = state.treesMade + 1
-	return true
+	table.insert(state.candidates, {
+		inst = inst,
+		parent = parent,
+		kind = kind,
+		cf = cf,
+		height = height,
+		bb = bb
+	})
 end
 
-function MapSolids.RockCollider(rock, parent)
-	if rock.Size.Y - 0.8 < MIN_ROCK_HEIGHT then
-		state.skippedShort = state.skippedShort + 1
-		return false
+function MapSolids.Commit()
+	table.sort(state.candidates, function(a, b)
+		return a.height > b.height
+	end)
+	
+	for _, c in ipairs(state.candidates) do
+		local x, z = c.cf.X, c.cf.Z
+		local groundY = c.cf.Y - (c.height / 2)
+		local _, yaw, _ = c.cf:ToEulerAnglesYXZ()
+		local w, h, d
+		
+		if c.kind == "tree" then
+			local trunkMinX, trunkMinZ = math.huge, math.huge
+			local trunkMaxX, trunkMaxZ = -math.huge, -math.huge
+			local hasTrunkParts = false
+			
+			for _, part in ipairs(c.inst:GetDescendants()) do
+				if part:IsA("BasePart") and part.Name ~= "Top" then
+					hasTrunkParts = true
+					local sX, sY, sZ = part.Size.X / 2, part.Size.Y / 2, part.Size.Z / 2
+					local pCf = part.CFrame
+					local corners = {
+						pCf * Vector3.new(sX, sY, sZ), pCf * Vector3.new(-sX, sY, sZ),
+						pCf * Vector3.new(sX, -sY, sZ), pCf * Vector3.new(-sX, -sY, sZ),
+						pCf * Vector3.new(sX, sY, -sZ), pCf * Vector3.new(-sX, sY, -sZ),
+						pCf * Vector3.new(sX, -sY, -sZ), pCf * Vector3.new(-sX, -sY, -sZ)
+					}
+					for _, crn in ipairs(corners) do
+						local localPos = c.cf:Inverse() * crn
+						trunkMinX = math.min(trunkMinX, localPos.X)
+						trunkMinZ = math.min(trunkMinZ, localPos.Z)
+						trunkMaxX = math.max(trunkMaxX, localPos.X)
+						trunkMaxZ = math.max(trunkMaxZ, localPos.Z)
+					end
+				end
+			end
+			
+			if hasTrunkParts then
+				w = math.clamp(trunkMaxX - trunkMinX, TRUNK_FLOOR, TRUNK_CAP)
+				d = math.clamp(trunkMaxZ - trunkMinZ, TRUNK_FLOOR, TRUNK_CAP)
+			else
+				local modelMin = math.min(c.bb.X, c.bb.Z)
+				w = math.clamp(modelMin * 0.18, TRUNK_FLOOR, TRUNK_CAP)
+				d = w
+			end
+			h = math.max(c.height * COLLIDER_HEIGHT_FRAC, MIN_COLLIDER_HEIGHT)
+		else
+			w = c.inst.Size.X * ROCK_FRACTION
+			d = c.inst.Size.Z * ROCK_FRACTION
+			h = math.max(c.height * COLLIDER_HEIGHT_FRAC, MIN_COLLIDER_HEIGHT)
+		end
+		
+		local hX = w / 2
+		local hZ = d / 2
+		
+		if not checkRoad(x, z, hX, hZ) then
+			state.skippedRoad += 1
+			continue
+		end
+		
+		if not checkGap(x, z, hX, hZ) then
+			state.skippedClumped += 1
+			continue
+		end
+		
+		addCell(x, z, hX, hZ)
+		
+		if c.kind == "tree" then
+			buildBox("HuntTreeCollider", x, groundY, z, yaw, w, h, d, c.parent)
+			state.treesMade += 1
+		else
+			buildBox("HuntRockCollider", x, groundY, z, yaw, w, h, d, c.parent)
+			state.rocksMade += 1
+		end
 	end
-	
-	local cf = rock.CFrame
-	local w = rock.Size.X * ROCK_FRACTION
-	local d = rock.Size.Z * ROCK_FRACTION
-	local hX = w / 2
-	local hZ = d / 2
-	
-	if not checkRoad(cf.X, cf.Z, hX, hZ) then
-		state.skippedRoad = state.skippedRoad + 1
-		return false
-	end
-	
-	if not checkGap(cf.X, cf.Z, hX, hZ) then
-		state.skippedClumped = state.skippedClumped + 1
-		return false
-	end
-	
-	addCell(cf.X, cf.Z, hX, hZ)
-	
-	local _, yaw, _ = cf:ToEulerAnglesYXZ()
-	local h = math.max(rock.Size.Y * COLLIDER_HEIGHT_FRAC, MIN_COLLIDER_HEIGHT)
-	local groundY = cf.Y - (rock.Size.Y / 2)
-	buildBox("HuntRockCollider", cf.X, groundY, cf.Z, yaw, w, h, d, parent)
-	state.rocksMade = state.rocksMade + 1
-	return true
 end
 
 function MapSolids.Report(zoneKey)
-	if state.treeCandidates > 0 then
-		local skippedRatio = state.skippedClumped / state.treeCandidates
+	local candidates = #state.candidates
+	if candidates > 0 then
+		local skippedRatio = state.skippedClumped / candidates
 		if skippedRatio > 0.25 then
-			warn("[MapSolids] GAP RULE REJECTED " .. string.format("%.1f%%", skippedRatio * 100) .. " OF TREE CANDIDATES")
+			warn(("[MapSolids] GAP RULE REJECTED %.1f%% OF CANDIDATES"):format(skippedRatio * 100))
 		end
 	end
 	
 	local tGap = state.tightestGap == math.huge and 0 or state.tightestGap
 	local tRoad = state.tightestRoad == math.huge and 0 or state.tightestRoad
 	
-	print(string.format("[MapSolids] Forest: %d tree colliders + %d rock colliders (skipped %d short, %d clumped, %d road)",
+	print(("[MapSolids] Forest: %d tree colliders + %d rock colliders (skipped %d short, %d clumped, %d road)"):format(
 		state.treesMade, state.rocksMade, state.skippedShort, state.skippedClumped, state.skippedRoad))
-	print(string.format("-- tightest collider gap %.1f studs, tightest road clearance %.1f studs", tGap, tRoad))
+	print(("-- tightest collider gap %.1f studs, tightest road clearance %.1f studs"):format(tGap, tRoad))
 	
 	return state
 end

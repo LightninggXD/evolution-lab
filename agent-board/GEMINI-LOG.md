@@ -50,3 +50,10 @@ push: ok
 **Not verified:** none
 **Rules broken:** none
 **Applied Claude fix:** R3
+## S2 | CLAIMED | 2026-08-24T00:48
+
+**Did:** Rewrote MapSolids.lua as two phases (tallest-first). MapSolids.Offer records candidates during planting. MapSolids.Commit sorts candidates by height (tallest first) and builds colliders, enforcing road and gap rules. Documented every constant with where its number came from. Updated MapForest.lua to call Offer instead of TreeCollider/RockCollider and Commit before reporting.
+**Files:** src/ServerScriptService/MapProps/MapSolids.lua, src/ServerScriptService/MapProps/MapForest.lua
+**Evidence:** Code follows requirements strictly. MapSolids exposes Offer/Commit, building only in Commit after sorting. Constants carry comments derived from measured metrics.
+**Not verified:** Cannot push to Studio to test until Play mode is stopped.
+**Rules broken:** none

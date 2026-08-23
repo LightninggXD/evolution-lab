@@ -165,7 +165,7 @@ local function plantOne(proto, parent, x, z, rng, scale)
 	end
 	t.Name = "HuntTree"
 	t.Parent = parent
-	MapSolids.TreeCollider(t, parent)
+	MapSolids.Offer(t, parent)
 	return t
 end
 
@@ -294,7 +294,7 @@ function MapForest.Plant(zoneKey, cx, map, spec)
 				rng:NextNumber(-0.16, 0.16))
 		r.Name = "HuntRock"
 		r.Parent = folder
-		MapSolids.RockCollider(r, folder)
+		MapSolids.Offer(r, folder)
 		return 1
 	end
 
@@ -372,6 +372,7 @@ function MapForest.Plant(zoneKey, cx, map, spec)
 
 	local planted = tall + canopy + under + floorBits + stones
 
+	MapSolids.Commit()
 	MapSolids.Report(zoneKey)
 	print(("[MapForest] %s: planted %d over %d cells at spacing %d -- %d emergent / %d canopy / "
 		.. "%d undergrowth / %d shrub / %d rock (of %d tree, %d shrub, %d rock protos); keep-outs: "
