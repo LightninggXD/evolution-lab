@@ -142,9 +142,32 @@ GameConfig.DiamondDropChance = {
 GameConfig.BossDiamondReward = { 3, 6 }
 GameConfig.EventBossDiamondReward = { 12, 20 }
 
-function GameConfig.RollDiamondDrop(tierName)
+-- ===== A GATED CREATURE PAYS THE LAYER'S MULTIPLE (32.5) =====
+--
+-- `raised` is the same value `RollShardDrop` takes and the same one `CreatureService` already has in
+-- hand at the call site -- the layer index the spawner stamped on this creature, nil on the open
+-- ground. It is threaded in rather than inferred, for the reason written over `RollShardDrop`: two
+-- Brutes can be the same tier, the same rig and the same stats, and only the loop that placed them
+-- knows which is gated. See `GameConfig.RaisedLayers` for the measured per-camp rates this is sized
+-- against.
+--
+-- THE ROLL HAD TO STOP BEING A COIN, AND THAT IS THE ONLY REAL CHANGE HERE. `math.random() < chance`
+-- cannot express a multiplier: the Apex is already at 0.60, so even a 2x layer term would have
+-- clipped at "always exactly 1" and a 12x one would have been indistinguishable from a 1.7x one --
+-- the gate would have read as broken at precisely the tier it exists for. So the table's number is
+-- now an EXPECTED VALUE rather than a probability: pay the whole part, then roll the remainder.
+--
+-- It is exactly the old function when there is no layer, and not merely "close": `chance * 1` is
+-- below 1 for every row in the table, so `whole` is 0 and the roll is `math.random() < chance`,
+-- character for character the same distribution the valley has always had. The layer-0 half of
+-- 32.5's measurement is therefore a control, not a second variable.
+function GameConfig.RollDiamondDrop(tierName, raised)
 	local chance = GameConfig.DiamondDropChance[tierName or ""] or 0
-	return math.random() < chance and 1 or 0
+	if chance <= 0 then return 0 end
+	local layer = GameConfig.GetRaisedLayer(raised)
+	local expected = chance * (layer and layer.diamondMult or 1)
+	local whole = math.floor(expected)
+	return whole + (math.random() < (expected - whole) and 1 or 0)
 end
 
 -- ===== EVOLUTION SHARDS: THE ONE DROP YOU HAVE TO CLIMB FOR (9.4) =====
@@ -220,6 +243,17 @@ function GameConfig.AssertTierCoverage(allTiers, raisedTiers)
 	for _, name in ipairs(raisedTiers or {}) do
 		if GameConfig.ShardDropChance[name] == nil then
 			missing[#missing + 1] = "ShardDropChance." .. name
+		end
+	end
+	-- ===== AND THE LAYER TABLE IS CHECKED THE SAME WAY (32.5) =====
+	-- `RollDiamondDrop` reads `layer.diamondMult or 1`, which is the same `or 0` shape one axis over:
+	-- a third layer added without a diamond term would pay the open-ground rate and say nothing, which
+	-- is the exact silence 11.31 spent 200,000 Monte Carlo rolls to break. Checked here rather than at
+	-- the roll because this runs once, at load, with a name to print. Takes no argument -- unlike the
+	-- tier lists, this table lives in GameConfig itself and there is no require cycle to dodge.
+	for i, layer in ipairs(GameConfig.RaisedLayers or {}) do
+		if layer.diamondMult == nil then
+			missing[#missing + 1] = "RaisedLayers[" .. i .. "].diamondMult"
 		end
 	end
 	if #missing > 0 then

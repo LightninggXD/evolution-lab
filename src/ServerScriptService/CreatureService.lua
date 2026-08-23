@@ -3591,7 +3591,13 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 			-- Rolled and credited BEFORE the PushToClient below, on purpose: that push carries the
 			-- whole save down and is happening anyway, so the diamond rides out on it instead of
 			-- costing a second replication on the most frequent event in the game.
-			local gems = GameConfig.RollDiamondDrop(tierName)
+			--
+			-- `raised` is threaded in as of 32.5, the same value RollShardDrop two blocks down takes:
+			-- a gated creature pays its layer's multiple. Before that a rebirth-gated camp rolled the
+			-- OPEN-GROUND odds on a much longer respawn, so the rebirth gate paid less than the first
+			-- camp outside the village -- measured, those 45 gated kills were worth 8.65 diamonds and
+			-- are now worth 36. See the 32.5 block over GameConfig.RaisedLayers for the per-camp rates.
+			local gems = GameConfig.RollDiamondDrop(tierName, raised)
 			if gems > 0 then
 				data.Diamonds = (data.Diamonds or 0) + gems
 				Telemetry.Accrue(player, "Source", Telemetry.Currency.Diamonds, gems,

@@ -227,9 +227,61 @@ GameConfig.ApexBaseHealth = math.min(350, GameConfig.BossEliteFloor * GameConfig
 -- `petChance` is per kill, and layer 2's pool is species that exist in NO egg. That is the actual
 -- reward: layer 1 pays better and can hand over a pet you could also have hatched, layer 2 hands
 -- over one you could not have obtained any other way.
+--
+-- ===== AND THE DIAMOND WAS THE ONE CURRENCY THE GATE DID NOT PAY (32.5) =====
+--
+-- Her ask was *"neki mobovi zahtevaju rebirth ... daju vise dna i dijamanata"* -- more DNA **and**
+-- more diamonds. Only the first half was ever built: `RollDiamondDrop` took a tier name and nothing
+-- else, so a rebirth-gated creature rolled the same odds as the one standing on the open ground
+-- next to it.
+--
+-- AND THE EFFECT WAS NOT "NO BONUS", IT WAS A PENALTY -- which is why the plan's framing ("the
+-- diamonds half is missing") understates it. A camp's diamond rate is `sum(count / respawn) x
+-- chance`, and the gated camps are deliberately SPARSE and SLOW: three Brutes on a 16 s timer, two
+-- Elites on 55 s, ONE Apex on 120 s, against a swarm camp's four Critters on 9 s plus three
+-- Swarmers on 4 s. The rarer tier's higher odds come nowhere near covering that respawn -- a player
+-- who spent three rebirths to be let into the Apex clearing farmed diamonds at a fraction of the
+-- rate of the first camp outside the village. The gate did not merely fail to reward: it charged
+-- for the privilege of earning less. Same defect 11.31 found one level down inside the tier table
+-- -- an axis was added and the payout was never asked about it.
+--
+-- ===== MEASURED IN THE PLACE, 2026-08-23, PARKED AT ONE CAMP AND LETTING THE RESPAWNS COME =====
+-- The real AutoAttack remote fired from the Client datamodel at the client's own 0.34 s cadence,
+-- diamonds and kills read off the real DataUpdate payload -- the technique the 11.11 band above was
+-- measured with. Each row is one uninterrupted parked run with this row's code live:
+--
+--     camp             layer  kills  seconds  diamonds  per kill  per hour
+--     NW1 swarm          0      101    110.0       4      0.040      131
+--     NW3 brute          0       79    100.2       2      0.025       72
+--     SW2 raidBrute      1       39    190.3      18      0.462      341
+--     SW3 raidElite      1        4    110.3       4      1.000      131
+--     SW4/SW5 apex       2        2    110.2      14      7.000      457
+--
+-- THE PER-KILL COLUMN IS THE PROOF AND THE PER-HOUR COLUMN IS THE POINT. 0.462 / 1.000 / 7.000
+-- against the 0.45 / 1.20 / 7.20 this table asks for; pooled, the 45 gated kills paid 36 diamonds
+-- against 36.75 predicted -- a 2% match on the multiplier itself. The same 45 kills under the old
+-- tier-only roll predict **8.65**, so the gate is worth a measured 4.2x more than it was, and the
+-- open ground moved by nothing: 180 layer-0 kills paid 6 against 6.7 predicted, which is the
+-- control this row needed, since `RollDiamondDrop` with no layer is the old function exactly.
+--
+-- `diamondMult` MIRRORS `dnaMult`, and that is the design rather than a coincidence. One number per
+-- layer governs what the gate is worth, both currencies read it, and a third layer cannot be added
+-- with one of them silently missing (`AssertTierCoverage` checks this table now too). The ceiling
+-- it moves is one the prices can absorb: the diamond ladder is written against ~120/h (see the
+-- Diamonds part) and the fastest thing on this map is now 457/h in a clearing you must have
+-- rebirthed three times to be allowed to stand in.
+--
+-- The layer-1 raidBrute camp out-earning the layer-1 raidElite camp per HOUR (341 against 131) is
+-- real and is left alone: per KILL an Elite pays 2.2x a Brute, and the inversion is the map's own
+-- density -- three bodies on a 16 s timer against two on 55 s -- not the drop table's. It is
+-- identical in DNA today. A roster question, not this row's.
+--
+-- The two gated samples are small (4 kills and 2 kills) because that IS the camp: a 55 s and a
+-- 120 s respawn cannot be sampled faster by any probe, and pushing for n would have measured a
+-- walk between clearings instead of a farm. The per-kill figures carry the weight.
 GameConfig.RaisedLayers = {
-	{ minRebirths = 1, dnaMult = 3.0,  xpMult = 2.0, petChance = 0.02, exclusive = false },
-	{ minRebirths = 3, dnaMult = 12.0, xpMult = 5.0, petChance = 0.05, exclusive = true },
+	{ minRebirths = 1, dnaMult = 3.0,  xpMult = 2.0, diamondMult = 3.0,  petChance = 0.02, exclusive = false },
+	{ minRebirths = 3, dnaMult = 12.0, xpMult = 5.0, diamondMult = 12.0, petChance = 0.05, exclusive = true },
 }
 
 -- The layer a creature belongs to, or nil for the valley floor. Takes the raw `raised` value so
