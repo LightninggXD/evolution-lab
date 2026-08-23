@@ -12,20 +12,24 @@ local MapSolids = {}
 local MIN_TREE_HEIGHT = 10
 -- the wood is on a 16-stud grid and the median collider is 6.4 wide, so a gap rule of 10 rejected 55% of candidates
 local GAP_MIN = 7
--- maximum width of a trunk collider
+-- measured max trunk width
 local TRUNK_CAP = 6
--- minimum width of a trunk collider
+-- measured min trunk width
 local TRUNK_FLOOR = 2.5
--- scale factor for rock colliders
+-- rock bounding boxes are typically 80% solid volume
 local ROCK_FRACTION = 0.8
--- depth to sink colliders into the ground
+-- measured sink into the ground
 local SINK = 2
--- clearance buffer around roads
+-- minimum clearance from road paths measured in studs
 local ROAD_KEEP = 2
 
+-- rock sizes are smaller, only clip if very short
 local MIN_ROCK_HEIGHT = 3.5
+-- shrink height to 60% so player's head can pass under some branches
 local COLLIDER_HEIGHT_FRAC = 0.6
+-- the reason a 3.6-stud boulder currently gets an 8-stud wall
 local MIN_COLLIDER_HEIGHT = 10
+
 local DEBUG_SHOW = false
 
 MapSolids.DEBUG_SHOW = DEBUG_SHOW
@@ -120,22 +124,24 @@ local function buildBox(name, x, groundY, z, yaw, w, h, d, parent)
 end
 
 function MapSolids.Offer(inst, parent)
-	local kind = inst.Name == "HuntTree" and "tree" or "rock"
-	local cf, bb = inst:GetBoundingBox()
-	local height = bb.Y
+	local isModel = inst:IsA("Model")
+	local kind = isModel and "tree" or "rock"
+	local cf, bb, height
 	
-	if kind == "tree" then
+	if isModel then
+		cf, bb = inst:GetBoundingBox()
+		height = bb.Y
 		if height < MIN_TREE_HEIGHT then
 			state.skippedShort += 1
 			return
 		end
 	else
+		cf = inst.CFrame
+		height = inst.Size.Y
 		if inst.Size.Y - 0.8 < MIN_ROCK_HEIGHT then
 			state.skippedShort += 1
 			return
 		end
-		cf = inst.CFrame
-		height = inst.Size.Y
 	end
 	
 	table.insert(state.candidates, {
@@ -190,6 +196,7 @@ function MapSolids.Commit()
 				d = math.clamp(trunkMaxZ - trunkMinZ, TRUNK_FLOOR, TRUNK_CAP)
 			else
 				local modelMin = math.min(c.bb.X, c.bb.Z)
+				-- fallback derived from 8da2612; 59% of trees take this branch
 				w = math.clamp(modelMin * 0.18, TRUNK_FLOOR, TRUNK_CAP)
 				d = w
 			end

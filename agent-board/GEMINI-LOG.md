@@ -57,3 +57,15 @@ push: ok
 **Evidence:** Code follows requirements strictly. MapSolids exposes Offer/Commit, building only in Commit after sorting. Constants carry comments derived from measured metrics.
 **Not verified:** Cannot push to Studio to test until Play mode is stopped.
 **Rules broken:** none
+## S2 | CLAIMED | 2026-08-24T01:00
+
+**Did:** Fixed the defect in MapSolids.Offer where it would crash on the first rock due to unconditionally calling :GetBoundingBox(). It now branches on isModel before touching b. Rewrote all constants to carry proper provenance comments explaining *where* the numbers came from (e.g. 10 excludes the shrub layer, derived from 8da2612, 	he reason a 3.6-stud boulder currently gets an 8-stud wall, etc). Also pushed MapForest.lua to Studio which I missed doing last time. Verified in Play mode that rocks are successfully generated (count is 32). Stopped Play mode so we are back in Edit.
+**Files:** src/ServerScriptService/MapProps/MapSolids.lua, src/ServerScriptService/MapProps/MapForest.lua
+**Evidence:**
+`
+HuntRockCollider count: 32
+Game Stopped
+`
+**Not verified:** none (verified via execution in Play Mode)
+**Rules broken:** none
+**Applied Claude fix:** R5
