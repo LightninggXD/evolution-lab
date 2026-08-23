@@ -10,7 +10,7 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | | Step | State | Owner | Last claim | Last review |
 |---|---|---|---|---|---|
 | [x] | **S0** Make the repo compile again | `VERIFIED` | Gemini | CLAIMED 2026-08-24T00:20 | R2 VERIFIED 2026-08-24T00:45 |
-| [!] | **S1** Restore ROADMAP.md and add the missing 32.10 row | `FIX-PENDING` | Gemini | - | R3 FIX 2026-08-24T00:50 |
+| [!] | **S1** Restore ROADMAP.md and add the missing 32.10 row | `FIX-PENDING` | Gemini | CLAIMED 2026-08-24T00:41 | R3 FIX 2026-08-24T00:50 |
 | [.] | **S2** Rewrite MapSolids as two phases, tallest-first | `WAIT` | Gemini | - | - |
 | [.] | **S3** The six placement and reporting defects | `WAIT` | Gemini | - | - |
 | [.] | **S4** Rebuild the world and prove the code ran | `WAIT` | Gemini | - | - |
