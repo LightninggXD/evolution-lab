@@ -54,14 +54,19 @@ local JungleLayout = {}
 -- These are `CreatureService.insideKeepOut`'s own rules, restated so the placement can be checked
 -- by reading rather than by running. They are NOT enforced here -- CreatureService still applies
 -- them to its own scatter, and a camp that broke one would simply be wrong.
+-- The camp figures below are AFTER 31.24's shrink, which is what `Camps()` returns -- see the
+-- pull-in block above the table. The authored coordinates are kept per camp as `x0`/`z0`.
 --   * THE STREET at |x| < 62. It is the lane from the village to the exit gate and it is the main
---     path below; nothing may stand in it. Nearest camp centre: |x| = 190.
---   * THE ARRIVAL PLAZA, a 110-stud disc at (0, 490). Nearest camp: (-320, 300), 396 away.
---   * THE BOSS, a 132-stud disc at (0, -320). Nearest camp is (-190, -390), 202 studs out, which
---     clears the disc plus a camp's own 46-stud floor.
+--     path below; nothing may stand in it. Nearest camp centre: |x| = 151, so 105 studs of clear
+--     ground beyond the camp's own 46-stud floor.
+--   * THE ARRIVAL PLAZA, a 110-stud disc at (0, 490). Nearest camp: (-313, 264), 386 away.
+--   * THE BOSS, a 132-stud disc at (0, -470) -- NOT (0, -320), which is what this list said for two
+--     whole phases while the boss stood elsewhere (`GameConfig.GetBossStation` is the one answer,
+--     and its own comment is the record of that bug). Nearest camp is (-151, -310), 220 studs out,
+--     which clears the disc plus a camp's own floor with 42 to spare.
 --   * THE PLATFORM EDGE at |x| > 575 / |z| > 500, which already leaves room for the boundary
---     rampart. Every camp centre is inside |x| <= 530 and |z| <= 455, and an escort stands at most
---     34 studs off its leader, so nothing reaches the rampart.
+--     rampart. Every camp centre is now inside |x| <= 400 and |z| <= 343 -- the shrink made this
+--     one trivially true where it used to be the binding constraint at |x| <= 530.
 JungleLayout.CAMP_RADIUS = 46      -- the dirt floor a camp stands on
 JungleLayout.CLEARING_RADIUS = 66  -- how far back the WOOD is held: the camp's wall, since 30.23
 JungleLayout.ESCORT_RING = 22      -- how far an escort stands from its leader
@@ -90,6 +95,110 @@ JungleLayout.ROSTERS = {
 	raidElite = { { tier = "Elite",   n = 2, layer = 1 } },
 	apex      = { { tier = "Apex",    n = 1, layer = 2 } },
 }
+
+-- ===== THE HUNTING GROUND CLOSED UP BY HALF (31.24) =====
+-- Her words, 2026-08-23: *"mapa je sad prevelika u odnosu na mene mozemo je smanjiti upola"*.
+--
+-- ASKED BEFORE ANY CODE, BECAUSE THERE ARE TWO READINGS AND THEY NEED DIFFERENT LEVERS. "Too big
+-- next to me" can mean the BUILDINGS are too tall -- which is `ForestMapService.SCALE` -- or it can
+-- mean the WALK is too long, which is this. She confirmed it is the walk. The scale is deliberately
+-- untouched: 31.14 already took the map 1.45 -> 1.15, and 1.45 was the value at which a doorway fit
+-- the 8.4-stud body, so at 1.15 the player is already fractionally taller than a door. Halving it
+-- again gives 4-stud doorways and a village she cannot walk into.
+--
+-- ===== WHY IT IS NOT `x * 0.5`, WHICH IS WHAT "UPOLA" LITERALLY ASKS FOR =====
+-- Multiplying the coordinates pulls the inner camps INTO THE VILLAGE. SW5 is authored at
+-- (-190, -390); halved it is (-95, -195), and the village floor's half-depth is 230 -- so that camp,
+-- its five creatures and its 46-stud dirt floor would be standing in the square among the shops.
+--
+-- What halves is the distance measured OUTWARD FROM THE VILLAGE EDGE. The village keeps its
+-- footprint, every camp keeps its bearing, and only the band around it closes up. Three worked by
+-- hand against the whole keep-out set before this was written:
+--     NW2 (-530, 300)  -> (-400, 227)
+--     SW4 (-520, -455) -> (-391, -342)
+--     SW5 (-190, -390) -> (-151, -310)
+-- What the boot log prints is not those three but the ENVELOPE they sit in -- the furthest camp
+-- from the village and the closest -- because that is the pair that can go wrong. See `Describe`.
+--
+-- ===== THE VILLAGE RECTANGLE IS WRITTEN HERE AND NOT READ FROM `ForestMapService` =====
+-- It would be one `require` away, and taking it would be wrong. Read the file header forty lines
+-- up: this table is absolute ON PURPOSE, so that a change to the map scale can never walk a camp
+-- into the boss's arena. The pull-in anchor is an AUTHORING REFERENCE FRAME -- "where the village
+-- edge was when these coordinates were chosen" -- not a live measurement, and if the map is ever
+-- rescaled we want the camps to stay exactly where the captures showed them. Derived once, from
+-- `ForestMapService`'s own published `floorHalfX = 235.2 * 1.15` and `floorHalfZ = 200 * 1.15`.
+local VILLAGE_HALF_X = 270.5
+local VILLAGE_HALF_Z = 230
+
+-- The one dial. 0.5 is her "upola"; she is expected to ask for another round after walking it, and
+-- when she does this is the only number that moves.
+JungleLayout.HUNT_SHRINK = 0.5
+
+-- How close a camp's FLOOR may come to the village. `CAMP_RADIUS` is the floor itself, so the
+-- margin is what stops a clearing's dirt lapping over the map's own grass -- a camp is a room in
+-- the forest, and a room sharing a wall with the square is not one.
+--
+-- 8 and not something rounder because the authored layout is already tight: NW1 and NE1 sit 63.6
+-- studs off the village corner as drawn, so a margin of 24 would have re-derived camps the owner
+-- has already walked and approved. This clamp exists to catch the pull-in, not to re-author 30.23.
+--
+-- ===== EIGHT OF THE TWENTY HIT THIS CLAMP, AND THAT IS THE RIGHT ANSWER, NOT A NEAR MISS =====
+-- Measured: NW1 NW3 NW5 NE1 NE3 NE5 SW1 SE1 all stop at the 54-stud line. A safety net catching
+-- 40% of its cases normally means the net is doing the design's job -- here it means the INNER RING
+-- WAS NEVER FAR AWAY. Those eight are authored 54..64 studs off the village edge; there is no
+-- outward distance to halve, so they move 5..20 studs and stay where she walked them.
+--
+-- That is the complaint being answered rather than dodged. "Too far to walk" is about the far
+-- things: the outer camps close up by 130 studs each and the furthest camp in the zone goes from
+-- 336 studs off the village to 165. The near ones were never the walk.
+local MIN_VILLAGE_CLEAR = JungleLayout.CAMP_RADIUS + 8
+
+-- Distance from a point to the village rectangle. Zero inside it. NOT `max(|x|-VX, |z|-VZ)`, which
+-- is the cheap version and is wrong at the corners: a point outside a rectangle is outside in
+-- EITHER axis, so the diagonal case needs both terms.
+local function villageGap(x, z)
+	local dx = math.max(math.abs(x) - VILLAGE_HALF_X, 0)
+	local dz = math.max(math.abs(z) - VILLAGE_HALF_Z, 0)
+	return math.sqrt(dx * dx + dz * dz)
+end
+
+-- Where the ray from the origin through `(x, z)` crosses the village rectangle, then `k` of the way
+-- from there back out to the point. Algebraically this is a radial scale about the origin, which is
+-- exactly the property wanted: the BEARING is preserved to the last decimal, so the four quadrants
+-- stay four quadrants and no camp changes which side of a road it is on.
+function JungleLayout.PullIn(x, z, k)
+	local sx = math.abs(x) > 1e-6 and VILLAGE_HALF_X / math.abs(x) or math.huge
+	local sz = math.abs(z) > 1e-6 and VILLAGE_HALF_Z / math.abs(z) or math.huge
+	local s = math.min(sx, sz)
+	-- Already inside the village: there is no "outward distance" to halve, so leave it alone rather
+	-- than inventing one. Nothing in the authored table hits this; it is here so that a camp added
+	-- carelessly one day moves zero studs instead of being flung across the map.
+	if s >= 1 then return x, z end
+	local f = s + k * (1 - s)
+	return x * f, z * f
+end
+
+-- The pull-in, clamped so no camp lands against the village. `k` only ever moves UP from the dial
+-- toward 1 (= don't move), and `villageGap` rises monotonically with it, so twelve bisections is a
+-- tighter answer than anything a hand-typed exception table could hold. A camp the clamp catches is
+-- NAMED IN THE BOOT LOG -- a silent exception is how a layout stops being the layout that was
+-- drawn.
+JungleLayout.Clamped = {}
+
+local function pullCamp(camp, k)
+	local x, z = JungleLayout.PullIn(camp.x, camp.z, k)
+	if villageGap(x, z) >= MIN_VILLAGE_CLEAR or villageGap(camp.x, camp.z) < MIN_VILLAGE_CLEAR then
+		return x, z
+	end
+	local lo, hi = k, 1
+	for _ = 1, 12 do
+		local mid = (lo + hi) / 2
+		local mx, mz = JungleLayout.PullIn(camp.x, camp.z, mid)
+		if villageGap(mx, mz) >= MIN_VILLAGE_CLEAR then hi = mid else lo = mid end
+	end
+	JungleLayout.Clamped[#JungleLayout.Clamped + 1] = camp.id
+	return JungleLayout.PullIn(camp.x, camp.z, hi)
+end
 
 -- ===== THE TWENTY CAMPS, FIVE TO A QUADRANT (30.23) =====
 -- Zone-relative. The owner's drawing divides the whole platform into four quadrants around a cross
@@ -137,6 +246,15 @@ local CAMPS_FOREST = {
 	{ id = "SE5", kind = "apex",      x =  190, z = -390 },
 }
 
+-- The table above stays readable AS AUTHORED and the shrink is applied over it here, rather than
+-- twenty coordinates being retyped. Two reasons, and the second is the one that matters: the
+-- drawing 30.23 was built from is still legible in the numbers, and when she asks for another round
+-- the dial moves instead of the table. `x0`/`z0` are kept so the boot log can print both.
+for _, camp in ipairs(CAMPS_FOREST) do
+	camp.x0, camp.z0 = camp.x, camp.z
+	camp.x, camp.z = pullCamp(camp, JungleLayout.HUNT_SHRINK)
+end
+
 -- ===== THE PATHS: THE CROSS, AND ONE RING THROUGH ALL FOUR QUADRANTS =====
 -- Trunk roads only. Every camp gets a SPUR generated off the nearest trunk point (see `SpurFor`),
 -- so a camp moved by ten studs does not need a road re-authored under it -- which is the failure
@@ -155,8 +273,29 @@ local CAMPS_FOREST = {
 -- corners (the deck spans |x| <= 172), so a player who has just spawned can turn either way into
 -- the wood without walking through the village first.
 --
--- The coordinates clear the village floor AT EITHER SCALE: the floor's half-width is 341 at 1.45
--- and 270 at 1.15, so a ring at |x| = 450 runs well outside the houses in both worlds.
+-- ===== THE ROADS DID NOT MOVE WITH THE CAMPS (31.24), AND IT WAS TRIED THE OTHER WAY FIRST =====
+-- The obvious reading of the shrink is that the ring is part of the hunting ground and comes in on
+-- the same dial. It was built that way, pushed to Studio, and the boot log killed it in two lines:
+--
+--     furthest camp from a road: SW4 at 42 studs
+--     segments: 9 (9 trunk + 0 spurs)
+--
+-- **ZERO SPURS.** `SpurFor` returns nil inside `CAMP_RADIUS`, so "no spurs" means every one of the
+-- twenty camps had ended up sitting ON the ring. That is the arithmetic, not bad luck: the camps
+-- are authored at |x| 320..530 and the ring at 450, so pulling both toward the same village edge
+-- makes them CONVERGE. Camps landed at 325 and 400 with the ring between them at 360 -- a 46-stud
+-- camp floor 35 studs from a 40-wide road is a clearing with a road through the middle of it, and
+-- the creatures stand in the traffic.
+--
+-- The relationship the ring has always had is that it threads BETWEEN the two rings of camps
+-- (inner ~330, ring 450, outer ~530). After the shrink the two camp rings are 325 and 400 and
+-- their 46-stud floors overlap in 354..371 -- there is no corridor left to thread. So the ring
+-- stays where it was authored: every camp is now INSIDE it with 50 studs of verge, which is the
+-- same "camps in a field, road round the outside" arrangement 30.23 drew, only tighter.
+--
+-- **This is what 31.24's ring rows are for.** `JungleRings` replaces all six of these with two
+-- winding ellipses placed against the SHRUNKEN camp positions, which is the pass that owns ring
+-- geometry. Pulling numbers in here would only be guessing at what that pass will measure.
 local PATHS_FOREST = {
 	-- ---- the cross
 	-- the main lane, village -> exit gate. `CreatureService.insideKeepOut` keeps |x| < 62 empty for
@@ -182,6 +321,19 @@ local PATHS_FOREST = {
 	-- vanishing under a boss. At (+/-30, -400) they are 76 studs out, clear of the body, still
 	-- overlapping the 56-wide main lane so the ring closes, and the walk to the gate is the lane
 	-- itself: out of the village, straight down, boss at the end of it.
+	--
+	-- ===== THE BOSS DID NOT MOVE WITH THE CAMPS, AND THAT IS DELIBERATE =====
+	-- It was in the plan for this row and reading `GameConfig` is what took it out. The station is
+	-- `GATE_Z + GATE_STANDOFF` -- it is anchored to the SOUTH GATE, a feature of the boundary wall,
+	-- which is not moving and belongs to all twenty-one zones. 30.27's note is explicit about why:
+	-- *"a boss standing AT the door is the door's guard"*. Pulling it in by half would take it off
+	-- the door and leave it standing in an empty field, which is the arrangement 30.27 was opened to
+	-- end. It is also not where the walking is: the village edge is at z = -230 and the boss at
+	-- -470, so it was already a 240-stud walk while the deepest camps were 336 studs out.
+	--
+	-- What the shrink does for the boss is give it ROOM. The camps used to crowd down to z = -455,
+	-- 15 studs off the arena; they now stop at -343, so the last 130 studs of the main lane is a
+	-- clear approach to the fight instead of a corridor between two Apex camps.
 	{ id = "RSW", x1 = -450, z1 = -400, x2 = -30, z2 = -400, w = 38 },
 	{ id = "RSE", x1 =  450, z1 = -400, x2 =  30, z2 = -400, w = 38 },
 }
@@ -401,9 +553,28 @@ function JungleLayout.Describe(zoneKey, expected)
 		if d and d > worst then worst, worstId = d, camp.id end
 	end
 
-	return ("%s: %d camps, %d creatures (%s), furthest camp from a road: %s at %.0f studs%s")
+	-- ===== THE SHRINK PRINTS ITS OWN ARITHMETIC (31.24) =====
+	-- The two numbers that can go wrong here are invisible from any capture. The FURTHEST camp is
+	-- the walk she complained about, in one number, and it is only meaningful beside what it used to
+	-- be -- so both are printed. The CLOSEST GAP is the failure the pull-in can cause and the clamp
+	-- exists to prevent: a camp whose 46-stud floor laps over the village square. It must never read
+	-- below 46, and the camps the clamp had to catch are named, because a silent exception is how a
+	-- layout stops being the layout that was drawn.
+	local far, farId, near, nearId = 0, "-", math.huge, "-"
+	for _, camp in ipairs(JungleLayout.Camps(zoneKey)) do
+		local d = villageGap(camp.x, camp.z)
+		if d > far then far, farId = d, camp.id end
+		if d < near then near, nearId = d, camp.id end
+	end
+
+	return ("%s: %d camps, %d creatures (%s), furthest camp from a road: %s at %.0f studs%s"
+		.. "\n         shrink %.2f: furthest camp from the village %s at %.0f studs, "
+		.. "closest %s at %.0f (floor is %d, must not go under)%s")
 		:format(zoneKey, #JungleLayout.Camps(zoneKey), #spawns, table.concat(parts, ", "),
-			worstId, worst, bad > 0 and "  <-- ROSTER DOES NOT MATCH THE TIER COUNTS" or "")
+			worstId, worst, bad > 0 and "  <-- ROSTER DOES NOT MATCH THE TIER COUNTS" or "",
+			JungleLayout.HUNT_SHRINK, farId, far, nearId, near, JungleLayout.CAMP_RADIUS,
+			#JungleLayout.Clamped > 0
+				and ("  [clamped: " .. table.concat(JungleLayout.Clamped, ", ") .. "]") or "")
 end
 
 return JungleLayout
