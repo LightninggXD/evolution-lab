@@ -104,6 +104,7 @@ local MapRoad = require(script.Parent.MapProps.MapRoad)
 local MapCut = require(script.Parent.MapProps.MapCut)
 local MapGates = require(script.Parent.MapProps.MapGates)
 local MapRidge = require(script.Parent.MapProps.MapRidge)
+local MapHorizon = require(script.Parent.MapProps.MapHorizon)
 
 local ForestMapService = {}
 
@@ -178,13 +179,20 @@ local MAPS = {
 		-- camps, 20 gives ~1,100 on 2 parts each. The trees are `CanCollide` and `CanQuery` false,
 		-- so the only cost of another thousand is drawing them.
 		--
-		-- THE EDGES ARE SET BY WHAT STANDS OUTSIDE THEM, not by the platform. `MapJungle` lays its
-		-- ridge hills on x = +/-630 and z = -585 and a hill is ~150 studs deep at 0.6 scale, so it
-		-- reaches x 555 and z -510: a tree planted past those is a tree inside a mountain, and
-		-- `MapJungle` runs AFTER the planting so nothing would ever say so. 565 / -505 keeps the
-		-- wood in front of the ridge, and still leaves `CreatureService`'s own rampart margin
-		-- (|x| > 575, |z| > 500) untouched.
-		forest = { xEdge = 565, zNorth = 500, zSouth = -505, spacing = 16 },
+		-- ===== THE EDGES USED TO BE A GUESS AT THE RIDGE, AND 31.24 ENDED THAT =====
+		-- They were 565 / 500 / -505, and the note here said so plainly: the ridge was laid on
+		-- x = +/-630 after the planting, so the planter could not ask where it was and had to be
+		-- told to stop short of it. A tree planted past those lines was a tree inside a mountain
+		-- and nothing would ever have said so.
+		--
+		-- `MapHorizon` now runs BEFORE this and publishes `Footprints`, which the planter subtracts
+		-- per hill -- so the wood no longer has to stop at a line at all. It runs to the platform's
+		-- own edge and BREAKS AROUND each mountain, which is what a wood at the foot of a range
+		-- looks like and is 45 studs of bare ground per side reclaimed on every flank.
+		--
+		-- Held 15 short of the boundary wall (|x| 625, |z| 575) rather than run right up to it: a
+		-- canopy is planted on its trunk, so a trunk at the wall puts half a crown through it.
+		forest = { xEdge = 610, zNorth = 560, zSouth = -560, spacing = 16 },
 		-- The way IN. See the header: the map's northern half is solid wood and the village square
 		-- is behind it, so without this the plaza opens onto a hedge. Tapered, wide end at the
 		-- plaza -- a funnel reads as an entrance and a rectangle reads as a firebreak.
@@ -458,6 +466,22 @@ function ForestMapService.Init()
 				-- BEFORE the planting, because the planter asks `MapRidge.Footprints` what is left
 				-- and would otherwise keep its wood out of rock that is about to be deleted.
 				MapRidge.Clear(zoneKey, cx, map)
+				-- ===== THE HORIZON IS BUILT BEFORE THE WOOD (31.24) =====
+				-- It used to be the other way round -- `MapJungle` raised the ridge AFTER the
+				-- planting -- and that ordering is why `spec.forest`'s bounds were fudge factors.
+				-- The planter had to be told to stop at x = 565 and z = -505 because it could not
+				-- ask where the hills were going to be, so the wood ended in a straight line short
+				-- of a range that did not exist yet.
+				--
+				-- Built first, it publishes `Footprints` and the planter subtracts them the same
+				-- way it already subtracts `MapRidge`'s -- a MERGE INTO AN EXISTING KEEP-OUT, not
+				-- an eighth branch in `isOpenGround`. The wood can then run to the mountains and
+				-- break around each one, which is what a wood at the foot of a range looks like.
+				--
+				-- `evolution-lab-placement-search-ordering` is the standing note: a pass only ever
+				-- knows the world that existed when it ran.
+				local hills = MapHorizon.Build(zoneKey, cx, map)
+				MapHorizon.TintWall(zoneKey, cx)
 				local planted = MapForest.Plant(zoneKey, cx, map, spec)
 				-- AFTER the planting, and that ordering matters: the ridge hills and the alcove
 				-- rocks are placed against authored coordinates, but the trees are scattered, and a
@@ -477,10 +501,10 @@ function ForestMapService.Init()
 				local gates = MapGates.Build(zoneKey, cx, map, protected)
 				print(("[ForestMapService] %s: dropped %d dressing, laid %d map parts at x%.2f, "
 					.. "cut %d props for the arrival and hunt bands, %d for the entrance road, "
-					.. "planted %d trees over the whole platform, built %d jungle camps, "
-					.. "paved %d road parts and %d gate parts")
+					.. "raised %d horizon hills, planted %d trees over the whole platform, "
+					.. "built %d jungle camps, paved %d road parts and %d gate parts")
 					:format(zoneKey, dropped, #map:GetDescendants(), spec.scale, cleared, road,
-						planted, camps, paved, gates))
+						hills, planted, camps, paved, gates))
 				print("[MapAnchors] " .. MapAnchors.Describe(zoneKey))
 			end
 		end

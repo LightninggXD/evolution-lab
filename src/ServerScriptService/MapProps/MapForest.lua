@@ -43,6 +43,7 @@ local GameConfig = require(game:GetService("ReplicatedStorage").Modules.GameConf
 local JungleLayout = require(script.Parent.JungleLayout)
 local MapJungle = require(script.Parent.MapJungle)
 local MapRidge = require(script.Parent.MapRidge)
+local MapHorizon = require(script.Parent.MapHorizon)
 
 local MapForest = {}
 
@@ -253,7 +254,14 @@ function MapForest.Plant(zoneKey, cx, map, spec)
 	-- Resolved ONCE and passed down. `Segments` derives a spur per camp, so asking it per candidate
 	-- point would rebuild twenty spurs about nine hundred times.
 	local segments = JungleLayout.Segments(zoneKey)
+	-- ===== TWO SOURCES OF ROCK, ONE LIST (31.24) =====
+	-- `MapRidge` reports whatever the ARTIST's mountains left standing; `MapHorizon` reports the
+	-- range this phase raises around the boundary wall. Both are "rock a tree must not grow inside"
+	-- and the predicate below already walks a list of exactly that, so they are concatenated rather
+	-- than given a branch each. The horizon half is only non-empty because `ForestMapService` now
+	-- builds it BEFORE the planting -- see the ordering note at that call site.
 	local ridges = MapRidge.Footprints(cx, map)
+	for _, m in ipairs(MapHorizon.Footprints(zoneKey)) do ridges[#ridges + 1] = m end
 
 	local shrubs = shrubStock(map)
 	local rocks = MapJungle.RockStock(map)

@@ -50,7 +50,6 @@
 
 local JungleLayout = require(script.Parent.JungleLayout)
 local MapPaint = require(script.Parent.MapPaint)
-local MapRidge = require(script.Parent.MapRidge)
 
 local MapJungle = {}
 
@@ -88,17 +87,13 @@ local ROCK_SINK = 1.5        -- how far a rock is buried, so it reads as planted
 -- problem is usually the light -- so this is the smallest correction that survives it.
 local ROCK_TINT = Color3.fromRGB(138, 126, 116)
 
--- The mountain, scaled down to a ridge, and it is TWO different sizes on purpose. The south wall is
--- the horizon behind the exit gate and wants to be big; the flanks stand beside camps whose escorts
--- reach x = 564, so a hill wide enough to hide the boundary there would swallow them.
-local RIDGE_SCALE_SOUTH = 0.60
-local RIDGE_SCALE_FLANK = 0.55
-local RIDGE_SINK = 15        -- buried, so a hill's flat underside never shows
-local RIDGE_Z = -585         -- past the deepest camp (z -504) and short of the boundary wall
-local RIDGE_X = 630
--- The exit lane. `insideKeepOut` reserves |x| < 62 and the main path is 56 wide; 100 leaves the
--- gate readable from the whole south field instead of framed by two hills.
-local RIDGE_LANE = 100
+-- ===== THE HORIZON LEFT THIS FILE (31.24) =====
+-- `RIDGE_SCALE_SOUTH`, `RIDGE_SCALE_FLANK`, `RIDGE_SINK`, `RIDGE_Z`, `RIDGE_X`, `RIDGE_LANE`,
+-- `mountainStock` and `buildRidge` all moved to `MapProps/MapHorizon`, whole. They were answering a
+-- question this file should never have owned -- what the player sees at the EDGE of the zone -- and
+-- they were answering it wrongly: 24 hills of 72 visible studs against a 180-stud boundary wall,
+-- with no north run at all. See that file's header for the measurement and for the two rows that
+-- replaced them. This file keeps the camps and the paint, which is what it is for.
 
 -- The village's own dirt and the plane the roads are drawn on both live in `MapPaint` now -- the
 -- village's approach road needs the same two and they cannot be two answers. See that file's header.
@@ -121,25 +116,6 @@ end
 -- (30.31, the owner's *"da drveca i ovih stena sto vise ima po mapi, znaci jungle vibe"*). One
 -- definition of "what is a rock in this map", two consumers.
 MapJungle.RockStock = rockStock
-
--- The mountain. Its parts are named `Meshes/gora`; the model around them is called `Model`, which
--- is why it is found by looking INSIDE rather than by name.
---
--- SINCE 30.23 THE MAP USUALLY HAS NONE LEFT BY THE TIME THIS RUNS -- `MapRidge.Clear` cuts every
--- mountain that reaches inside the ring road, which on this map is all of them -- so the fallback
--- is not a nicety. The first boot after that change printed `0 ridge hills` and left the wood with
--- an empty sky behind it, which nothing errored about. `MapRidge` parks a clone of the first one
--- it cuts, at the map's own scale, and that is what this asks for.
-local function mountainStock(map)
-	for _, c in ipairs(map:GetChildren()) do
-		if c:IsA("Model") then
-			for _, d in ipairs(c:GetDescendants()) do
-				if d:IsA("MeshPart") and d.Name:find("gora") then return c end
-			end
-		end
-	end
-	return MapRidge.Stock()
-end
 
 -- ===== BUILDERS =====
 
@@ -242,57 +218,6 @@ local function buildCamp(zoneKey, camp, stock, parent, cx, rng, dirt, yRim, yFlo
 end
 
 
--- The ridge line. Backdrop only -- `CanCollide = false` on every part of it, because the platform
--- already has a 180-stud boundary wall doing the containing and a second colliding wall inside it
--- is nothing but a place to get stuck. This is what that grey slab is HIDDEN BEHIND.
-local function buildRidge(proto, parent, cx, rng)
-	local placed = 0
-	local function hill(x, z, yaw, scale)
-		local m = proto:Clone()
-		local _, size = m:GetBoundingBox()
-		if size.Y < 1 then m:Destroy() return end
-		m:ScaleTo(scale * rng:NextNumber(0.82, 1.18))
-		m:PivotTo(m:GetPivot() * CFrame.Angles(0, yaw, 0))
-		-- re-read after the turn: a rotated model is a different box, and seating it on the box it
-		-- had before is how a hill ends up floating (`MapForest.plantOne`, same rule, same reason)
-		local cf, sz = m:GetBoundingBox()
-		m:PivotTo(m:GetPivot() + Vector3.new(cx + x - cf.Position.X,
-			-(cf.Position.Y - sz.Y / 2) - RIDGE_SINK, z - cf.Position.Z))
-		for _, d in ipairs(m:GetDescendants()) do
-			if d:IsA("BasePart") then
-				d.Anchored = true
-				d.CanCollide = false
-				d.CastShadow = false
-			end
-		end
-		m.Name = "JungleRidge"
-		m.Parent = parent
-		placed += 1
-	end
-
-	-- the south wall, with the exit lane left open. Spaced at roughly one footprint so the hills
-	-- overlap into a continuous ridge instead of standing as separate lumps with sky between them.
-	for x = -540, 540, 120 do
-		if math.abs(x) >= RIDGE_LANE then
-			hill(x + rng:NextNumber(-18, 18), RIDGE_Z + rng:NextNumber(-10, 10),
-				rng:NextNumber(0, math.pi * 2), RIDGE_SCALE_SOUTH)
-		end
-	end
-	-- and both flanks, and since 30.23 they run the WHOLE depth of the zone rather than starting at
-	-- the village's shoulder. Two reasons, and the second is load-bearing: the wood now fills the
-	-- two north quadrants as well and a wood with nothing behind it ends at a green line against the
-	-- sky -- and the map's OWN two arrival mountains, which used to close that horizon, were cut by
-	-- `ForestMapService`'s flank bands for standing across the approach to three camps. This ridge
-	-- is what replaces them, so it has to reach the arrival end.
-	for _, side in ipairs({ -1, 1 }) do
-		for z = 480, -500, -140 do
-			hill(side * RIDGE_X + rng:NextNumber(-14, 14), z + rng:NextNumber(-20, 20),
-				rng:NextNumber(0, math.pi * 2), RIDGE_SCALE_FLANK)
-		end
-	end
-	return placed
-end
-
 -- ===== THE ONE ENTRY POINT =====
 --
 -- Idempotent, and it has to be for the same reason `ForestMapService.Init` is: a second call must
@@ -348,12 +273,9 @@ function MapJungle.Build(zoneKey, cx, map)
 		end
 	end
 
-	local mountain = mountainStock(map)
-	local ridge = mountain and buildRidge(mountain, folder, cx, rng) or 0
-
 	print(("[MapJungle] %s: %d clearings with %d rocks and floors, %d path parts "
-		.. "(%d trunk + %d spurs), %d ridge hills")
-		:format(zoneKey, #camps, rocks, paved, trunks, spurs, ridge))
+		.. "(%d trunk + %d spurs) -- the horizon is `MapHorizon` since 31.24")
+		:format(zoneKey, #camps, rocks, paved, trunks, spurs))
 	return #camps
 end
 
