@@ -99,6 +99,12 @@ local MIN_DOOR_SCALE = 0.55
 -- this file is that those are wrong; matching on them would mean this file carried a list of
 -- somebody else's zones forever. A door is a top-level Model holding both a `LabelUI` and a
 -- `Touch`, and nothing else in the map has either.
+--
+-- Exported since 32.3, because it is the ONE answer to "what is a door" and `MapSigns` needs it to
+-- find the hall its arrow points at. A second copy of the shape test in that file would be
+-- `evolution-lab-zone-geometry-constants` again -- and it would drift silently, since a door
+-- renamed here (`dressDoor` calls it `ZonePortal_<key>`) is still a door and a copy matching on
+-- names would already be wrong.
 local function findDoors(map)
 	local doors = {}
 	for _, c in ipairs(map:GetChildren()) do
@@ -108,6 +114,7 @@ local function findDoors(map)
 	end
 	return doors
 end
+MapPortals.FindDoors = findDoors
 
 
 -- ===== ORDERING THEM ALONG THE ARC =====

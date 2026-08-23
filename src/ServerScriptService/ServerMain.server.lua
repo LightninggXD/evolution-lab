@@ -43,6 +43,7 @@ local MapEggs = require(ServerScriptService.MapProps.MapEggs)
 local MapSquare = require(ServerScriptService.MapProps.MapSquare)
 local MapArcade = require(ServerScriptService.MapProps.MapArcade)
 local MapPortals = require(ServerScriptService.MapProps.MapPortals)
+local MapSigns = require(ServerScriptService.MapProps.MapSigns)
 local MapAdventureBoard = require(ServerScriptService.MapProps.MapAdventureBoard)
 local Telemetry = require(ServerScriptService.Telemetry)
 
@@ -119,6 +120,14 @@ do
 	if forestZone then
 		MapEggs.Reseat("Forest", forestZone)
 		MapSquare.Arrange("Forest", forestZone)
+		-- 32.3, AND LAST OF THE MAP BLOCK ON PURPOSE. The village's carved arrows are aimed at what
+		-- they name, and an aim is a bearing taken from where the sign stands to where the target
+		-- stands -- so every pass that MOVES either of them has to have run already. `MapPortals`
+		-- above re-lays the zone doors onto a ring (the `Worlds` arrow was 23.2 degrees off the
+		-- mouth because of it) and `MapSquare` on the line above moves props and can carry a loose
+		-- one with a pad. Aim before those and the sign points where the target used to be, which
+		-- is exactly the fault this row opened on.
+		MapSigns.Init("Forest", forestZone)
 	end
 end
 

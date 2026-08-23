@@ -56,6 +56,11 @@ local PAIRED = { shop = "Shop", upgrades = "Upgrades" }
 -- A pad is 1 stud thick before the 1.45, so 1.45 after. Nothing else in the map is under 4.
 local PAD_MAX_Y = 4
 
+-- How far, in plan, a `ThreeDTextObject` may stand from the `Sign1` post it belongs to. Measured on
+-- the placed map: 0.5 and 0.9 studs for the two surviving pairs, against 84 studs to the next
+-- nearest post.
+local SIGN_PAIR_MAX = 12
+
 -- zoneKey -> role table. Written by Collect, read by Get.
 MapAnchors.Registry = {}
 
@@ -148,12 +153,41 @@ function MapAnchors.Collect(zoneKey, map)
 		end
 	end
 
+	-- ===== THE SIGNPOSTS (32.3) =====
+	-- Three carved arrows on poles, and they are furniture by the same argument as everything above
+	-- it: `MapSigns` aims each one at the thing it names, and a sign a band cut took between the
+	-- census and the aim is a nil the aiming pass would report as a rename. They were nobody's until
+	-- this row -- which is what "orphans" meant -- so nothing protected them.
+	--
+	-- PAIRED BY PROXIMITY, because there is no reference either way: a `ThreeDTextObject` carries
+	-- its own text in a StringValue and a `Sign1` knows nothing about the label standing on it. They
+	-- are separate TOP-LEVEL children of the map, 7.3 studs apart in Y and under one stud apart in
+	-- plan, and the nearest other sign is 84 studs away -- so the pairing is not a close call and
+	-- SIGN_PAIR_MAX is set well clear of both numbers rather than tuned between them.
+	reg.sign = {}
+	for _, text in ipairs(byName.ThreeDTextObject or {}) do
+		local tm = measure(text)
+		if tm then
+			local post, gap = nil, SIGN_PAIR_MAX
+			for _, candidate in ipairs(byName.Sign1 or {}) do
+				local pm = measure(candidate)
+				if pm then
+					local d = (Vector2.new(pm.pos.X, pm.pos.Z) - Vector2.new(tm.pos.X, tm.pos.Z)).Magnitude
+					if d < gap then post, gap = pm, d end
+				end
+			end
+			reg.sign[#reg.sign + 1] = { text = tm, post = post }
+			protected[text] = true
+			if post then protected[post.inst] = true end
+		end
+	end
+
 	MapAnchors.Registry[zoneKey] = reg
 	return protected
 end
 
 -- The one accessor. `slot` keys the multi-valued roles (board by stat name, podium by rank 1..3, egg
--- by tier, stall by index); omit it to get the whole table. nil for any zone with no map, which is
+-- by tier, stall and sign by index); omit it to get the whole table. nil for any zone with no map, which is
 -- every zone but the mapped one and is the caller's cue to build as it always did.
 function MapAnchors.Get(zoneKey, role, slot)
 	local reg = MapAnchors.Registry[zoneKey]
@@ -174,9 +208,9 @@ end
 function MapAnchors.Describe(zoneKey)
 	local reg = MapAnchors.Registry[zoneKey]
 	if not reg then return zoneKey .. ": not mapped" end
-	return ("%s: %d/%d boards, %d/3 podium, %d/%d eggs, %d stalls, shop=%s upgrades=%s wheel=%s potions=%s index=%s")
+	return ("%s: %d/%d boards, %d/3 podium, %d/%d eggs, %d stalls, %d signs, shop=%s upgrades=%s wheel=%s potions=%s index=%s")
 		:format(zoneKey, tally(reg.board), #MapAnchors.BOARDS, tally(reg.podium),
-			tally(reg.egg), #MapAnchors.EGGS, #reg.stall,
+			tally(reg.egg), #MapAnchors.EGGS, #reg.stall, #reg.sign,
 			reg.shop and "y" or "MISSING", reg.upgrades and "y" or "MISSING",
 			reg.wheel and "y" or "MISSING", reg.potions and "y" or "MISSING",
 			reg.index and "y" or "MISSING")
