@@ -38,6 +38,10 @@
 -- wrong, whatever shape a camp takes: a wall that seals a creature away from the player is
 -- indistinguishable, from the outside, from a creature that is not there.
 --
+-- ...AND IT GOT IT WRONG FOR EVERY CAMP WITH TWO WAYS IN (32.4). The sentence above was written
+-- when "the way in" was one bearing, and 32.1 made the network a tree, so eight of the twenty camps
+-- have a road leaving as well as a road arriving. The measurement and the fix are at `clearAngle`.
+--
 -- ===== THE PATHS ARE PAINT, NOT GEOMETRY, AND `MapPaint` IS WHERE THAT LIVES =====
 -- 0.4 studs thick, `CanCollide = false`, sitting a fifth of a stud above the floor. A road you can
 -- trip on is worse than no road, and `roblox-moving-platform-needs-velocity` / the terrace-stair
@@ -79,6 +83,20 @@ local ROCK_STRETCH_MIN, ROCK_STRETCH_MAX = 0.4, 2.6
 -- Five, on the FAR half of the clearing only -- see `buildCamp`. A backstop, not a ring.
 local ROCKS_PER_CAMP = 5
 local ROCK_SINK = 1.5        -- how far a rock is buried, so it reads as planted rather than dropped
+
+-- ===== HOW FAR A BACKSTOP STONE HAS TO STAND OFF A ROAD SURFACE (32.4) =====
+-- Not a taste number: it is the widest collider this file can produce, plus two. `standRock` scales
+-- the horizontal axes to `ROCK_WIDTH` and then jitters each by up to 1.25, so the art reaches 27.5
+-- studs across; the box beside it is 80% of that, i.e. 22 wide and 11 to a side. Measured against
+-- the ROAD SURFACE (`RoadClearance` already subtracts the half-width), so 13 puts the box two studs
+-- clear of the paint's own edge -- and the paint's edge is exactly where the body-box walk stops
+-- sampling, so anything that clears this cannot be hit by the walk.
+local ROCK_KEEP = 13
+-- The arc search below, in one place: 4 degrees a step out to 68, which is a little under half the
+-- 144-degree arc the five stones are spread over. Past that a stone has crossed its neighbour and
+-- the backstop stops being a spread lip, so it is dropped instead.
+local ARC_STEP = math.rad(4)
+local ARC_STEPS = 17
 
 -- The map's rocks are authored rgb(108, 108, 108) -- a NEUTRAL grey, which under this zone's blue
 -- sky and blue ambient renders visibly blue. Against green grass and a tan path that reads as ice.
@@ -160,6 +178,44 @@ local function standRock(proto, parent, x, z, h, rng, collide, width)
 	return rock
 end
 
+-- ===== A CAMP CAN HAVE MORE THAN ONE ROAD, AND THE BACKSTOP ONLY EVER KNEW ONE (32.4) =====
+-- `OpeningAngle` answers *where is the NEAREST road*, and `buildCamp` spreads its five stones over
+-- the far 144 degrees from that one bearing. That is right for a camp at the end of a branch and
+-- wrong for every camp the network passes THROUGH -- and since 32.1 the network is a TREE, so eight
+-- of the twenty camps have a second road hanging off them.
+--
+-- MEASURED on the live build, and it is 8 of 8 rather than a near miss: every camp with two roads
+-- had stones standing in the second one. NE1 -> NE2trail, NE5 -> NE3trail, NW1 -> NW2trail,
+-- NW5 -> NW3trail, SE1 -> SE3trail, SE2 -> SE2trail, SW1 -> SW3trail, SW2 -> SW2trail. Eleven of
+-- the hundred colliders overlapped paint, by up to 21 studs, and a 9 x 8.4 x 7 body box walked down
+-- the centre and both edges of every road in the zone was stopped **38 cells of 1,656**, worst
+-- obstruction 19.1 studs of invisible box. Nothing could see it: the art is `CanCollide = false`,
+-- so the wall is a box nobody can look at, and no per-camp check ever asks about a second road.
+--
+-- Note which way it fails at `SE2`/`SW2`: there the nearest road is the one LEAVING to the Apex
+-- camp, so the opening faces outward and the stones land across the trail the player ARRIVES on.
+-- "The outgoing road loses" would have been the tidy story and it is not the true one, which is why
+-- the rule below is about every road rather than about a particular one.
+--
+-- THE FIX IS THE PREDICATE THIS FILE NEVER ASKED. `JungleLayout.RoadClearance` has existed since
+-- 30.23 and `MapForest` is its only caller -- the wood is kept out of the roads and the rocks were
+-- not. The authored angle is a REQUEST now: slide along the arc, smallest move first, until the
+-- stone's own footprint clears every road surface, and drop the stone if the arc has no room. Four
+-- stones make a lip as well as five do; a stone in the road is a wall you cannot see.
+local function clearAngle(zoneKey, camp, a0, r, segments)
+	for step = 0, ARC_STEPS do
+		-- both ways from the authored angle, nearer first, so a stone moves as little as it can
+		for _, sgn in ipairs(step == 0 and { 1 } or { 1, -1 }) do
+			local a = a0 + sgn * step * ARC_STEP
+			local x, z = camp.x + math.cos(a) * r, camp.z + math.sin(a) * r
+			if JungleLayout.RoadClearance(zoneKey, x, z, segments) >= ROCK_KEEP then
+				return a
+			end
+		end
+	end
+	return nil
+end
+
 -- ===== THE CLEARING (30.23) =====
 -- A floor, a backstop and some scree. In that order, because the floor is the outline tier's
 -- ground and everything else stands on it.
@@ -175,9 +231,9 @@ end
 -- open floor with the stones behind the creatures, framing them. They still collide -- they are the
 -- only solid thing in a camp and a 10-stud boulder you walk through is worse than none -- but there
 -- is no arc of them anywhere near the way in.
-local function buildCamp(zoneKey, camp, stock, parent, cx, rng, dirt, yRim, yFloor)
+local function buildCamp(zoneKey, camp, stock, parent, cx, rng, dirt, yRim, yFloor, segments)
 	local open = JungleLayout.OpeningAngle(zoneKey, camp)
-	local built = 0
+	local built, dropped = 0, 0
 
 	-- 1. the floor, and its rim.
 	--
@@ -193,14 +249,27 @@ local function buildCamp(zoneKey, camp, stock, parent, cx, rng, dirt, yRim, yFlo
 
 	-- 2. the backstop: five low stones spread over the far 180 degrees, standing just off the
 	--    floor's edge so they read as the lip of the clearing rather than as an obstacle in it
+	--
+	--    ...AND NOT WHERE A ROAD IS: `clearAngle` above. The four draws are taken BEFORE the search
+	--    rather than inside the branch, so the angle a stone is tested at does not depend on whether
+	--    the stone before it was placed. The generator is seeded off the zone either way, so two
+	--    servers of the same place still grow the same jungle -- that is the seed's job, not this
+	--    ordering's -- but a search whose input moves when an unrelated stone is dropped is a search
+	--    nobody can reason about from the code.
 	for i = 0, ROCKS_PER_CAMP - 1 do
-		local a = open + math.pi / 2 + math.pi * ((i + 0.5) / ROCKS_PER_CAMP)
+		local a0 = open + math.pi / 2 + math.pi * ((i + 0.5) / ROCKS_PER_CAMP)
 			+ rng:NextNumber(-0.12, 0.12)
 		local r = JungleLayout.CAMP_RADIUS + rng:NextNumber(2, 12)
 		local h = rng:NextNumber(ROCK_MIN_H, ROCK_MAX_H)
-		standRock(stock[rng:NextInteger(1, #stock)], parent,
-			cx + camp.x + math.cos(a) * r, camp.z + math.sin(a) * r, h, rng, true)
-		built += 1
+		local proto = stock[rng:NextInteger(1, #stock)]
+		local a = clearAngle(zoneKey, camp, a0, r, segments)
+		if a then
+			standRock(proto, parent,
+				cx + camp.x + math.cos(a) * r, camp.z + math.sin(a) * r, h, rng, true)
+			built += 1
+		else
+			dropped += 1
+		end
 	end
 
 	-- 3. scree on the floor: three flat stones, no collider, a third of the backstop's footprint.
@@ -214,7 +283,7 @@ local function buildCamp(zoneKey, camp, stock, parent, cx, rng, dirt, yRim, yFlo
 			rng:NextNumber(2.2, 4.0), rng, false, 8)
 		built += 1
 	end
-	return built
+	return built, dropped
 end
 
 
@@ -274,10 +343,15 @@ function MapJungle.Build(zoneKey, cx, map)
 		else trunks += 1 end
 	end
 
-	local rocks = 0
+	-- AFTER the paint and with `segments` in hand, because the backstop is placed against the roads
+	-- now (32.4) and the one list of them is the one the paint was just drawn from.
+	local rocks, dropped = 0, 0
 	if #stock > 0 then
 		for _, camp in ipairs(camps) do
-			rocks += buildCamp(zoneKey, camp, stock, folder, cx, rng, colour, Y_RIM, Y_FLOOR)
+			local built, skipped = buildCamp(zoneKey, camp, stock, folder, cx, rng, colour,
+				Y_RIM, Y_FLOOR, segments)
+			rocks += built
+			dropped += skipped
 		end
 	end
 
@@ -285,9 +359,13 @@ function MapJungle.Build(zoneKey, cx, map)
 	-- log killed a build on that exact number meaning the opposite (every camp had landed ON the
 	-- ring). Since 32.1 a trail ends inside each camp's floor, so `SpurFor` has nothing left to
 	-- connect. See `JungleLayout`'s note above `PATHS_FOREST`.
-	print(("[MapJungle] %s: %d clearings with %d rocks and floors, %d path parts "
-		.. "(%d cross + %d trails + %d spurs) -- the horizon is `MapHorizon` since 31.24")
-		:format(zoneKey, #camps, rocks, paved, trunks, trails, spurs))
+	-- THE DROPPED COUNT IS PRINTED EVEN WHEN IT IS ZERO, and that is the point of it: 32.4's fault
+	-- was eight camps quietly standing a stone in a road, and the only thing that would ever have
+	-- said so is a number beside the count that should equal it. A run that suddenly drops half the
+	-- backstop is a road that has moved under the camps.
+	print(("[MapJungle] %s: %d clearings with %d rocks and floors (%d dropped off the roads), "
+		.. "%d path parts (%d cross + %d trails + %d spurs) -- the horizon is `MapHorizon` since 31.24")
+		:format(zoneKey, #camps, rocks, dropped, paved, trunks, trails, spurs))
 	return #camps
 end
 

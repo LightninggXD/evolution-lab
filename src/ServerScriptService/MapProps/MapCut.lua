@@ -92,11 +92,7 @@ function MapCut.Lane(map, cx, lane, protected)
 	if len2 <= 0 then return 0, stay end
 
 	for _, c in ipairs(map:GetChildren()) do
-		-- The protected test is load-bearing: the egg row sits inside the entrance funnel and
-		-- `IsFoliage` classifies by PART NAME as well as by prop name, so a prop whose parts are all
-		-- Top / Bottom / Leaves / Branch is foliage to it whatever it actually is. Without this, the
-		-- road is cut straight through the shop.
-		if c.Name ~= "MainPart" and c.Name ~= "Terrain" and not (protected and protected[c]) then
+		if c.Name ~= "MainPart" and c.Name ~= "Terrain" then
 			-- Initialised, not forward-declared. A bare `local a, b` is the exact shape
 			-- `tools/luanames.py` documents nine false positives of, and `JungleLayout` carries
 			-- the same note for the same reason: one more line a future reader has to decide is
@@ -115,7 +111,27 @@ function MapCut.Lane(map, cx, lane, protected)
 					local qx, qz = lane.x1 + dx * t, lane.z1 + dz * t
 					local d = math.sqrt((rx - qx) ^ 2 + (rz - qz) ^ 2)
 					if d <= lane.halfA + (lane.halfB - lane.halfA) * t then
-						if MapCut.IsFoliage(c) or MapCut.IsBlankWall(c) then
+						-- ===== PROTECTION MEANS "NEVER DESTROY", NOT "NEVER LOOK AT" (32.4) =====
+						-- The protected test is load-bearing on the DESTROY: the egg row sits inside
+						-- the entrance funnel and `IsFoliage` classifies by PART NAME as well as by
+						-- prop name, so a prop whose parts are all Top / Bottom / Leaves / Branch is
+						-- foliage to it whatever it actually is. Without it the road is cut straight
+						-- through the shop.
+						--
+						-- It used to guard the whole prop, and that is the second half of "props in
+						-- the road". A protected prop never reached `stay`, so `MapGates`' relocation
+						-- pass -- the one thing in this codebase whose entire job is moving a
+						-- building out of a lane -- could not see one. Measured on the live map: the
+						-- Shop market stall stands 18.2 studs off the south lane's centre line with
+						-- its own footprint reaching to 9.0, and the daily-spin wheel stands 11.1 off
+						-- it reaching to 4.4. Both are inside a driving line that is 24 studs to a
+						-- side, on the main road out of the village, and a body-box walk down the
+						-- lane is stopped by both. Neither was ever a candidate to be moved.
+						--
+						-- So the guard moved onto the branch it was written for. Everything the lane
+						-- finds and refuses to remove is reported, which is what `stay` says it is.
+						if not (protected and protected[c])
+							and (MapCut.IsFoliage(c) or MapCut.IsBlankWall(c)) then
 							c:Destroy()
 							cut += 1
 						else

@@ -224,6 +224,30 @@ local DROP_PREFIX = {
 	-- standing inside or on top of the map. A village drawn twice reads as a bug, not as detail.
 	"Guardian", "Landmark", "Ruin", "Well", "Bench", "Crate", "Glint", "Glow", "Planter",
 	"Mushroom", "Arch", "Crag", "Prop",
+	-- ===== AND THE ONE GROUND NAME THE LIST MISSED, FOUND BY WALKING THE ROADS (32.4) =====
+	-- `Ground`, `Rock`, `Tree`, `Bush`, `Grass`, `Tuft`, `Pool`, `Flower` and `Shroom` are all on
+	-- this list because the map brings its own. `Mound` is the same thing by the same argument --
+	-- `BiomeDecor.addMounds` lays wide low relief so a bare platform is not a plane, and a platform
+	-- under a village and 5,354 trees is not bare -- and it was the ONLY one left. Measured after
+	-- everything else in this row was fixed: nine of them standing inside the Forest platform, the
+	-- only solid non-map thing on it besides the boundary wall, the two portal gates and the eggs.
+	--
+	-- IT IS A LOTTERY, WHICH IS WHY IT SURVIVED FOUR PHASES OF PROBES. A mound is 36..60 studs
+	-- across and 6..9 tall, `ZoneKit.SOLID_PROPS` deliberately makes it collide (11.21: "a player
+	-- who walks through a crate stack is being told the world is a painting"), and
+	-- `ScatterKit.scatterPoint` places it with an UNSEEDED `math.random` against ZoneBuilder's own
+	-- geography -- the street at |x| >= 48, the centre, the arrival gate, the boss. It knows nothing
+	-- about the three lanes `MapGates` paints or the twenty-three roads `JungleLayout` owns, because
+	-- those did not exist when it was written and it runs before them. So every boot rolls the dice
+	-- again: the run this row was measured on put one at (-112, -102), which is 8 studs of invisible
+	-- hill sitting on the WEST GATE LANE'S CENTRE LINE, and the run before it put the same nine
+	-- somewhere else entirely. A road guarantee that is re-rolled per server is not a guarantee.
+	--
+	-- Dropping them is the fix rather than teaching the scatter about the roads: this zone's ground
+	-- IS the map, the other twenty zones keep their relief (they rename their mounds -- AshMound,
+	-- RegolithMound, VoidMound -- and the rule below anchors at the START of the name, so only
+	-- Forest's default-named ones go). A second mapped zone would have to add its own name here.
+	"Mound",
 }
 
 -- ...and the names a prefix cannot reach. `GuardianTitan` is the reason this list exists: the drop

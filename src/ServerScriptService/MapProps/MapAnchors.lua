@@ -186,6 +186,67 @@ function MapAnchors.Collect(zoneKey, map)
 	return protected
 end
 
+-- ===== MOVING AN ANCHOR STALES ITS MEASURED POSITION, SO THERE IS A WAY TO SAY SO (32.4) =====
+-- Every entry in the registry carries a `pos` and a `top` taken once, at `Collect`, and ServerMain
+-- already carries the warning that follows from it: *"IT MUST RUN AFTER EVERY READER OF MapAnchors'
+-- CACHED pos"*. Until 32.4 nothing moved an anchor, so the caution was enough. `MapGates` moves one
+-- now -- the shop stall and the spin wheel were standing in the village's own south and east lanes
+-- -- and a stale `pos` is exactly the fault 32.3 spent a row on, where a re-laid door ring left a
+-- signpost aiming at where the doors used to be.
+--
+-- Walks the registry rather than taking a role, because the caller has an INSTANCE and not a role:
+-- `MapGates` is handed a leftover off a lane cut and has no idea whether it is a stall, a wheel or
+-- a signpost. Returns how many entries were refreshed, which is 0 for a prop that is not an anchor
+-- and is worth printing.
+function MapAnchors.Remeasure(zoneKey, inst)
+	local reg = MapAnchors.Registry[zoneKey]
+	if not reg then return 0 end
+	local n = 0
+	local function walk(t)
+		for k, v in pairs(t) do
+			if type(v) == "table" then
+				if v.inst == inst then
+					local m = measure(inst)
+					if m then
+						t[k] = m
+						n += 1
+					end
+				else
+					walk(v)
+				end
+			end
+		end
+	end
+	walk(reg)
+	return n
+end
+
+-- ===== WHAT TRAVELS WITH AN ANCHOR WHEN SOMETHING MOVES IT (32.4) =====
+-- A signpost is TWO top-level children of the map -- a `Sign1` pole and the `ThreeDTextObject`
+-- floating 7.3 studs above it -- and neither knows about the other; `Collect` pairs them by
+-- proximity above. Move the pole on its own and the label hangs in the air over nothing, which is a
+-- fault no probe in this repo would ever ask about and a screenshot would find weeks later.
+--
+-- IT RETURNS AN EMPTY LIST TODAY AND IS STILL WORTH HAVING. The one signpost standing in a lane is
+-- the `Chest` arrow, which `MapSigns` deletes for naming nothing this game has -- so the pairing is
+-- reachable by an ordinary change to the map (a sign that DOES name something, standing in a road)
+-- rather than by a hypothetical. `MapGates` prints the count it carried, so this cannot become a
+-- safety net nobody has ever seen fire (`optional-arg-nothing-passes`).
+function MapAnchors.Companions(zoneKey, inst)
+	local reg = MapAnchors.Registry[zoneKey]
+	local out = {}
+	if not reg then return out end
+	for _, pair in ipairs(reg.sign or {}) do
+		local text = pair.text and pair.text.inst
+		local post = pair.post and pair.post.inst
+		if text and post then
+			if inst == post then out[#out + 1] = text
+			elseif inst == text then out[#out + 1] = post end
+		end
+	end
+	return out
+end
+
 -- The one accessor. `slot` keys the multi-valued roles (board by stat name, podium by rank 1..3, egg
 -- by tier, stall and sign by index); omit it to get the whole table. nil for any zone with no map, which is
 -- every zone but the mapped one and is the caller's cue to build as it always did.

@@ -37,6 +37,8 @@
 
 local MapPaint = require(script.Parent.MapPaint)
 local MapCut = require(script.Parent.MapCut)
+-- 32.4: this file MOVES anchors now, so it has to tell the census it did. See `MapAnchors.Remeasure`.
+local MapAnchors = require(script.Parent.MapAnchors)
 
 local MapGates = {}
 
@@ -257,7 +259,22 @@ function MapGates.Build(zoneKey, cx, map, protected)
 	-- market stalls, the Shop counter and the daily-spin wheel all end up standing along these
 	-- lanes and every one reads better there than where it was. Only what is INSIDE the driving
 	-- line moves.
-	local moved, stuck = 0, {}
+	--
+	-- ===== SINCE 32.4 THE FURNITURE IS IN THIS LIST TOO, AND THAT IS THE ROW =====
+	-- `MapCut.Lane` used to skip a protected prop outright, so the only things this pass ever saw
+	-- were props it was free to delete and had chosen not to. The two that were actually standing in
+	-- the road were both anchors -- the Shop market stall 18.2 studs off the south lane's centre with
+	-- its footprint reaching 9.0, and the daily-spin wheel 11.1 off it reaching 4.4 -- and neither
+	-- was ever a candidate. Protection guards the DESTROY now; see that file.
+	--
+	-- Two things follow, and both are handled below rather than left to the next reader.
+	--   * AN ANCHOR'S MEASURED POSITION GOES STALE THE MOMENT IT MOVES. `MapCounters`, `MapEggs`,
+	--     `MapSquare` and `MapSigns` all read `MapAnchors`' cached `pos`, and all four run after
+	--     this. 32.3 is the record of what a stale one costs: a signpost aimed at where the zone
+	--     doors used to be.
+	--   * A SIGNPOST IS TWO PROPS. The pole and its floating label are separate children of the map,
+	--     so a pole moved on its own leaves the label in the air.
+	local moved, stuck, carried, restated = 0, {}, 0, 0
 	for _, s in ipairs(leftovers) do
 		if s.inst.Parent then
 			local hw = s.w / 2
@@ -266,7 +283,16 @@ function MapGates.Build(zoneKey, cx, map, protected)
 				local size = s.inst:IsA("Model") and select(2, s.inst:GetBoundingBox()) or s.inst.Size
 				local tx, tz, felled = relocate(map, s.inst, cx, lane, s.x, s.z, size)
 				if tx then
-					s.inst:PivotTo(s.inst:GetPivot() + Vector3.new(tx - s.x, 0, tz - s.z))
+					local shift = Vector3.new(tx - s.x, 0, tz - s.z)
+					s.inst:PivotTo(s.inst:GetPivot() + shift)
+					restated += MapAnchors.Remeasure(zoneKey, s.inst)
+					for _, mate in ipairs(MapAnchors.Companions(zoneKey, s.inst)) do
+						if mate.Parent then
+							mate:PivotTo(mate:GetPivot() + shift)
+							restated += MapAnchors.Remeasure(zoneKey, mate)
+							carried += 1
+						end
+					end
 					moved += 1
 					totalCut += felled or 0
 				else
@@ -295,8 +321,12 @@ function MapGates.Build(zoneKey, cx, map, protected)
 		end
 	end
 
-	print(("[MapGates] %s: %d lanes, cut %d props, %d paint parts, moved %d of %d leftovers")
-		:format(zoneKey, #LANES, totalCut, painted, moved, #leftovers))
+	-- `restated` and `carried` are printed even at zero for the reason `MapJungle`'s dropped count
+	-- is: they are the only line that would ever say the census had gone stale under four passes
+	-- that read it, or that a signpost had been separated from its own label.
+	print(("[MapGates] %s: %d lanes, cut %d props, %d paint parts, moved %d of %d leftovers "
+		.. "(%d anchors re-measured, %d companions carried)")
+		:format(zoneKey, #LANES, totalCut, painted, moved, #leftovers, restated, carried))
 	-- Printed, never swallowed. A building left standing in a lane is the whole defect this file
 	-- exists to fix, and it is invisible from every direction except this line and a screenshot.
 	if #stuck > 0 then
