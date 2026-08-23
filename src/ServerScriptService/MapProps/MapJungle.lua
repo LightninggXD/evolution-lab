@@ -257,14 +257,22 @@ function MapJungle.Build(zoneKey, cx, map)
 	-- its wood out of. Before 30.23 the spurs were derived here and the planter knew only the
 	-- trunks, so every spur was a road with a wood grown across it.
 	local segments = JungleLayout.Segments(zoneKey) or {}
-	local trunks = #(JungleLayout.Paths(zoneKey) or {})
+	-- ===== THE HEIGHT COMES OFF THE SEGMENT'S OWN TIER, NOT OFF ITS INDEX (32.1) =====
+	-- This used to read `i <= trunks`, because `Segments` returned every trunk and then one spur per
+	-- camp. 32.1 appends the trails to the trunk list, so that ordering stopped being true and the
+	-- test would have painted every trail at the trunk's height. Two things go wrong when it does,
+	-- and both are `roblox-coplanar-paint-zfights`: a trail JOINS a trunk, so the two overlap on
+	-- exactly one plane and shimmer down the join, and two trails meeting inside one camp do the
+	-- same. A step apiece and the ladder draws in the order the eye should read it.
+	local Y_FOR = { trunk = Y_TRUNK, trail = Y_SPUR, spur = Y_SPUR }
+	local trunks, trails, spurs = 0, 0, 0
 	local paved = 0
-	for i, seg in ipairs(segments) do
-		-- `Segments` returns the trunks first and then one spur per camp, in that order, which is
-		-- what makes the index the test. See `JungleLayout.Segments`.
-		paved += MapPaint.Segment(seg, folder, cx, colour, i <= trunks and Y_TRUNK or Y_SPUR)
+	for _, seg in ipairs(segments) do
+		paved += MapPaint.Segment(seg, folder, cx, colour, Y_FOR[seg.tier] or Y_TRUNK)
+		if seg.tier == "trail" then trails += 1
+		elseif seg.tier == "spur" then spurs += 1
+		else trunks += 1 end
 	end
-	local spurs = #segments - trunks
 
 	local rocks = 0
 	if #stock > 0 then
@@ -273,9 +281,13 @@ function MapJungle.Build(zoneKey, cx, map)
 		end
 	end
 
+	-- SPURS READING ZERO IS THE FIX, NOT THE FAULT, and the wording says so because 31.24's boot
+	-- log killed a build on that exact number meaning the opposite (every camp had landed ON the
+	-- ring). Since 32.1 a trail ends inside each camp's floor, so `SpurFor` has nothing left to
+	-- connect. See `JungleLayout`'s note above `PATHS_FOREST`.
 	print(("[MapJungle] %s: %d clearings with %d rocks and floors, %d path parts "
-		.. "(%d trunk + %d spurs) -- the horizon is `MapHorizon` since 31.24")
-		:format(zoneKey, #camps, rocks, paved, trunks, spurs))
+		.. "(%d cross + %d trails + %d spurs) -- the horizon is `MapHorizon` since 31.24")
+		:format(zoneKey, #camps, rocks, paved, trunks, trails, spurs))
 	return #camps
 end
 

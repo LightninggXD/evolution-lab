@@ -52,6 +52,7 @@
 local ServerStorage = game:GetService("ServerStorage")
 
 local MapRidge = require(script.Parent.MapRidge)
+local JungleLayout = require(script.Parent.JungleLayout)
 
 local MapHorizon = {}
 
@@ -98,9 +99,36 @@ local AT = {
 	outerX = 812, outerZ = 776,
 }
 
--- What the rock must stay clear of: the outermost camp centre is |x| = 400 / |z| = 342 after
--- 31.24's shrink, and a camp floor is `CAMP_RADIUS` 46, so its edge is 446 / 388.
-local CAMP_EDGE_X, CAMP_EDGE_Z = 446, 388
+-- ===== WHAT THE ROCK MUST STAY CLEAR OF, AND IT IS READ RATHER THAN TYPED (32.1b) =====
+-- This was `local CAMP_EDGE_X, CAMP_EDGE_Z = 446, 388` -- the outermost camp after 31.24's shrink,
+-- plus its 46-stud floor, typed in by hand. **That is a second copy of a fact `JungleLayout` owns**,
+-- which is the trap this repo's own header calls 31.5a, and 32.1a walked straight into it: the
+-- separation clamp moves the outer column to |x| 436, so the edge became 482 and this file went on
+-- checking against 446 and printing "clear of every camp".
+--
+-- The owner found it before the code did, on a live capture: *"prolazim kroz planine i tu su i
+-- dalje neki mobovi zaglavljeni i put jos vodi tamo"* -- creatures standing in rock, with a road
+-- leading to them. The road half was the |x| = 450 ring, which 32.1 deletes. This is the other
+-- half, and it is why the check has to derive its own input: an alarm that cannot go stale is the
+-- only kind worth printing.
+--
+-- `AT.innerX/innerZ` are solved from the same measurement rather than pinned -- see `AT`.
+local function campEdge()
+	local camps = JungleLayout.Camps("Forest")
+	if not camps then return 446, 388 end
+	local mx, mz = 0, 0
+	for _, c in ipairs(camps) do
+		mx = math.max(mx, math.abs(c.x))
+		mz = math.max(mz, math.abs(c.z))
+	end
+	return mx + JungleLayout.CAMP_RADIUS, mz + JungleLayout.CAMP_RADIUS
+end
+local CAMP_EDGE_X, CAMP_EDGE_Z = campEdge()
+
+-- Daylight between the innermost rock and the outermost camp's floor. 15 and not 2: `innerZ` was
+-- 568 rather than 550 because at 550 the check read 390 against a camp edge of 388, and two studs
+-- is a pass by luck. This is that judgement written down instead of re-made.
+local CAMP_CLEAR = 15
 
 -- ===== THE GATE LANE, AND WHY 132 WAS THE WRONG NUMBER TWICE OVER =====
 -- A lane is the gap left in a run so a hill does not stand on the portal. The first cut used
@@ -346,6 +374,8 @@ function MapHorizon.Build(zoneKey, cx, map)
 
 	local out = {}
 	local runs, hills = 0, 0
+	-- where the inner row ended up standing, so the boot line can say whether 32.1b moved it
+	local innerAtX, innerAtZ = AT.innerX, AT.innerZ
 
 	-- Scale solved from the wall, not typed: `visible = height * scale - SINK`, so a row asked to
 	-- cover a fraction of 180 studs works out its own scale whatever the map scale is.
@@ -367,6 +397,37 @@ function MapHorizon.Build(zoneKey, cx, map)
 		local alongLen = (longAxis * turnC + shortAxis * turnS) * scale
 		local spacing = alongLen * OVERLAP
 		local atX, atZ = AT[tier .. "X"], AT[tier .. "Z"]
+		-- ===== THE INNER ROW IS PUSHED OUT UNTIL ITS ROCK IS OFF THE CAMPS (32.1b) =====
+		-- `AT` is the pinned baseline and it stays the answer whenever it is already far enough
+		-- out. What it cannot know is where the camps ended up: 32.1a's separation clamp moved the
+		-- outer column from |x| 400 to 436, i.e. its floor edge from 446 to 482, and 600 was chosen
+		-- against 446. The owner walked into the difference before any log did.
+		--
+		-- Solved rather than re-pinned, because the reach depends on things this file already
+		-- derives -- the stock's own box, the cover, the yaw jitter -- and a second hand-typed
+		-- number is what put the rock in the camp the first time. `FILL` is how much of the box is
+		-- actually rock and `SIZE_JITTER[2]` is the biggest hill a run may stand up, so this is the
+		-- WORST case rather than the average: an average passes the test and still buries one camp.
+		--
+		-- ONLY THE INNER ROW. The outer one stands in the void beyond the platform and has no camp
+		-- within 400 studs of it.
+		--
+		-- WHAT IT COSTS IS BULK, NOT THE SLOPE. A hill reaches ~128 studs inward of its own centre
+		-- (measured: a row at 600 read `innermost rock |x| 472`), so a row pushed past `WALL_X`
+		-- still has its near face well inside the zone -- what is lost is the depth behind it, not
+		-- the mountain in front. The skyline test on the boot line is what says whether that
+		-- mattered, and it is a capture that settles whether it still READS as a range.
+		--
+		-- There may be no room at all, and the boot line has to be able to say so. The wall is at
+		-- 625 and a hill reaches 128 studs in, so an outer camp edge past ~482 leaves nothing to
+		-- stand a range on inside the boundary -- which is exactly where 32.1a puts it. That is a
+		-- finding about the platform, not a number to tune away.
+		if inner then
+			local clear = acrossHalf * FILL * SIZE_JITTER[2] + CAMP_CLEAR
+			atX = math.max(atX, CAMP_EDGE_X + clear)
+			atZ = math.max(atZ, CAMP_EDGE_Z + clear)
+			innerAtX, innerAtZ = atX, atZ
+		end
 		-- ===== A RUN HAS TO OVERSHOOT THE CORNER, NOT STOP AT IT =====
 		-- These were `at - acrossHalf/2`, i.e. "stop where the other run starts". That leaves the
 		-- four CORNERS of the wall bare -- the flank runs ended at |z| 445 against a wall that runs
@@ -406,31 +467,59 @@ function MapHorizon.Build(zoneKey, cx, map)
 	-- Both figures are MEASURED off the hills that were actually stood up, not recomputed from the
 	-- constants above. The scale jitter is +/- 12%, so the shortest hill in a run is what decides
 	-- whether the wall shows -- an average would have called the 0.85 build a pass.
+	--
+	-- ===== THE CAMP TEST USED TO PICK AN AXIS, AND A CORNER HILL MADE IT LIE (32.1b) =====
+	-- It read `if dx > dz then reachX = dx - msz.X * FILL / 2 else reachZ = ... end`: decide which
+	-- run a hill belongs to by which coordinate is bigger, then measure its box on that axis. A
+	-- hill at the CORNER breaks both halves of that. The measured one stood at (-574, 569) -- part
+	-- of a NORTH run, which overshoots the corner by half a hill on purpose -- with dx 574 just
+	-- over dz 569, so it was measured as a flank hill and its box read on its LONG axis: 373
+	-- instead of 227. It reported the rock reaching |x| 472 while its nearest camp was 200 studs
+	-- away, and the same false reading is in every boot log this file has ever printed. It passed
+	-- only because the number it was compared against (446) happened to be smaller.
+	--
+	-- The question has no axis in it, so neither does the test now: how close does any hill's rock
+	-- come to any camp's FLOOR. Point-to-box for the camp centre against the hill's filled box,
+	-- less the floor's own radius. 66 hills against 20 camps, exact, and it names the pair.
 	local lowTop, highTop = math.huge, -math.huge
-	local reachX, reachZ = math.huge, math.huge
+	local gap, gapWhat = math.huge, "-"
+	local camps = JungleLayout.Camps(zoneKey) or {}
 	for _, m in ipairs(folder:GetChildren()) do
 		local mcf, msz = m:GetBoundingBox()
 		local top = mcf.Position.Y + msz.Y / 2
 		lowTop = math.min(lowTop, top)
 		highTop = math.max(highTop, top)
-		local dx, dz = math.abs(mcf.Position.X - cx), math.abs(mcf.Position.Z)
-		if dx > dz then reachX = math.min(reachX, dx - msz.X * FILL / 2)
-		else reachZ = math.min(reachZ, dz - msz.Z * FILL / 2) end
+		local mx, mz = mcf.Position.X - cx, mcf.Position.Z
+		local hx, hz = msz.X * FILL / 2, msz.Z * FILL / 2
+		for _, c in ipairs(camps) do
+			local dx = math.max(math.abs(c.x - mx) - hx, 0)
+			local dz = math.max(math.abs(c.z - mz) - hz, 0)
+			local d = math.sqrt(dx * dx + dz * dz) - JungleLayout.CAMP_RADIUS
+			if d < gap then
+				gap = d
+				gapWhat = ("hill (%.0f, %.0f) vs %s"):format(mx, mz, c.id)
+			end
+		end
 	end
 
 	local outerVis = s.Y * scaleFor(COVER_OUTER) - SINK
 	local needed = WALL_H * AT.outerX / WALL_X
 	print(("[MapHorizon] %s: %d hills over %d runs from a %.0f x %.0f x %.0f stock; "
 		.. "tops %.0f..%.0f against the wall's %d -- %s; outer peaks %.0f, needs %.0f to clear "
-		.. "the wall from mid-zone -- %s; innermost rock |x| %.0f (camps end %d) |z| %.0f "
-		.. "(camps end %d) -- %s")
+		.. "the wall from mid-zone -- %s; inner row at %.0f/%.0f (pinned %d/%d)%s; "
+		.. "tightest rock-to-camp-floor gap %+.1f studs, %s -- %s")
 		:format(zoneKey, hills, runs, s.X, s.Y, s.Z, lowTop, highTop, WALL_H,
 			lowTop > WALL_H and "RIDGE BREAKS THE SKYLINE"
 				or ("WALL SHOWS BY %.0f"):format(WALL_H - lowTop),
 			outerVis, needed, outerVis > needed and "VISIBLE" or "SUNK BELOW THE WALL",
-			reachX, CAMP_EDGE_X, reachZ, CAMP_EDGE_Z,
-			(reachX > CAMP_EDGE_X and reachZ > CAMP_EDGE_Z) and "clear of every camp"
-				or "*** ROCK IS STANDING IN A CAMP ***"))
+			innerAtX, innerAtZ, AT.innerX, AT.innerZ,
+			(innerAtX > AT.innerX or innerAtZ > AT.innerZ)
+				and ((innerAtX > WALL_X or innerAtZ > WALL_Z)
+					and "  [pushed off the camps, and the row centre is now OUTSIDE the wall]"
+					or "  [pushed off the camps]")
+				or "",
+			gap, gapWhat,
+			gap > 0 and "clear of every camp" or "*** ROCK IS STANDING IN A CAMP ***"))
 	return hills
 end
 

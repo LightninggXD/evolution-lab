@@ -48,6 +48,8 @@
 -- coordinate that follows the scale is a coordinate that silently walks into the boss's arena the
 -- day somebody changes it.
 
+local JungleTrails = require(script.Parent.JungleTrails)
+
 local JungleLayout = {}
 
 -- ===== THE FOUR KEEP-OUTS THE CAMPS ARE PLACED AGAINST =====
@@ -70,6 +72,20 @@ local JungleLayout = {}
 JungleLayout.CAMP_RADIUS = 46      -- the dirt floor a camp stands on
 JungleLayout.CLEARING_RADIUS = 66  -- how far back the WOOD is held: the camp's wall, since 30.23
 JungleLayout.ESCORT_RING = 22      -- how far an escort stands from its leader
+
+-- ===== HOW FAR A ROAD RUNS ONTO A CAMP FLOOR, AND THAT IS 30.26 =====
+-- Declared here rather than beside `SpurFor` because since 32.1 it has TWO callers: the spur
+-- (which nothing triggers any more) and every trail link, both of which end at a camp's mouth.
+-- It used to end at exactly `CAMP_RADIUS`, which is where the clearing's floor disc ends -- and the
+-- floor's dark rim is drawn WIDER than the floor. So the road stopped, the rim carried on for five
+-- more studs, and every one of the twenty camps had a dark band lying across its mouth. The owner
+-- photographed it. `SPUR_OVERSHOOT` runs the road under the rim and onto the floor proper, so the
+-- two dirt surfaces overlap instead of abutting -- which is the same rule `MapPaint`'s end caps
+-- follow, applied at the other kind of join.
+--
+-- It stops short of the leader, not at it: `ESCORT_RING` is 22, so 24 keeps the paint clear of the
+-- creature standing at the centre.
+JungleLayout.SPUR_OVERSHOOT = 14
 
 -- ===== WHAT STANDS IN A CAMP =====
 -- The roster is the whole of the tuning. Six archetypes, and between them they account for EVERY
@@ -153,6 +169,33 @@ JungleLayout.HUNT_SHRINK = 0.5
 -- 336 studs off the village to 165. The near ones were never the walk.
 local MIN_VILLAGE_CLEAR = JungleLayout.CAMP_RADIUS + 8
 
+-- ===== 31.24's SHRINK COLLIDED THE CAMPS INTO EACH OTHER, AND NOTHING CHECKED IT (32.1a) =====
+-- The pull-in was checked against the village and against the roads. It was never checked against
+-- ANOTHER CAMP, and the measurement is ugly: FOUR PAIRS OF FLOORS OVERLAP. NW3/NW4 and NE3/NE4 by
+-- **13.7 studs**, SW1/SE1 against SW2/SE2 by **9.5**, with NW1/NE1 and NW2/NE2 touching at +3.2.
+-- The authored layout's tightest pair was +68.7, so this is entirely something the shrink did.
+--
+-- THE CAUSE IS THE VILLAGE CLAMP, NOT THE DIAL. The eight camps the clamp catches hold still while
+-- their outer neighbours are pulled 130+ studs INTO them -- NW3 moved 5 studs and NW4 moved 137.
+-- It is not only the clamp either: unclamped, NW3/NW4 still land 100.6 apart against the 92 studs
+-- two floors need.
+--
+-- So a camp is now placed against the camps already standing as well as against the village, and
+-- the clamp is bisected upward from the dial in exactly the same way -- k only ever moves toward 1,
+-- which walks the camp back OUT along its own bearing until it clears. **Inner camps are placed
+-- first**, so the ones the village has already pinned are the fixed points and the outer ones give
+-- way, which is the only order in which this converges.
+--
+-- 112 AND NOT SOMETHING ROUNDER: two floors are 92 studs of dirt, and 20 studs of grass between
+-- them is the least that reads as two clearings rather than one bent one. 132 was tried and
+-- rejected -- it gives back a third of the shrink she approved (envelope 220 against 170).
+--
+-- WHAT IT COSTS, MEASURED: five studs. The furthest camp goes 165 -> 170 (it was 336 authored) and
+-- the worst floor gap in the zone goes -13.7 -> +20.0. The outer column moves to |x| 436, which is
+-- why the ring rows below had to go regardless -- the ring was authored at 450, INSIDE those
+-- floors -- and why `MapHorizon` derives its camp edge from this table instead of holding a copy.
+local MIN_CAMP_SEPARATION = JungleLayout.CAMP_RADIUS * 2 + 20
+
 -- Distance from a point to the village rectangle. Zero inside it. NOT `max(|x|-VX, |z|-VZ)`, which
 -- is the cheap version and is wrong at the corners: a point outside a rectangle is outside in
 -- EITHER axis, so the diagonal case needs both terms.
@@ -184,19 +227,53 @@ end
 -- NAMED IN THE BOOT LOG -- a silent exception is how a layout stops being the layout that was
 -- drawn.
 JungleLayout.Clamped = {}
+JungleLayout.Separated = {}
 
+-- The camps already standing, in placement order. A camp is placed against these and never against
+-- the ones still to come: an outer camp gives way to an inner one, which is what "inner-first"
+-- buys and why this list is built as it goes rather than read off the table.
+local placed = {}
+
+local function campGap(x, z)
+	local best = math.huge
+	for _, p in ipairs(placed) do
+		local d = math.sqrt((x - p.x) ^ 2 + (z - p.z) ^ 2)
+		if d < best then best = d end
+	end
+	return best
+end
+
+-- Both clamps in one predicate, because they are bisected on the same dial and a camp can be
+-- caught by either. The village test has an exception the separation test does not need: a camp
+-- AUTHORED inside the clamp band is left where 30.23 drew it rather than shoved outward by a net
+-- that exists to catch the pull-in.
+local function campClear(camp, x, z)
+	if campGap(x, z) < MIN_CAMP_SEPARATION then return false end
+	if villageGap(camp.x, camp.z) < MIN_VILLAGE_CLEAR then return true end
+	return villageGap(x, z) >= MIN_VILLAGE_CLEAR
+end
+
+-- The pull-in, clamped so no camp lands against the village OR against another camp. `k` only ever
+-- moves UP from the dial toward 1 (= don't move), and both gaps rise monotonically with it, so
+-- twelve bisections is a tighter answer than anything a hand-typed exception table could hold. A
+-- camp either clamp catches is NAMED IN THE BOOT LOG -- a silent exception is how a layout stops
+-- being the layout that was drawn.
 local function pullCamp(camp, k)
 	local x, z = JungleLayout.PullIn(camp.x, camp.z, k)
-	if villageGap(x, z) >= MIN_VILLAGE_CLEAR or villageGap(camp.x, camp.z) < MIN_VILLAGE_CLEAR then
-		return x, z
+	if campClear(camp, x, z) then return x, z end
+	-- which of the two caught it, read at the dial's own answer rather than after the bisection
+	if villageGap(x, z) < MIN_VILLAGE_CLEAR and villageGap(camp.x, camp.z) >= MIN_VILLAGE_CLEAR then
+		JungleLayout.Clamped[#JungleLayout.Clamped + 1] = camp.id
+	end
+	if campGap(x, z) < MIN_CAMP_SEPARATION then
+		JungleLayout.Separated[#JungleLayout.Separated + 1] = camp.id
 	end
 	local lo, hi = k, 1
 	for _ = 1, 12 do
 		local mid = (lo + hi) / 2
 		local mx, mz = JungleLayout.PullIn(camp.x, camp.z, mid)
-		if villageGap(mx, mz) >= MIN_VILLAGE_CLEAR then hi = mid else lo = mid end
+		if campClear(camp, mx, mz) then hi = mid else lo = mid end
 	end
-	JungleLayout.Clamped[#JungleLayout.Clamped + 1] = camp.id
 	return JungleLayout.PullIn(camp.x, camp.z, hi)
 end
 
@@ -250,9 +327,31 @@ local CAMPS_FOREST = {
 -- twenty coordinates being retyped. Two reasons, and the second is the one that matters: the
 -- drawing 30.23 was built from is still legible in the numbers, and when she asks for another round
 -- the dial moves instead of the table. `x0`/`z0` are kept so the boot log can print both.
-for _, camp in ipairs(CAMPS_FOREST) do
+--
+-- ===== THE PLACEMENT ORDER IS INNER-FIRST, AND THE TABLE ORDER IS UNTOUCHED (32.1a) =====
+-- Only the order they are POSITIONED in changes; `CAMPS_FOREST` keeps the order it is authored in,
+-- because that is what the boot log, the rosters and every consumer read. Sorted on the AUTHORED
+-- village gap rather than the pulled one -- the pull is radial and monotone, so the two orders
+-- agree, and the authored one does not depend on the answer being computed.
+--
+-- The tie-break is the authored index and it is not decoration: `table.sort` is not stable, so two
+-- camps at the same distance would otherwise swap between boots and the layout would stop being
+-- reproducible -- which is the same reason `GetActiveEvents` carries one (12.13).
+local placeOrder = {}
+for i, camp in ipairs(CAMPS_FOREST) do
 	camp.x0, camp.z0 = camp.x, camp.z
+	placeOrder[i] = i
+end
+table.sort(placeOrder, function(a, b)
+	local ca, cb = CAMPS_FOREST[a], CAMPS_FOREST[b]
+	local ga, gb = villageGap(ca.x0, ca.z0), villageGap(cb.x0, cb.z0)
+	if ga ~= gb then return ga < gb end
+	return a < b
+end)
+for _, i in ipairs(placeOrder) do
+	local camp = CAMPS_FOREST[i]
 	camp.x, camp.z = pullCamp(camp, JungleLayout.HUNT_SHRINK)
+	placed[#placed + 1] = { id = camp.id, x = camp.x, z = camp.z }
 end
 
 -- ===== THE PATHS: THE CROSS, AND ONE RING THROUGH ALL FOUR QUADRANTS =====
@@ -293,14 +392,26 @@ end
 -- stays where it was authored: every camp is now INSIDE it with 50 studs of verge, which is the
 -- same "camps in a field, road round the outside" arrangement 30.23 drew, only tighter.
 --
--- **This is what 31.24's ring rows are for.** `JungleRings` replaces all six of these with two
--- winding ellipses placed against the SHRUNKEN camp positions, which is the pass that owns ring
--- geometry. Pulling numbers in here would only be guessing at what that pass will measure.
+-- ===== AND 32.1 MEASURED THAT THERE IS NO RING TO PLACE AT ALL =====
+-- 31.24 left this as *"`JungleRings` is the pass that owns ring geometry against the shrunken
+-- positions"*. That pass took the measurement and the measurement killed the shape: after 32.1a's
+-- separation clamp the inner camp column stands at |x| 313..325 and the outer at 400..436, and
+-- their 46-stud floors leave **five studs of corridor**. A ring cannot be threaded between them at
+-- any radius, and outside them it is the road nobody has a reason to be on that she complained
+-- about in the first place -- the old |x| = 450 ring is now INSIDE the outer camps' floors.
+--
+-- **So the six ring rows are deleted rather than moved**, and what reaches the camps is a per-camp
+-- TRAIL grown out from the cross by `MapProps/JungleTrails` -- rim to rim, so a road never has to
+-- pass BETWEEN two camps. Measured over the same network: the mean walk to a camp 395 -> 215 studs,
+-- the worst 795 -> 349, and 2944 studs of ring paint replaced by 1778 of trail.
+--
+-- The cross stays exactly as it was. It is the village's own four doors and it is not this row's
+-- to move; the trails hang off it.
 local PATHS_FOREST = {
 	-- ---- the cross
 	-- the main lane, village -> exit gate. `CreatureService.insideKeepOut` keeps |x| < 62 empty for
 	-- exactly this, so the road is 56 wide and nothing has ever been allowed to stand in it.
-	{ id = "S",  x1 =    0, z1 = -240, x2 =    0, z2 = -555, w = 56 },
+	{ id = "S",  x1 =    0, z1 = -240, x2 =    0, z2 = -555, w = 56, tier = "trunk" },
 	-- The two side gates: out of the village, into the flank. **z = -100, NOT z = 0**, and that is
 	-- measured rather than chosen. At z = 0 the village half of these two roads runs straight
 	-- through the PORTAL RING (zone (-201, 15), r = 45) on one side and the LEADERBOARD RING
@@ -308,38 +419,61 @@ local PATHS_FOREST = {
 	-- 31.17 work. A lane search over z -200..+80 found z = -100 clear of non-foliage on BOTH flanks
 	-- and z = 0 carrying 27 props on the west alone. `MapGates` cuts the village half at the same
 	-- z; the two are one road and this comment is the other end of the one written there.
-	{ id = "W",  x1 = -286, z1 = -100, x2 = -450, z2 = -100, w = 46 },
-	{ id = "E",  x1 =  286, z1 = -100, x2 =  450, z2 = -100, w = 46 },
-	-- ---- the ring
-	{ id = "RW", x1 = -450, z1 =  350, x2 = -450, z2 = -400, w = 40 },
-	{ id = "RE", x1 =  450, z1 =  350, x2 =  450, z2 = -400, w = 40 },
-	{ id = "RNW", x1 = -450, z1 = 350, x2 = -150, z2 =  390, w = 38 },
-	{ id = "RNE", x1 =  450, z1 = 350, x2 =  150, z2 =  390, w = 38 },
-	-- The two south legs stop at z = -400 and NOT at -470, which is where they ran until 30.27 moved
-	-- the boss onto the centre line in front of the south gate. Its solid geometry is ~110 studs
-	-- across, so an inner end at (+/-30, -470) was 30 studs from the arena's centre -- a road
-	-- vanishing under a boss. At (+/-30, -400) they are 76 studs out, clear of the body, still
-	-- overlapping the 56-wide main lane so the ring closes, and the walk to the gate is the lane
-	-- itself: out of the village, straight down, boss at the end of it.
+	{ id = "W",  x1 = -286, z1 = -100, x2 = -450, z2 = -100, w = 46, tier = "trunk" },
+	{ id = "E",  x1 =  286, z1 = -100, x2 =  450, z2 = -100, w = 46, tier = "trunk" },
+	-- ===== THE SIX RING ROWS STOOD HERE UNTIL 32.1 =====
+	-- `RW`/`RE` at |x| 450, `RNW`/`RNE` out to the plaza corners and `RSW`/`RSE` in to the main lane.
+	-- They are GONE, not moved -- see the block above the table for the measurement that killed the
+	-- shape. Two things they knew are kept, because deleting a road must not delete its reasoning:
 	--
-	-- ===== THE BOSS DID NOT MOVE WITH THE CAMPS, AND THAT IS DELIBERATE =====
-	-- It was in the plan for this row and reading `GameConfig` is what took it out. The station is
-	-- `GATE_Z + GATE_STANDOFF` -- it is anchored to the SOUTH GATE, a feature of the boundary wall,
-	-- which is not moving and belongs to all twenty-one zones. 30.27's note is explicit about why:
-	-- *"a boss standing AT the door is the door's guard"*. Pulling it in by half would take it off
-	-- the door and leave it standing in an empty field, which is the arrangement 30.27 was opened to
-	-- end. It is also not where the walking is: the village edge is at z = -230 and the boss at
-	-- -470, so it was already a 240-stud walk while the deepest camps were 336 studs out.
+	--   * THE PLAZA CORNERS ARE DOORS. `RNW`/`RNE` ended at (-/+150, 390), and that is the only exit
+	--     the village's north side has. Both stand on `HubPlaza`'s deck (x -172..172, z 74..422), so
+	--     a player who has just spawned can turn either way into the wood instead of walking through
+	--     the village first. They are `JungleTrails.HEADS` now, and two trails start there.
 	--
-	-- What the shrink does for the boss is give it ROOM. The camps used to crowd down to z = -455,
-	-- 15 studs off the arena; they now stop at -343, so the last 130 studs of the main lane is a
-	-- clear approach to the fight instead of a corridor between two Apex camps.
-	{ id = "RSW", x1 = -450, z1 = -400, x2 = -30, z2 = -400, w = 38 },
-	{ id = "RSE", x1 =  450, z1 = -400, x2 =  30, z2 = -400, w = 38 },
+	--   * THE BOSS DID NOT MOVE WITH THE CAMPS, AND THAT IS DELIBERATE. `RSW`/`RSE` stopped at
+	--     (+/-30, -400) and not at -470 because the arena's solid geometry is ~110 studs across and a
+	--     road at -470 vanishes under it. The station is `GATE_Z + GATE_STANDOFF` -- anchored to the
+	--     SOUTH GATE, a feature of the boundary wall that belongs to all twenty-one zones -- and
+	--     30.27 is explicit about why: *"a boss standing AT the door is the door's guard"*. What the
+	--     shrink does for the boss is give it ROOM: the camps used to crowd down to z = -455, 15
+	--     studs off the arena, and they stop at -343 now, so the last 130 studs of the main lane is a
+	--     clear approach to the fight instead of a corridor between two Apex camps. Nothing may be
+	--     built across that approach, which is why `JungleTrails` GROWS its links out from the cross
+	--     rather than being handed a fixed point down there to aim at.
 }
 
+-- ===== THE TRAILS ARE GROWN ONCE, HERE, AND THEN THEY ARE JUST MORE PATHS (32.1) =====
+-- Appended to `PATHS_FOREST` rather than kept in a second list, so every consumer gets them for
+-- free: `NearestPathPoint` (and through it `OpeningAngle`, which turns each clearing's mouth to
+-- face the road that arrives), `RoadClearance`, `Segments`, `MapForest`'s planter and `MapJungle`'s
+-- paint. A separate list would be a second definition of "where the roads are", which is the fault
+-- this file's own header opens with.
+--
+-- `JungleTrails` is handed every constant instead of re-deriving any of them -- the camp radius,
+-- the mouth overshoot, the village rectangle and the platform edge all live here.
+--
+-- **`SpurFor` NOW RETURNS nil FOR EVERY CAMP, AND THAT IS THE FIX RATHER THAN THE FAULT.** 31.24's
+-- boot log killed a build with the line `segments: 9 (9 trunk + 0 spurs)`, because a camp sitting
+-- ON the ring meant creatures standing in the traffic. Here the same zero means the opposite: every
+-- camp has a trail ending 32 studs inside its own floor, so there is nothing left for a spur to
+-- connect. The alarm that used to read "furthest camp from a road" is worthless now -- it would
+-- read ~32 for all twenty -- so `Describe` asks the question that can still go wrong instead:
+-- DOES ANY ROAD LIE ACROSS A CAMP FLOOR IT DOES NOT SERVE.
+local trails = JungleTrails.Build(CAMPS_FOREST, PATHS_FOREST, {
+	campRadius = JungleLayout.CAMP_RADIUS,
+	mouth = JungleLayout.CAMP_RADIUS - JungleLayout.SPUR_OVERSHOOT,
+	villageHalfX = VILLAGE_HALF_X,
+	villageHalfZ = VILLAGE_HALF_Z,
+	edgeX = 575,
+	edgeZ = 500,
+})
+for _, t in ipairs(trails) do
+	PATHS_FOREST[#PATHS_FOREST + 1] = t
+end
+
 local ZONES = {
-	Forest = { camps = CAMPS_FOREST, paths = PATHS_FOREST },
+	Forest = { camps = CAMPS_FOREST, paths = PATHS_FOREST, trails = trails },
 }
 
 -- nil for every zone that is still ZoneBuilder's valley, which is twenty of the twenty-one, and is
@@ -399,17 +533,7 @@ end
 -- OPENING, so the path arrives at the way in rather than at the back of the camp. Returns nil when
 -- the camp is already standing on a road.
 --
--- ===== IT OVERSHOOTS THE FLOOR'S EDGE, AND THAT IS 30.26 =====
--- It used to end at exactly `CAMP_RADIUS`, which is where the clearing's floor disc ends -- and the
--- floor's dark rim is drawn WIDER than the floor. So the road stopped, the rim carried on for five
--- more studs, and every one of the twenty camps had a dark band lying across its mouth. The owner
--- photographed it. `SPUR_OVERSHOOT` runs the road under the rim and onto the floor proper, so the
--- two dirt surfaces overlap instead of abutting -- which is the same rule `MapPaint`'s end caps
--- follow, applied at the other kind of join.
---
--- It stops short of the leader, not at it: `ESCORT_RING` is 22, so 24 keeps the paint clear of the
--- creature standing at the centre.
-JungleLayout.SPUR_OVERSHOOT = 14
+-- It overshoots the floor's edge by `SPUR_OVERSHOOT`; the measurement is up beside the constant.
 
 function JungleLayout.SpurFor(zoneKey, camp)
 	local px, pz, d = JungleLayout.NearestPathPoint(zoneKey, camp.x, camp.z)
@@ -418,7 +542,8 @@ function JungleLayout.SpurFor(zoneKey, camp)
 	local r = JungleLayout.CAMP_RADIUS - JungleLayout.SPUR_OVERSHOOT
 	local mouthX = camp.x + math.cos(a) * r
 	local mouthZ = camp.z + math.sin(a) * r
-	return { id = camp.id .. "spur", x1 = px, z1 = pz, x2 = mouthX, z2 = mouthZ, w = 26 }
+	return { id = camp.id .. "spur", x1 = px, z1 = pz, x2 = mouthX, z2 = mouthZ, w = 26,
+		tier = "spur", serves = { [camp.id] = true } }
 end
 
 -- ===== EVERY PIECE OF ROAD IN THE ZONE, TRUNKS AND SPURS, IN ONE LIST (30.23) =====
@@ -521,9 +646,19 @@ end
 -- a roster that quietly stopped covering every tier is a count printed beside the count it should
 -- equal. Pass the table `CreatureService` actually holds and this says whether they agree.
 --
--- Since 30.23 it also prints THE WORST CAMP'S DISTANCE TO A ROAD. That is the row's own complaint
--- in one number: a camp whose spur is 300 studs long is a camp nobody walks to, and no capture of
--- any other part of the map shows it.
+-- ===== THE ROAD ALARM CHANGED WITH THE ROADS (32.1) =====
+-- It used to print THE WORST CAMP'S DISTANCE TO A ROAD, which was the right question while every
+-- camp hung off a spur. Since the trails it is worthless: each one ends 32 studs inside its camp's
+-- own floor, so the answer is ~32 for all twenty whatever else is wrong.
+--
+-- What replaces it is the question that can still go wrong, and it is the fault the deleted ring
+-- actually had: DOES ANY ROAD LIE ACROSS A CAMP FLOOR IT DOES NOT SERVE. A road through a clearing
+-- is creatures standing in the traffic, and `serves` is what keeps a trail's own deliberate 14-stud
+-- overshoot from reporting itself as that fault.
+--
+-- Beside it, 32.1a's number: THE TIGHTEST GAP BETWEEN TWO CAMP FLOORS. 31.24 checked camp/village
+-- and camp/road and never camp/camp, and four pairs were overlapping by up to 13.7 studs with
+-- nothing in any boot log to say so.
 function JungleLayout.Describe(zoneKey, expected)
 	local spawns = JungleLayout.Spawns(zoneKey)
 	if not spawns then return zoneKey .. ": no jungle" end
@@ -547,10 +682,37 @@ function JungleLayout.Describe(zoneKey, expected)
 		end
 	end
 
-	local worst, worstId = 0, "-"
-	for _, camp in ipairs(JungleLayout.Camps(zoneKey)) do
-		local _, _, d = JungleLayout.NearestPathPoint(zoneKey, camp.x, camp.z)
-		if d and d > worst then worst, worstId = d, camp.id end
+	-- ROADS ACROSS A FLOOR. Measured over `Segments`, so trunks, trails and any spur are all asked
+	-- the same question, and negative means paint is lying on a clearing that road does not serve.
+	local segs = JungleLayout.Segments(zoneKey) or {}
+	local worst, worstId = math.huge, "-"
+	for _, seg in ipairs(segs) do
+		for _, camp in ipairs(JungleLayout.Camps(zoneKey)) do
+			if not (seg.serves and seg.serves[camp.id]) then
+				local dx, dz = seg.x2 - seg.x1, seg.z2 - seg.z1
+				local len2 = dx * dx + dz * dz
+				local t = 0
+				if len2 > 0 then
+					t = math.clamp(((camp.x - seg.x1) * dx + (camp.z - seg.z1) * dz) / len2, 0, 1)
+				end
+				local qx, qz = seg.x1 + dx * t, seg.z1 + dz * t
+				local d = math.sqrt((camp.x - qx) ^ 2 + (camp.z - qz) ^ 2)
+					- seg.w / 2 - JungleLayout.CAMP_RADIUS
+				if d < worst then worst, worstId = d, seg.id .. " vs " .. camp.id end
+			end
+		end
+	end
+
+	-- CAMP AGAINST CAMP (32.1a). The floor gap, not the centre distance, because 92 of the 112 the
+	-- clamp holds is dirt and only what is left is somewhere to stand.
+	local tight, tightId = math.huge, "-"
+	local camps = JungleLayout.Camps(zoneKey)
+	for i = 1, #camps do
+		for j = i + 1, #camps do
+			local a, b = camps[i], camps[j]
+			local d = math.sqrt((a.x - b.x) ^ 2 + (a.z - b.z) ^ 2) - JungleLayout.CAMP_RADIUS * 2
+			if d < tight then tight, tightId = d, a.id .. "/" .. b.id end
+		end
 	end
 
 	-- ===== THE SHRINK PRINTS ITS OWN ARITHMETIC (31.24) =====
@@ -567,14 +729,23 @@ function JungleLayout.Describe(zoneKey, expected)
 		if d < near then near, nearId = d, camp.id end
 	end
 
-	return ("%s: %d camps, %d creatures (%s), furthest camp from a road: %s at %.0f studs%s"
+	return ("%s: %d camps, %d creatures (%s), %s%s"
 		.. "\n         shrink %.2f: furthest camp from the village %s at %.0f studs, "
-		.. "closest %s at %.0f (floor is %d, must not go under)%s")
-		:format(zoneKey, #JungleLayout.Camps(zoneKey), #spawns, table.concat(parts, ", "),
-			worstId, worst, bad > 0 and "  <-- ROSTER DOES NOT MATCH THE TIER COUNTS" or "",
+		.. "closest %s at %.0f (floor is %d, must not go under)%s%s"
+		.. "\n         tightest gap between two camp floors: %s at %+.1f studs%s"
+		.. "\n         tightest road across a floor it does not serve: %s at %+.1f studs%s")
+		:format(zoneKey, #camps, #spawns, table.concat(parts, ", "),
+			JungleTrails.Describe(segs),
+			bad > 0 and "  <-- ROSTER DOES NOT MATCH THE TIER COUNTS" or "",
 			JungleLayout.HUNT_SHRINK, farId, far, nearId, near, JungleLayout.CAMP_RADIUS,
 			#JungleLayout.Clamped > 0
-				and ("  [clamped: " .. table.concat(JungleLayout.Clamped, ", ") .. "]") or "")
+				and ("  [village-clamped: " .. table.concat(JungleLayout.Clamped, ", ") .. "]") or "",
+			#JungleLayout.Separated > 0
+				and ("  [separated: " .. table.concat(JungleLayout.Separated, ", ") .. "]") or "",
+			tightId, tight,
+			tight < 0 and "  <-- TWO CAMP FLOORS OVERLAP" or "",
+			worstId, worst,
+			worst < 0 and "  <-- A ROAD IS LYING ACROSS A CLEARING" or "")
 end
 
 return JungleLayout
