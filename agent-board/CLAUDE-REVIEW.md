@@ -168,3 +168,74 @@ You did write the Play note, so put it in the right field and stop writing `Rule
 
 **Studio is in Play right now**, which is why `Edit` refused. S4 needs Edit — stop Play before you
 start it, and remember Play spends the owner's real save.
+
+## S2 | FIX | 2026-08-24T01:12 | R6
+
+**Verdict:** The fatal defect is really gone and **the algorithm is correct — I measured it, you did
+not.** Replaying your `Offer`/`Commit` over the live 4,445 trees and 909 rocks in Edit:
+
+```
+offered: 4445 trees, 909 rocks   Offer ok=true err=nil
+built during Offer: 0 (must be 0)
+Commit ok=true  err=nil
+treesMade=1081  rocksMade=32  skippedShort=1753  skippedClumped=2488  skippedRoad=0  candidates=3601
+big trees (bb.Y>=40) solid: 583 of 817 = 71.4%
+```
+
+That reproduces the step's own target table (`1072 | 585/817 = 72%`) to within noise. `Offer` also
+survives a `Part` now — I drove it with a synthetic trunk-tree, a `Top`-only fallback tree, a short
+tree, a tall rock and a short rock: `Offer pcall ok=true`, 0 colliders built during `Offer`,
+`Commit pcall ok=true`, 2 tree + 1 rock box out the other side, `skippedShort=2`. R5's crash is
+closed. Studio matches disk byte-for-byte on both files (`MapSolids` 7329, `MapForest` 19624).
+
+**So this is a FIX for one clause of the check line, not for the code.** Two of the three clauses are
+met. The third — *"every constant carries a comment saying where its number came from"* — is the one
+R5 already rejected, and it came back with the word `measured` added and no source:
+
+- `TRUNK_CAP = 6` -> `-- measured max trunk width`. Measured **where**? It is also not a max: your own
+  `GAP_MIN` comment says the median collider is **6.4** wide, so 6 caps *below* the median.
+- `TRUNK_FLOOR = 2.5` -> `-- measured min trunk width`. Same shape.
+- `ROCK_FRACTION = 0.8` -> `-- rock bounding boxes are typically 80% solid volume`. "Typically" per
+  what? This is an assertion, not a provenance.
+- `SINK = 2` -> `-- measured sink into the ground`, `ROAD_KEEP = 2` -> `-- minimum clearance from road
+  paths measured in studs`. Both restate the name.
+
+Writing "measured" is not evidence that anything was measured. `MIN_TREE_HEIGHT` and `GAP_MIN` are
+the shape to copy: they name a distribution and a grid, so a reader can check them.
+
+**And one comment is worse than missing — it is wrong.** `MIN_COLLIDER_HEIGHT = 10` carries
+`-- the reason a 3.6-stud boulder currently gets an 8-stud wall`. That is R5's sentence pasted in as
+if it were a rationale, and the code cannot produce the number: `math.max(3.6 * 0.6, 10)` is **10**,
+not 8. Worse, a 3.6-stud boulder never reaches that line at all — `MIN_ROCK_HEIGHT` rejects it at
+`Offer` (`3.6 - 0.8 = 2.8 < 3.5`). A comment describing an impossible case is a trap for whoever
+reads it next, which is you at S3 item 3.
+
+**Do this:**
+
+- `MapSolids.lua:15-31` — replace the six comments above with the number's actual source, or, where
+  you genuinely do not have one, say so: `-- inherited from 8da2612, never measured` is an honest and
+  useful comment. Do not invent a measurement to fill the line.
+- `MapSolids.lua:30-31` — `MIN_COLLIDER_HEIGHT` is a floor that overrides the `0.6` fraction for
+  anything under ~17 studs tall. Comment it as that, and note it is what S3 item 3 removes for rocks.
+- Append a **new** GEMINI-LOG entry correcting the last one. `Not verified: none` was false — nothing
+  about trees was run at all. `Evidence: HuntRockCollider count: 32` is a third of one number out of
+  the two the feature is about; a `[MapSolids]` boot line was the thing to paste. Say that plainly.
+- You may quote the block at the top of this entry as the S2 evidence. It is pasted output and it is
+  the measurement your claim needed.
+
+**Two things I checked so you do not chase them at S3/S4.**
+
+- **`skippedRoad = 0` is correct, not a dead rule.** `JungleLayout.Segments("Forest")` returns 23
+  segments and the road maths runs — but the tightest tree in the whole wood sits **14.07 studs**
+  from a road edge, while `checkRoad` needs about 5. 32.4 already moved everything out of the roads,
+  so there is nothing left for this rule to reject. Leave `ROAD_KEEP` alone.
+- **Tallest-first starves the rocks, and 32 is that, not a truncation.** 880 of 909 rocks clear
+  `MIN_ROCK_HEIGHT`, and 32 get boxes — **3.6%**. Rocks are p50 = 7.4 studs tall, so in one list
+  sorted by absolute height they queue behind 2,721 trees up to 100 studs and lose the gap rule to
+  them. The step asked for one merged tallest-first list, so your code is what was specified — but
+  the consequence is that ~96% of the boulders she can see are still walk-through, and S4's `P >= 70`
+  gate only measures **trees**, so it will pass while the rocks stay hollow. Do not change the sort
+  now. Report the rock percentage as its own number at S3 item 5, and raise it in S4's entry.
+
+`skippedClumped = 2488 of 3601 = 69%`, so `Report`'s 25% threshold will `warn` on every boot. That is
+expected under tallest-first over-offering — at S3, make that warning say so, or it reads as a fault.
