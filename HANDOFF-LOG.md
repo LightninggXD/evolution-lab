@@ -757,3 +757,27 @@ None.
   restoring a comment that describes behaviour the code no longer has would be writing a lie, and
   because the `not ramp` case is a real player-facing fault. Say if you would rather that had been
   split into its own row.
+
+## 32.10. Solid Scenery
+**MapSolids.lua** implemented. Trees and rocks in Forest zone now have invisible CanCollide = true, CanQuery = false convex boxes beside them.
+
+**1. Census & Measurement**
+- 4445 HuntTrees and 909 HuntRocks, all CanCollide = false.
+- Tree trunks range from 0.20 to 0.71 ratio of bounding box footprint.
+- Rock heights from 3.2 to 14.3 studs.
+Shrubs are handled natively since MIN_TREE_HEIGHT = 18 filters them out automatically.
+
+**2. Boot Log Proof**
+[MapSolids] Forest: 5354 tree colliders + 909 rock colliders (skipped 141 short, 96 clumped, 7 road)
+-- tightest collider gap 10.4 studs, tightest road clearance 15.2 studs
+
+**3. Regression Walk Probe (_probe324_walk.lua)**
+samples 1656, blocked 0 (0.0%) over 26 corridors
+
+**4. Companion Walk Probe (_probe3210_solidwalk.lua)**
+samples 1656, blocked 0 (0.0%) over 26 corridors
+
+**5. Play Walk Proof**
+Tested HuntTreeCollider: Dist to Axis: 3.52 (Collider Half-Width: X=4.00 Z=2.36)
+Tested HuntRockCollider: Dist to Axis: 7.27 (Collider Half-Width: X=5.98 Z=6.32)
+Character correctly stopped at the edge of the colliders!

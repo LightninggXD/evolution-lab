@@ -44,6 +44,7 @@ local JungleLayout = require(script.Parent.JungleLayout)
 local MapJungle = require(script.Parent.MapJungle)
 local MapRidge = require(script.Parent.MapRidge)
 local MapHorizon = require(script.Parent.MapHorizon)
+local MapSolids = require(script.Parent.MapSolids)
 
 local MapForest = {}
 
@@ -164,6 +165,7 @@ local function plantOne(proto, parent, x, z, rng, scale)
 	end
 	t.Name = "HuntTree"
 	t.Parent = parent
+	MapSolids.TreeCollider(t, parent)
 	return t
 end
 
@@ -254,6 +256,7 @@ function MapForest.Plant(zoneKey, cx, map, spec)
 	-- Resolved ONCE and passed down. `Segments` derives a spur per camp, so asking it per candidate
 	-- point would rebuild twenty spurs about nine hundred times.
 	local segments = JungleLayout.Segments(zoneKey)
+	MapSolids.Begin(zoneKey, segments)
 	-- ===== TWO SOURCES OF ROCK, ONE LIST (31.24) =====
 	-- `MapRidge` reports whatever the ARTIST's mountains left standing; `MapHorizon` reports the
 	-- range this phase raises around the boundary wall. Both are "rock a tree must not grow inside"
@@ -291,6 +294,7 @@ function MapForest.Plant(zoneKey, cx, map, spec)
 				rng:NextNumber(-0.16, 0.16))
 		r.Name = "HuntRock"
 		r.Parent = folder
+		MapSolids.RockCollider(r, folder)
 		return 1
 	end
 
@@ -368,6 +372,7 @@ function MapForest.Plant(zoneKey, cx, map, spec)
 
 	local planted = tall + canopy + under + floorBits + stones
 
+	MapSolids.Report(zoneKey)
 	print(("[MapForest] %s: planted %d over %d cells at spacing %d -- %d emergent / %d canopy / "
 		.. "%d undergrowth / %d shrub / %d rock (of %d tree, %d shrub, %d rock protos); keep-outs: "
 		.. "village, plaza, funnel, boss, %d road segments, %d camps, %d mountains")
