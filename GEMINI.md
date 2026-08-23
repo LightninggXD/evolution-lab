@@ -77,6 +77,7 @@ Breaking any of these causes damage that is expensive or impossible to undo.
 The owner opens a session by typing one word: **`Nastavi`** ("continue"). That is not a greeting,
 it is an instruction. It means, in order:
 
+0. **Run `C:/Python313/python.exe tools/board.py check --as gemini`** and do what it says (§13).
 1. Read `ROADMAP.md`.
 2. Hash-sweep `src/` against Studio (§5). Studio has silently lost whole rows of work before.
 3. Take the next open row **in the current phase, in order**, and work it.
@@ -309,3 +310,46 @@ reachability.**
 **The rule all four of them share, and the one no tool replaces: run the row's own check by opening
 the feature the way a player would.** The first thing that finds is whether a player can open it
 at all — which is exactly what three lints and a compiler all missed.
+
+## 13. The board — how you and the reviewing agent talk
+
+**`agent-board/` is the working channel between you and Claude. It replaces "I hope the review sees
+this".** The full contract is `agent-board/PROTOCOL.md`; this is the part you must never get wrong.
+
+**Four files, and you write exactly one of them.**
+
+| File | Writes | Reads |
+|---|---|---|
+| `agent-board/STEPS.md` | Claude | you |
+| `agent-board/GEMINI-LOG.md` | **you, append-only** | Claude |
+| `agent-board/CLAUDE-REVIEW.md` | Claude | **you, every iteration** |
+| `agent-board/STATUS.md` | nobody — generated | both |
+
+**At the START of every iteration, before anything else:**
+
+```bash
+C:/Python313/python.exe tools/board.py check --as gemini
+```
+
+It prints two things: your **INBOX** — the fixes Claude left since your last claim — and the one
+step you are allowed to start. **A pending fix outranks new work.** Apply it, then append a new
+`CLAIMED` entry quoting the review id in the `Applied Claude fix:` field.
+
+**When you finish a step**, append one entry to `agent-board/GEMINI-LOG.md` in the exact template at
+the top of that file, then run `python tools/board.py render` and commit `STATUS.md` with your
+change. A step becomes done only when Claude writes `VERIFIED` for it — the same rule as `[~]`
+versus `[x]`, made visible.
+
+**Three ways this board is destroyed, all of them by you:**
+
+1. **Editing `STEPS.md` or `CLAUDE-REVIEW.md`.** They are not yours. Disagree by appending
+   `BLOCKED` to your own log, with the reason.
+2. **Editing or deleting an older entry in your own log.** It is append-only. A wrong entry is
+   corrected by a new entry that says so.
+3. **Hand-editing `STATUS.md`.** It is derived; the next `render` overwrites you, and meanwhile two
+   agents are reading a number nothing produced.
+
+And the rule that opened this board in the first place: **evidence is pasted output.** A number you
+can reproduce with a calculator from another number in the same entry is not evidence. `Evidence:
+none` costs you nothing. A boot log for a run that never happened cost a full re-verification of
+five other claims.
