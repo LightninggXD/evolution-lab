@@ -43,3 +43,6 @@ tools/manifest.json
 tools/_*
 /push_node.js
 /push*.js
+
+# personal per-machine overrides for this project; the shared hook config lives in settings.json
+.claude/settings.local.json

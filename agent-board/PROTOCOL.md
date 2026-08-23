@@ -111,3 +111,39 @@ Verdict word is one of `VERIFIED`, `FIX`, `NOTE`. `R<n>` is the review id Gemini
 | `VERIFIED` | Claude checked it live | done |
 
 The progress bar counts `VERIFIED` only.
+
+---
+
+## The tree is always committed — and it is not your memory that guarantees it
+
+**`C:/Python313/python.exe tools/board.py sync`** is the one command. It renders `STATUS.md`, runs
+the guard, stages, commits and pushes. Run it when you finish a step, and any time you are about to
+stop. `board.py check` prints `UNCOMMITTED: n file(s)` at the top of every run so neither agent has
+to remember.
+
+On Claude's side it is a **Stop hook** in `.claude/settings.json` — it fires automatically at the end
+of every turn, in `--auto` mode. Gemini has no such hook, so for Gemini the rule is the protocol:
+**sync before you stop, and after every claim.**
+
+### The guard, and why a commit can be refused
+
+`sync` refuses rather than committing when:
+
+1. **A file is mojibake** — UTF-8 read as cp1252 and written back. This is not hypothetical: on
+   2026-08-24 a bulk rewrite did it to **52 files of the mirror**, and it is not cosmetic, because
+   `GameConfig`'s upgrade tables key their icons **by literal emoji**. Every one of those became four
+   bytes of garbage while the diff looked like ordinary work.
+2. **A Lua file does not parse** (`luastruct.py` reports `BAD`). That file must never reach Studio.
+3. **`--auto` and more than 30 changed files.** A change set that big is a bulk rewrite or a second
+   agent writing mid-commit, not one step's work. It prints and stops.
+
+A refusal leaves the tree exactly as it was. Read what it printed, fix that, run it again.
+**`git checkout -- <path>` is the whole cure for mojibake**, because git holds the undamaged bytes.
+
+### What sync will and will not commit
+
+It commits `src/`, `tools/`, `docs/`, `agent-board/`, `guidelines/`, `components/`, every `.md` at
+the repo root, and `.gitignore` / `.gitattributes` / `.mcp.json`. Everything else it names and leaves
+alone. `.gitignore` already drops the agents' scratch (`/task.md`, `/implementation_plan.md`,
+`/push*`, `/temp*`, `tools/_*`), which is why a blanket `git add -A` is never needed — and that is
+also the rule about not stealing a parallel agent's half-written files.

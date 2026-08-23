@@ -1,5 +1,19 @@
 {
   "enabledPlugins": {
     "adobe-for-creativity@claude-plugins-official": true
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:/Python313/python.exe tools/board.py sync --auto",
+            "timeout": 120,
+            "statusMessage": "Syncing the board and committing"
+          }
+        ]
+      }
+    ]
   }
 }

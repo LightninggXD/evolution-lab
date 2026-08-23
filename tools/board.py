@@ -350,12 +350,18 @@ SYNC_PATHS = ("src", "tools", "docs", "agent-board", "guidelines", "components")
 # drops the agents' scratch (`/task.md`, `/implementation_plan.md`, `/push*`), so whatever .md is
 # left at the root is a document somebody wrote to be read -- a review, a handoff, the roadmap.
 SYNC_ROOT_FILES = (".gitignore", ".gitattributes", ".mcp.json")
+# ...and the project config for the agents themselves. `.claude/settings.local.json` is personal
+# and gitignored; `settings.json` carries the Stop hook that runs this very command, so it belongs
+# in the repo with everything else it automates.
+SYNC_EXACT = (".claude/settings.json",)
 
 
 def in_sync_paths(p):
     if any(p == root or p.startswith(root + "/") for root in SYNC_PATHS):
         return True
     if "/" not in p and (p.endswith(".md") or p in SYNC_ROOT_FILES):
+        return True
+    if p in SYNC_EXACT:
         return True
     return False
 # In hook mode a change set bigger than this is not work, it is an accident: a bulk rewrite, an

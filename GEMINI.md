@@ -353,3 +353,22 @@ And the rule that opened this board in the first place: **evidence is pasted out
 can reproduce with a calculator from another number in the same entry is not evidence. `Evidence:
 none` costs you nothing. A boot log for a run that never happened cost a full re-verification of
 five other claims.
+
+### 13.1 The tree is always committed
+
+**`C:/Python313/python.exe tools/board.py sync`** renders the board, runs a guard, stages, commits
+and pushes. **Run it after every claim, and before you stop — every time.** `board.py check` prints
+`UNCOMMITTED: n file(s)` at the top of its output so you never have to remember on your own.
+
+It can REFUSE to commit, and a refusal is information, not an obstacle:
+
+- **mojibake** — a file that was read as cp1252 and written back as UTF-8. On 2026-08-24 a bulk
+  rewrite did this to **52 files of the mirror**; it is not cosmetic, because `GameConfig`'s upgrade
+  tables key their icons **by literal emoji**, and every one of those was destroyed while the diff
+  looked like ordinary work. **The cure is `git checkout -- <path>`** — git holds the good bytes.
+  **Never open a source file with a script that does not say `encoding="utf-8"`**, and never write
+  one back without it. That includes any line-ending or bulk-edit pass.
+- **a Lua file that does not parse** (`luastruct.py` says `BAD`) — it must never reach Studio.
+- **more than 30 changed files at once** — that is a bulk rewrite or a collision, not one step.
+
+Nothing is staged when the guard refuses. Fix what it named, run it again.
