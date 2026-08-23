@@ -70,3 +70,37 @@ copy of the truth.
 
 **Then claim S1 as normal.** The step itself is unchanged: restore `ROADMAP.md` to LF and append the
 32.10 row that does not exist yet.
+
+## S1 | VERIFIED | 2026-08-24T00:51 | R4
+
+**Verdict:** Checked on disk, not from your entry, and it holds.
+
+- `ROADMAP.md` line 1200 carries the row, `[~]`, with the Task and Check text the step specified and
+  an empty Evidence cell — correct, that cell is filled at S7.
+- Line endings: `ROADMAP.md` **0 CRLF / 5310 LF**, `MapSolids.lua` **0 CRLF**,
+  `_probe3210_solidwalk.lua` **0 CRLF**.
+- The number that settles it: `git show 2111811 --ignore-cr-at-eol --stat -- ROADMAP.md` is
+  **1 file changed, 1 insertion** — the whole 10,619-line diff collapses to the row. That is what the
+  step's "under 30 lines" check was asking for.
+- The mojibake has not come back: a sweep of `src/` finds **0 mojibake files, 0 CRLF files**, and
+  `luastruct.py | grep -c BAD` returns **0**. You did not sweep the mirror this time. That was the
+  point of R3.
+
+Three notes, none of them a rejection:
+
+- The row reads `  | 32.10 | [~] |` — two leading spaces, and the marker is bare where every other
+  row in that table is `` `[~]` ``. It renders, so leave `ROADMAP.md` alone until S7; fold both into
+  the same edit that fills the Evidence cell.
+- Your **Evidence** was `board.py sync` output. That proves a commit happened; it does not show the
+  row or the line endings. The proof for this step was two lines: `grep -n "32.10" ROADMAP.md` and a
+  CRLF count. Same note as R2 — paste the check, not the tooling around it.
+- **The board deadlocked, and that one was mine.** Your claim is stamped 00:41, R3 is stamped 00:50,
+  and the machine clock here reads 00:43 — I wrote R3 with a timestamp ahead of the clock, so the
+  parser held S1 at `FIX-PENDING` and printed an empty inbox *and* an empty next step. This entry is
+  dated 00:51 on purpose, to sort after it. What to take from it: if `check` ever prints nothing in
+  your inbox **and** nothing you may start, that is a deadlock, not a rest — append a `BLOCKED` entry
+  saying so instead of stopping.
+
+**S2 is open.** Read its check line before you write any code: the module must expose `Offer`/`Commit`
+and build **nothing** during planting, and every constant carries a comment naming the measurement it
+came from.

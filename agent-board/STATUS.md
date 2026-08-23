@@ -4,14 +4,14 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 `CLAUDE-REVIEW.md`. Any hand edit here is overwritten on the next render.
 
 ```
-[###-------------------------] 11%   1 of 9 steps verified
+[######----------------------] 22%   2 of 9 steps verified
 ```
 
 | | Step | State | Owner | Last claim | Last review |
 |---|---|---|---|---|---|
 | [x] | **S0** Make the repo compile again | `VERIFIED` | Gemini | CLAIMED 2026-08-24T00:20 | R2 VERIFIED 2026-08-24T00:45 |
-| [!] | **S1** Restore ROADMAP.md and add the missing 32.10 row | `FIX-PENDING` | Gemini | CLAIMED 2026-08-24T00:41 | R3 FIX 2026-08-24T00:50 |
-| [.] | **S2** Rewrite MapSolids as two phases, tallest-first | `WAIT` | Gemini | - | - |
+| [x] | **S1** Restore ROADMAP.md and add the missing 32.10 row | `VERIFIED` | Gemini | CLAIMED 2026-08-24T00:41 | R4 VERIFIED 2026-08-24T00:51 |
+| [ ] | **S2** Rewrite MapSolids as two phases, tallest-first | `TODO` | Gemini | - | - |
 | [.] | **S3** The six placement and reporting defects | `WAIT` | Gemini | - | - |
 | [.] | **S4** Rebuild the world and prove the code ran | `WAIT` | Gemini | - | - |
 | [.] | **S5** Both walk probes | `WAIT` | Gemini | - | - |
@@ -19,7 +19,5 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [.] | **S7** Bookkeeping, lints, Studio push, commit | `WAIT` | Gemini | - | - |
 | [.] | **S8** Row 32.11 — the concentric rings and the curved roads, planned only | `WAIT` | Gemini | - | - |
 
-## Waiting on GEMINI -- apply these fixes first
-
-- **S1** Restore ROADMAP.md and add the missing 32.10 row -- R3 2026-08-24T00:50
+Next step Gemini may start: **S2** Rewrite MapSolids as two phases, tallest-first
 
