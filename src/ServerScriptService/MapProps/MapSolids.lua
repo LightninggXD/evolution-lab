@@ -12,22 +12,22 @@ local MapSolids = {}
 local MIN_TREE_HEIGHT = 10
 -- the wood is on a 16-stud grid and the median collider is 6.4 wide, so a gap rule of 10 rejected 55% of candidates
 local GAP_MIN = 7
--- measured max trunk width
+-- inherited from 8da2612, never measured
 local TRUNK_CAP = 6
--- measured min trunk width
+-- inherited from 8da2612, never measured
 local TRUNK_FLOOR = 2.5
--- rock bounding boxes are typically 80% solid volume
+-- inherited from 8da2612, never measured
 local ROCK_FRACTION = 0.8
--- measured sink into the ground
+-- inherited from 8da2612, never measured
 local SINK = 2
--- minimum clearance from road paths measured in studs
+-- inherited from 8da2612, never measured
 local ROAD_KEEP = 2
 
--- rock sizes are smaller, only clip if very short
+-- inherited from 8da2612, never measured
 local MIN_ROCK_HEIGHT = 3.5
--- shrink height to 60% so player's head can pass under some branches
+-- inherited from 8da2612, never measured
 local COLLIDER_HEIGHT_FRAC = 0.6
--- the reason a 3.6-stud boulder currently gets an 8-stud wall
+-- floor that overrides the 0.6 fraction for anything under ~17 studs tall (removed for rocks in S3)
 local MIN_COLLIDER_HEIGHT = 10
 
 local DEBUG_SHOW = false
