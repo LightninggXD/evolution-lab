@@ -64,6 +64,14 @@ for _, part in ipairs({
 	-- Appending is therefore the only move that cannot produce the silent nil this list's header
 	-- warns about.
 	"Swords",
+	-- LAST, and the argument is `Swords`' one over again: `Levels` reads nothing off the table at
+	-- load time (every constant in it is literal) and nothing above it reads `GameConfig.MaxLevel`
+	-- at load time. Its three outward quotes are all at CALL time -- `GetLevelXpForDamage` reaches
+	-- back to `Evolution`'s `GetZoneReferenceDamage`, and `Rebirth`'s boss divisor and rebirth gate
+	-- reach forward to `GetLevelDamageMult` and `RebirthLevelFor` -- which is why the part it
+	-- answers may load before it. Appending is the only move that cannot produce the silent nil
+	-- this list's header warns about.
+	"Levels",
 }) do
 	require(script:WaitForChild(part))(GameConfig)
 end

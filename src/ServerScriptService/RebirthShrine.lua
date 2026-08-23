@@ -267,7 +267,11 @@ local function buildBoard(host, tier, stageIndex, height)
 	status.TextColor3 = GOLD
 	status.TextStrokeColor3 = Color3.fromRGB(16, 12, 26)
 	status.TextStrokeTransparency = 0.2
-	status.Text = ("\u{1F512} Stage %d"):format(stageIndex)
+	-- THE GATE IS A LEVEL SINCE 32.7, not a stage. This is the server-side fallback for the half
+	-- second before the first DataUpdate lands, so it names the tier's own requirement --
+	-- `RebirthShrineClient` overwrites it per player, and it is the only one that can, because
+	-- past rung four the statue stands for whichever rung the player is actually on.
+	status.Text = ("\u{1F512} Level %d"):format(GameConfig.RebirthLevelFor(tier))
 	status.Parent = card
 
 	return anchor
@@ -552,8 +556,17 @@ function RebirthShrine.Init()
 				prompt.Triggered:Connect(function(player)
 					-- The client disables the prompt on a statue the player has not earned, so this is
 					-- the second check and not the first -- but it is the only one that counts.
-					-- HandleRebirth re-validates the tier against the player's own saved stage.
-					RebirthService.HandleRebirth(player, tier)
+					-- HandleRebirth re-validates against the player's own saved level.
+					--
+					-- NIL, NOT `tier` (32.7). There are twenty rungs on the ladder now and four
+					-- monuments on the map, so a statue can no longer BE a milestone -- it is an
+					-- altar, and what it performs is "the next rebirth, whichever that is". Passing
+					-- the statue's own number would refuse every rung past the fourth with "that
+					-- milestone is spent", on the only four doors in the world. `nil` is the value
+					-- HandleRebirth already documents for exactly this -- it is what the HUD button
+					-- sends -- and it gives up nothing: the tier argument was never a permission,
+					-- only an assertion the server checked and could equally well not be told.
+					RebirthService.HandleRebirth(player, nil)
 				end)
 			end
 		end

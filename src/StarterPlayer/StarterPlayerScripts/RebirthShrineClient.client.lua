@@ -105,6 +105,21 @@ local function short(n)
 	return tostring(math.floor(n))
 end
 
+-- ===== WHICH RUNG A STATUE STANDS FOR (32.7) =====
+--
+-- There are TWENTY rungs on the ladder now and FOUR monuments on the map -- one in each of
+-- zones 5 / 10 / 15 / 20 -- so a statue can no longer BE a milestone. The first three still
+-- are; the LAST one is the altar every rung past the fourth is performed at, which is why the
+-- prompt sends `nil` rather than a tier (see `RebirthShrine`).
+--
+-- Without this the shrine would go inert the moment the fourth rebirth was spent: nothing on
+-- the map would ever light again, in silence, and the HUD button would be the only door left
+-- in the game.
+local function rungFor(tier, nextTier)
+	if tier < GameConfig.MaxRebirthTier then return tier end
+	return math.max(nextTier or tier, tier)
+end
+
 local function paint(entry, unlocked, data)
 	for part, original in pairs(entry.parts) do
 		if part.Parent then
@@ -146,15 +161,20 @@ local function paint(entry, unlocked, data)
 		-- FINISHED, and painting it the same grey as a tier never reached would read as having lost
 		-- something. See the REBIRTH IS A LADDER block in GameConfig.
 		local nextTier = data and GameConfig.GetNextRebirthTier(data) or 1
+		local rung = rungFor(entry.tier, nextTier)
 		if unlocked then
 			entry.status.TextColor3 = GOLD
-			entry.status.Text = ("\u{267B}\u{FE0F} REBIRTH %d  \u{2022}  READY"):format(entry.tier)
-		elseif nextTier == nil or entry.tier < nextTier then
+			entry.status.Text = ("\u{267B}\u{FE0F} REBIRTH %d  \u{2022}  READY"):format(rung)
+		elseif nextTier == nil or rung < nextTier then
 			entry.status.TextColor3 = Color3.fromRGB(150, 210, 160)
-			entry.status.Text = ("\u{2713} REBIRTH %d  \u{2022}  DONE"):format(entry.tier)
+			entry.status.Text = ("\u{2713} REBIRTH %d  \u{2022}  DONE"):format(rung)
 		else
+			-- THE GATE IS A LEVEL SINCE 32.7. `entry.stageIndex` is still read above for the plinth
+			-- glow's colour -- it is the creature this statue is OF -- but it stopped being the
+			-- requirement for anything, and printing it here would send a rebirthed player who is
+			-- back at stage 1 chasing a number that no longer opens the door.
 			entry.status.TextColor3 = Color3.fromRGB(196, 192, 204)
-			entry.status.Text = ("\u{1F512} Needs Stage %d"):format(entry.stageIndex)
+			entry.status.Text = ("\u{1F512} Needs Level %d"):format(GameConfig.RebirthLevelFor(rung))
 		end
 	end
 end
@@ -173,7 +193,7 @@ local function refresh()
 	for _, monument in ipairs(CollectionService:GetTagged("RebirthStatue")) do
 		local entry = tryRegister(monument)
 		if entry then
-			paint(entry, ready and entry.tier == nextTier, data)
+			paint(entry, ready and rungFor(entry.tier, nextTier) == nextTier, data)
 		end
 	end
 end

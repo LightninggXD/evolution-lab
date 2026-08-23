@@ -291,10 +291,23 @@ for i, zone in ipairs(GameConfig.Zones) do
 	-- `BossEliteFloor * EliteBaseHealth`, which is exactly the condition for a farmed Apex to stay
 	-- inside this floor. The guarantee lives in the clamp, so this line did not have to move and a
 	-- future row cannot break it by editing the Apex either. See the ApexBaseHealth block.
-	zone.boss.health = math.max(
+	--
+	-- ===== AND THE WHOLE THING IS SCALED BY DEPTH SINCE 32.7 =====
+	--
+	-- `GetZoneDepthMult(i)` is x1.00 in Forest and x3.03 on the Absolute Plane -- her *"nek bossovi
+	-- i creaturi na vecim stagevima budu jaci"*. The full argument, including why it is health and
+	-- never damage, is written out over `GameConfig.MobDepthGrowth`.
+	--
+	-- **APPLIED OUTSIDE THE `math.max`, TO BOTH TERMS AT ONCE, AND THAT IS NOT A STYLE CHOICE.**
+	-- The two terms are the blows curve and the Elite floor, and the paragraph above is about the
+	-- floor existing precisely to keep this curve ATTACHED to the creature curve. `CreatureService`
+	-- multiplies its own spawn health by the same factor, so scaling only one term here -- or
+	-- forgetting this line while adding that one -- re-creates 11.9's boss-weaker-than-a-creep
+	-- inversion in exactly the way the floor was built to make impossible.
+	zone.boss.health = math.floor(GameConfig.GetZoneDepthMult(i) * math.max(
 		math.floor(GameConfig.BossTargetHits * GameConfig.GetZoneReferenceDamage(i)),
 		math.floor(GameConfig.BossEliteFloor * GameConfig.EliteBaseHealth
-			* GameConfig.CreatureGenerationMax * zone.mobHealthMult))
+			* GameConfig.CreatureGenerationMax * zone.mobHealthMult)))
 
 	-- Exactly HALF a level, in the currency of the stage this zone belongs to (zone i unlocks at
 	-- stage i, so the index is the same one the xpCost curve is written against). Boss XP used to be

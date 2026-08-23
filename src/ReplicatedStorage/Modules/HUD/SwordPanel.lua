@@ -215,12 +215,22 @@ return function(hud)
 					setButtonColor(refs.row, tier.color)
 					refs.stroke.Color = affordable and READY_RIM or OUTLINE_COLOR
 				else
-					-- STILL PRICED, THOUGH IT CANNOT BE BOUGHT. A locked row that hides its cost
-					-- turns the whole ladder into a surprise, and the doubling curve is the single
-					-- most useful thing a player can know when deciding whether to bank Diamonds.
-					refs.statusLabel.Text = string.format("\u{1F48E} %s  \u{2022}  x%.2f damage",
-						formatNumber(tier.cost), tier.damageMult)
-					refs.buyButton.Text = "\u{1F512}"
+					-- ===== THE PRICE IS ON THE BUTTON, ON EVERY ROW, AND THE PADLOCK IS GONE =====
+					--
+					-- Her call, from a capture of this panel: *"na svakom macu da se vidi cena da
+					-- mozes kupiti sve ... da je poenta po redu da ides jer ti daju boost"* -- every
+					-- blade shows its price, and going in order is the point because each one is a
+					-- bigger boost. The padlock said neither of those things: it hid the cost of
+					-- eight of the ten rungs behind a glyph that reads as "you may never have this",
+					-- when the truth is "not yet, and here is what it costs".
+					--
+					-- THE ORDER IS UNCHANGED AND STILL SERVER-SIDE. `Remotes.BuySword` carries no
+					-- argument at all -- the server buys the NEXT rung and there is nothing for a
+					-- client to lie about -- so a price drawn on rung 7 is a price tag, not an
+					-- offer. It is greyed rather than green for exactly that reason.
+					refs.statusLabel.Text = string.format("x%.2f damage  \u{2022}  after %d more",
+						tier.damageMult, i - level - 1)
+					refs.buyButton.Text = "\u{1F48E} " .. formatNumber(tier.cost)
 					setButtonColor(refs.buyButton, UITheme.Color.Locked)
 					setButtonColor(refs.row, UITheme.Color.Locked)
 					refs.stroke.Color = OUTLINE_COLOR
@@ -237,9 +247,17 @@ return function(hud)
 		end
 	end
 
-	tile.MouseButton1Click:Connect(function()
+	-- ONE HANDLE OUT, and it is the only thing this module escapes onto `hud`. `HUD/SwordSlot` --
+	-- the equipped-blade readout on the bottom edge -- is a second door onto this same panel, and a
+	-- named function is the honest way to give it one: the alternative is finding the panel by name
+	-- under `screenGui`, which is a contract nothing states and a rename silently breaks.
+	hud.showSwordPanel = function()
 		hud.toggleOnly(panel)
 		refresh()
+	end
+
+	tile.MouseButton1Click:Connect(function()
+		hud.showSwordPanel()
 	end)
 
 	-- Refreshed on every push while the panel is open (the balance moves on every kill), and ALWAYS

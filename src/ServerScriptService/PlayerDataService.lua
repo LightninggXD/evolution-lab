@@ -176,6 +176,26 @@ local function defaultData()
 		-- Diamonds, DiamondUpgrades and MasteredStages already follow. The argument is written out
 		-- at the bottom of `Sword/SwordService.lua`.
 		SwordLevel = 1,
+		-- ===== THE LEVEL LADDER (32.7), AND IT IS TWO FIELDS BECAUSE A BAR NEEDS BOTH =====
+		--
+		-- `Level` is the rung, `LevelXp` is how far into the next one. It fills from DAMAGE DEALT,
+		-- normalised by what a bare player standing in that zone hits for -- see the whole argument
+		-- in `GameConfig.Levels`, including why the reward is summed and never multiplied.
+		--
+		-- NOT `XP`. That field is the EVOLVE bar and it is spent on every evolve; these two are a
+		-- separate axis that a rebirth resets and an evolve never touches. Two bars, two pairs of
+		-- fields, and the names are deliberately unlike so no later reader merges them.
+		--
+		-- DEFAULTS TO 1 / 0, and a save written before this feature gets exactly that from the
+		-- top-level nil-fill below. Level 1 is worth x1.00 damage, so nothing about a legacy save
+		-- changes until its owner lands their first blow -- no migration runs and none is needed.
+		--
+		-- RESET BY A REBIRTH, unlike `SwordLevel` beside it, and the two are consistent rather than
+		-- contradictory: everything BOUGHT with Diamonds is kept, everything CLIMBED to is reset.
+		-- The level is the run's own power curve and the thing the next rebirth is gated on, so a
+		-- rebirth that kept it would unlock the following rung the moment it finished.
+		Level = 1,
+		LevelXp = 0,
 		UnlockedZones = { "Forest" },
 		CurrentZone = "Forest",
 		DefeatedBosses = {}, -- list of zone keys whose boss this player has personally defeated

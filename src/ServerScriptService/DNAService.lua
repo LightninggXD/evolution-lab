@@ -131,6 +131,16 @@ function DNAService.GetCombatDamage(data)
 	-- owns, so an uncancelled x5 turns a ~21-blow endgame boss into a ~4-blow one. Creatures feel
 	-- the whole of it; a boss feels none of it, exactly as with a rebirth.
 	mult = mult * GameConfig.GetSwordDamageMult(data)
+	-- THE RUN'S OWN LEVEL (32.7), and this is the only line in the game that reads it.
+	--
+	-- SUMMED, not per-level multiplied: `1 + (level - 1) * 0.05`, computed inside
+	-- `GetLevelDamageMult`. The bar this comes from is filled BY the number being computed here, so
+	-- a multiplicative term would be a closed feedback loop -- the exact shape of the three
+	-- runaways this repo has already had to unwind (see the note over that function).
+	--
+	-- **IT IS CANCELLED AGAINST BOSSES**, in GetBossDamageDivisor, exactly as the blade and the
+	-- rebirth are, and for the reason written out over that function.
+	mult = mult * GameConfig.GetLevelDamageMult(data)
 	-- and every rebirth the player has ever done. This is what a rebirth buys -- see the note over
 	-- GameConfig.GetRebirthDamageMult for why it is damage and not income.
 	mult = mult * GameConfig.GetRebirthDamageMult(data)

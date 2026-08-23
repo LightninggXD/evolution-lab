@@ -190,6 +190,49 @@ GameConfig.CreatureGenerationMax = 2.0
 -- creature curve, so that moving one without the other cannot silently invert them again.
 GameConfig.BossEliteFloor = 1.25
 
+-- ===== A DEEPER ZONE IS ACTUALLY HARDER NOW (32.7), AND THAT IS A DELIBERATE BREAK =====
+--
+-- Her instruction, given while she was playing 32.7: *"samo nek bossovi i creaturi na vecim
+-- stagevima budu jaci"* -- the bosses and creatures on the higher stages should be stronger. They
+-- were not, and that was BY CONSTRUCTION rather than by accident: read the paragraph above this
+-- one. The damage ladder climbs 1.4425 a zone and `mobHealthMult` climbs 1.442 a zone, deliberately
+-- identical, so blows-to-fell was FLAT from Forest to the Absolute Plane -- a Swarmer was 2.4 blows
+-- in zone 1 and 2.4 blows in zone 20, and the boss was a flat 150 everywhere.
+--
+-- That flatness was the right answer to the bug it was written for (a cap that made every creature
+-- die in the same number of hits whatever you brought) and it is the wrong answer to the question
+-- "does the last zone feel like the last zone". It made the strip twenty reskins of one fight.
+--
+-- x1.06 a zone, geometric, so zone 1 is untouched at x1.00 and zone 20 is x3.03. What that buys, in
+-- blows for a BARE player: Swarmer 2.4 -> 7.3, Brute 14 -> 42, zone boss 150 -> 455. A geared
+-- player still shreds the creatures, because the sword (x5), the level (x4.8) and the rebirths all
+-- apply to a creature in full -- it is only a BOSS that feels the whole of this, since
+-- `GetBossDamageDivisor` cancels those three.
+--
+-- ===== THREE THINGS THIS DELIBERATELY DOES NOT DO =====
+--
+-- 1. **It does not touch `mobDamageMult`.** Health is the only safe lever here: `retaliateDamage`
+--    scales off `mobDamageMult` and `hurtPlayer` then caps a blow at `MaxHealth / (requiredHits*2)`
+--    -- so raising HEALTH raises `requiredHits` too and the cap falls by the same factor. The whole
+--    exchange still costs at most half a health bar, it just lasts longer. Raising the damage term
+--    instead would make deep zones lethal rather than long, which is not what was asked for.
+-- 2. **It is applied to the boss's FINAL health, both terms of the `math.max` at once** (see
+--    `Zones`), never to one of them. The two terms are the blows curve and the Elite floor, and the
+--    entire point of that floor is that the boss curve stays ATTACHED to the creature curve --
+--    scaling one side only is precisely the silent inversion 11.9 was written about.
+-- 3. **It does not change what anything PAYS.** `mobDnaMult` and `mobXpMult` are untouched. The
+--    level bar does move with it, and automatically: `GetLevelXpForDamage` awards the health a
+--    target actually lost, so a creature with 3x the health is worth 3x the XP. That is why
+--    `GameConfig.LevelZoneGrowth` DIVIDES this factor back out -- see the note over it.
+GameConfig.MobDepthGrowth = 1.06
+
+-- What a zone's depth multiplies creature and boss health by. Zone 1 is x1.00 by construction, so
+-- nothing a new player meets changes at all.
+function GameConfig.GetZoneDepthMult(zoneIndex)
+	local i = math.max(math.floor(tonumber(zoneIndex) or 1), 1)
+	return GameConfig.MobDepthGrowth ^ (i - 1)
+end
+
 -- ===== AND THE APEX IS CAPPED BY THAT FLOOR, BY CONSTRUCTION (11.6) =====
 --
 -- 11.6 adds a third raised tier, the Apex, on the highest shelf of every zone behind three

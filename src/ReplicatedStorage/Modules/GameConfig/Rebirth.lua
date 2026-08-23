@@ -57,10 +57,40 @@ GameConfig.MaxRebirthTier = math.floor(#GameConfig.Stages / GameConfig.RebirthTi
 --
 --   1 -> x2.0    2 -> x3.0 (+1.0)    3 -> x4.5 (+1.5)    4 -> x6.5 (+2.0)    5 -> x9.0 (+2.5)
 --
+-- ⚠️ THAT ROW IS THE FOUR-RUNG LADDER AND IS KEPT ONLY FOR THE ARGUMENT ABOVE IT, WHICH STILL
+-- HOLDS. The numbers are stale: 32.7 re-tuned both constants for a twenty-rung ladder and the live
+-- row is the one printed over `RebirthDamagePct` below. Read that one.
+--
 -- The first rebirth alone (x2.0) does not replace a full collection, and it is not meant to: the
 -- collection is re-earned from kills as you climb, so the two stack back up together.
-GameConfig.RebirthDamagePct = 100        -- the linear term, per rebirth
-GameConfig.RebirthDamageAccelPct = 25    -- the quadratic term, what makes each one worth more
+-- ===== RE-TUNED FOR TWENTY RUNGS IN 32.7, AND IT IS A REAL CUT =====
+--
+-- Every number in the block above was solved against a FOUR-rung ladder: 100 / 25 put the fourth
+-- rebirth at x8.00, which is the figure the whole economy is written around. 32.7 made the ladder
+-- twenty rungs (the gate is a level now, not a stage), and leaving these constants alone would have
+-- ended it at **x116.00 damage and x31.00 income** -- which is not a rebalance, it is a different
+-- game, and it is the exact `GetMutationIncomeMult` shape this repo has unwound three times.
+--
+-- 25 / 0.5 lands the twentieth rebirth at **x7.90 damage**, i.e. five times as many rungs each
+-- worth about a fifth -- the anchor the plan set, and the same total power the four-rung ladder
+-- delivered. Income follows it: 150 -> 30 puts r=20 at x7.00, unchanged from the old fourth rung.
+--
+-- **WHAT IT COSTS AN EXISTING SAVE, STATED BECAUSE IT IS A LOSS AND SHE APPROVED IT KNOWING THAT.**
+-- A rebirth count is worth less than it was: r=4 goes x8.00 -> x2.06, r=8 goes x23.00 -> x3.28.
+-- Nothing is TAKEN from the save -- `Rebirths` is untouched and every one still counts -- but the
+-- multiplier a count buys is smaller, because a rung on a twenty-rung ladder is a smaller thing
+-- than a rung on a four-rung one. What replaces it: those saves now have sixteen or twelve rungs
+-- LEFT to spend instead of none, plus the level ladder (x4.80 at the last gate) and the sword
+-- (x5.00), neither of which existed when 100 / 25 were chosen. (Measured off the live HUD on
+-- 2026-08-23: her save reads `Rebirths = 4`, not the 8 an older note in this repo claims.)
+--
+-- THE CURVE IS STILL QUADRATIC, and the 9.2 argument for that is unchanged: the last zones are the
+-- hardest by a long way, so a flat per-rung bonus falls further behind every run. It is simply much
+-- flatter now, because twenty accelerating rungs compound where four did not.
+--
+--   1 -> x1.25    2 -> x1.51    4 -> x2.06    8 -> x3.28    14 -> x5.01    20 -> x7.90
+GameConfig.RebirthDamagePct = 25         -- the linear term, per rebirth
+GameConfig.RebirthDamageAccelPct = 0.5   -- the quadratic term, what makes each one worth more
 
 function GameConfig.GetRebirthDamageMult(data)
 	if not data then return 1 end
@@ -116,9 +146,29 @@ end
 -- creature fight in the game by its full amount and shortens a boss fight by nothing. If she would
 -- rather feel the blade on a boss, deleting the second factor below is the whole reversal -- and
 -- the boss curve then has to be re-tuned against it, which is 32.7's job and not a one-liner.
+-- ===== AND SINCE 32.7 THE LEVEL IS CANCELLED HERE TOO =====
+--
+-- Third term, same test, and it passes it for the same two reasons the blade did: it is always on,
+-- and its ceiling is time rather than money -- every player who keeps playing ends a run holding
+-- the whole of it. The level term is x1.00 at level 1 and x4.80 at the last rebirth gate (77), so
+-- an uncancelled one would take the endgame boss fight this function exists to have fixed and cut
+-- it by another four fifths, on top of the blade.
+--
+-- **THIS IS THE ONE LINE PHASE 32 TURNS ON**, and it is worth saying plainly why: boss health is
+-- DERIVED from a bare player (`BossTargetHits x GetZoneReferenceDamage`, pure rank) and learns
+-- about no multiplier anybody owns. Every term added to the player's stack without being added
+-- here is a boss the phase quietly deletes.
+--
+-- It costs exactly what the other two cost, stated so it is a decision and not a discovery: a
+-- level shortens every creature fight in the game by its full amount and shortens a boss fight by
+-- nothing. Deleting a factor below is the whole reversal, and the boss curve then has to be
+-- re-tuned against whatever is left.
 function GameConfig.GetBossDamageDivisor(data)
-	-- >= 1 for every rebirth count and every blade, so this can never turn a blow into a heal
-	return math.max(GameConfig.GetRebirthDamageMult(data) * GameConfig.GetSwordDamageMult(data), 1)
+	-- >= 1 for every rebirth count, every blade and every level, so this can never turn a blow
+	-- into a heal
+	return math.max(GameConfig.GetRebirthDamageMult(data)
+		* GameConfig.GetSwordDamageMult(data)
+		* GameConfig.GetLevelDamageMult(data), 1)
 end
 
 -- Which rebirth tier (1-4) a given stage index has reached. Tier 0 = not eligible yet.
@@ -155,7 +205,19 @@ end
 -- point of what they earned -- GetRebirthDamageMult is unchanged and still reads the raw count --
 -- they simply have no milestone left to spend, which is what `GetNextRebirthTier` returning nil
 -- means. Never take something away to enforce a new rule.
-GameConfig.MaxRebirths = GameConfig.MaxRebirthTier
+-- ===== TWENTY RUNGS SINCE 32.7, AND THE GATE IS A LEVEL (see `GameConfig.Levels`) =====
+--
+-- It was `MaxRebirthTier`, i.e. one rung per five stages, four in total -- and that number was
+-- forced by the gate rather than chosen: a stage requirement cannot carry more rungs than there
+-- are stages, and a rebirth resets the stage, so two rungs could never sit inside one band. A
+-- LEVEL gate has no such problem. The level is its own axis, it also resets, and each rung simply
+-- asks for a higher one -- which is exactly how the `+1` family does it.
+--
+-- `MaxRebirthTier` is deliberately NOT this number and has not moved. It still means "one per five
+-- stages" and it is what the Rebirth Shrine builds its FOUR monuments from, one standing in each
+-- of zones 5 / 10 / 15 / 20. The two were the same number for as long as the gate was a stage;
+-- they are two different facts now and conflating them again would put twenty statues on the map.
+GameConfig.MaxRebirths = 20
 
 -- The milestone this save may use next, or nil when the ladder is finished. Everything else about
 -- rebirth availability is derived from this one function, so the HUD, the shrine and the server can
@@ -166,7 +228,11 @@ function GameConfig.GetNextRebirthTier(data)
 	return done + 1
 end
 
--- The stage that milestone is gated behind (5, 10, 15, 20), or nil when there is none left.
+-- The stage that milestone USED to be gated behind (5, 10, 15, 20), or nil when there is none
+-- left. 32.7 moved the gate onto the level (`GetNextRebirthLevel`) and this is no longer asked by
+-- anything that decides whether a rebirth may happen -- it survives because it is still the right
+-- answer to a different question: which of the four shrine monuments stands for a tier, and which
+-- creature's statue that is. `RebirthService`'s notify payload carries it for the same reason.
 function GameConfig.GetNextRebirthStage(data)
 	local tier = GameConfig.GetNextRebirthTier(data)
 	return tier and GameConfig.GetRebirthTierStageIndex(tier) or nil
@@ -174,11 +240,16 @@ end
 
 -- The single question the button asks. Returns `false, reason` so the UI never has to reconstruct
 -- why it is locked out of the numbers.
+--
+-- THE REASON CHANGED FROM "stage" TO "level" IN 32.7 and the shape did not, which is what kept
+-- that change to one line here: every caller in the game takes only the first return value
+-- (`(GameConfig.CanRebirthNow(data))`, parenthesised, in RebirthService, MainUI, RebirthPanel and
+-- RebirthShrineClient alike), so nothing switches on the string and nothing had to be repaired.
 function GameConfig.CanRebirthNow(data)
 	local tier = GameConfig.GetNextRebirthTier(data)
 	if not tier then return false, "done" end
-	if ((data and data.StageIndex) or 1) < GameConfig.GetRebirthTierStageIndex(tier) then
-		return false, "stage"
+	if GameConfig.GetLevel(data) < GameConfig.RebirthLevelFor(tier) then
+		return false, "level"
 	end
 	return true, "ready"
 end
@@ -190,11 +261,15 @@ end
 -- currency that is SPENT cannot also be a permanent stat -- so the income a rebirth was worth moves
 -- here, onto the counter, where it cannot be spent away by accident.
 --
--- Linear at +150% a run against damage's accelerating curve, on purpose: income is the currency the
+-- Linear against damage's accelerating curve, on purpose: income is the currency the
 -- upgrades, eggs and shops run on and it is already geometric in the stage, while damage is the one
--- thing the late zones are actually short of. Four rebirths therefore end at x7 income and x8
+-- thing the late zones are actually short of. TWENTY rebirths therefore end at x7 income and x8
 -- damage.
-GameConfig.RebirthIncomePct = 150
+-- 150 -> 30 IN 32.7, for the reason written over `RebirthDamagePct`: the ladder went from four
+-- rungs to twenty, and 150 would have ended it at x31.00 income. 30 puts the twentieth rung at
+-- **x7.00**, which is exactly where the old fourth rung landed -- so the end of the ladder is worth
+-- what it always was, and it is reached in twenty steps instead of four.
+GameConfig.RebirthIncomePct = 30
 
 function GameConfig.GetRebirthIncomeMult(data)
 	local r = (data and data.Rebirths) or 0

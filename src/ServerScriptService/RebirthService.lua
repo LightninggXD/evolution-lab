@@ -44,11 +44,18 @@ function RebirthService.HandleRebirth(player, tier)
 		return
 	end
 
-	local reqStageIndex = GameConfig.GetRebirthTierStageIndex(nextTier)
-	if data.StageIndex < reqStageIndex then
-		local reqStage = GameConfig.Stages[reqStageIndex]
+	-- ===== THE GATE IS A LEVEL SINCE 32.7, NOT A STAGE =====
+	--
+	-- It asked `data.StageIndex >= GetRebirthTierStageIndex(nextTier)` -- stage 5, 10, 15, 20 -- and
+	-- that requirement is gone rather than relaxed. It could never have carried more than four
+	-- rungs: there are twenty stages, a rung took five of them, and a rebirth RESETS the stage, so
+	-- two rungs could not sit inside one band. The level is its own axis, it also resets, and each
+	-- rung asks for a higher one. See the block at the top of `GameConfig.Levels`.
+	local reqLevel = GameConfig.RebirthLevelFor(nextTier)
+	if GameConfig.GetLevel(data) < reqLevel then
 		Remotes.Notify:FireClient(player, { kind = "error",
-			message = ("Reach %s (Stage %d) to unlock Rebirth %d!"):format(reqStage.name, reqStageIndex, nextTier) })
+			message = ("Reach Level %d to unlock Rebirth %d! (you are Level %d)")
+				:format(reqLevel, nextTier, GameConfig.GetLevel(data)) })
 		return
 	end
 
@@ -67,9 +74,9 @@ function RebirthService.HandleRebirth(player, tier)
 		claimed = claimed and math.floor(claimed) or nil
 		if claimed ~= claimed then return end -- NaN
 		if claimed ~= nextTier then
-			local reqStage = GameConfig.Stages[reqStageIndex]
 			Remotes.Notify:FireClient(player, { kind = "error",
-				message = ("That milestone is spent. Your next Rebirth is at %s (Stage %d)."):format(reqStage.name, reqStageIndex) })
+				message = ("That milestone is spent. Your next Rebirth is number %d, at Level %d.")
+					:format(nextTier, reqLevel) })
 			return
 		end
 	end
@@ -91,6 +98,13 @@ function RebirthService.HandleRebirth(player, tier)
 		Telemetry.Tx.Gameplay, "rebirth")
 	data.DNA = 0
 	data.XP = 0
+	-- THE LEVEL LADDER GOES WITH IT (32.7), and it has to. The next rung asks for a HIGHER level
+	-- than the one just spent, so a rebirth that kept the level would hand the following rung over
+	-- in the same breath and twenty rungs would fall in a row. It is also the rule this file
+	-- already follows from the other side: everything bought with Diamonds is kept (Diamonds,
+	-- DiamondUpgrades, MasteredStages, SwordLevel), everything climbed to is reset.
+	data.Level = 1
+	data.LevelXp = 0
 	data.StageIndex = 1
 	for key in pairs(data.Upgrades) do
 		data.Upgrades[key] = 0
@@ -151,6 +165,10 @@ function RebirthService.HandleRebirth(player, tier)
 		-- and where the ladder points next, so the reset ends by naming its own sequel
 		nextTier = GameConfig.GetNextRebirthTier(data),
 		nextStageIndex = GameConfig.GetNextRebirthStage(data),
+		-- ...and what that sequel actually ASKS for since 32.7. `nextStageIndex` is kept beside it
+		-- because it still names the creature whose statue stands for the tier, which is what the
+		-- toast points the player at; it is no longer the requirement.
+		nextLevel = GameConfig.GetNextRebirthLevel(data),
 	})
 
 	-- AND THE ROOM IS TOLD (12.14). A rebirth wipes a climb, a zone list and a whole skin

@@ -151,8 +151,9 @@ evolveFrame.Size = UDim2.new(0, 470, 0, 136)
 -- through the boss pill. Five pixels of daylight between the two.
 --
 -- -84 NOW (2026-08-21), AND THE BAR THAT USED TO BE DOWN THERE HAS GONE UP. The bottom edge belongs
--- to `Modules.HUD.QuickBuyRow` -- the row of DNA packs the reference draws under its level bar --
--- which is 62 tall pinned at -10, i.e. its top edge is at -72. This card's bottom sits at -84, so
+-- to `Modules.HUD.SwordSlot` -- the equipped-blade readout, which took that band from the DNA-pack
+-- strip that held it from 2026-08-21 to 32.7 and inherited its exact geometry. It is 62 tall pinned
+-- at -10, i.e. its top edge is at -72. This card's bottom sits at -84, so
 -- there are 12 px between them, and the world-event bar moved to the TOP centre (see the note in
 -- `Modules.HUD.PotionTimers`) rather than being squeezed into a band that now has two tenants.
 evolveFrame.Position = UDim2.new(0.5, 0, 1, -84)
@@ -1391,6 +1392,22 @@ end
 -- which is the rule in `docs/SPLIT.md` §3.
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("SwordPanel"))(hudRefs)
 
+-- ===== The level bar (32.7) =====
+--
+-- The other half of the same phase: a rebirth is gated on a LEVEL now, the level fills from damage
+-- dealt, and this is the bar it fills. It builds one ProgressBar directly on `screenGui`, six
+-- pixels above the evolve card, and listens to two player attributes plus `DataUpdate` -- so like
+-- the sword above it, MainUI gains one line and zero top-level locals.
+--
+-- IT ALSO OWNS ITS OWN LEVEL-UP TOAST, through `hudRefs.showNotification`, rather than adding a
+-- twenty-first branch to the notify handler at the bottom of this file. That handler ignores an
+-- unrecognised `kind` silently, so the two do not collide.
+--
+-- HERE AND NOT LOWER, the `TileColumnFit` rule one line up: everything the module reads off `hud`
+-- -- screenGui, getData -- is filled above this point. `showNotification` is the exception and is
+-- reached through `hud` on every call for exactly that reason (see the note in the module).
+require(RS.Modules:WaitForChild("HUD"):WaitForChild("LevelBar"))(hudRefs)
+
 -- ===== Pets panel =====
 --
 -- BUILT AGAINST A REFERENCE SCREENSHOT, not against the rest of this HUD. The player asked for the
@@ -1570,9 +1587,10 @@ require(RS.Modules:WaitForChild("HUD"):WaitForChild("PetFusion"))(hudRefs)
 
 -- ===== THE ONLY REBIRTH DOOR (18.12) =====
 --
--- `UIComponents.RebirthPanel` -- four rungs, each naming both the reset it charges and the permanent
--- multiplier it pays. It asks `CanRebirthNow` and `GetNextRebirthTier`, the same two functions the
--- server and the shrine use, so it can never offer a rung `HandleRebirth` will refuse.
+-- `UIComponents.RebirthPanel` -- `GameConfig.MaxRebirths` rungs (twenty since 32.7), each naming
+-- both the reset it charges and the permanent multiplier it pays. It asks `CanRebirthNow` and
+-- `GetNextRebirthTier`, the same two functions the server and the shrine use, so it can never offer
+-- a rung `HandleRebirth` will refuse -- including the LEVEL that gate now reads.
 --
 -- From 18.16 until 18.12 this file ALSO built a 430 px rebirth panel for the same job, still
 -- refreshed on every payload and opened by nothing. That was deliberate for one commit so the two
@@ -3157,7 +3175,7 @@ local notifFrame = Instance.new("Frame")
 notifFrame.Name = "NotifFrame"
 notifFrame.Size = UDim2.new(0, 300, 0, 260)
 -- 66 -> 132, MEASURED AGAINST THE WORLD-EVENT BAR (2026-08-21), which moved into this band when
--- `QuickBuyRow` took the bottom edge. The bar is at y = 92 and is 32 tall, so it ends at 124; the
+-- the bottom-edge strip took it. The bar is at y = 92 and is 32 tall, so it ends at 124; the
 -- toasts start 8 px under it.
 --
 -- THE TOASTS ARE WHAT MOVES, not the bar, and the direction is not arbitrary: the bar is permanent
@@ -4071,9 +4089,12 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		-- full reset reads as a gain. Naming the next milestone is what stops the screen going quiet
 		-- at the exact moment the run restarts.
 		local tail = ""
-		if payload.nextTier and payload.nextStageIndex then
-			local s = GameConfig.Stages[payload.nextStageIndex]
-			tail = ("\nNext: Rebirth %d at %s %s"):format(payload.nextTier, s and s.emoji or "", s and s.name or ("Stage " .. payload.nextStageIndex))
+		if payload.nextTier and payload.nextLevel then
+			-- THE LADDER POINTS AT A LEVEL SINCE 32.7, not at a stage. It has to be the level and
+			-- not the creature: the reset has just put this player back at stage 1, so naming a
+			-- stage-20 statue as "next" would be pointing at something twenty zones away that is
+			-- no longer the requirement for anything.
+			tail = ("\nNext: Rebirth %d at Level %d"):format(payload.nextTier, payload.nextLevel)
 		else
 			tail = "\nThat was the last one — everything you earned is permanent."
 		end
@@ -4469,17 +4490,26 @@ require(RS.Modules:WaitForChild("HUD"):WaitForChild("TradePanel"))(hudRefs)
 -- MOVED OUT (18.9) to `ReplicatedStorage.Modules.HUD.ScrollAffordance` -- 103 lines, unchanged.
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("ScrollAffordance"))(hudRefs)
 
--- ===== THE TWO PIECES OF FURNITURE THE REFERENCE HAS AND THIS HUD DID NOT (2026-08-21) =====
+-- ===== THE BOTTOM EDGE AND THE RIGHT EDGE =====
 --
--- `QuickBuyRow` is the +10K / +100K / +1M strip under the progress bar; `OfferRail` is the stack of
--- offer cards up the right edge. Both sell things that ALREADY EXIST with real ids in
--- `GameConfig.RobuxProducts` and `GameConfig.GamePasses` -- neither invents a product, and neither
--- touches the server.
+-- `OfferRail` is the stack of offer cards up the right edge; `SwordSlot` is the equipped-blade
+-- readout on the bottom edge. Neither invents a product and neither touches the server.
+--
+-- ===== `QuickBuyRow` USED TO BE THIS LINE AND SHE REMOVED IT (32.7) =====
+--
+-- It was the +10K / +100K / +1M strip of Robux DNA packs, added on 2026-08-21 off a reference
+-- capture. Her words, playing 32.7: *"napravi da je [mac] equipan ovde umesto ova 3 buttona, to
+-- cemo skloniti ne trebaju mi"*. `Modules.HUD.QuickBuyRow` is still on disk and is now required by
+-- NOTHING -- which is the orphan shape 19.12 found 2,041 R$ behind, so it is written down here
+-- rather than left to be discovered: it is unreferenced ON PURPOSE, by her decision, and the same
+-- three products are still sold by `HUD/ProductTiles` inside the Robux panel along with the other
+-- two. What was given up is the always-on-screen shortcut to three of the five.
 --
 -- REQUIRED HERE, LAST, AND WITH NO TOP-LEVEL LOCAL. Both reasons are the same one that has deleted
 -- this whole HUD twice: the file is at Luau's 200-register ceiling. Last, because `OfferRail` parks
 -- itself against the right-hand tile cluster and `TileColumnFit` two lines up is what lays that
 -- cluster out -- a rail that measured it first would measure the authored position, not the fitted
--- one.
-require(RS.Modules:WaitForChild("HUD"):WaitForChild("QuickBuyRow"))(hudRefs)
+-- one. `SwordSlot` goes with it because it reads `hud.showSwordPanel`, which `HUD/SwordPanel`
+-- publishes far above -- and because it takes the exact band `QuickBuyRow` is vacating.
+require(RS.Modules:WaitForChild("HUD"):WaitForChild("SwordSlot"))(hudRefs)
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("OfferRail"))(hudRefs)

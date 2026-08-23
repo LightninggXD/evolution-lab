@@ -1420,6 +1420,12 @@ local NOTIFY_RANK = {
 	bossDefeated = 2,  robuxPurchase = 2,   dailyReward = 2,     playtimeGift = 2,
 	offline = 2,       reward = 2,          questComplete = 2,   stageMastery = 2,
 	fuse = 2,          spin = 2,            bossRevive = 2,
+	-- LEVEL IS A 2 (32.7), and by the same test the row above it passes: a level is one-off progress
+	-- that will never be announced again, it raises a permanent-for-this-run damage multiplier, and
+	-- every few of them is what opens the rebirth door. NOT a 0 like `crit` and `diamond` -- those
+	-- fire on a timer during a fight and are the reason this table exists; a level fires a handful
+	-- of times in a session and its whole job is to be noticed.
+	level = 2,
 	-- RELIC IS A 2, AND THE ARGUMENT IS ABOUT THE ORDINARY ONE RATHER THAN THE MYTHIC.
 	--
 	-- This table is keyed by KIND, not by payload, so the number has to be chosen for the message

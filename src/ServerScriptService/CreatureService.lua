@@ -20,6 +20,9 @@ local SeasonPassService = require(script.Parent.SeasonPassService)
 -- reaches back here, and DNAService above already pulls PetService in anyway.
 local PetService = require(script.Parent.PetService)
 local AnnounceService = require(script.Parent.AnnounceService)
+-- 32.7's level bar. Module scope is safe: LevelService requires GameConfig and PlayerDataService
+-- and nothing else, so it cannot come back around into this file.
+local LevelService = require(script.Parent.Level.LevelService)
 local Remotes = RS.Remotes
 
 local CreatureService = {}
@@ -3094,12 +3097,29 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 	-- below the body centre, so 0.56 of the tier size is where the feet meet whatever is down there.
 	local floorY = floorAt(position.X, position.Z, position.Y - base.size * 0.56)
 	position = Vector3.new(position.X, floorY + base.size * 0.56, position.Z)
+	-- 32.7, and it is read TWICE below: it is the depth this creature's health is scaled by
+	-- (`GetZoneDepthMult`), and it is the denominator the level bar's award is divided by. Resolved
+	-- once per spawn rather than on every blow -- `GetZoneIndex` is a linear walk of twenty rows,
+	-- which is nothing at all here and three lookups a second per player inside `onHit`.
+	local zoneIndex = GameConfig.GetZoneIndex(zone.key)
 	-- effective (zone-scaled) stats for this specific spawn
 	local tier = {
 		-- ...times how many times this spot has been cleared, capped at x2 -- see generationHealthMult.
 		-- Floored to at least 1: a rounding path that produced a 0-health creature would be dead on
 		-- arrival and respawn forever.
-		health = math.max(1, math.floor(base.health * zone.mobHealthMult * generationHealthMult(generation))),
+		-- ...and by the zone's DEPTH since 32.7 (`GetZoneDepthMult`, x1.00 in Forest and x3.03 on the
+		-- Absolute Plane), which is her "creatures on the higher stages should be stronger". The
+		-- argument for why it is health and never `mobDamageMult` is over `GameConfig.MobDepthGrowth`
+		-- -- the short version is that raising health raises `requiredHits` too, and `hurtPlayer`
+		-- caps a retaliation at `MaxHealth / (requiredHits * 2)`, so the exchange still costs at most
+		-- half a health bar and simply lasts longer.
+		--
+		-- THE BOSS CURVE CARRIES THE SAME FACTOR, applied to both terms of its `math.max` in `Zones`.
+		-- These two lines are one decision and must move together: the Elite floor exists to keep a
+		-- boss above a farmed creep of its own zone, and scaling the creature without the boss is
+		-- exactly the inversion 11.9 was written about.
+		health = math.max(1, math.floor(base.health * zone.mobHealthMult
+			* GameConfig.GetZoneDepthMult(zoneIndex) * generationHealthMult(generation))),
 		hitCooldown = base.hitCooldown,
 		respawnDelay = base.respawnDelay,
 		dnaMult = base.dnaMult * zone.mobDnaMult,
@@ -3477,9 +3497,19 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 		-- swing to their hundredth evolve, saw the same two numbers, and the FX below drew the cap
 		-- because the cap WAS the damage. See the DAMAGE LADDER block in GameConfig.
 		local playerDamage = DNAService.GetCombatDamage(data)
-		local health = math.max((model:GetAttribute("Health") or tier.health) - playerDamage, 0)
+		local before = model:GetAttribute("Health") or tier.health
+		local health = math.max(before - playerDamage, 0)
 		model:SetAttribute("Health", health)
 		drawHealth(health)
+
+		-- 32.7's level bar, and this is one of the two places in the game a blow lands.
+		--
+		-- `before - health`, NOT `playerDamage`: the award is the health the creature actually LOST,
+		-- so the blow that overkills pays only for what was there. That is what keeps the XP a
+		-- creature is worth a property of the CREATURE -- its blows-to-fell for a bare player, flat
+		-- across all twenty zones -- instead of a number that grows with whoever is swinging. The
+		-- whole argument, including why it is normalised by the zone, is in `GameConfig.Levels`.
+		LevelService.AwardDamage(player, data, before - health, zoneIndex)
 
 		-- register (or re-arm) the regeneration above. Entered on every blow rather than only on the
 		-- first, because `lastHit` is what holds the healing off while the fight is still going on.

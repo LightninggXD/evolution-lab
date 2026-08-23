@@ -18,6 +18,9 @@ local VFXService = require(script.Parent.Systems.VFXService)
 -- 12.14's kill feed. Safe at module scope: AnnounceService requires GameConfig and UITheme and
 -- nothing else, so there is no cycle back into this file.
 local AnnounceService = require(script.Parent.AnnounceService)
+-- 32.7's level bar. Module scope is safe: LevelService requires GameConfig and PlayerDataService
+-- and nothing else, so it cannot come back around into this file.
+local LevelService = require(script.Parent.Level.LevelService)
 
 local BossService = {}
 
@@ -2112,6 +2115,9 @@ local function spawnBoss(zone)
 
 	local model = Instance.new("Model")
 	model.Name = "Boss_" .. zone.key
+	-- 32.7: the denominator the level bar's award is divided by, resolved once for this boss rather
+	-- than on every blow -- `GetZoneIndex` is a linear walk of twenty rows.
+	local zoneIndex = GameConfig.GetZoneIndex(zone.key)
 
 	-- The zone's hand-built rig -- animal, golem, wraith or throne, depending on how far down the
 	-- strip you are. `top` is how high above the body the finished silhouette reaches, which is
@@ -2338,9 +2344,24 @@ local function spawnBoss(zone)
 		-- that cannot be hurt at all
 		local playerDamage = math.max(
 			math.floor(DNAService.GetCombatDamage(data) / GameConfig.GetBossDamageDivisor(data)), 1)
-		local health = math.max((model:GetAttribute("Health") or boss.health) - playerDamage, 0)
+		local before = model:GetAttribute("Health") or boss.health
+		local health = math.max(before - playerDamage, 0)
 		model:SetAttribute("Health", health)
 		drawHealth(health)
+
+		-- 32.7's level bar, and this is the other of the two places a blow lands.
+		--
+		-- IT IS THE DIVIDED NUMBER, on purpose. A boss blow is worth what it actually took off the
+		-- boss and not what the player swung, which is the same rule the creature path follows one
+		-- file over. Because boss health is `BossTargetHits x GetZoneReferenceDamage` and the award
+		-- divides by that same reference, a whole zone boss is worth `BossTargetHits` (150) XP --
+		-- the same figure in every zone, to whoever fells it.
+		--
+		-- THE EVENT BOSS IS DELIBERATELY NOT HOOKED (see the `EVENT_MIN_HITS` path far below). Its
+		-- health is a flat authored number rather than one derived from the zone ladder, so there
+		-- is no reference to divide by that would mean anything -- the same reason its evolve XP is
+		-- clamped to two of the receiving player's levels rather than paid straight.
+		LevelService.AwardDamage(player, data, before - health, zoneIndex)
 
 		-- THE BAR YOU CAN ACTUALLY SEE WHILE FIGHTING.
 		--

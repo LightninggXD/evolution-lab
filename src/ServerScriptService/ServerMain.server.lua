@@ -46,6 +46,7 @@ local MapPortals = require(ServerScriptService.MapProps.MapPortals)
 local MapSigns = require(ServerScriptService.MapProps.MapSigns)
 local MapAdventureBoard = require(ServerScriptService.MapProps.MapAdventureBoard)
 local SwordService = require(ServerScriptService.Sword.SwordService)
+local LevelService = require(ServerScriptService.Level.LevelService)
 local Telemetry = require(ServerScriptService.Telemetry)
 
 -- ===== STREAMING =====
@@ -160,6 +161,14 @@ DNAService.Init()
 -- `EvolutionVisuals.dress`, the one place that knows when the costume has finished building the
 -- hand it hangs on.
 SwordService.Init()
+-- AFTER PlayerDataService, and that is the only ordering constraint it has: its whole Init is one
+-- 0.4-second loop that publishes `Level` and `LevelXp` as player attributes, and that loop reads
+-- the data cache. It connects no remote and no player signal -- the sweep IS the wiring, so a
+-- player who joins, loads, rebirths or has their save written by a probe publishes themselves.
+--
+-- NOTE THE BAR IS NOT FILLED FROM HERE. `LevelService.AwardDamage` is called from `CreatureService`
+-- and `BossService`, the two places in the game where a blow lands.
+LevelService.Init()
 -- BEFORE ZoneService, and that is the whole ordering constraint. An expedition map is parented
 -- into `workspace.Zones` and its exit gate is a `PortalGate` -- which ZoneService.Init wires by
 -- scanning that folder ONCE, at startup. Build the map after that scan and the way home is a
