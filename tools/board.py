@@ -345,7 +345,19 @@ MOJIBAKE = _mojibake_markers()
 # Nothing outside these roots is auto-committed. `src/` is the mirror and is the point; the board and
 # the docs are the paperwork. A .rbxl, a key, or an agent's scratch file is not any agent's to
 # commit, and .gitignore already knows which is which.
-SYNC_PATHS = ("src", "tools", "docs", "agent-board", "GEMINI.md", "ROADMAP.md", "HANDOFF-LOG.md")
+SYNC_PATHS = ("src", "tools", "docs", "agent-board", "guidelines", "components")
+# ...plus everything at the top level that is documentation or repo policy. `.gitignore` already
+# drops the agents' scratch (`/task.md`, `/implementation_plan.md`, `/push*`), so whatever .md is
+# left at the root is a document somebody wrote to be read -- a review, a handoff, the roadmap.
+SYNC_ROOT_FILES = (".gitignore", ".gitattributes", ".mcp.json")
+
+
+def in_sync_paths(p):
+    if any(p == root or p.startswith(root + "/") for root in SYNC_PATHS):
+        return True
+    if "/" not in p and (p.endswith(".md") or p in SYNC_ROOT_FILES):
+        return True
+    return False
 # In hook mode a change set bigger than this is not work, it is an accident: a bulk rewrite, an
 # encoding pass, or a second agent writing while this one commits. 52 files is what the mojibake
 # incident looked like in `git status`, and it would have sailed through any size limit above that.
@@ -408,12 +420,11 @@ def guard(paths):
 
 def cmd_sync(auto, push):
     cmd_render()
-    rows = [r for r in dirty_files()
-            if any(r[1] == root or r[1].startswith(root + "/") for root in SYNC_PATHS)]
-    skipped = [r for r in dirty_files() if r not in rows]
+    rows = [r for r in dirty_files() if in_sync_paths(r[1])]
+    skipped = [r for r in dirty_files() if not in_sync_paths(r[1])]
 
     if not rows:
-        print("nothing to commit inside " + ", ".join(SYNC_PATHS))
+        print("nothing to commit inside the sync paths")
         if skipped:
             print("left alone (outside the sync paths): " + ", ".join(p for _, p in skipped))
         return 0

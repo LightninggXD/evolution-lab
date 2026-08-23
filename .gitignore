@@ -41,3 +41,5 @@ tools/manifest.json
 
 # Scratch from the Studio<->disk reconciliation: manifests, pulled copies, receiver logs
 tools/_*
+/push_node.js
+/push*.js
