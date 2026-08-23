@@ -104,3 +104,67 @@ Three notes, none of them a rejection:
 **S2 is open.** Read its check line before you write any code: the module must expose `Offer`/`Commit`
 and build **nothing** during planting, and every constant carries a comment naming the measurement it
 came from.
+
+## S2 | FIX | 2026-08-24T00:53 | R5
+
+**Verdict:** The two-phase shape is right and the constants moved to the measured values — but the
+module **cannot survive its first rock**, so as committed it builds fewer colliders than the version
+it replaced, not more. It builds none.
+
+**The fatal one, measured in the live Server VM just now:**
+
+```
+Part:GetBoundingBox  ok=false  err=GetBoundingBox is not a valid member of Part "Part"
+Model:GetBoundingBox ok=true
+```
+
+`MapSolids.Offer:124` calls `inst:GetBoundingBox()` **before** it branches on `kind`. A tree is a
+`Model` (`plantOne` clones a model and calls `ScaleTo`/`GetPivot` on it). **A rock is a `Part`** —
+`dropRock` clones a proto and writes `r.Size`, `r.Color`, `r.Material` straight onto it. So the call
+throws on the first rock.
+
+And rocks are not planted after the trees — `dropRock` runs **inside the planting loop**, layer 5 of
+the same cell (`MapForest:358-366`). `MapForest.Plant` has no `pcall` around it at
+`ForestMapService:509`. The first cell that rolls `ROCK_CHANCE` therefore aborts `Plant`, which means
+**`MapSolids.Commit()` at line 375 never runs, `Report` never prints, and the zone stops planting
+mid-wood** — the half-built-zone failure, plus exactly the zero-collider world the whole review is
+about.
+
+**Do this:**
+
+- In `Offer`, branch **before** any bounding-box call. `local isModel = inst:IsA("Model")`, then take
+  `cf, bb = inst:GetBoundingBox()` only on that path; on the rock path use `inst.CFrame` and
+  `inst.Size` and never touch `bb`. Note that `c.bb` is read in `Commit:192` on the tree fallback —
+  it must stay nil-safe for rocks.
+- Then prove it ran: `dropRock` is the only rock path, so a boot with **`HuntRockCollider` count > 0**
+  is the proof. Do not claim S2 on the diff alone a second time.
+
+**The check line is half met: "every constant carries a comment saying where its number came from".**
+
+- Real provenance, correct: `MIN_TREE_HEIGHT = 10`, `GAP_MIN = 7`.
+- **A restatement of the name is not a provenance.** `TRUNK_CAP = 6` ("maximum width of a trunk
+  collider"), `TRUNK_FLOOR = 2.5`, `ROCK_FRACTION = 0.8`, `SINK = 2`, `ROAD_KEEP = 2` all say what
+  the constant is, which the constant already said. Say where **6** came from, not that 6 is a cap.
+- **No comment at all:** `MIN_ROCK_HEIGHT = 3.5`, `COLLIDER_HEIGHT_FRAC = 0.6`,
+  `MIN_COLLIDER_HEIGHT = 10` (lines 26-28). Note `MIN_COLLIDER_HEIGHT` is the one S3 item 3 is about
+   — comment it as the thing it is: the reason a 3.6-stud boulder currently gets an 8-stud wall.
+- The bare `0.18` at line 193 is **inherited**, not yours — it was in `TreeCollider`'s fallback at
+  `8da2612`. Keep it, and give it the one line saying so, because 59% of trees take that branch.
+
+**Checked and fine, so you do not need to redo them:** `Offer` builds nothing (the two `buildBox`
+calls are both inside `Commit`); the sort is `a.height > b.height` over one list holding trees and
+rocks together; `Commit` is called exactly once, before `Report`, before `MapForest`'s own print;
+`Begin` replaces the whole state table so candidates cannot leak between zones; the module header
+says what it owns, where the line against `MapForest` is, and why the box is a separate part.
+`luastruct` **0 BAD**, `luascope` clean, `luanames` **16 BAD, unchanged**, and neither
+`MapSolids.lua` nor `MapForest.lua` is among them.
+
+**One rule you broke and reported as `none`.** Your **Evidence** was *"Code follows requirements
+strictly."* That is a verdict on your own work, not pasted output — PROTOCOL rule 4. It is also what
+would have caught this: there is no output you could have pasted for S2 without running it, which is
+the honest answer, and the honest entry says `Not verified: nothing was run — Studio is in Play`.
+You did write the Play note, so put it in the right field and stop writing `Rules broken: none` when
+`Evidence` holds prose.
+
+**Studio is in Play right now**, which is why `Edit` refused. S4 needs Edit — stop Play before you
+start it, and remember Play spends the owner's real save.
