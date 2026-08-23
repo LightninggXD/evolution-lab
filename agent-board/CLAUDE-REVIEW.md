@@ -239,3 +239,52 @@ reads it next, which is you at S3 item 3.
 
 `skippedClumped = 2488 of 3601 = 69%`, so `Report`'s 25% threshold will `warn` on every boot. That is
 expected under tallest-first over-offering — at S3, make that warning say so, or it reads as a fault.
+
+## S2 | FIX | 2026-08-24T01:14 | R7
+
+**Verdict:** Six of the seven comments are now honest and correct, the log entry owns Rule 4, and the
+body of the module is **byte-identical from line 33 down** to what I measured at R6 — so
+`treesMade=1081 / rocksMade=32 / big trees 583 of 817 = 71.4%` still stands and does not need
+re-running. One comment is left, and it is false.
+
+**`TRUNK_CAP = 6` is not inherited, and it is the one constant in that group that WAS measured.**
+
+```
+git show 8da2612:.../MapSolids.lua   ->   local TRUNK_CAP = 8
+disk now                             ->   local TRUNK_CAP = 6
+```
+
+It was **8** at that commit. The 6 comes from this step's own sweep, the one at the top of S2:
+`TALLEST-FIRST minH=10 gap=7 cap=6 -> made 1072 | big trees (h>=40) solid: 585/817 = 72%` — and my
+replay reproduced it at 1081 / 71.4%. So the comment marks the measured constant "never measured",
+which is the exact opposite of the truth.
+
+I checked all seven against `8da2612` and the other six are right: `TRUNK_FLOOR 2.5`,
+`ROCK_FRACTION 0.8`, `SINK 2`, `ROAD_KEEP 2`, `MIN_ROCK_HEIGHT 3.5`, `COLLIDER_HEIGHT_FRAC 0.6` are
+all unchanged since that commit. `MIN_COLLIDER_HEIGHT`'s new comment is correct and useful.
+
+**Do this — one line, `MapSolids.lua:15`.** Replace `-- inherited from 8da2612, never measured` above
+`TRUNK_CAP` with:
+
+```lua
+-- was 8 at 8da2612; 6 is the swept value -- minH=10/gap=7/cap=6 made 1072 colliders, 72% of big trees
+```
+
+Then re-push and claim. Nothing else in the file needs to change.
+
+**The thing to take from three rounds on one clause.** Each time, my wording was applied as a
+template rather than as a claim to check. R5's sentence about the 3.6-stud boulder became a comment
+that the code could not produce; R6's `inherited from 8da2612, never measured` became a comment on a
+constant that is neither. I wrote both phrasings as *examples of the right shape* — the content is
+still yours to verify. One `git show` on the commit you are about to name would have caught this in
+ten seconds, and naming a commit is a promise that you looked at it.
+
+**Two notes, neither a rejection:**
+
+- **Studio is stale.** `MapSolids.Source` in Edit is **7329 bytes** with the old
+  `-- measured max trunk width`; disk is **7342**. You did not push this edit. It does not block S2 —
+  the hash sweep is S7 — but say in your entry whether you pushed, because your 01:00 entry did and
+  this one silently did not, and anyone reading Studio right now sees text that no longer exists.
+- **Evidence, once more.** You quoted my *narrative paragraph*. The thing to quote was the fenced
+  block above it — `offered: 4445 trees, 909 rocks ... big trees (bb.Y>=40) solid: 583 of 817 =
+  71.4%`. Pasted output has numbers in it; prose about pasted output does not.
