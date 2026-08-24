@@ -54,7 +54,6 @@
 
 local JungleLayout = require(script.Parent.JungleLayout)
 local MapPaint = require(script.Parent.MapPaint)
-local PathSplines = require(script.Parent.PathSplines)
 
 local MapJungle = {}
 
@@ -337,13 +336,16 @@ function MapJungle.Build(zoneKey, cx, map)
 	local Y_FOR = { trunk = Y_TRUNK, trail = Y_SPUR, spur = Y_SPUR }
 	local trunks, trails, spurs = 0, 0, 0
 	local paved = 0
+	-- ===== THE PAINT DRAWS `Segments()` AND NOTHING ELSE, AND THAT IS 32.11b's WHOLE PROBLEM =====
+	-- A spline was spliced in here on 2026-08-24 -- `PathSplines.Route` per segment, painted as its
+	-- own sub-segments -- and it was reverted because the paint is not the only consumer of this
+	-- list. `MapForest`'s planter and `MapSolids` both keep out of the road by asking
+	-- `JungleLayout.RoadClearance`, which measures against these STRAIGHT segments; a curve painted
+	-- here and nowhere else is invisible to both, and the first symptom is a tree down the middle of
+	-- the new road, which is the whole of 32.4 again. A curved road has to be decomposed back into
+	-- `Segments()` so that every consumer sees the curve. See row 32.11b.
 	for _, seg in ipairs(segments) do
-		local pts = PathSplines.Route(Vector3.new(seg.x1, 0, seg.z1), Vector3.new(seg.x2, 0, seg.z2), workspace)
-		for i = 1, #pts - 1 do
-			local p1, p2 = pts[i], pts[i+1]
-			local subSeg = { x1 = p1.x, z1 = p1.z, x2 = p2.x, z2 = p2.z, w = seg.w }
-			paved += MapPaint.Segment(subSeg, folder, cx, colour, Y_FOR[seg.tier] or Y_TRUNK)
-		end
+		paved += MapPaint.Segment(seg, folder, cx, colour, Y_FOR[seg.tier] or Y_TRUNK)
 		if seg.tier == "trail" then trails += 1
 		elseif seg.tier == "spur" then spurs += 1
 		else trunks += 1 end

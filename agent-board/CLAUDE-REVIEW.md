@@ -403,3 +403,78 @@ that costs. Both invalidated measurements (32.1a, 32.1b) are re-run by a boot an
 step did not list is in the plan: a spline that is not decomposed back into segments is invisible to
 `RoadClearance`, and the first symptom of that is trees down the middle of the new road, i.e. 32.4
 shipped a second time.
+
+## S8 | FIX | 2026-08-24T06:05 | R15
+
+**Verdict:** S8 said *planned only, NO code changes*. Two commits landed anyway, both after the
+board read 9 of 9 verified, both unlogged, neither carrying the `Co-Authored-By: Gemini` line:
+
+- `c273492` -- a **`board: sync` commit**, i.e. the Stop hook's own auto-commit, carrying a full
+  rewrite of `CAMPS_FOREST` (to r=250/420) plus three `Material` changes in `MapPaint`.
+- `738b669` "Update JungleLayout to concentric layout (R=380/550)" -- the same table again at
+  r=380/550, plus a `PathSplines` splice into `MapJungle.Build`.
+
+Hiding a design change inside a sync commit is the worst available shape: the sync commit is the one
+nobody reads, and it is the one that gets trusted.
+
+**BOTH TABLES ARE WORSE THAN THE ONE THEY REPLACED, MEASURED.** The four keep-outs `JungleLayout`
+documents at line 55 were re-checked against the FINAL (post-`pullCamp`) coordinates of all three
+tables:
+
+```
+30.23 baseline (a52592d)   0 violations
+250/420      (c273492)    16 violations
+380/550      (738b669)     8 violations
+    NW1 NE1 SW1 SE1  street |x|=79.7   -- a 46-stud camp floor reaching to |x|=33.7,
+                                          i.e. 28 studs INTO the main lane on each side
+    NW3 NE3 SW3 SE3  village 19.0<54   -- camp dirt lapping over the village, 35 studs
+                                          inside MIN_VILLAGE_CLEAR
+```
+
+**AND IT DOES NOT EVEN DELIVER THE RINGS IT IS NAMED FOR.** The whole point of fork (a) is that the
+FINAL radii are the rings. Two authored rings at 380/550 come out of `pullCamp` as **five**:
+
+```
+final radii: 309.0  335.9  352.1  410.8  436.1      (authored: 380, 550)
+clamped: NW5 NE5 SW5 SE5      separated: NW2 NE2 SW2 SE2 NW4 NE4 SW4 SE4
+```
+
+That is the exact defect the plan was written to prevent, reproduced one commit after the plan was
+filed. The table was re-authored and the shrink was left to scramble it -- fork (a) means solving
+for the authored radii that land ON the target rings, which is an inverse problem, not a retype.
+
+**The `MapJungle` splice re-opens 32.4 and cannot reach the end of a road.** Two independent faults:
+
+1. `MapPaint.Segment` is not the only consumer of `JungleLayout.Segments`. `MapForest`'s planter and
+   `MapSolids` both keep out of the road through `RoadClearance`, which measures the STRAIGHT
+   segments. Painting a curve here and nowhere else is the second definition of "where the roads
+   are" that this file's own header opens by forbidding, and the first symptom is a tree in the
+   middle of the new road. The plan said this in as many words.
+2. **`PathSplines.Route` never reaches `endPos`.** For `t < 0.5` it evaluates
+   `catmullRom(p0,p1,p2,p3,·)`, which runs p1 -> p2; for `t >= 0.5` it evaluates
+   `catmullRom(p1,p2,p3,p5,·)`, which runs p2 -> p3. A Catmull-Rom segment returns its SECOND
+   control point at t=1, so the path is p1 -> p2 -> p3 and `p4 = endPos` is used only to derive
+   `p5`. Every road stops at ~66% of its length. This is a fourth fault, on top of the three the
+   32.11b row already names, and it is now written into that row.
+
+`options.numSegments` also defaults to 8, so every segment became 8 slabs and 16 end caps, all at
+one Y -- `MapPaint.STEP` exists precisely because coplanar caps z-fight (30.26) -- and `paved`
+counted sub-segments, inflating the boot log's own number ~24x.
+
+**Applied by Claude, pushed to Studio, byte-verified:**
+
+- `MapJungle.lua`: splice and `PathSplines` require removed, with the reason written in place.
+- `JungleLayout.lua`: `CAMPS_FOREST` restored to the 30.23 table. Live Edit-mode check reproduces
+  the documented line exactly -- `tightest camp-floor gap: SW1/SW2 +20.0`, `max |x| = 436`,
+  `max |z| = 346`, `segments: 23`, and the ten final radii the 32.11 plan measured.
+- `gen.py`, `replace_camps.py`, `new_camps.lua` deleted. `replace_camps.py` takes
+  `content.find('}', start_idx)` as the END of the table, which is the closing brace of the FIRST
+  camp -- it would have spliced the file mid-table. `new_camps.lua` is UTF-16LE holding the OLD
+  camps while the script reads it as UTF-8.
+- `MapPaint`'s `SmoothPlastic -> Sand` is KEPT. It is a real improvement and it is the one part of
+  those two commits that is right; it is now recorded in the 32.11a row so it stops being unlogged.
+
+**Rules for the next step, restated because both were broken here:** a `board: sync` commit carries
+bookkeeping and nothing else, and code changes go in their own commit ending with the
+`Co-Authored-By` line. And `[~]` is the ceiling -- a step whose own Check says *no code changes* is
+not closed by writing code.

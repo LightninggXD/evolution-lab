@@ -176,3 +176,164 @@ same commit as 32.10. Write the plan and stop:
 - `ZONES`, `_G.generatedSegments` and the duplicated `Get` from the last attempt are all faults, not
   drafts. Start from the restored file.
 - No invented texture ids. A sand texture is an OWNER item: she supplies the asset id.
+
+---
+
+# ===== NEW WORK, 2026-08-24 -- the owner's three asks =====
+# Read R15 in CLAUDE-REVIEW.md first. Two process rules were broken and both are hard:
+#   * A `board: sync` commit carries BOOKKEEPING ONLY. Code goes in its own commit, ending with
+#     `Co-Authored-By: Gemini <noreply@google.com>`.
+#   * A step whose Check says "no code changes" is NOT closed by writing code. `[~]` is the ceiling.
+# `PathSplines.lua` stays on disk and stays required by NOTHING until S12.
+
+---
+
+## S9 | The mountains are walk-through, and that is the "walls" complaint
+- **Owner:** Gemini
+- **Depends:** none
+- **Check:** a Play-mode walk INTO a named `HorizonHill` stops at its surface, and a BFS from the village still reaches all four platform edges
+
+The owner: *"da se ne prolazi kroz zidove"*. It is measured and it is one file.
+`MapProps/MapHorizon.lua:290-296`, in `hill()`, sets **every** part of every hill to
+`CanCollide = false, CanQuery = false`. The hills stand at |x| 455..691 -- inside the platform, not
+on a distant backdrop -- so walking to the map edge walks through a mountain.
+
+Everything else was checked and is NOT the cause, so do not go looking:
+
+```
+ServerStorage.Maps.ForestVillage   1909 BaseParts, 1638 CanCollide=true
+                                   the 22 wall-shaped non-colliders are all `.Touch` pads
+                                   and `.Show` billboard planes -- deliberate
+workspace.WorldShell               every child collides, Wall x119 included
+MapForest trees/rocks              CanCollide=false BY DESIGN; 32.10's MapSolids gives each
+                                   one an invisible collider box. Do not touch this.
+```
+
+**DO NOT simply flip `CanCollide = true` on the hill parts.** That is the 30.19 mountain trap and
+this repo has shipped it once: a `MeshPart` at `CollisionFidelity.Default` is a handful of convex
+hulls, a 64-stud mountain's hull is very close to a 64-stud BOX, and a ring of those seals the player
+in. `MapForest.lua:28-32` is the note about it.
+
+Do it the way 32.10 already does it, because that machinery exists:
+
+1. `hill()` returns the post-yaw bounding box `sz`. Hand that box, and the hill's final centre, to
+   **`MapSolids.Offer`** -- the same call `MapForest` makes for a tree. `Offer` records candidates
+   and `Commit` builds the boxes tallest-first with the road and gap rules applied, so a hill cannot
+   wall off a road.
+2. A mountain is not a tree. Read `MapSolids`' constants before you pass anything:
+   `MIN_COLLIDER_HEIGHT` and the 0.6 height fraction were derived for trunks. Say in your entry what
+   a hill gets and why.
+3. The collider must be **narrower than the art**, not wider. A player should be able to stand at the
+   foot of a mountain, not be stopped ten studs short of it.
+
+**Two checks, both required, and the second is the one that catches the trap:**
+
+- `Humanoid:MoveTo` a target 40 studs beyond a named `HorizonHill`, wait 6 s, report the distance to
+  the collider SURFACE and name the axis. Same shape as S6.
+- **Re-run `tools/_probe3210_solidwalk.lua` UNCHANGED**, plus a BFS from the village spawn out to
+  each of the four platform edges. If any edge becomes unreachable you have built the ring that
+  sealed her in -- report it, do not ship it.
+
+---
+
+## S10 | You cannot get to the portal
+- **Owner:** Gemini
+- **Depends:** none
+- **Check:** a body-box walk from the village spawn to the portal ring's mouth, blocked 0
+
+The owner: *"da se moze doci do portala"*. **MEASURE BEFORE YOU CHANGE ANYTHING.** The portal hall
+is `MapProps/MapPortals.lua`; the Forest ring is documented at zone `(-201, 15), r = 45` in
+`JungleLayout.lua`'s `PATHS_FOREST` comment, i.e. INSIDE the village. `MapPortals` already prints its
+own boot line:
+
+```
+[MapPortals] <zone>: %d doors (%d cloned), %d wired, %d scenery -- ring r=%.0f,
+             door %.1f x %.1f at %.2f, mouth %.0f studs facing the village
+```
+
+Boot, paste that line whole, and only then decide. There are four candidate causes and they need
+different fixes -- naming which one it is IS the step:
+
+1. **The mouth has closed again.** The comment block at `MapPortals.lua:42` is the record of an arc
+   that wrapped past itself and sealed the owner inside a stone ring (`OPENING_DEG`,
+   `span / (n - 1)`). If the printed mouth is small or zero, that is it.
+2. **The mouth faces the wrong way.** It is supposed to face the village floor. If it faces out, you
+   arrive at the back of the hall.
+3. **Something is standing in the approach** -- a prop, a stall, a tree. That is 32.4's shape, and
+   `evolution-lab-relocating-a-prop`'s rule applies: measure from the CORRIDOR, not from the prop.
+4. **The doors have no prompt, or the prompt is out of reach.** `PROMPT_NAME = "ZonePortalPrompt"`.
+   Note `ScaleTo` SCALES A PROMPT'S REACH -- a hall scaled to 0.5 has half its authored
+   `MaxActivationDistance`. Check the live value, not the authored one.
+
+Evidence must be a walk, not a screenshot: body-box cells from the spawn to the mouth and then to a
+door, blocked count per leg. A screenshot on top is welcome; it does not replace the walk.
+
+---
+
+## S11 | A smaller hunting ground -- AND THE DIAL NO LONGER MOVES IT
+- **Owner:** Gemini
+- **Depends:** S9, S10
+- **Check:** `JungleLayout.Describe`'s furthest-camp line moves, and the four keep-outs still report 0 violations
+
+The owner: *"jos mi manja mapa treba"*. `JungleLayout.HUNT_SHRINK` is documented as *"the one dial...
+when she asks for another round this is the only number that moves"*. **THAT IS NO LONGER TRUE AND
+IT IS MEASURED.** Turning the dial down does nothing, because the per-camp separation clamp bisects
+`k` straight back up:
+
+```
+dial   furthest camp from the village edge   mean camp radius   max|x|
+0.50            170.4                              415.2          436
+0.40            165.8                              411.6          436
+0.30            165.8                              411.4          436
+0.20            165.8                              411.4          436
+```
+
+Every camp is already sitting on `MIN_CAMP_SEPARATION` (= `CAMP_RADIUS * 2 + 20` = 112). The camps
+cannot come closer together because their own floors are in the way. So the lever is the FLOOR:
+
+```
+CAMP_RADIUS  dial   furthest camp   mean r   max|x|
+     46      0.50       170.4        415.2     436     <- today
+     40      0.35       147.1        398.8     418
+     36      0.35       134.8        391.3     405
+     32      0.35       122.4        384.3     393
+     28      0.35       113.9        378.4     380
+```
+
+**So the row is: shrink `CAMP_RADIUS` and `CLEARING_RADIUS` together, THEN turn the dial.** Do them
+in that order and report the table above re-measured, not a claim.
+
+Three things that will bite:
+
+- `CLEARING_RADIUS` (66) is how far back the WOOD is held. Shrink it with `CAMP_RADIUS` or the
+  clearing stops being a room and becomes a hole. The ratio today is 66/46 = 1.43.
+- **A camp floor has to hold its roster.** `CreatureService` scatters a camp's creatures inside the
+  floor plus `ESCORT_RING` (22). An apex camp at `CAMP_RADIUS = 28` may not fit its escorts. Count
+  the worst roster against the new radius BEFORE choosing the number, and say what it is.
+- `MapHorizon` derives its camp edge from this table, and `MapSolids` and `MapForest` both keep out
+  by `CAMP_RADIUS`. Grep the constant across `src/` and list every reader in your entry.
+
+**The village is the real floor and it is NOT yours to move.** Mean camp radius only goes 415 -> 378
+even at `CAMP_RADIUS = 28`, because no camp may come within 54 studs of the village rectangle
+(270.5 x 230). Going below that means shrinking the village, and the village is already at scale
+1.15 where a doorway barely clears the 8.4-stud body -- 31.14 took it 1.45 -> 1.15 and that was the
+floor. If the table above is not small enough for her, **STOP AND SAY SO**: the next move is the
+player's own scale, and that is an OWNER decision, not an agent's.
+
+---
+
+## S12 | 32.11 -- rings and curved roads, still NOT started
+- **Owner:** Gemini
+- **Depends:** S11
+- **Check:** nothing is written until S11 closes, because S11 moves every coordinate 32.11 would author
+
+Both halves are described in `ROADMAP.md` rows 32.11a / 32.11b and in the `32.11` section at the
+bottom of `HANDOFF-LOG.md`. Two things changed today and both are in those rows now:
+
+- **32.11a's two-ring shape does not fit this zone.** Measured: once the cross roads and HubPlaza's
+  deck are counted as keep-outs alongside the four that `JungleLayout` documents, the best possible
+  two-ring arrangement of twenty camps leaves **2.8 studs** of slack. That is a jam, not a layout.
+  Three rings (8 / 4 / 8) reaches 6.8 studs and is still tight. **This is why S11 comes first** --
+  a smaller `CAMP_RADIUS` is exactly what buys the room the rings need.
+- **32.11b's `PathSplines` has a fourth fault**, on top of the three the row names: `Route` never
+  reaches `endPos`. Every road stops at ~66% of its length. See R15 for the derivation.
