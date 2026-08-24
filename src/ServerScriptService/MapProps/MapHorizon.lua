@@ -64,7 +64,7 @@
 -- than by reading the code, and both are recorded because the numbers cost something to get.
 --
 --   1. **EVERY HILL STANDS 82 DEGREES FROM THE ANGLE THIS FILE ASKS FOR.** `hill()` turns the clone
---      with `m:PivotTo(m:GetPivot() * CFrame.Angles(0, yaw, 0))` -- a nudge off whatever
+--      with `m:PivotTo(CFrame.new(m:GetPivot().Position) * CFrame.Angles(0, yaw, 0))` -- a nudge off whatever
 --      orientation the stock was parked at -- and `ServerStorage.RidgeStock` is parked at yaw
 --      **-1.429**. So the yaw section above, which is entirely about presenting the mesh's NARROW
 --      side across the ridge, has never once happened. Measured: an inner hill reaches **+-212
@@ -514,7 +514,7 @@ local function hill(proto, parent, cx, x, z, yaw, scale)
 	local _, raw = m:GetBoundingBox()
 	if raw.Y < 1 then m:Destroy() return nil end
 	m:ScaleTo(scale)
-	m:PivotTo(m:GetPivot() * CFrame.Angles(0, yaw, 0))
+	m:PivotTo(CFrame.new(m:GetPivot().Position) * CFrame.Angles(0, yaw, 0))
 	local cf, sz = m:GetBoundingBox()
 	m:PivotTo(m:GetPivot() + Vector3.new(cx + x - cf.Position.X,
 		-(cf.Position.Y - sz.Y / 2) - SINK, z - cf.Position.Z))
@@ -740,12 +740,12 @@ function MapHorizon.Build(zoneKey, cx, map)
 	local gap, gapWhat = math.huge, "-"
 	local camps = JungleLayout.Camps(zoneKey) or {}
 	for _, m in ipairs(folder:GetChildren()) do
-		local mcf, msz = m:GetBoundingBox()
-		local top = mcf.Position.Y + msz.Y / 2
+		local hx, hz, top, mx, mz = worldBox(m)
+		hx = hx * FILL
+		hz = hz * FILL
+		mx = mx - cx
 		lowTop = math.min(lowTop, top)
 		highTop = math.max(highTop, top)
-		local mx, mz = mcf.Position.X - cx, mcf.Position.Z
-		local hx, hz = msz.X * FILL / 2, msz.Z * FILL / 2
 		for _, c in ipairs(camps) do
 			local dx = math.max(math.abs(c.x - mx) - hx, 0)
 			local dz = math.max(math.abs(c.z - mz) - hz, 0)

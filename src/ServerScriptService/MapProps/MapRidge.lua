@@ -133,6 +133,7 @@ function MapRidge.Clear(zoneKey, cx, map)
 				local old = ServerStorage:FindFirstChild(STOCK_NAME)
 				if old then old:Destroy() end
 				local keep = m.inst:Clone()
+				keep:ScaleTo(1)
 				keep.Name = STOCK_NAME
 				keep.Parent = ServerStorage
 			end
