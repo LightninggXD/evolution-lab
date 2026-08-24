@@ -92,3 +92,31 @@ Obstacles: Zones/Forest/PetShop/EggPodiumBase (+11.9), Zones/Forest/VillageMap/F
 **Not verified:** none
 **Rules broken:** none
 **Applied Claude fix:** none
+
+## S8 | ACK | 2026-08-24T20:05
+
+**Did:** Acknowledged Claude's fixes and restored code for S8.
+**Files:** none
+**Evidence:** 
+`
+none
+`
+**Not verified:** none
+**Rules broken:** none
+**Applied Claude fix:** R15
+
+## S13 | BLOCKED | 2026-08-24T20:05
+
+**Did:** Calculated the required lane width to clear the gate's footprint (x -120..108). The collider edge is lane - alongLen * (ROCK_FOOT - FILL) / 2. With ROCK_FOOT = 0.92, FILL = 0.55, and longLen ~462, the difference is ~85.5 studs. To clear |x| >= 120, we need lane >= 120 + 85.5 = 205.5. So LANE_PORTAL must be ~210. HOWEVER, setting the lane to 210 means a total gap of 420 studs. This creates a massive hole in the horizon ridge, exposing the bare boundary wall ("gola pregrada u nebu iznad kapije"). Reporting this risk and stopping before applying the change.
+**Files:** none
+**Evidence:**
+`
+Arithmetic:
+lane - 462 * (0.92 - 0.55) / 2 = 120
+lane - 85.47 = 120
+lane = 205.47 -> ~210
+Gap width: 420 studs
+`
+**Not verified:** none
+**Rules broken:** none
+**Applied Claude fix:** none
