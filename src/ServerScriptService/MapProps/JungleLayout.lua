@@ -75,30 +75,53 @@ local JungleLayout = {}
 -- `MIN_CAMP_SEPARATION` (= `CAMP_RADIUS * 2 + 20`), so turning the dial down only made `pullCamp`
 -- bisect `k` straight back up: 0.50 -> 0.20 moved the furthest camp 170.4 -> 165.8 and then stopped
 -- dead. The camps could not come closer together because THEIR OWN FLOORS were in the way. Measured,
--- over the real twenty, with the dial held at 0.35 and the ring scaled with the floor:
+-- over the real twenty, every row built from a patched module and measured, never derived:
 --
---     campR clear esc | furthest  max|x| | floor edge  a hill needs  vs the wall at 625
---        46    66  22 |    170.4     435 |       481           685  OVER   <- what shipped
---        32    46  22 |    122.4     392 |       424           628  OVER
---        30    43  20 |    116.1     386 |       416           620  ok
---        28    40  18 |    113.9     380 |       408           612  ok    <- this
+--     campR clear esc spur dial | furthest | floor edge  a hill needs  vs the wall at 625
+--        46    66  22   14 0.50 |    170.4 |       481           685  OVER   <- what shipped
+--        32    46  22   14 0.35 |    122.4 |       424           628  OVER
+--        28    40  18    8 0.35 |    113.9 |       408           612  ok
+--        20    28  12    8 0.35 |    113.9 |       381           585  ok
+--        20    40  12    6 0.20 |     84.0 |       374           578  ok    <- this
 --
--- **28 AND NOT 32, AND THE REASON IS THE MOUNTAINS.** 32.15 measured that a hill tall enough to
+-- **THE FLOOR RE-ARMS THE DIAL; THE DIAL IS WHAT MOVES THE MAP.** Read rows three and four: at the
+-- dial 0.35 a floor of 20 gives the same 113.9 as a floor of 28, because there it is the DIAL that
+-- binds and not the floors. Shrinking the floor alone buys nothing. What it buys is room for the
+-- dial to mean something again -- at 46 the whole range 0.50..0.20 was worth 4.6 studs, and at 20
+-- it is worth 86 (170.4 -> 84.0).
+--
+-- **AND THE FLOOR HAS A CEILING SET BY THE MOUNTAINS.** 32.15 measured that a hill tall enough to
 -- clear the boundary wall reaches 164 studs across, and 32.18 needs `camp floor edge + 164 + 40` to
 -- fall INSIDE the wall at 625 or the range has nowhere to stand that is off the camps. At 32 that
--- sum is 628 -- over by three studs, which is a pass by luck in the other direction. At 28 it is
--- 612, with 13 to spare, and that is what unblocks 32.18 and then 32.19.
+-- sum is 628 -- over by three studs, which is a pass by luck in the other direction. At 20 it is
+-- 578, with 47 to spare, and that is what unblocks 32.18 and then 32.19.
 --
--- Below 0.35 the dial is spent again (0.20 buys four more studs), and the map cannot get smaller
--- than this by moving camps: no camp may come within 54 studs of the 270.5 x 230 VILLAGE, so the
--- mean camp radius bottoms out at 378. The next lever after this one is the player's own scale,
--- and that is an owner call.
+-- The map cannot get smaller than this by moving camps: no camp may come within `CAMP_RADIUS + 8`
+-- of the 270.5 x 230 VILLAGE, and the village is already at scale 1.15 where a doorway barely
+-- clears the 8.4-stud body. The next lever after this one is the player's own scale, and that is an
+-- owner call, not an agent's.
 JungleLayout.CAMP_RADIUS = 20      -- the dirt floor a camp stands on
-JungleLayout.CLEARING_RADIUS = 28  -- how far back the WOOD is held: the camp's wall, since 30.23
+
+-- ===== THE CLEARING IS THE FLOOR PLUS A BAND, AND THE BAND IS NOT A RATIO =====
+-- `CLEARING_RADIUS` was 66 against a floor of 46, and the obvious move is to keep the ratio. **Built
+-- that way and measured, it is wrong**, because the thing the band has to cover is a CANOPY, and a
+-- canopy is an absolute size: the wood is held back at the tree's PLACEMENT POINT and the crown
+-- hangs in past it. Measured on the built world at a band of 12, the nearest canopy edge stood
+-- **16.2 studs from a camp centre** -- inside `ESCORT_RING`, i.e. a creature standing in a tree --
+-- and **40 crowns overhung the dirt floor, the worst by 11.8 studs**. A clearing with trees standing
+-- in it is not a room, which is the one thing 30.23 built it to be.
+--
+-- So it is DERIVED from the floor and the band is the number: 20 is exactly what 66 and 46 kept
+-- between them, restored rather than re-chosen. It is not quite enough to clear every crown -- the
+-- widest tree near a camp is ~24 studs on the half -- but that was equally true at 46/66 and it is
+-- not something 32.17 introduced.
+local CANOPY_BAND = 20
+JungleLayout.CLEARING_RADIUS = JungleLayout.CAMP_RADIUS + CANOPY_BAND  -- the camp's wall, since 30.23
+
 -- Scaled WITH the floor, and it has to be: `Spawns` puts the outermost escort at
--- `ESCORT_RING + NextNumber(-5, 7)`, measured at 28.9 studs (camp NE2) while the ring was 22. On a
--- 28-stud floor that creature stands off the dirt. At 18 the same measurement is 24.9 and every one
--- of the 74 is on its own floor.
+-- `ESCORT_RING + NextNumber(-5, 7)`, measured at 28.9 studs (camp NE2) while the ring was 22 -- on
+-- a 20-stud floor that creature stands well off the dirt. At 12 the same measurement is 18.9 and
+-- every one of the 74 is on its own floor.
 JungleLayout.ESCORT_RING = 12      -- how far an escort stands from its leader
 
 -- ===== HOW FAR A ROAD RUNS ONTO A CAMP FLOOR, AND THAT IS 30.26 =====
@@ -114,12 +137,12 @@ JungleLayout.ESCORT_RING = 12      -- how far an escort stands from its leader
 -- It stops short of the leader, not at it: the road ends at `CAMP_RADIUS - SPUR_OVERSHOOT`, which
 -- has to stay outside the creature standing at the centre.
 --
--- **14 WAS A NUMBER FOR A 46-STUD FLOOR AND 32.17 MOVED THE FLOOR.** Left at 14 the mouth would be
--- 28 - 14 = 14 studs from the centre, i.e. INSIDE `ESCORT_RING`, with road paint drawn under the
--- creatures. 8 holds the mouth at 20 -- the same fraction of the floor 14 was of 46 -- and still
--- runs 5 studs past the rim's inner edge, which is the whole of 30.26 (the rim is 3 studs on the
--- radius, `MapJungle` line 246).
-JungleLayout.SPUR_OVERSHOOT = 8
+-- **14 WAS A NUMBER FOR A 46-STUD FLOOR AND 32.17 MOVED THE FLOOR.** The mouth has to stay OUTSIDE
+-- `ESCORT_RING` or the trail is painted under the creatures -- 30.26 in reverse. Against a floor of
+-- 20: at 14 the mouth would be 6, and at 8 it would be 12, which is the escort ring exactly. 6 holds
+-- it at 14, two studs clear of the ring, and still runs 3 studs past the rim's inner edge, which is
+-- the whole of 30.26 (the rim is 3 studs on the radius, `MapJungle` line 246).
+JungleLayout.SPUR_OVERSHOOT = 6
 
 -- ===== WHAT STANDS IN A CAMP =====
 -- The roster is the whole of the tuning. Six archetypes, and between them they account for EVERY
@@ -181,10 +204,10 @@ local VILLAGE_HALF_X = 270.5
 local VILLAGE_HALF_Z = 230
 
 -- The dial, and it is NOT the only number that moves any more -- see the block above `CAMP_RADIUS`.
--- It is armed again only because the floor shrank with it: at `CAMP_RADIUS` 46 the whole range
--- 0.50..0.20 was worth 4.6 studs, and at 28 the same range is worth 55 (165.2 -> 109.8). 0.35 and
--- not 0.20 because the last 0.15 of it buys four studs.
-JungleLayout.HUNT_SHRINK = 0.35
+-- It is armed again only because the floor shrank first: at `CAMP_RADIUS` 46 the whole range
+-- 0.50..0.20 was worth 4.6 studs, and at 20 it is worth 86 (170.4 -> 84.0). This is the end of its
+-- travel rather than a setting with room left in it: 0.20 is where the village clamp takes over.
+JungleLayout.HUNT_SHRINK = 0.20
 
 -- How close a camp's FLOOR may come to the village. `CAMP_RADIUS` is the floor itself, so the
 -- margin is what stops a clearing's dirt lapping over the map's own grass -- a camp is a room in
@@ -798,4 +821,3 @@ function JungleLayout.Describe(zoneKey, expected)
 end
 
 return JungleLayout
-
