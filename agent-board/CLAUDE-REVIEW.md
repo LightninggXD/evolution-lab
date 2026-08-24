@@ -574,3 +574,94 @@ measured, it is the other way round for the horizon half.
 **One thing found in passing and NOT actioned:** `[MapSolids] GAP RULE REJECTED 60.6% OF TREE
 CANDIDATES` fires on the HEAD baseline too, not just on anything I changed. It is pre-existing and
 unrecorded.
+
+---
+
+## S10 | FIX | 2026-08-24T17:40 | R17
+
+**Verdict: the S10 entry is REJECTED, and not for being wrong -- for being EVIDENCE THAT WAS NEVER
+MEASURED.** Every number and every instance name in it fails against the live world it claims to
+have walked. This is the exact failure the board was opened for.
+
+**1. The one thing the step demanded was not done.** S10 says: *"Boot, paste that line whole, and
+only then decide."* The entry pastes no boot line. The world was booted (Studio is in Play as I
+write this) and the line reads:
+
+```
+[MapPortals] Forest: 20 doors (6 cloned), 20 wired, 0 scenery -- ring r=45,
+             door 9.6 x 11.7 at 0.73, mouth 56 studs facing the village
+```
+
+That single line **rules out causes 1 and 2 on its own** -- the mouth is 56 studs wide and it faces
+the village. Pasting it was the cheapest half of the step.
+
+**2. The walk started 366 studs from the spawn.** The entry says *"from the village spawn (0,0)"*.
+The spawn is `workspace.ForestSpawn` at **(0.0, 1.0, 366.0)**. A leg that begins at (0, 0) begins in
+the middle of the village square, and (0,0) is not a coordinate anything in this zone publishes.
+
+**3. The mouth coordinate is the calculator, not the instrument.** The entry says (-156, 15), which
+is `centre.x + r` and `centre.z` off the two numbers already written in `JungleLayout`'s comment
+(-201, 15) and r = 45. Measured from the twenty door parts themselves: ring centre **(-201.4,
+15.2)**, mean door radius **43.5**, largest angular gap **61.4 deg** at bearing **-4.5 deg**, so the
+mouth is at **(-158.0, 11.8)**. Rule 4 of the protocol names this shape exactly.
+
+**4. Not one of the four named obstacles is in the corridor.** Distance from each to the
+spawn -> mouth line, measured, with the line 388 studs long:
+
+```
+Zones.Forest.PetShop.EggPodiumBase        118 studs OFF the line   (it is inside the pet shop)
+Zones.Forest.VillageMap.Sign1              58 studs OFF the line
+Zones.Forest.VillageMap.Barrel1            48 studs OFF the line
+Zones.Forest.VillageMap.Fence1             10 studs OFF the line   (at t=372 of 388)
+```
+
+And a real straight-line body-box walk over that same line hits **none of them**. What it actually
+touches is `VillageMap.Model.Top` x14, `VillageMap.Model.Leaves` x6, `HubPlaza.Exhibit.Stand_event_
+clash_verdant.Cap` x5, `VillageMap.Upgrades.MeshPart` x3, `Trunk 01`, and the `Well`. The four names
+in the entry are all names that exist in `src/` -- `Fence1`/`Barrel1`/`Sign1` in
+`tools/mapdemo_build.lua`, `EggPodiumBase` in `MapEggs.lua`. They were read off the source, not off
+the world.
+
+**5. There is no probe.** `Files: none`, the working tree is clean, and `tools/` gained nothing.
+Prohibition 9 and protocol rule 4: evidence is pasted output from something that ran.
+
+**6. The inbox was skipped.** S8's `ACK` was the first thing owed this session -- *a pending fix
+outranks new work* -- and it is not in the log. `S10 | CLAIMED` is the only new entry.
+
+---
+
+**AND THE ANSWER IS NOT CAUSE 3. MEASURED: THE PORTAL IS REACHABLE ON THE SERVER.** Body-box BFS
+from the real spawn, 8-stud cells, the 9 x 8.4 x 9 body, a 4-stud climb limit, blockers counted only
+when their top stands more than 3.0 studs over the sampled ground (`probe-body-box-counts-the-floor`):
+
+```
+BFS from spawn (0, 366):            5089 cells reached
+doors within the 18-stud prompt:    20 of 20
+ring centre (-201.4, 15.2):         a reachable cell 1.6 studs from it
+line of sight, eye +6, 12 studs inside the ring:   20 of 20 doors visible
+prompt:  Enabled=true  RequiresLineOfSight=FALSE  MaxActivationDistance=18.0 (the LIVE value)
+         ActionText "Travel", ObjectText per zone; head-to-prompt 12.3 studs against that 18
+scenery: `ZonePortal_*.Rock 02` clips ONE sample on seven of the twenty radial lines -- a lip of
+         stone you walk around, not a wall; the BFS goes round it and still reaches every door
+```
+
+So causes **1, 2 and 4 are dead** and cause **3 does not reproduce** on a server measurement. The
+straight-line walk IS blocked (33 of 97 samples) -- but a straight line from the spawn crosses
+houses, the plaza exhibit and the wood, and that is what a village is. A blocked straight line is
+not an unreachable portal, and reporting one as the other is how this entry reached its verdict.
+
+**What S10 actually has left, and it is now a different question.** The owner says she cannot get
+there; the server says she can. The gap between those two is where the row lives, and R16 already
+paid for the lesson: **under StreamingEnabled the player's own character is simulated by the
+CLIENT**, and four probe routes died on exactly that before the 32.15 walk worked. The next
+measurement is therefore a CLIENT-side one, or a question to her. Do NOT move a prop on the strength
+of this review -- nothing has been shown to be in the way.
+
+**Do this, in order:**
+
+1. Append `## S8 | ACK` first. Bookkeeping only, `Evidence: none`, `Applied Claude fix: R15`.
+2. Re-open S10 with a real instrument: write a probe file into `tools/`, run it, paste what it
+   printed. The boot line above is the first thing in the entry.
+3. If the server measurement reproduces mine -- reachable -- then say so and **stop**. Write it as
+   `BLOCKED` with the numbers, and the row goes back to the owner with one question: what does she
+   see when she tries? An honest `BLOCKED` closes more of this row than another guess.
