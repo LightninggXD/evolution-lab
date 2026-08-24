@@ -298,29 +298,29 @@ end
 -- from any single screenshot.
 local CAMPS_FOREST = {
 	-- ---- north-west quadrant, front (plaza end) to back
-	{ id = "NW1", kind = "swarm",     x = -320, z =  270 },
-	{ id = "NW2", kind = "swarm",     x = -530, z =  300 },
-	{ id = "NW3", kind = "brute",     x = -330, z =  120 },
-	{ id = "NW4", kind = "brute",     x = -530, z =  130 },
-	{ id = "NW5", kind = "elite",     x = -350, z =  -20 },
+	{ id = "NW1", kind = "swarm", x =  -64, z =  241 },
+	{ id = "NW2", kind = "swarm", x = -160, z =  388 },
+	{ id = "NW3", kind = "brute", x = -176, z =  176 },
+	{ id = "NW4", kind = "brute", x = -388, z =  160 },
+	{ id = "NW5", kind = "elite", x = -241, z =   64 },
 	-- ---- north-east quadrant, mirrored
-	{ id = "NE1", kind = "swarm",     x =  320, z =  270 },
-	{ id = "NE2", kind = "swarm",     x =  530, z =  300 },
-	{ id = "NE3", kind = "brute",     x =  330, z =  120 },
-	{ id = "NE4", kind = "brute",     x =  530, z =  130 },
-	{ id = "NE5", kind = "elite",     x =  350, z =  -20 },
+	{ id = "NE1", kind = "swarm", x =   64, z =  241 },
+	{ id = "NE2", kind = "swarm", x =  160, z =  388 },
+	{ id = "NE3", kind = "brute", x =  176, z =  176 },
+	{ id = "NE4", kind = "brute", x =  388, z =  160 },
+	{ id = "NE5", kind = "elite", x =  241, z =   64 },
 	-- ---- south-west quadrant: everything gated, and the deep end of the walk
-	{ id = "SW1", kind = "brute",     x = -345, z = -190 },
-	{ id = "SW2", kind = "raidBrute", x = -530, z = -280 },
-	{ id = "SW3", kind = "raidElite", x = -360, z = -350 },
-	{ id = "SW4", kind = "apex",      x = -520, z = -455 },
-	{ id = "SW5", kind = "apex",      x = -190, z = -390 },
+	{ id = "SW1", kind = "brute", x =  -64, z = -241 },
+	{ id = "SW2", kind = "raidBrute", x = -160, z = -388 },
+	{ id = "SW3", kind = "raidElite", x = -176, z = -176 },
+	{ id = "SW4", kind = "apex", x = -388, z = -160 },
+	{ id = "SW5", kind = "apex", x = -241, z =  -64 },
 	-- ---- south-east quadrant, mirrored
-	{ id = "SE1", kind = "brute",     x =  345, z = -190 },
-	{ id = "SE2", kind = "raidBrute", x =  530, z = -280 },
-	{ id = "SE3", kind = "raidElite", x =  360, z = -350 },
-	{ id = "SE4", kind = "apex",      x =  520, z = -455 },
-	{ id = "SE5", kind = "apex",      x =  190, z = -390 },
+	{ id = "SE1", kind = "brute", x =   64, z = -241 },
+	{ id = "SE2", kind = "raidBrute", x =  160, z = -388 },
+	{ id = "SE3", kind = "raidElite", x =  176, z = -176 },
+	{ id = "SE4", kind = "apex", x =  388, z = -160 },
+	{ id = "SE5", kind = "apex", x =  241, z =  -64 },
 }
 
 -- The table above stays readable AS AUTHORED and the shrink is applied over it here, rather than

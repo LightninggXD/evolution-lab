@@ -67,7 +67,7 @@ local function slab(parent, name, cf, size, colour, t)
 	p.CanTouch = false
 	p.CastShadow = false
 	p.Color = colour
-	p.Material = Enum.Material.SmoothPlastic
+	p.Material = Enum.Material.Sand
 	p.Parent = parent
 	return p
 end
@@ -89,7 +89,7 @@ function MapPaint.Disc(x, z, d, parent, cx, colour, y, thick)
 	p.CanTouch = false
 	p.CastShadow = false
 	p.Color = colour
-	p.Material = Enum.Material.SmoothPlastic
+	p.Material = Enum.Material.Sand
 	p.Parent = parent
 	return 1
 end
@@ -147,7 +147,7 @@ function MapPaint.Segment(seg, parent, cx, colour, y, thick, caps)
 		cap.CanTouch = false
 		cap.CastShadow = false
 		cap.Color = colour
-		cap.Material = Enum.Material.SmoothPlastic
+		cap.Material = Enum.Material.Sand
 		cap.Parent = parent
 		made += 1
 	end
