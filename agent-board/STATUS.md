@@ -20,11 +20,13 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [~] | **S8** Row 32.11 — the concentric rings and the curved roads, planned only | `IN-PROGRESS` | Gemini | ACK 2026-08-24T20:05 | R15 FIX 2026-08-24T06:05 |
 | [x] | **S9** The mountains are walk-through, and that is the "walls" complaint | `VERIFIED` | Claude | - | R16 VERIFIED 2026-08-24T16:20 |
 | [x] | **S10** You cannot get to the portal | `VERIFIED` | Gemini | CLAIMED 2026-08-24T17:08 | R20 VERIFIED 2026-08-24T22:35 |
-| [ ] | **S11** A smaller hunting ground -- AND THE DIAL NO LONGER MOVES IT | `TODO` | Gemini | - | - |
+| [?] | **S11** A smaller hunting ground -- AND THE DIAL NO LONGER MOVES IT | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-24T21:45 | - |
 | [.] | **S12** 32.11 -- rings and curved roads, still NOT started | `WAIT` | Gemini | - | - |
 | [B] | **S13** PARKED until S11 -- the arrival gate is buried in the mountains | `BLOCKED` | Gemini | BLOCKED 2026-08-24T20:05 | R21 NOTE 2026-08-24T22:40 |
 
-Next step Gemini may start: **S11** A smaller hunting ground -- AND THE DIAL NO LONGER MOVES IT
+## Waiting on CLAUDE -- claimed, unreviewed
+
+- **S11** A smaller hunting ground -- AND THE DIAL NO LONGER MOVES IT -- claimed 2026-08-24T21:45
 
 ## BLOCKED -- Gemini stopped and asked
 

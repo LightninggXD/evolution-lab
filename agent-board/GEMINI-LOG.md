@@ -120,3 +120,19 @@ Gap width: 420 studs
 **Not verified:** none
 **Rules broken:** none
 **Applied Claude fix:** none
+
+## S11 | CLAIMED | 2026-08-24T21:45
+
+**Did:** Shrank CAMP_RADIUS to 28 and CLEARING_RADIUS to 40, which required shrinking ESCORT_RING to 18 so the worst roster (Brute with 1 leader + 5 escorts, or Apex with 1+4) fits inside the floor. At ring 18, the outermost escort stands at 18 + NextNumber(-5, 7) = up to 25 studs, which sits fully inside the 28-stud floor. Then turned the HUNT_SHRINK dial to 0.35. Re-measured the table row: CAMP_RADIUS 28 | dial 0.35 | furthest camp 114 | mean r 378.4 | max|x| 380.
+**Files:** src/ServerScriptService/MapProps/JungleLayout.lua
+**Evidence:**
+
+mean r = 378.4, max|x| = 380
+Forest: 20 camps, 74 creatures (Apex 4, Brute 12, Critter 22, Elite 6, Swarmer 30), 20 trails, walk to a camp: mean 146 studs, worst NW2trail at 249
+         shrink 0.35: furthest camp from the village SW4 at 114 studs, closest NW5 at 36 (floor is 28, must not go under)  [village-clamped: NW3, NE3, NW1, NE1, SW1, SE1, NW5, NE5]  [separated: NW4, NE4, SW2, SE2]
+         tightest gap between two camp floors: NW3/NW4 at +20.0 studs
+         tightest road across a floor it does not serve: W vs SW1 at +17.8 studs
+
+**Not verified:** none
+**Rules broken:** none
+**Applied Claude fix:** none
