@@ -55,6 +55,121 @@ local SIDES = { "Left", "Right" }
 -- leaf depend on the largest module in ReplicatedStorage.
 local BARE_HAND_TO_MITT = Vector3.new(2.1, 1.5, 2.1)
 
+-- ===== THE BLADE IS ANGLED OUT OF THE REST POSE, AND THAT IS THE WHOLE OF 32.14 =====
+--
+-- A blade hung straight down the host's -Y is NEVER VISIBLE ON A PLAYER'S OWN BODY, and the
+-- numbers are not close. Measured in Play on the owner's own character (a generated `SkinMesh`,
+-- six mesh limbs, no mitts): the fist sits 2.0 studs above the floor and INSIDE a 2.5-stud-thick
+-- arm mesh, so walking straight down from it the blade is still inside `left leg_geom` /
+-- `right leg_geom` at **2.30 studs** and the floor plane arrives at **1.77**. The shortest rung's
+-- tip finished 0.38 studs UNDER the ground and the longest 2.43 under. There is no point on any
+-- blade that is both outside the body and above the ground -- the first 40% is in the leg and the
+-- rest is in the dirt. 32.6 could not have found this: its captures were taken on a probe rig,
+-- which has neither legs nor a floor.
+--
+-- The owner picked the angled pose over shortening the ladder or hiding the sword between swings,
+-- so a rung keeps buying a BIGGER sword and the sword is on the body at all times.
+--
+-- ===== THE ANGLE IS SET AGAINST THE DEFAULT CAMERA, WHICH IS BEHIND THE PLAYER =====
+--
+-- **THE FIRST TRY WAS 120/15 AND IT PASSED EVERY NUMBER AND FAILED THE ONLY TEST THAT COUNTS.**
+-- A blade angled 30 degrees up and forward is out of the leg, out of the ground, and 2 to 4 studs
+-- of it stand in open air -- and from where the player is actually looking it cannot be seen at
+-- all, because it points AWAY down the camera's own line and the body covers what is left. The
+-- capture is unambiguous: a rung-5 sword, opaque body, default camera, nothing on screen.
+--
+-- So the grid was re-scored against the real camera rather than against open air: read off this
+-- character in Play at `(0, +5.36, +11.99)` from the root, FOV 70, counting the fraction of the
+-- blade's OWN visible span that the body does not cover.
+--
+--     pitch  yaw    rung 1 seen   rung 10 seen
+--       120   15         0%            35%      <- clears the body, hides behind it
+--       135   35        35%            65%
+--       150   35        75%            85%      <- this
+--       150   75        60%            80%
+--
+-- 150 is 60 degrees above the horizontal, and the reason it wins is the shoulder: below about 140
+-- the blade travels forward faster than it climbs and spends its length behind the torso from a
+-- camera that is behind the torso. Yaw 35 carries the two blades out past the arms; past ~55 they
+-- start pointing sideways and lose length to foreshortening rather than gaining visibility. The
+-- pair reads as raised blades, one to each side, which is also what the capture shows.
+--
+-- IT IS APPLIED TO THE WHOLE ASSEMBLY, NOT TO THE BLADE. Every piece below is welded at an offset
+-- down the host's -Y, so pre-multiplying each offset by this one CFrame turns guard, grip, pommel,
+-- blade, point and glow strip together, about the fist, and nothing can separate from anything
+-- else. A rotation with no translation leaves the grip exactly where it was: in the hand.
+local REST_PITCH = math.rad(150)
+local REST_YAW = math.rad(35)
+
+local function restPose(side)
+	local mirror = (side == "Left") and -1 or 1
+	return CFrame.Angles(0, -mirror * REST_YAW, 0) * CFrame.Angles(REST_PITCH, 0, 0)
+end
+
+-- The right hand's blade direction in host-local studs, and the one number the swoosh needs. The
+-- left hand's is this with X negated -- a yaw mirrored about the body's centre line negates
+-- exactly that component and nothing else -- so ONE attribute carries both sides.
+local REST_DIR_RIGHT = restPose("Right"):VectorToWorldSpace(Vector3.new(0, -1, 0))
+
+-- ===== AND THE GRIP STARTS AT THE BODY'S SKIN, NOT AT THE FIST'S CENTRE =====
+--
+-- The angled pose alone is not enough on the body the owner actually wears, because of the OTHER
+-- half of what 32.14 measured: the fist is not on the outside of that body. On a generated
+-- `SkinMesh` the visible limb is one mesh part 2.5 studs thick and the avatar's own hand is buried
+-- at its centre, so a sword whose guard sits half a mitt-height from the fist has its guard inside
+-- the arm. Sampled along the angled blade, the steel did not leave `right arm_geom` until **1.69
+-- studs**, which left the shortest rung **0.34 studs** of visible blade -- a nub, and the capture
+-- agreed with the number.
+--
+-- Everything below is authored against `face` -- half the host's own height, the mitt's outer
+-- surface -- so the fix is one term: how much DEEPER than that surface this particular body has
+-- buried the fist. On a costume body the mitt IS the skin and the walk stops at `face`, so the
+-- term is zero and nothing moves; on stage 7's own avatar hand it is zero for the same reason.
+-- Only a body that swallows its hands pays anything, and it pays exactly what it swallowed. On
+-- hers it comes out at 2.2 to 2.7 studs, which is why the cap is in mitt-heights and generous.
+--
+-- ===== IT WALKS SAMPLES. IT MUST NOT RAYCAST, AND THAT COST A ROUND TRIP TO FIND OUT =====
+--
+-- The first version cast a ray inward from outside the body, which is the textbook way to avoid
+-- [[roblox-raycast-from-inside-a-part]] -- and it returned nothing on every body, every time, so
+-- the standoff shipped inert and measured zero. **A `SkinMesh` limb is `CanQuery = false`** (and
+-- `CanCollide = false` with it, so nothing overrides it): it is decoration hung on the avatar, and
+-- the engine will not report it to a raycast, a `GetPartBoundsInBox`, or any other spatial query.
+-- The very geometry that hides the sword is the geometry no query can see.
+--
+-- Reading `CFrame` and `Size` off the part cannot be refused, so the walk is done here in Lua
+-- against each part's own box. It is an oriented BOUNDING box, so a limb measures slightly fatter
+-- than its mesh and the sword is pushed a fraction further out than strictly needed -- the safe
+-- direction, on a body where the hand is invisible anyway.
+local PROBE_STEPS = 30
+local MAX_PUSH = 2.5
+
+local function insideAny(point, solids)
+	for _, part in ipairs(solids) do
+		local l = part.CFrame:PointToObjectSpace(point)
+		local h = part.Size * 0.5
+		if math.abs(l.X) <= h.X and math.abs(l.Y) <= h.Y and math.abs(l.Z) <= h.Z then
+			return true
+		end
+	end
+	return false
+end
+
+local function standoff(host, ruler, dir, face, solids)
+	if not solids or #solids == 0 then return 0 end
+	local cap = ruler.Y * MAX_PUSH
+	local far = face + cap
+	local origin = host.Position
+	-- the LAST sample still inside, not the first one outside: a limb the blade re-enters further
+	-- along (an arm crossing a thigh) has to be cleared too, or the push stops at the near surface
+	local exit = 0
+	for i = 1, PROBE_STEPS do
+		local t = far * i / PROBE_STEPS
+		if insideAny(origin + dir * t, solids) then exit = t end
+	end
+	return math.clamp(exit - face, 0, cap)
+end
+
 -- Everything a costume part obeys, and for the same reasons `StageCostume.mk` lists: a weapon must
 -- never collide with the world, never be raycast (`CombatClient` aims through a mouse ray and the
 -- server's hit box walks the rig -- a blade sticking four hand-lengths out would be hit by both),
@@ -186,9 +301,10 @@ end
 --
 -- (1) **The six do not share a long axis.** Four run down Z, two down Y, and one of the four runs
 -- down MINUS Z -- so `axis` names it per row and `AXIS_TO_DOWN` is the rotation that carries that
--- axis onto the host's -Y. -Y is not a preference: it is where `handTrail` puts its far attachment
--- and it is the arc `CombatClient` throws, so a blade on any other axis leaves the swoosh and the
--- steel travelling two different paths.
+-- axis onto the host's -Y. -Y is not a preference: it is the axis every other piece of this file
+-- is built along, and `restPose` turns all of them together at the end (32.14) -- so a blade that
+-- does not arrive on -Y first is the one piece the rest pose turns the wrong way, and the swoosh
+-- (which is stamped the same rotation, see `SwordRest`) and the steel travel two different paths.
 --
 -- (2) **The grip has to land in the fist.** `m.grip` is `Tool.Grip.Position` copied verbatim, and
 -- that IS the grip point in handle-local studs: Roblox welds a Tool's Handle with `C1 = Grip`, so
@@ -220,7 +336,7 @@ local AXIS_TO_DOWN = {
 	["Y+"] = CFrame.Angles(math.pi, 0, 0),       -- ( 0, 1, 0) -> (0,-1,0)
 }
 
-local function buildMeshBlade(host, ruler, tier, folder)
+local function buildMeshBlade(host, ruler, tier, folder, pose)
 	local m = tier.mesh
 	local rot = AXIS_TO_DOWN[m.axis]
 	if not rot then
@@ -250,7 +366,12 @@ local function buildMeshBlade(host, ruler, tier, folder)
 	-- `-rot * (grip * scale)`: the scaled grip point, rotated into host space and then cancelled,
 	-- so it lands on the host's origin. `weldTo` uses this same CFrame as the weld's C0, so the
 	-- blade cannot drift from the hand afterwards.
-	local offset = CFrame.new(-rot:VectorToWorldSpace(m.grip * scale)) * rot
+	--
+	-- `pose` is pre-multiplied on the OUTSIDE, so it turns the finished blade about the fist rather
+	-- than about the mesh's own origin (32.14), and then slides it out to the body's skin. The grip
+	-- point this line just put on the host's origin is the point the whole thing is turned about,
+	-- so her sword swings up into the sword-out pose without leaving the hand.
+	local offset = pose * CFrame.new(-rot:VectorToWorldSpace(m.grip * scale)) * rot
 	weldTo(part, host, offset, folder)
 
 	-- The tier's own glow, as a light rather than as the Neon edge strip the built blade gets: the
@@ -279,34 +400,49 @@ end
 -- and a telegraph pole at the other. Every number below is a fraction of `ruler` -- StageCostume's
 -- own rule, and the same one `SkinMesh`'s `ScaleTo` follows.
 --
--- IT POINTS DOWN THE HOST'S -Y, which is where `handTrail` already puts its far attachment
--- (`Vector3.new(0, -part.Size.Y * 1.7, 0)`, "reaches PAST the hand, so the ribbon is roughly a
--- weapon's length"). So the steel traces the arc the swoosh has always traced: with the arm
--- hanging the blade points at the floor, and through a swing it sweeps forward ahead of the fist.
--- Anything else would put the ribbon and the sword on two different paths.
+-- IT IS BUILT DOWN THE HOST'S -Y AND THEN TURNED. Every offset below is measured along -Y, the
+-- axis `handTrail` has always drawn down, and `restPose` pre-multiplies the lot into the angled
+-- rest pose as the last step (32.14). Building it straight and turning it once is what keeps the
+-- ribbon and the steel on ONE path: the client is handed that same rotation as `SwordRest` and
+-- swings the swoosh along it. Measure a piece here in -Y; the pose is not this function's problem.
 --
 -- `tier.reach` is the blade's length in mitt-heights and climbs 1.8 -> 3.6 across the ladder, so a
 -- tier is legible from across the clearing before its colour is: the rusty stub is a shank and the
 -- Absolute Edge is a greatsword.
 --
--- **THE LADDER WAS 2.6 -> 5.4 AND IT WAS MEASURED WRONG, ON A REAL BODY.** A blade hangs down the
+-- **THE LADDER WAS 2.6 -> 5.4 AND IT WAS MEASURED WRONG, ON A REAL BODY.** A blade hung down the
 -- hand's -Y, and the hand's clearance to the floor is small -- 2.17 studs on the owner's own save,
 -- because a generated `SkinMesh` can be a QUADRUPED and a quadruped's hands are at ankle height.
 -- At 5.4 the tier-10 point finished **6.66 studs below the floor** (measured in Play, not judged
 -- off the picture). Halving the ladder puts the worst case near 3 and keeps the full 2x spread
 -- between the first blade and the last, which is what makes a tier readable at a glance.
 --
--- IT CANNOT BE DRIVEN TO ZERO AND SHOULD NOT BE. A sword that points at the ground touches the
--- ground; the fault was the DEGREE. Changing the axis instead would break the swing, because the
--- arc `CombatClient` throws is exactly this axis (see below).
-local function buildBlade(host, ruler, tier, folder, side)
+-- **HALVING IT WAS NOT ENOUGH AND COULD NOT HAVE BEEN** -- 32.14 measured the SHORTEST rung's tip
+-- 0.38 studs under the ground. Length was never the fault; the direction was. The reach ladder is
+-- left exactly as it is and `restPose` turns the blade out of the floor instead, which is why a
+-- rung still buys a bigger sword.
+local function buildBlade(host, ruler, tier, folder, side, solids)
 	-- 32.13: six of the ten rungs wear one of her swords instead. `buildMeshBlade` returns false on
 	-- a row it cannot read, and then this function finishes the job rather than leaving a bare hand.
-	if tier.mesh and buildMeshBlade(host, ruler, tier, folder) then
+	--
+	-- ===== 32.14: THE POSE, BUILT ONCE HERE AND HANDED TO EVERY PIECE =====
+	--
+	-- Turned out of the straight-down rest pose and then pushed out to the body's skin, as ONE
+	-- CFrame, applied here rather than inside each piece so guard, blade, point and glow can never
+	-- come apart. `CFrame.new(restDir * push) * rest` is a translation ALONG the blade's own line:
+	-- a design offset of `(0, -d, 0)` lands at `restDir * (push + d)`, so every piece slides the
+	-- same distance down the same axis and their spacing is untouched.
+	local h = ruler
+	local face = h.Y * 0.5
+	local rest = restPose(side)
+	local restDir = rest:VectorToWorldSpace(Vector3.new(0, -1, 0))
+	local push = standoff(host, ruler, host.CFrame:VectorToWorldSpace(restDir), face, solids)
+	local pose = CFrame.new(restDir * push) * rest
+
+	if tier.mesh and buildMeshBlade(host, ruler, tier, folder, pose) then
 		return
 	end
 
-	local h = ruler
 	local reach = tier.reach or 3.0
 	local mirror = (side == "Left") and -1 or 1
 
@@ -317,8 +453,6 @@ local function buildBlade(host, ruler, tier, folder, side)
 	-- at +0.45 was swallowed whole -- four parts a hand of which one was invisible and one showed a
 	-- 0.17-stud sliver. A structural probe reports all four welded correctly; only the picture says
 	-- two of them cannot be seen.
-	local face = h.Y * 0.5
-
 	-- WIDE ENOUGH TO BE A BLADE. 0.44 of the mitt read as a stick against a fist three times its
 	-- width -- "fewer big shapes" is the first rule in this game's art notes and a sword that is
 	-- thinner than the hand holding it breaks it. Thin in Z so it still reads as an edge from the
@@ -335,19 +469,19 @@ local function buildBlade(host, ruler, tier, folder, side)
 	-- stops separating the hand from the steel, which is the only job it has.
 	local guardH = h.Y * 0.30
 	weldTo(mk("Guard", Vector3.new(h.X * 1.38, guardH, h.Z * 0.55), tier.trim, tier.material),
-		host, CFrame.new(0, -(face + guardH * 0.5), 0), folder)
+		host, pose * CFrame.new(0, -(face + guardH * 0.5), 0), folder)
 
 	-- THE POMMEL, fully above the fist, for the same reason: without it the blade appears to grow
 	-- out of the back of the hand, which is exactly the fault the row's own check is looking for.
 	local pommelH = h.Y * 0.34
 	weldTo(mk("Pommel", Vector3.new(h.X * 0.52, pommelH, h.Z * 0.52), tier.trim, tier.material),
-		host, CFrame.new(0, face + pommelH * 0.5, 0), folder)
+		host, pose * CFrame.new(0, face + pommelH * 0.5, 0), folder)
 
 	-- THE BLADE. One big shape, not a stack of segments.
 	local bladeTop = -(face + guardH)
 	local bladeLen = h.Y * reach
 	weldTo(mk("Blade", Vector3.new(bw, bladeLen, bt), tier.color, tier.material),
-		host, CFrame.new(0, bladeTop - bladeLen * 0.5, 0), folder)
+		host, pose * CFrame.new(0, bladeTop - bladeLen * 0.5, 0), folder)
 
 	-- ===== THE POINT IS TWO WEDGES, AND ONE WEDGE IS WHY =====
 	--
@@ -372,7 +506,7 @@ local function buildBlade(host, ruler, tier, folder, side)
 		local w = dressPart(Instance.new("WedgePart"),
 			Vector3.new(bt, bw * 0.5, tipLen), tier.color, tier.material)
 		w.Name = "Tip"
-		weldTo(w, host, CFrame.fromMatrix(
+		weldTo(w, host, pose * CFrame.fromMatrix(
 			Vector3.new(-half * bw * 0.25, tipY, 0),
 			Vector3.new(0, 0, half),        -- wedge X
 			Vector3.new(-half, 0, 0),       -- wedge Y
@@ -389,7 +523,7 @@ local function buildBlade(host, ruler, tier, folder, side)
 	-- share a plane with it. Offset to one side by `mirror` so both blades light their outward face.
 	if tier.glow then
 		weldTo(mk("Edge", Vector3.new(bw * 0.26, bladeLen * 0.94, bt * 1.3), tier.color, Enum.Material.Neon),
-			host, CFrame.new(mirror * bw * 0.28, bladeTop - bladeLen * 0.5, 0), folder)
+			host, pose * CFrame.new(mirror * bw * 0.28, bladeTop - bladeLen * 0.5, 0), folder)
 	end
 
 	-- THE SPARKS, top two tiers only. Parented to the blade so they ride the swing, and rated low:
@@ -439,10 +573,19 @@ function SwordModel.Apply(character, tier, level)
 	folder.Name = FOLDER_NAME
 	folder.Parent = character
 
+	-- The body as the standoff ray is allowed to see it: what is DRAWN, never what is merely there.
+	-- Gathered once for both hands, and after `Clear`, so no blade from a previous Apply is in it.
+	local solids = {}
+	for _, d in ipairs(character:GetDescendants()) do
+		if d:IsA("BasePart") and d.Transparency < 0.95 then
+			table.insert(solids, d)
+		end
+	end
+
 	for _, side in ipairs(SIDES) do
 		local host = hosts[side]
 		if host then
-			buildBlade(host.part, host.ruler, tier, folder, side)
+			buildBlade(host.part, host.ruler, tier, folder, side, solids)
 		end
 	end
 
@@ -457,6 +600,11 @@ function SwordModel.Apply(character, tier, level)
 	-- something to react to.
 	character:SetAttribute("SwordColor", tier.color)
 	character:SetAttribute("SwordReach", tier.reach or 3.0)
+	-- 32.14: and WHICH WAY the blade now leaves the fist. The ribbon used to be hard-coded down the
+	-- hand's -Y, which is where the steel used to hang; with the rest pose angled, a trail still
+	-- drawn straight down would run through the leg while the sword pointed forward. Stamped as the
+	-- right hand's direction, mirrored on the client for the left (see `restPose`).
+	character:SetAttribute("SwordRest", REST_DIR_RIGHT)
 	character:SetAttribute("SwordLevel", level or 1)
 	return true
 end

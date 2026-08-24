@@ -157,12 +157,32 @@ local function handTrail(character, hand, isR6)
 	local swordReach = character:GetAttribute("SwordReach")
 	local ribbon = swordReach and (swordReach * 1.5) or 1.7
 
+	-- ===== AND IT DRAWS ALONG THE ANGLE THE BLADE IS ACTUALLY HELD AT (32.14) =====
+	--
+	-- The ribbon used to run straight down the hand's -Y because that is where the steel hung. It
+	-- does not hang there any more: `SwordModel.restPose` turns the whole sword into a sword-out
+	-- pose, 30 degrees above the horizontal and yawed outward, so a trail still drawn down -Y would
+	-- run through the leg while the sword pointed forward -- the exact "two different paths" fault
+	-- that comment was written to prevent, arriving from the other side.
+	--
+	-- `SwordRest` carries the RIGHT hand's direction in hand-local studs. The pose is mirrored about
+	-- the body's centre line, and a yaw mirrored that way negates the X component and nothing else,
+	-- so the left hand's direction is this one with X flipped. Falls back to straight down for a
+	-- body with no sword yet -- the frames between a spawn and the dress -- which is exactly how the
+	-- swoosh looked before there was a sword to draw.
+	local rest = character:GetAttribute("SwordRest")
+	local dir = Vector3.new(0, -1, 0)
+	if typeof(rest) == "Vector3" and rest.Magnitude > 0.01 then
+		dir = (hand == "Left") and Vector3.new(-rest.X, rest.Y, rest.Z).Unit or rest.Unit
+	end
+
 	local a0 = Instance.new("Attachment")
-	a0.Position = Vector3.new(0, part.Size.Y * 0.6, 0)
+	-- the tail end, behind the fist -- the pommel's side of the grip whichever way the blade points
+	a0.Position = -dir * (part.Size.Y * 0.6)
 	a0.Parent = part
 	local a1 = Instance.new("Attachment")
 	-- reaches PAST the hand, so the ribbon is roughly a weapon's length rather than a finger's
-	a1.Position = Vector3.new(0, -part.Size.Y * ribbon, 0)
+	a1.Position = dir * (part.Size.Y * ribbon)
 	a1.Parent = part
 
 	local trail = Instance.new("Trail")
