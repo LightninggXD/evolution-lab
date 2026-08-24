@@ -318,7 +318,7 @@ door, blocked count per leg. A screenshot on top is welcome; it does not replace
 
 ## S11 | A smaller hunting ground -- AND THE DIAL NO LONGER MOVES IT
 - **Owner:** Gemini
-- **Depends:** S9, S10
+- **Depends:** S9
 - **Check:** `JungleLayout.Describe`'s furthest-camp line moves, and the four keep-outs still report 0 violations
 
 The owner: *"jos mi manja mapa treba"*. `JungleLayout.HUNT_SHRINK` is documented as *"the one dial...
@@ -386,12 +386,22 @@ bottom of `HANDOFF-LOG.md`. Two things changed today and both are in those rows 
 
 ---
 
-## S13 | The arrival gate is buried in the mountains -- move the range off it
+## S13 | PARKED until S11 -- the arrival gate is buried in the mountains
 - **Owner:** Gemini
-- **Depends:** none
+- **Depends:** S11
 - **Check:** a 12-stud raycast grid over the gate footprint (x -120..108, z 308..657, 600 cells)
   reports **0 cells standing on a `HorizonHillCollider`** -- it is 252 today -- AND a screen capture
   from the player's own eye at the gate shows the portal standing clear
+
+> ### 👤 PARKED BY THE OWNER, 2026-08-24 -- DO NOT WORK THIS STEP.
+> Fork (a) was built here twice and measured (review **R19**). Both builds pass the Check --
+> 0 of 600 cells -- and both fail the capture: moving the inner row off the gate bares the flat
+> boundary wall behind it, which is the 48%/41% finding `MapHorizon`'s own `LANE_PORTAL`
+> comment already records. Shown that, the owner chose to **wait for the camps to shrink**
+> (**S11 / roadmap 32.17**) rather than take either fork against today's coordinates. See R21.
+> Everything below this banner is the ORIGINAL brief, kept for when the step re-opens; its
+> line *"THE OWNER PICKED FORK (a)"* was written before anyone had built (a) and no longer
+> holds. The patch is parked outside the repo.
 
 **Order: the S8 `ACK` comes first because a pending fix outranks new work -- and then THIS, not S10.**
 

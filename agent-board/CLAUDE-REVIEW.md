@@ -709,3 +709,114 @@ and roads.
 **This does not close S10.** R17's finding stands: the village door ring is reachable, and nothing
 about the arrival gate has been shown to block a walk -- the walkway is 0 blocked. S10's own question
 is now narrower and it is still open.
+
+---
+
+## S13 | FIX | 2026-08-24T22:10 | R19
+
+**S13 was not done. The entry is a `BLOCKED` with an arithmetic risk report, no code, no build, no
+capture** -- and the board is right to show it that way. What follows is the audit of that report and
+then the measurement it refused to take, run here.
+
+### 1. The derivation in the entry is on the formula the step told it not to use
+
+It solved `lane - alongLen * (ROCK_FOOT - FILL) / 2 >= 120` for `lane`, i.e. it held the `FILL`
+offset in `buildRun` FIXED and moved only `LANE_PORTAL`, reaching `lane ~ 210`. Step instruction **1**
+is the opposite: *"Reserve what the COLLIDER occupies, not the silhouette. The offset in `buildRun`
+comes from the same fraction the collider is built from (`ROCK_FOOT`), not from `FILL`."* With that
+change the lane is `PORTAL_CLEAR_HALF` 132 and the 85-stud overhang is gone by construction. So the
+number is not the number the step asked for.
+
+**It matters less than it looks, and that is the honest half of the report:** both routes put the
+collider edge at ~120-132, and because the art is `FILL`/`ROCK_FOOT` of the same box, both leave the
+ROCK about 85 studs further out again. The hole the entry predicted at 420 studs is real. It arrived
+at a true risk through a derivation it was told not to make, and then stopped before the one
+instrument that could settle it.
+
+### 2. What was NOT reported, and it is the load-bearing part
+
+Nothing was built and nothing was looked at. Step S13 required a rebuild, the gate grid, the 32.10
+probe, the camp check and **a capture from the player's own eye** -- and its last paragraph says
+plainly what to do with the risk: *"If your capture shows bare slate above the gate, report it and
+stop."* The risk was to be MEASURED, not predicted. Prohibition 8 again: no UI/look claim without a
+capture, and this row is a LOOK.
+
+### 3. So it was built here, twice, and the risk is confirmed
+
+Baseline first, on the world as shipped -- and the rebuild is deterministic, which is what makes the
+rest of this comparable:
+
+```
+control rebuild (HEAD MapHorizon, all 23 MapProps identities refreshed)
+  66 hills, 34 HorizonHillCollider
+  gate grid 600 cells, 252 on a collider (42.0%)   <- reproduces roadmap 32.19 exactly
+  innermost collider edges |x| 35 and 71 ; innermost inner-row ROCK edge |x| 65
+```
+
+Then fork (a), built two ways:
+
+```
+(a1) lane 132, offset ROCK_FOOT * SIZE_JITTER[2], + ALONG_JITTER  (worst case, the file's own idiom)
+     62 hills, 30 colliders | gate grid 0 of 600 | collider edges 240 / 278 | ROCK edge 259
+(a2) lane 132, offset ROCK_FOOT nominal, plus a per-hill nudge measured off the rock that stood up
+     62 hills, 30 colliders | gate grid 0 of 600 | collider edges 208 / 220 | ROCK edge 201
+```
+
+**Both pass the Check. Both fail the capture.** (a2) is the tighter of the two by 58 studs and it
+still moves the inner row's rock from |x| 65 to |x| 201, which is 136 studs of range taken off each
+side of the gate. From the player's eye at the gate and again from the village centre, what stands
+behind the gate afterwards is **the flat boundary wall, edge to edge** -- the outer row is at z 788,
+behind the wall, and fills only the far left and right of the frame. This is the 48% south / 41%
+north bare-slate finding that `MapHorizon`'s own `LANE_PORTAL` comment records, reproduced.
+
+Captures: `S13_before_eye` / `S13_control_village` (shipped) against `S13_nudge_eye` /
+`S13_nudge_village` (a2). The village pair is the one that decides it: today the gate is framed by a
+continuous green range; after (a) it is framed by a grey slab.
+
+### 4. Verdict
+
+`FIX` on S13 for Gemini -- the step is not closed and the entry is a stop, not a delivery.
+
+**But the step's own premise is what failed, not just the execution.** Its line *"THE OWNER PICKED
+FORK (a) ... Fork (b) was offered and REJECTED"* was written before anyone had built (a). Fork (b)
+was rejected for leaving the portal *looking* buried; (a) is now measured to leave it looking worse.
+The patch is parked, not lost, and roadmap 32.19 carries the numbers. The next move is the owner's
+and it is being put to her with both captures.
+
+**Kept from the run, because it is a trap that will be paid for again otherwise:** a rebuild that
+refreshes only `MapHorizon`'s identity produces **zero** mountain colliders and reads exactly like
+32.15 having been undone. `MapForest` holds the module TABLE it required, so it goes on reading the
+old `MapHorizon.Colliders`. Every `MapProps` identity has to be replaced together, or the boot line
+says `30 offered` while the world holds none.
+
+---
+
+## S10 | VERIFIED | 2026-08-24T22:35 | R20
+
+**Closed on R17's own measurement, which met this step's Check -- not on a new run.** S10 asked for
+*"a body-box walk from the village spawn to the portal ring's mouth, blocked 0"*. R17 measured a BFS
+from the real `ForestSpawn` (0, 1, 366) reaching **5,089 cells**, a cell **1.6 studs** from the ring
+centre, **all 20 doors inside the 18-stud prompt reach and 20 of 20 in line of sight**, and R18 added
+a 20-sample walk to `ZonePad` at **0 blocked**. Causes 1, 2 and 4 from the step are dead and cause 3
+does not reproduce. The portal is reachable and has been twice.
+
+R18 held the step open because the owner's *"zakopan"* capture turned out to be a DIFFERENT structure
+-- the arrival gate, not the village ring. That is right, and it is why roadmap row **32.19** exists.
+It is not a reason to keep S10 open: everything S10 itself asked has been answered, and 32.19 now
+carries the remainder under its own row and its own step. Roadmap **32.16 -> `[x]`**.
+
+---
+
+## S13 | NOTE | 2026-08-24T22:40 | R21
+
+**👤 THE OWNER DECIDED THE FORK, 2026-08-24: PARK IT UNTIL 32.17.** Shown the two captures and the
+numbers in R19, she chose neither (a) nor (b) but the third option -- **wait for the camps to shrink
+first**. That is the same conclusion R16 reached from the other side: at `CAMP_RADIUS` 28 the camp
+floor edge falls to 408, a correctly-turned hill needs 408 + 164 + 40 = 612, and 612 is INSIDE the
+wall at 625. Only then does the inner row have anywhere to stand that both clears the gate and keeps
+the boundary wall covered. Widening the lane against today's coordinates is choosing which of the two
+faults to look at; after 32.17 there is room for neither.
+
+So 32.19 stays `[ ]` and carries its measurements, S13 stays open and now **depends on S11**, and the
+fork-(a) patch is parked outside the repo rather than committed. **S13 is not work for anyone until
+S11 closes.** Next live step: **S11 / roadmap 32.17**.
