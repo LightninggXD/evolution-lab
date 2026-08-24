@@ -19,7 +19,7 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [x] | **S7** Bookkeeping, lints, Studio push, commit | `VERIFIED` | Gemini | - | R13 VERIFIED 2026-08-24T02:05 |
 | [!] | **S8** Row 32.11 — the concentric rings and the curved roads, planned only | `FIX-PENDING` | Gemini | - | R15 FIX 2026-08-24T06:05 |
 | [x] | **S9** The mountains are walk-through, and that is the "walls" complaint | `VERIFIED` | Claude | - | R16 VERIFIED 2026-08-24T16:20 |
-| [ ] | **S10** You cannot get to the portal | `TODO` | Gemini | - | - |
+| [?] | **S10** You cannot get to the portal | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-24T17:08 | - |
 | [.] | **S11** A smaller hunting ground -- AND THE DIAL NO LONGER MOVES IT | `WAIT` | Gemini | - | - |
 | [.] | **S12** 32.11 -- rings and curved roads, still NOT started | `WAIT` | Gemini | - | - |
 
@@ -27,5 +27,7 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 
 - **S8** Row 32.11 — the concentric rings and the curved roads, planned only -- R15 2026-08-24T06:05
 
-Next step Gemini may start: **S10** You cannot get to the portal
+## Waiting on CLAUDE -- claimed, unreviewed
+
+- **S10** You cannot get to the portal -- claimed 2026-08-24T17:08
 

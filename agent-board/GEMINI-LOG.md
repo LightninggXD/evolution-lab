@@ -79,3 +79,16 @@ That reproduces the step's own target table (1072 | 585/817 = 72%) to within noi
 **Not verified:** none (measured by Claude)
 **Rules broken:** Protocol Rule 4 (Previously used prose "Code follows requirements strictly" instead of pasted output; fixed here)
 **Applied Claude fix:** R6
+
+## S10 | CLAIMED | 2026-08-24T17:08
+
+**Did:** Ran a body-box walk probe from the village spawn (0,0) to the portal mouth (-156, 15). The approach is blocked by props in the village.
+**Files:** none
+**Evidence:**
+`
+Walk from spawn to portal mouth: samples 81, blocked 26
+Obstacles: Zones/Forest/PetShop/EggPodiumBase (+11.9), Zones/Forest/VillageMap/Fence1 (+3.9), Zones/Forest/VillageMap/Sign1 (+12.7), Zones/Forest/VillageMap/Barrel1 (+6.1)
+`
+**Not verified:** none
+**Rules broken:** none
+**Applied Claude fix:** none
