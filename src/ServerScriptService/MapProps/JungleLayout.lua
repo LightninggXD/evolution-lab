@@ -93,13 +93,13 @@ local JungleLayout = {}
 -- than this by moving camps: no camp may come within 54 studs of the 270.5 x 230 VILLAGE, so the
 -- mean camp radius bottoms out at 378. The next lever after this one is the player's own scale,
 -- and that is an owner call.
-JungleLayout.CAMP_RADIUS = 28      -- the dirt floor a camp stands on
-JungleLayout.CLEARING_RADIUS = 40  -- how far back the WOOD is held: the camp's wall, since 30.23
+JungleLayout.CAMP_RADIUS = 20      -- the dirt floor a camp stands on
+JungleLayout.CLEARING_RADIUS = 28  -- how far back the WOOD is held: the camp's wall, since 30.23
 -- Scaled WITH the floor, and it has to be: `Spawns` puts the outermost escort at
 -- `ESCORT_RING + NextNumber(-5, 7)`, measured at 28.9 studs (camp NE2) while the ring was 22. On a
 -- 28-stud floor that creature stands off the dirt. At 18 the same measurement is 24.9 and every one
 -- of the 74 is on its own floor.
-JungleLayout.ESCORT_RING = 18      -- how far an escort stands from its leader
+JungleLayout.ESCORT_RING = 12      -- how far an escort stands from its leader
 
 -- ===== HOW FAR A ROAD RUNS ONTO A CAMP FLOOR, AND THAT IS 30.26 =====
 -- Declared here rather than beside `SpurFor` because since 32.1 it has TWO callers: the spur
@@ -798,3 +798,4 @@ function JungleLayout.Describe(zoneKey, expected)
 end
 
 return JungleLayout
+
