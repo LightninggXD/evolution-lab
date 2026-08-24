@@ -58,20 +58,48 @@ local JungleLayout = {}
 -- them to its own scatter, and a camp that broke one would simply be wrong.
 -- The camp figures below are AFTER 31.24's shrink, which is what `Camps()` returns -- see the
 -- pull-in block above the table. The authored coordinates are kept per camp as `x0`/`z0`.
+-- Re-measured at 32.17's 28 / 40 / 18 / 0.35; the figures 31.24 left here are in brackets.
 --   * THE STREET at |x| < 62. It is the lane from the village to the exit gate and it is the main
---     path below; nothing may stand in it. Nearest camp centre: |x| = 151, so 105 studs of clear
---     ground beyond the camp's own 46-stud floor.
---   * THE ARRIVAL PLAZA, a 110-stud disc at (0, 490). Nearest camp: (-313, 264), 386 away.
+--     path below; nothing may stand in it. Nearest camp centre: |x| = 139 (SW5), so 49 studs of
+--     clear ground beyond the camp's own 28-stud floor  [was |x| 151, 105 studs, a 46-stud floor].
+--   * THE ARRIVAL PLAZA, a 110-stud disc at (0, 490). Nearest camp NW1, 382 away  [386].
 --   * THE BOSS, a 132-stud disc at (0, -470) -- NOT (0, -320), which is what this list said for two
 --     whole phases while the boss stood elsewhere (`GameConfig.GetBossStation` is the one answer,
---     and its own comment is the record of that bug). Nearest camp is (-151, -310), 220 studs out,
---     which clears the disc plus a camp's own floor with 42 to spare.
+--     and its own comment is the record of that bug). Nearest camp is SW5, 231 studs out, which
+--     clears the disc plus a camp's own floor with 71 to spare  [220 out, 42 to spare].
 --   * THE PLATFORM EDGE at |x| > 575 / |z| > 500, which already leaves room for the boundary
---     rampart. Every camp centre is now inside |x| <= 400 and |z| <= 343 -- the shrink made this
---     one trivially true where it used to be the binding constraint at |x| <= 530.
-JungleLayout.CAMP_RADIUS = 46      -- the dirt floor a camp stands on
-JungleLayout.CLEARING_RADIUS = 66  -- how far back the WOOD is held: the camp's wall, since 30.23
-JungleLayout.ESCORT_RING = 22      -- how far an escort stands from its leader
+--     rampart. Every camp centre is now inside |x| <= 380 and |z| <= 309  [400 / 343] -- the shrink
+--     made this one trivially true where it used to be the binding constraint at |x| <= 530.
+-- ===== THE FLOOR IS THE LEVER NOW, NOT THE DIAL (32.17) =====
+-- These were 46 / 66 / 22 and they are the reason `HUNT_SHRINK` stopped working. Every camp sits on
+-- `MIN_CAMP_SEPARATION` (= `CAMP_RADIUS * 2 + 20`), so turning the dial down only made `pullCamp`
+-- bisect `k` straight back up: 0.50 -> 0.20 moved the furthest camp 170.4 -> 165.8 and then stopped
+-- dead. The camps could not come closer together because THEIR OWN FLOORS were in the way. Measured,
+-- over the real twenty, with the dial held at 0.35 and the ring scaled with the floor:
+--
+--     campR clear esc | furthest  max|x| | floor edge  a hill needs  vs the wall at 625
+--        46    66  22 |    170.4     435 |       481           685  OVER   <- what shipped
+--        32    46  22 |    122.4     392 |       424           628  OVER
+--        30    43  20 |    116.1     386 |       416           620  ok
+--        28    40  18 |    113.9     380 |       408           612  ok    <- this
+--
+-- **28 AND NOT 32, AND THE REASON IS THE MOUNTAINS.** 32.15 measured that a hill tall enough to
+-- clear the boundary wall reaches 164 studs across, and 32.18 needs `camp floor edge + 164 + 40` to
+-- fall INSIDE the wall at 625 or the range has nowhere to stand that is off the camps. At 32 that
+-- sum is 628 -- over by three studs, which is a pass by luck in the other direction. At 28 it is
+-- 612, with 13 to spare, and that is what unblocks 32.18 and then 32.19.
+--
+-- Below 0.35 the dial is spent again (0.20 buys four more studs), and the map cannot get smaller
+-- than this by moving camps: no camp may come within 54 studs of the 270.5 x 230 VILLAGE, so the
+-- mean camp radius bottoms out at 378. The next lever after this one is the player's own scale,
+-- and that is an owner call.
+JungleLayout.CAMP_RADIUS = 28      -- the dirt floor a camp stands on
+JungleLayout.CLEARING_RADIUS = 40  -- how far back the WOOD is held: the camp's wall, since 30.23
+-- Scaled WITH the floor, and it has to be: `Spawns` puts the outermost escort at
+-- `ESCORT_RING + NextNumber(-5, 7)`, measured at 28.9 studs (camp NE2) while the ring was 22. On a
+-- 28-stud floor that creature stands off the dirt. At 18 the same measurement is 24.9 and every one
+-- of the 74 is on its own floor.
+JungleLayout.ESCORT_RING = 18      -- how far an escort stands from its leader
 
 -- ===== HOW FAR A ROAD RUNS ONTO A CAMP FLOOR, AND THAT IS 30.26 =====
 -- Declared here rather than beside `SpurFor` because since 32.1 it has TWO callers: the spur
@@ -83,9 +111,15 @@ JungleLayout.ESCORT_RING = 22      -- how far an escort stands from its leader
 -- two dirt surfaces overlap instead of abutting -- which is the same rule `MapPaint`'s end caps
 -- follow, applied at the other kind of join.
 --
--- It stops short of the leader, not at it: `ESCORT_RING` is 22, so 24 keeps the paint clear of the
--- creature standing at the centre.
-JungleLayout.SPUR_OVERSHOOT = 14
+-- It stops short of the leader, not at it: the road ends at `CAMP_RADIUS - SPUR_OVERSHOOT`, which
+-- has to stay outside the creature standing at the centre.
+--
+-- **14 WAS A NUMBER FOR A 46-STUD FLOOR AND 32.17 MOVED THE FLOOR.** Left at 14 the mouth would be
+-- 28 - 14 = 14 studs from the centre, i.e. INSIDE `ESCORT_RING`, with road paint drawn under the
+-- creatures. 8 holds the mouth at 20 -- the same fraction of the floor 14 was of 46 -- and still
+-- runs 5 studs past the rim's inner edge, which is the whole of 30.26 (the rim is 3 studs on the
+-- radius, `MapJungle` line 246).
+JungleLayout.SPUR_OVERSHOOT = 8
 
 -- ===== WHAT STANDS IN A CAMP =====
 -- The roster is the whole of the tuning. Six archetypes, and between them they account for EVERY
@@ -146,9 +180,11 @@ JungleLayout.ROSTERS = {
 local VILLAGE_HALF_X = 270.5
 local VILLAGE_HALF_Z = 230
 
--- The one dial. 0.5 is her "upola"; she is expected to ask for another round after walking it, and
--- when she does this is the only number that moves.
-JungleLayout.HUNT_SHRINK = 0.5
+-- The dial, and it is NOT the only number that moves any more -- see the block above `CAMP_RADIUS`.
+-- It is armed again only because the floor shrank with it: at `CAMP_RADIUS` 46 the whole range
+-- 0.50..0.20 was worth 4.6 studs, and at 28 the same range is worth 55 (165.2 -> 109.8). 0.35 and
+-- not 0.20 because the last 0.15 of it buys four studs.
+JungleLayout.HUNT_SHRINK = 0.35
 
 -- How close a camp's FLOOR may come to the village. `CAMP_RADIUS` is the floor itself, so the
 -- margin is what stops a clearing's dirt lapping over the map's own grass -- a camp is a room in
@@ -167,6 +203,12 @@ JungleLayout.HUNT_SHRINK = 0.5
 -- That is the complaint being answered rather than dodged. "Too far to walk" is about the far
 -- things: the outer camps close up by 130 studs each and the furthest camp in the zone goes from
 -- 336 studs off the village to 165. The near ones were never the walk.
+--
+-- **32.17 MOVED THE LINE THIS DRAWS, BECAUSE IT IS DERIVED.** `CAMP_RADIUS` 46 -> 28 takes the
+-- clamp from a 54-stud line to a 36-stud one, and the eight camps it catches are still eight:
+-- NW1 NW3 NW5 NE1 NE3 NE5 SW1 SE1, now stopping at 36.0 (NW5 is the closest camp in the zone).
+-- The paragraph above still holds -- the inner ring was never far away, and a smaller floor lets it
+-- sit nearer the square without the dirt lapping over the grass.
 local MIN_VILLAGE_CLEAR = JungleLayout.CAMP_RADIUS + 8
 
 -- ===== 31.24's SHRINK COLLIDED THE CAMPS INTO EACH OTHER, AND NOTHING CHECKED IT (32.1a) =====
@@ -194,6 +236,13 @@ local MIN_VILLAGE_CLEAR = JungleLayout.CAMP_RADIUS + 8
 -- the worst floor gap in the zone goes -13.7 -> +20.0. The outer column moves to |x| 436, which is
 -- why the ring rows below had to go regardless -- the ring was authored at 450, INSIDE those
 -- floors -- and why `MapHorizon` derives its camp edge from this table instead of holding a copy.
+--
+-- **AND THIS IS THE CLAMP 32.17 UNJAMMED.** It is `CAMP_RADIUS * 2 + 20`, so it shrank with the
+-- floor: 112 -> **76** (56 studs of dirt, the same 20 of grass -- the 20 is the number that was
+-- ever a judgement, and it does not move). That is the whole reason the dial works again: the camps
+-- were all sitting ON this clamp, and the 36 studs it gave back are what the dial now has to spend.
+-- Four camps need separating where eight did: NW4, NE4, SW2, SE2. Tightest floor gap NW3/NW4 at
+-- +20.0, i.e. exactly the clamp, unchanged.
 local MIN_CAMP_SEPARATION = JungleLayout.CAMP_RADIUS * 2 + 20
 
 -- Distance from a point to the village rectangle. Zero inside it. NOT `max(|x|-VX, |z|-VZ)`, which
