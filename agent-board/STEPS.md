@@ -265,9 +265,10 @@ Do it the way 32.10 already does it, because that machinery exists:
 #    DO NOT re-edit `JungleLayout.lua`, `MapJungle.lua` or `PathSplines.lua` in this step.
 #    `PathSplines.lua` stays on disk and stays required by NOTHING until S12.
 #
-# 3. THEN S10, ALONE -- it is roadmap row 32.16, and that row lists the same four candidate
-#    causes. Do not read ahead into S11 (row 32.17) or S12 (rows 32.11a/b) and do not start
-#    them; S11 opens only after Claude writes VERIFIED for S10.
+# 3. THEN **S13** -- it is the owner's own picture ("zakopan je ne vidi se kako treba") and it is
+#    the priority. Roadmap row 32.19. S10 was reviewed and REJECTED (R17): its evidence was never
+#    measured, and the village door ring turns out to be reachable -- read R17 before you re-open
+#    it. Do not read ahead into S11 (row 32.17) or S12 (rows 32.11a/b) and do not start them.
 #
 # 4. TWO PROCESS RULES THAT WERE BROKEN LAST TIME AND ARE HARD:
 #    * `board.py sync` commits carry BOOKKEEPING ONLY. Code goes in its own commit whose message
@@ -382,3 +383,91 @@ bottom of `HANDOFF-LOG.md`. Two things changed today and both are in those rows 
   a smaller `CAMP_RADIUS` is exactly what buys the room the rings need.
 - **32.11b's `PathSplines` has a fourth fault**, on top of the three the row names: `Route` never
   reaches `endPos`. Every road stops at ~66% of its length. See R15 for the derivation.
+
+---
+
+## S13 | The arrival gate is buried in the mountains -- move the range off it
+- **Owner:** Gemini
+- **Depends:** none
+- **Check:** a 12-stud raycast grid over the gate footprint (x -120..108, z 308..657, 600 cells)
+  reports **0 cells standing on a `HorizonHillCollider`** -- it is 252 today -- AND a screen capture
+  from the player's own eye at the gate shows the portal standing clear
+
+**Order: the S8 `ACK` comes first because a pending fix outranks new work -- and then THIS, not S10.**
+
+**THIS IS THE OWNER'S OWN COMPLAINT AND SHE HAS ALREADY PICKED THE FIX.** She sent a capture of her
+character at the north gate: *"zakopan je ne vidi se kako treba"*. Roadmap row **32.19** carries the
+whole finding; read it before you touch anything. Do not re-derive it -- it is measured.
+
+**What is wrong, measured on the live server 2026-08-24:**
+
+```
+north gate parts                       57, spanning x -120..108, y 0..222, z 308..657
+  ... inside a hill's own bounding box 48 of 57
+  ... inside a hill COLLIDER box       18 of 57
+gate footprint, 12-stud raycast grid   600 cells; 252 of them (42%) land on a
+                                       HorizonHillCollider whose top is y = 236.4
+the two hills responsible (inner row)  centre (-242, 111, 568), reaches x -418..-65
+                                       centre ( 261, 112, 556), reaches x   83..440
+their collider boxes                   (-242, 117, 611), x -448..-35, 238 studs tall
+                                       ( 261, 119, 601), x   71..451, 241 studs tall
+the walkway itself                     still open: a body-box walk to ZonePad (0, 0.5, 490)
+                                       is 20 samples, 0 blocked -- the lane holds at x ~ 0
+```
+
+**THE ARITHMETIC IS THE WHOLE TASK, and it is one line.** `MapHorizon.buildRun` reserves the gate
+lane by holding a hill's CENTRE at
+
+```lua
+local lo = spec.lane > 0 and (spec.lane + spec.alongLen * FILL / 2) or 0
+```
+
+`FILL` is **0.55**, a silhouette fraction averaged over the hill's whole height. But 32.15's collider
+is built from **`ROCK_FOOT` 0.92** of the same box, because at the player's feet a mountain fills
+nearly all of it. The two disagree by `(0.92 - 0.55) / 2 = 0.185` of a ~460-stud hill, so **every
+collider overhangs its own lane by about 85 studs** -- with `LANE_PORTAL = 90` the reserved gap is
++-90 and the collider edges land at x = -35 and x = +71. That is the 42%.
+
+The file already makes this argument against itself: `MapHorizon.Colliders` refuses to box the OUTER
+row because *"a box on an outer hill is a box across the gate"*. Nobody carried it to the inner
+row's lane. And the comment above `LANE_PORTAL` argues for 90 over the older 132 on a premise that
+**died with 32.15**: *"these hills do not collide, do not query and are sunk 15 studs -- nothing
+walks into them"*. They collide now.
+
+**THE OWNER PICKED FORK (a): widen the lane until the gate's own footprint is clear.** Fork (b) --
+clip only the collider boxes off the gate -- was offered and REJECTED, because it leaves the portal
+looking buried, which is what she complained about. Do not implement (b).
+
+**Three things the patch must do, and a fourth it must not:**
+
+1. **Reserve what the COLLIDER occupies, not the silhouette.** The offset in `buildRun` comes from
+   the same fraction the collider is built from (`ROCK_FOOT`), not from `FILL`. Today the run that
+   carries colliders is exactly the run that has a lane -- write that in the comment, do not leave
+   it implied.
+2. **The lane must be at least the gate's own stonework.** The gate spans x -120..108, so 90 was
+   never enough even before the colliders. The walkway reservation this codebase already owns is
+   **`ZoneGate.PORTAL_CLEAR_HALF = 132`** -- *"how far boulders stay off the centre line"*. Restate
+   it with a comment naming `ZoneGate`, the way `WALL_X` is restated at the top of the file. **Do
+   NOT add a require**: this file's header says why it restates instead.
+3. **Rewrite the comment block above `LANE_PORTAL` so it tells the truth**, keeping the history --
+   32.15 gave the inner row colliders, 32.19 is this change. A comment explaining WHY a number is
+   what it is, is the most expensive line in this file to lose (prohibition 10).
+4. **Change nothing else.** No new requires, no renamed functions, no tidying. Do not touch
+   `Colliders`, `trimOffRoads`, `hill`, `worldBox`, or any constant not named above. `MapSolids` is
+   not part of this row.
+
+**What you must report, and every line of it is pasted output:**
+
+- the new `[MapHorizon]` boot line beside today's, which reads
+  `66 hills over 8 runs ... 34 collider box(es) offered, 29 clipped, 0 dropped`
+- the gate-footprint grid: 600 cells, how many on a `HorizonHillCollider` (must be 0)
+- `tools/_probe3210_solidwalk.lua` re-run **UNCHANGED**: it must stay `1656 samples, 0 blocked`
+- the camp check: `0 of 20 camp floors overlapped by a box`
+- **a capture from the player's own eye at the gate** -- prohibition 8, and this row is a LOOK
+
+**THE RISK IS REAL AND IT IS YOURS TO REPORT, NOT TO ENGINEER AWAY.** Widening the lane thins the
+inner wall above the gate. An older cut at 132 measured the boundary wall **48% bare on the south
+and 41% on the north**. Since then the OUTER row was deliberately made to run WHOLE across the gate
+to fill exactly that hole -- read the note in `Build` that says so. If your capture shows bare slate
+above the gate, **report it and stop**; do not add a second mechanism to compensate. That is an
+owner call and she has already had one fork today.

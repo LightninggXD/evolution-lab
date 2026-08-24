@@ -4,7 +4,7 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 `CLAUDE-REVIEW.md`. Any hand edit here is overwritten on the next render.
 
 ```
-[###################---------] 69%   9 of 13 steps verified
+[##################----------] 64%   9 of 14 steps verified
 ```
 
 | | Step | State | Owner | Last claim | Last review |
@@ -22,10 +22,13 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [?] | **S10** You cannot get to the portal | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-24T17:08 | R18 NOTE 2026-08-24T18:05 |
 | [.] | **S11** A smaller hunting ground -- AND THE DIAL NO LONGER MOVES IT | `WAIT` | Gemini | - | - |
 | [.] | **S12** 32.11 -- rings and curved roads, still NOT started | `WAIT` | Gemini | - | - |
+| [ ] | **S13** The arrival gate is buried in the mountains -- move the range off it | `TODO` | Gemini | - | - |
 
 ## Waiting on GEMINI -- apply these fixes first
 
 - **S8** Row 32.11 — the concentric rings and the curved roads, planned only -- R15 2026-08-24T06:05
+
+Next step Gemini may start: **S13** The arrival gate is buried in the mountains -- move the range off it
 
 ## Waiting on CLAUDE -- claimed, unreviewed
 
