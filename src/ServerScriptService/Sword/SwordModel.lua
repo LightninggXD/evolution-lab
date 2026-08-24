@@ -1,4 +1,5 @@
--- SwordModel -- the blade itself: four parts a hand, welded to the body the costume just built.
+-- SwordModel -- the blade itself, welded to the body the costume just built. Four generated parts
+-- a hand on four of the ten rungs; on the other six, one of the owner's own sword meshes (32.13).
 --
 -- A LEAF (`docs/SPLIT.md` §2): one job, one entry point, required by two files. It knows nothing
 -- about saves, Diamonds or remotes -- it is handed a `GameConfig.Swords` row and a character, and
@@ -134,6 +135,143 @@ function SwordModel.Clear(character)
 	if existing then existing:Destroy() end
 end
 
+-- The sparks, top two tiers only. Parented to the blade so they ride the swing, and rated low:
+-- this runs on every armed player in the server at once, and the rule this repo already paid for is
+-- one cheap emitter, never a per-frame loop.
+--
+-- Lifted out of `buildBlade` when the mesh blades arrived (32.13) so the two kinds of sword cannot
+-- drift into two different sparkles. `size` is the width the sprite is scaled against -- the built
+-- blade passes its own `bw`, a mesh blade passes a fraction of the fist.
+local function addSparks(parent, tier, size)
+	local e = Instance.new("ParticleEmitter")
+	e.Color = ColorSequence.new(tier.color, tier.trim)
+	e.Size = NumberSequence.new(size, 0)
+	e.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.2),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	e.Lifetime = NumberRange.new(0.25, 0.5)
+	e.Rate = 9
+	e.Speed = NumberRange.new(0.4, 1.6)
+	e.SpreadAngle = Vector2.new(70, 70)
+	-- LightEmission ALONE, and `Brightness` is deliberately left at its default: the two levers do
+	-- different jobs -- one hides the sprite's black background, the other clips the tint toward
+	-- white -- and capping both is what produced a black slab once
+	-- ([[roblox-particle-tint-clipping]]).
+	e.LightEmission = 0.85
+	e.Parent = parent
+	return e
+end
+
+-- ===== A ROW WITH A `mesh` WEARS HER SWORD INSTEAD OF THE FOUR BUILT PARTS (32.13) =====
+--
+-- Six of the ten rungs carry one; the other four fall through to `buildBlade` below and are
+-- untouched. Where the ids came from, and why they are ids rather than a folder of models to clone,
+-- is written out over `GameConfig.Swords`.
+--
+-- **THE PART'S `Size` DOES NOTHING HERE**, and that is the trap this function exists to contain. A
+-- `SpecialMesh` of type `FileMesh` renders its mesh at `Scale` and ignores the Part it hangs on, so
+-- the host part stays at the engine's 0.05 floor and every dimension of the sword comes out of
+-- `Scale`. Sizing this the way the rest of the file sizes things -- a `Vector3` into `dressPart` --
+-- compiles, welds, and reports perfect in a structural probe, while rendering at exactly whatever
+-- size the free-model author happened to pick.
+--
+-- `want / m.length` is the whole scaling story. `m.length` is the long axis of the Handle as
+-- shipped, i.e. what this mesh measures at its authored `scale`; `want` is `ruler.Y * reach`, the
+-- same length the generated blade gets at this rung. So rung 5 is one sword-length whether it is
+-- her Blue Epicness or four grey boxes, and every body from Cell to Absolute gets a blade in
+-- proportion to the fist holding it.
+--
+-- ===== POINTING IT IS TWO SEPARATE PROBLEMS =====
+--
+-- (1) **The six do not share a long axis.** Four run down Z, two down Y, and one of the four runs
+-- down MINUS Z -- so `axis` names it per row and `AXIS_TO_DOWN` is the rotation that carries that
+-- axis onto the host's -Y. -Y is not a preference: it is where `handTrail` puts its far attachment
+-- and it is the arc `CombatClient` throws, so a blade on any other axis leaves the swoosh and the
+-- steel travelling two different paths.
+--
+-- (2) **The grip has to land in the fist.** `m.grip` is `Tool.Grip.Position` copied verbatim, and
+-- that IS the grip point in handle-local studs: Roblox welds a Tool's Handle with `C1 = Grip`, so
+-- `Handle.CFrame * Grip` is the hand. It is scaled by the same factor as the mesh and then
+-- subtracted back through the rotation, which is what puts that point on the host's origin. Skip it
+-- and the sword hangs a hand-length out of the palm -- by a different amount on every rung, because
+-- every row's grip sits somewhere else along its own blade.
+--
+-- Returns false rather than throwing on an axis it does not know, so a mistyped row costs the
+-- player the generated blade for that rung instead of an unarmed body and a stack trace.
+-- **`axis` ALONE IS NOT ENOUGH, AND ONLY A CAPTURE FINDS THE REST.** Carrying the long axis onto -Y
+-- still leaves the blade free to SPIN about it, and a sword is a flat thing: get that roll wrong and
+-- it is drawn edge-on, which renders as a wire hanging off the fist. It is welded perfectly, it
+-- measures perfectly, and a structural probe cannot tell it from the ones that look right -- the
+-- first probe capture had three of six like that.
+--
+-- The roll is not derivable from `axis`, because these are six models by six authors and their
+-- cross-sections are not aligned with each other: `SwordOfDarkness` and `SwordOfLight` are thin in
+-- their handle's Y, `SwordOfBlueEpicness` is thin in its X on the SAME long axis, and the two
+-- Y-long blades are thin in X again. So `roll` is stated per row, in quarter turns about the blade's
+-- own down axis, and it is applied in HOST space -- which is what makes "flat" mean the same thing
+-- for all of them. Zero is the answer for a blade whose cross-section is near square (`Wooden`).
+--
+-- The target is the host's Z, because that is where the GENERATED blade puts its own thin axis
+-- (`bt = h.Z * 0.22`). All ten rungs then present the same face and cut along the same edge.
+local AXIS_TO_DOWN = {
+	["Z+"] = CFrame.Angles(math.pi / 2, 0, 0),   -- ( 0, 0, 1) -> (0,-1,0)
+	["Z-"] = CFrame.Angles(-math.pi / 2, 0, 0),  -- ( 0, 0,-1) -> (0,-1,0)
+	["Y+"] = CFrame.Angles(math.pi, 0, 0),       -- ( 0, 1, 0) -> (0,-1,0)
+}
+
+local function buildMeshBlade(host, ruler, tier, folder)
+	local m = tier.mesh
+	local rot = AXIS_TO_DOWN[m.axis]
+	if not rot then
+		warn(("[SwordModel] %s: unknown mesh axis %s -- falling back to the built blade")
+			:format(tostring(tier.key), tostring(m.axis)))
+		return false
+	end
+	-- the roll is applied in HOST space, on the outside, so a quarter turn means the same quarter
+	-- turn whichever way the blade's own axes happen to be laid out
+	rot = CFrame.Angles(0, (m.roll or 0) * math.pi / 2, 0) * rot
+
+	local scale = (ruler.Y * (tier.reach or 3.0)) / m.length
+
+	-- 0.05 on every axis is the engine's floor, and it is the RIGHT size: nothing about this part
+	-- is drawn. `dressPart` still runs it through the same no-collide / no-query / no-touch /
+	-- massless rules every other piece of the sword obeys -- a blade must never be raycast, because
+	-- `CombatClient` aims through a mouse ray and the server's hit box walks the rig.
+	local part = mk("Blade", Vector3.new(0.05, 0.05, 0.05), tier.color, Enum.Material.SmoothPlastic)
+
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.FileMesh
+	mesh.MeshId = "rbxassetid://" .. m.id
+	mesh.TextureId = "rbxassetid://" .. m.texture
+	mesh.Scale = Vector3.new(m.scale, m.scale, m.scale) * scale
+	mesh.Parent = part
+
+	-- `-rot * (grip * scale)`: the scaled grip point, rotated into host space and then cancelled,
+	-- so it lands on the host's origin. `weldTo` uses this same CFrame as the weld's C0, so the
+	-- blade cannot drift from the hand afterwards.
+	local offset = CFrame.new(-rot:VectorToWorldSpace(m.grip * scale)) * rot
+	weldTo(part, host, offset, folder)
+
+	-- The tier's own glow, as a light rather than as the Neon edge strip the built blade gets: the
+	-- mesh already carries its author's texture, and laying a Neon slab on top of it would hide the
+	-- one thing this row exists to show.
+	if tier.glow then
+		local light = Instance.new("PointLight")
+		light.Color = tier.color
+		light.Range = math.max(ruler.Y * 2, 6)
+		light.Brightness = 1.4
+		light.Shadows = false
+		light.Parent = part
+	end
+
+	if tier.spark then
+		addSparks(part, tier, ruler.X * 0.3)
+	end
+
+	return true
+end
+
 -- ===== THE BLADE IS SIZED AS A MULTIPLE OF ITS HOST, NEVER IN STUDS =====
 --
 -- The player runs from a one-stud Cell to a twenty-eight-stud Absolute and any character can be
@@ -162,6 +300,12 @@ end
 -- ground; the fault was the DEGREE. Changing the axis instead would break the swing, because the
 -- arc `CombatClient` throws is exactly this axis (see below).
 local function buildBlade(host, ruler, tier, folder, side)
+	-- 32.13: six of the ten rungs wear one of her swords instead. `buildMeshBlade` returns false on
+	-- a row it cannot read, and then this function finishes the job rather than leaving a bare hand.
+	if tier.mesh and buildMeshBlade(host, ruler, tier, folder) then
+		return
+	end
+
 	local h = ruler
 	local reach = tier.reach or 3.0
 	local mirror = (side == "Left") and -1 or 1
@@ -252,24 +396,7 @@ local function buildBlade(host, ruler, tier, folder, side)
 	-- this runs on every armed player in the server at once, and the rule this repo already paid
 	-- for is one cheap emitter, never a per-frame loop.
 	if tier.spark then
-		local blade = folder:FindFirstChild("Blade")
-		local e = Instance.new("ParticleEmitter")
-		e.Color = ColorSequence.new(tier.color, tier.trim)
-		e.Size = NumberSequence.new(bw, 0)
-		e.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0.2),
-			NumberSequenceKeypoint.new(1, 1),
-		})
-		e.Lifetime = NumberRange.new(0.25, 0.5)
-		e.Rate = 9
-		e.Speed = NumberRange.new(0.4, 1.6)
-		e.SpreadAngle = Vector2.new(70, 70)
-		-- LightEmission ALONE, and `Brightness` is deliberately left at its default: the two levers
-		-- do different jobs -- one hides the sprite's black background, the other clips the tint
-		-- toward white -- and capping both is what produced a black slab once
-		-- ([[roblox-particle-tint-clipping]]).
-		e.LightEmission = 0.85
-		e.Parent = blade or folder
+		addSparks(folder:FindFirstChild("Blade") or folder, tier, bw)
 	end
 end
 
