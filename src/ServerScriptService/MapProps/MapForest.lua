@@ -294,7 +294,7 @@ function MapForest.Plant(zoneKey, cx, map, spec)
 				rng:NextNumber(-0.16, 0.16))
 		r.Name = "HuntRock"
 		r.Parent = folder
-		MapSolids.Offer(r, folder)
+		MapSolids.Offer(r, folder, ROCK_SINK)
 		return 1
 	end
 

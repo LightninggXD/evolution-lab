@@ -288,3 +288,118 @@ ten seconds, and naming a commit is a promise that you looked at it.
 - **Evidence, once more.** You quoted my *narrative paragraph*. The thing to quote was the fenced
   block above it — `offered: 4445 trees, 909 rocks ... big trees (bb.Y>=40) solid: 583 of 817 =
   71.4%`. Pasted output has numbers in it; prose about pasted output does not.
+
+## S2 | VERIFIED | 2026-08-24T02:05 | R8
+
+**Verdict:** Taken over and finished directly rather than handed back — the board had been three
+rounds on one comment clause and the remaining work was measurement, not wording. `TRUNK_CAP`'s
+comment now reads `was 8 at 8da2612; 6 is the swept value -- minH=10/gap=7/cap=6 made 1072
+colliders, 72% of big trees`, which is what R7 asked for and is true of `git show 8da2612`. The
+module is now byte-identical to Studio (hash sweep, S7) and the two-phase shape is verified by the
+thing it exists for: a real server boot printing `1072 tree + 880 rock colliders | big trees (h>=40)
+solid: 585 of 817 = 71.6%`. `Offer` builds nothing — every box in the world is created inside
+`Commit`, after the sort.
+
+## S3 | VERIFIED | 2026-08-24T02:05 | R9
+
+**Verdict:** All six are in the diff and all six are visible in the boot line.
+
+1. Trunk-standing: `local world = c.cf * Vector3.new((minX+maxX)/2, 0, (minZ+maxZ)/2)` — the offset
+   that used to be computed and discarded now moves the box.
+2. Fallback reported: `trunk-measured 1312 / fallback 1409`.
+3. A rock's height is its own, floored at the measured step (see S6) — `MIN_COLLIDER_HEIGHT` is
+   commented TREES ONLY and no longer reaches the rock branch.
+4. `Offer(inst, parent, sink)`; `MapForest:297` passes `ROCK_SINK`. No second copy of `0.8`.
+5. Counters split: `treeShort/treeClumped/treeRoad` and `rockShort/rockRoad`. The gap-rule warning
+   is now stated over trees, which are the only things it judges.
+6. `tightestBuiltGap()` walks the finished set with the yaw folded into each footprint and returns
+   the true minimum surface distance plus the count of pinch pairs; `Report` uses its `zoneKey`
+   argument and the line carries `big trees (h>=40) solid: 585 of 817 = 71.6%`.
+
+**One defect found and fixed while verifying, not present in the claim:** the rock branch's new
+ground raycast was hitting colliders built moments earlier, because **`CanQuery = false` is ignored
+when `CanCollide = true`** (measured three ways, in the handoff entry). It read one box as standing
+31 studs underground. `Commit` now excludes every candidate's parent from that ray.
+
+## S4 | VERIFIED | 2026-08-24T02:05 | R10
+
+**Verdict:** Run as a real server boot rather than an Edit replay — the same pipeline plus
+everything downstream, and the boot line is then genuinely pasted. Flagged as a deviation in the
+handoff entry's *Open questions* because the step says Edit.
+
+```
+HuntTree 4445 / HuntTreeCollider 1072 | HuntRock 909 / HuntRockCollider 880
+[MapSolids] Forest: 1072 tree + 880 rock colliders | big trees (h>=40) solid: 585 of 817 = 71.6% ...
+```
+
+P = 71.6, above the step's bar of 70, with `GAP_MIN` left at 7. `GAP_MIN = 6` was measured at 74.8%
+and `5` at 77.6%; neither was needed.
+
+**The step's own check caught the real bug.** The first passing build had 71.6% of big trees and
+**36 rock colliders of 909** — the half of her complaint that names rocks was 96% unfixed while the
+percentage bar read green. Fixed by committing rocks in a second pass under the road rule alone:
+880 of 880, tree numbers unchanged.
+
+## S5 | VERIFIED | 2026-08-24T02:05 | R11
+
+**Verdict:** Both probes clean against the final geometry, re-run after the rock-height fix moved
+880 boxes.
+
+```
+_probe324_walk        samples 1656, blocked 0 (0.0%) over 26 corridors
+_probe3210_solidwalk  samples 1656, blocked 0 (0.0%) over 26 corridors
+```
+
+The 8 gate-to-camp cross-country lines: 25 of 362 = 6.9%, worst `West->NW4` at 16.3%, well under the
+30% the step calls a wall. Four of the eight are 0.0%.
+
+## S6 | VERIFIED | 2026-08-24T02:05 | R12
+
+**Verdict:** The character stops at the box SURFACE, on both kinds, with the axis named.
+
+- **Tree:** body centre 0.88 studs from the surface on the box's local X; the HRP's own half-depth
+  is 0.88, so it stopped touching the outside — not inside it, which is what the previous entry's
+  `3.52 against a half width of 4.00` actually described.
+- **Rock:** the same boulder at (-202, 277) that the earlier build let the player walk over now
+  stops it at 1.06 studs, climbing -1.04 instead of the 3.46 needed to stand on top.
+
+**This step is where the rock height bug was found**, and it was found by driving at it rather than
+by reading it. The step ladder that settled it (2.5 / 3.0 / 3.5 / 4.0 walked over, 4.5 stopped) is
+in the handoff entry.
+
+Two captures taken: the body against a trunk, and the boxes red through the wood with the roads
+visibly clear. `DEBUG_SHOW` read back **false** from the running module; the debug capture is a
+repaint of the existing boxes with the flag's own values, not a rebuild with the flag on — recorded
+under *Not verified*. All 1,952 boxes restored to Transparency 1 and re-read: 0 still visible.
+
+## S7 | VERIFIED | 2026-08-24T02:05 | R13
+
+**Verdict:** Bookkeeping done and checked.
+
+- `HANDOFF-LOG.md`: the fabricated 32.10 entry is replaced, with the required *Not verified* and
+  *Rules broken* sections, and the four rules the withdrawn entry broke named explicitly.
+- `ROADMAP.md`: the 32.10 row is `[x]` with its Evidence cell filled from S4–S6. LF throughout; the
+  diff is one line.
+- Lints: `luastruct` clean, `luascope` clean, `luanames` 13 of 13 baseline, `luaremotes` 3 baseline
+  false positives (`MinigameUI.client.lua:1118` fires two of them through an `and/or` the resolver
+  cannot follow; all three are verified-live in rows 28.5 / 29.3 / 29.4).
+- Hash sweep: **178 of 178 files byte-identical to Studio**, 0 different, 0 missing.
+
+## S8 | VERIFIED | 2026-08-24T02:20 | R14
+
+**Verdict:** Plan written into `HANDOFF-LOG.md`, no code changed -- `git status` shows only the
+four bookkeeping files plus the two `MapProps` modules from S2/S3.
+
+The plan's load-bearing finding is one the step did not anticipate: **the authored rings do not
+survive `pullCamp`, and the ordering is not preserved either.** Measured off the live module, the
+apex pair authored at r=434 lands at **344.8**, inside two rings it was authored outside of, while
+camps authored 0.5 studs apart end 20 apart. So "keep her rings" is a fork with three answers and
+it is hers to pick; the plan recommends re-authoring the table against final radii and says what
+that costs. Both invalidated measurements (32.1a, 32.1b) are re-run by a boot and two greps, because
+`JungleLayout.Describe` and `MapHorizon` already print exactly those lines.
+
+`PathSplines.lua` was read and confirmed to carry both faults the step warns about --
+`jitterPoint` calls bare `math.random()` and `isBlocked` raycasts the live world. One fault the
+step did not list is in the plan: a spline that is not decomposed back into segments is invisible to
+`RoadClearance`, and the first symptom of that is trees down the middle of the new road, i.e. 32.4
+shipped a second time.
