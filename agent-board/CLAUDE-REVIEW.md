@@ -665,3 +665,47 @@ of this review -- nothing has been shown to be in the way.
 3. If the server measurement reproduces mine -- reachable -- then say so and **stop**. Write it as
    `BLOCKED` with the numbers, and the row goes back to the owner with one question: what does she
    see when she tries? An honest `BLOCKED` closes more of this row than another guess.
+
+---
+
+## S10 | NOTE | 2026-08-24T18:05 | R18
+
+**Her own capture answered the question, and it is a DIFFERENT PORTAL than the one S10 points at.**
+Asked what she sees, she said *"zakopan je ne vidi se kako treba"* and sent a picture of her
+character standing at the big pink gate with a pale mountain mass filling the frame behind it. That
+is not the twenty-door ring inside the village (`MapPortals`, measured reachable in R17). It is the
+**arrival gate** -- the `Portal*` / `ZoneName*` / `ZonePad` parts that are flat children of
+`workspace.Zones.Forest` -- and she was standing at (-1.5, 5.3, 411.6) looking straight up +Z at it.
+
+Measured on that gate, in the live world:
+
+```
+north gate parts                      57, spanning x -120..108, y 0..222, z 308..657
+inside a HILL's own bounding box      48 of 57
+inside a 32.15 HILL COLLIDER          18 of 57
+footprint, 12-stud grid (600 cells)   252 cells land on HorizonHillCollider, top y = 236.4  (42%)
+                                      0 cells land on hill ART -- the mesh is CanQuery=false
+the two offenders (inner row)         hill (-242, 111, 568) reaches x -418..-65
+                                      hill ( 261, 112, 556) reaches x   83..440
+their 32.15 boxes                     (-242, 117, 611) x -448..-35, 238 tall
+                                      ( 261, 119, 601) x   71..451, 241 tall
+walk to the ZonePad (0, 0.5, 490)     20 samples, BLOCKED 0 -- the lane holds at x ~ 0
+```
+
+**The art overlap is deliberate; the collider is not.** `MapHorizon.LANE_PORTAL = 90` is the gap
+left in the inner run at the gate, and the comment above it says in as many words why it is 90 and
+not 132: *"`PORTAL_CLEAR_HALF` is a WALKWAY reservation and these hills do not collide, do not query
+and are sunk 15 studs -- nothing walks into them."* **32.15 made that sentence false.** The inner row
+now carries collider boxes, so a lane that was sized for scenery is sizing a wall. `Colliders` already
+refuses the OUTER row on precisely this argument -- *"a box on an outer hill is a box across the
+gate"* -- and the same argument reaches the inner row's lane, where it was not applied.
+
+Written up as roadmap row **32.19**, with the owner's fork stated there: widen the lane (costs the
+"gate cut through a mountain" look, and risks the bare-slate hole the 132 cut measured at 48% south
+/ 41% north -- though the outer row now runs whole across the gate and is what fills that hole), or
+clip only the collider boxes off the gate footprint the way they are already clipped off camp floors
+and roads.
+
+**This does not close S10.** R17's finding stands: the village door ring is reachable, and nothing
+about the arrival gate has been shown to block a walk -- the walkway is 0 blocked. S10's own question
+is now narrower and it is still open.
