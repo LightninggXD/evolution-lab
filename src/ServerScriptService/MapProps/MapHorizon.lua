@@ -172,22 +172,19 @@ local CAMP_EDGE_X, CAMP_EDGE_Z = campEdge()
 -- is a pass by luck. This is that judgement written down instead of re-made.
 local CAMP_CLEAR = 15
 
--- ===== THE GATE LANE, AND WHY 132 WAS THE WRONG NUMBER TWICE OVER =====
--- A lane is the gap left in a run so a hill does not stand on the portal. The first cut used
--- `PORTAL_CLEAR_HALF` (132) and offset it by the hill's whole half-LENGTH, which put the nearest
--- rock 380 studs from the centre line -- a 760-stud hole in a 1250-stud wall, straight ahead of the
--- player as she walks to the gate. The occlusion probe read it plainly: **the south wall was 48%
--- hidden and the north 41%**, with bare slate visible down to y = 10.
+-- ===== THE GATE LANE, AND WHY 132 IS BACK (32.19) =====
+-- A lane is the gap left in an inner run so a hill does not stand on the portal. The first cut used
+-- PORTAL_CLEAR_HALF (132) and offset it by the hill's whole half-LENGTH, leaving a 760-stud hole
+-- that bared 48% of the boundary wall. It was shrunk to 90 because the hills did not collide, so
+-- the gap only had to clear the gate's stonework.
 --
--- Both halves of that were wrong. `PORTAL_CLEAR_HALF` is a WALKWAY reservation and these hills do
--- not collide, do not query and are sunk 15 studs -- nothing walks into them. What the lane really
--- has to miss is the portal's own STONEWORK, which is `PORTAL_GAP` 100 wide plus its columns. 90
--- clears that and lets the range close right up to the doorway, which reads as a gate cut through a
--- mountain rather than a gate in a fence.
+-- 32.15 gave the inner hills colliders, and 90 was no longer enough. The walkway reservation this
+-- codebase already owns is ZoneGate.PORTAL_CLEAR_HALF = 132 ("how far boulders stay off the centre line").
+-- 32.19 restores 132 so the gate footprint is completely clear of colliders.
 --
--- And the offset is the rock's half-length (`FILL`), not the bounding box's: a hill's box is mostly
--- air, so offsetting by the box holds the rock back another 110 studs for nothing.
-local LANE_PORTAL = 90
+-- The offset is still the rock's half-length, but we now reserve what the COLLIDER occupies (ROCK_FOOT),
+-- not just the visual silhouette (FILL).
+local LANE_PORTAL = 132
 
 -- ===== HOW FAR APART, AND WHY 0.62 OF A BOUNDING BOX IS NOT AN OVERLAP =====
 -- A hill stands this fraction of its own length from the next one. `buildRidge` used ~1.0 and the
