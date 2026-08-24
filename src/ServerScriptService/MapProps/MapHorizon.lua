@@ -45,9 +45,51 @@
 -- counted into the footprint, because a box turned 12 degrees is a quarter wider than its own
 -- short side.
 --
--- Nothing here collides. `MapJungle`'s note is the reason and it still holds: the platform already
--- has a 180-stud boundary wall doing the containing, and a second colliding wall inside it is
--- nothing but somewhere to get stuck.
+-- ===== THE HILLS ARE THE WALLS SHE WALKS THROUGH (32.15) =====
+-- Her words: *"da se ne prolazi kroz zidove"*. Every part of every hill is `CanCollide = false` AND
+-- `CanQuery = false`, and these hills stand INSIDE the platform, not on a backdrop -- so walking at
+-- the map edge walks through a mountain. The note this paragraph replaces said that was fine
+-- because the 180-stud boundary wall does the containing. True, and beside the point: the wall is
+-- 100+ studs BEHIND the rock, so what she meets first is a mountain that is not there.
+--
+-- The mesh still does not collide, and that is not a compromise -- it is the 30.19 trap, which this
+-- repo shipped once. A `MeshPart` at `CollisionFidelity.Default` is a handful of convex hulls, a
+-- mountain's hull is close to its own BOX, and a ring of those seals the player in;
+-- `MapForest.lua:28-32` is the standing note. What stops her is an upright box built beside each
+-- hill by `MapSolids` -- 32.10's machinery, already built and already probed. `Colliders` publishes
+-- the inner row and `MapForest` offers it; see the note at each for why the call is made there.
+--
+-- ===== AND TWO FAULTS FOUND WHILE MEASURING FOR IT, NEITHER OF THEM FIXED HERE =====
+-- Both were found by raycasting the mesh (clone it, make the clone queryable, sweep a grid) rather
+-- than by reading the code, and both are recorded because the numbers cost something to get.
+--
+--   1. **EVERY HILL STANDS 82 DEGREES FROM THE ANGLE THIS FILE ASKS FOR.** `hill()` turns the clone
+--      with `m:PivotTo(m:GetPivot() * CFrame.Angles(0, yaw, 0))` -- a nudge off whatever
+--      orientation the stock was parked at -- and `ServerStorage.RidgeStock` is parked at yaw
+--      **-1.429**. So the yaw section above, which is entirely about presenting the mesh's NARROW
+--      side across the ridge, has never once happened. Measured: an inner hill reaches **+-212
+--      studs across** its run and +-168 along it -- long axis across, the shape that section calls
+--      "30.19 all over again". Cancel the parked yaw and the same hill reaches +-164 across.
+--   2. **ROCK STANDS ON ELEVEN OF THE TWENTY CAMP FLOORS**, up to 74 studs proud, 151 of 740 cells
+--      on a raycast grid over the floors. The boot line has never said so because its camp test
+--      reads `msz` from `GetBoundingBox` -- the PIVOT box -- against WORLD camp coordinates, and
+--      then takes `FILL` 0.55 of it as the rock. On a fixed-x run the pivot box's X is the hill's
+--      ALONG extent, so the reach is read off the wrong axis and then halved. It prints
+--      `+19.7 -- clear of every camp`.
+--
+-- **Neither is fixed here, and that is a decision with a capture behind it.** Both fixes turn the
+-- hills narrow-side-in and push the row off the camps, and the row has nowhere to go: at
+-- `CAMP_RADIUS` 46 the band between the outermost camp floor (|x| 482) and the wall (625) is 143
+-- studs, while a hill that clears the wall is 359 wide. Built that way and captured from the
+-- hunting ground, the range goes BEHIND the boundary wall and the wall comes back as the flat grey
+-- slab this entire file exists to hide. That is the finding the `AT` note already predicted --
+-- *"a finding about the platform, not a number to tune away"* -- and the row that buys the room
+-- back is the camp shrink, not this one.
+--
+-- So 32.15 does the collision only, and the collider CLIPS where a camp is behind it (see
+-- `Colliders`): the rock stays where it looks right, the mountain stops you, and no camp floor is
+-- walled off. What it costs is named rather than hidden -- at those eleven camps you walk further
+-- into the rock before the box stops you.
 
 local ServerStorage = game:GetService("ServerStorage")
 
@@ -230,12 +272,153 @@ local function stockOf(map)
 end
 
 MapHorizon.Placed = {}
+MapHorizon.Solid = {}
+-- Scratch handoff from `hill()` to `buildRun`, so the measurement is taken once at the only point
+-- where the finished model is in hand. Never read outside that pair.
+MapHorizon.LastHill = nil
 
 -- Every hill this file stood up, as a footprint `MapForest` subtracts so no tree grows inside rock.
 -- Same shape `MapRidge.Footprints` returns, so the planter merges the two lists rather than growing
 -- a second keep-out branch.
 function MapHorizon.Footprints(zoneKey)
 	return MapHorizon.Placed[zoneKey] or {}
+end
+
+-- The boxes `MapSolids` should build, in world coordinates: `{ model, x, z, hx, hz, top }`, all
+-- half-extents, all world-axis.
+--
+-- ===== INNER ROW ONLY =====
+-- The outer row stands 200 studs BEYOND the boundary wall, in the void between platforms, and the
+-- one thing a player can reach out there is the gate walkway -- which the outer row deliberately
+-- runs straight across, because it has no lane (see the note on that). A box on an outer hill is a
+-- box across the gate.
+--
+-- ===== AND THE BOX CLIPS WHERE A CAMP IS BEHIND IT =====
+-- Eleven of the twenty camp floors have rock standing on them (header, fault 2). A box at the
+-- rock's own edge would therefore be an invisible wall across a camp, which is strictly worse than
+-- the rock: you can at least SEE the rock. So a box that would come inside a camp's floor is cut
+-- back on its across axis until it clears -- its OUTER face stays put, only the inward face moves,
+-- so the ring never opens a hole. `CAMP_KEEP` is 30 rather than `CAMP_CLEAR`'s 15 because
+-- `CreatureService` scatters an escort at `ESCORT_RING + NextNumber(-5, 7)` from its leader, i.e.
+-- up to 29 studs beyond it, and a creature inside an invisible box is the same complaint in a worse
+-- form.
+--
+-- A hill whose box would be cut to nothing keeps no box at all, and `Report` counts those: that is
+-- a stretch of range you can still walk into, and it is a number rather than a shrug.
+local CAMP_KEEP = 30
+local MIN_BOX = 24
+
+-- ===== AND IT CLIPS OFF THE ROADS TOO, WHICH IS NOT THE SAME CUT =====
+-- Measured on the first build that offered boxes: six of the thirty-four covered a road, and
+-- `MapSolids` did the only thing it could with them -- refused the box, i.e. left a hole in the
+-- range you can walk straight through. Two different roads, and they need two different cuts:
+--
+--   * FOUR boxes on the north run reached in to |z| 335 over a camp trail at |z| 340. That is the
+--     ACROSS axis, the same cut the camps get.
+--   * TWO boxes on the south run, at x -267 and +264, reached ALONG the run to x -17 and +5 --
+--     across the south gate road (`S`, x = 0, 56 wide, running out to z = -555). The gate lane is
+--     supposed to leave that clear and it is sized with `FILL` 0.55, while the box is sized with
+--     `ROCK_FOOT` 0.92 -- so the ROCK closes more of the doorway than the lane reserves, and a box
+--     at the rock's edge closes it outright. `evolution-lab-arc-must-not-close` is the standing
+--     note and this is it caught by an alarm rather than by the owner.
+--
+-- So the trim walks whichever edge is nearest the offending cell, on either axis, and only ever
+-- inward from an edge -- the outer face and the run's continuity are what must survive. A box that
+-- cannot be made clear keeps no box at all and `dropped` counts it.
+--
+-- `ROAD_KEEP` is this file's own decision about daylight between an invisible wall and a road, not
+-- a copy of `MapSolids`' trunk-sized one: 6 studs, enough that the road's painted edge is clear of
+-- the box a player will bump into.
+local ROAD_KEEP = 6
+local ROAD_STEP = 24
+local ROAD_TRIES = 12
+
+local function trimOffRoads(zoneKey, segments, acrossIsX, aMin, aMax, bMin, bMax, sign)
+	if not segments then return aMin, aMax, bMin, bMax end
+	for _ = 1, ROAD_TRIES do
+		if aMax - aMin < MIN_BOX or bMax - bMin < MIN_BOX then return nil end
+		local na = math.max(1, math.ceil((aMax - aMin) / ROAD_STEP))
+		local nb = math.max(1, math.ceil((bMax - bMin) / ROAD_STEP))
+		local worst, wa, wb = math.huge, aMin, bMin
+		for i = 0, na do
+			for j = 0, nb do
+				local a = aMin + (aMax - aMin) * i / na
+				local b = bMin + (bMax - bMin) * j / nb
+				local c = JungleLayout.RoadClearance(zoneKey,
+					acrossIsX and a or b, acrossIsX and b or a, segments)
+				if c < worst then worst, wa, wb = c, a, b end
+			end
+		end
+		if worst >= ROAD_KEEP then return aMin, aMax, bMin, bMax end
+		local push = (ROAD_KEEP - worst) + 6
+		-- how far the offending cell is from each edge this trim is allowed to move
+		local dA = sign > 0 and (wa - aMin) or (aMax - wa)
+		local dB = math.min(wb - bMin, bMax - wb)
+		if dA <= dB then
+			if sign > 0 then aMin = wa + push else aMax = wa - push end
+		elseif wb - bMin <= bMax - wb then
+			bMin = wb + push
+		else
+			bMax = wb - push
+		end
+	end
+	return nil
+end
+
+function MapHorizon.Colliders(zoneKey)
+	local hills = MapHorizon.Solid[zoneKey]
+	if not hills then return {}, 0 end
+	local camps = JungleLayout.Camps(zoneKey) or {}
+	local segments = JungleLayout.Segments(zoneKey)
+	local reach = JungleLayout.CAMP_RADIUS + CAMP_KEEP
+	local outList, clipped, dropped = {}, 0, 0
+	for _, h in ipairs(hills) do
+		local across = h.acrossIsX and h.wx or h.wz
+		local along = h.acrossIsX and h.wz or h.wx
+		local rAcross = h.acrossIsX and h.rx or h.rz
+		local rAlong = h.acrossIsX and h.rz or h.rx
+		local sign = across >= 0 and 1 or -1
+		local inner, outer = math.abs(across) - rAcross, math.abs(across) + rAcross
+		local need = inner
+		for _, c in ipairs(camps) do
+			local cAcross = h.acrossIsX and c.x or c.z
+			local cAlong = h.acrossIsX and c.z or c.x
+			-- only a camp on this side, and only one this hill actually stands in front of
+			if cAcross * sign > 0 and math.abs(cAlong - along) < rAlong + reach then
+				need = math.max(need, math.abs(cAcross) + reach)
+			end
+		end
+		if need > inner then
+			clipped += 1
+			inner = need
+		end
+		local aMin, aMax = sign > 0 and inner or -outer, sign > 0 and outer or -inner
+		local bMin, bMax = along - rAlong, along + rAlong
+		if aMax - aMin >= MIN_BOX then
+			local a0, a1, b0, b1 = trimOffRoads(zoneKey, segments, h.acrossIsX,
+				aMin, aMax, bMin, bMax, sign)
+			if a0 then
+				if a0 ~= aMin or a1 ~= aMax or b0 ~= bMin or b1 ~= bMax then clipped += 1 end
+				aMin, aMax, bMin, bMax = a0, a1, b0, b1
+			else
+				aMin = aMax
+			end
+		end
+		if aMax - aMin < MIN_BOX or bMax - bMin < MIN_BOX then
+			dropped += 1
+		else
+			local ac, ah = (aMin + aMax) / 2, (aMax - aMin) / 2
+			local bc, bh = (bMin + bMax) / 2, (bMax - bMin) / 2
+			outList[#outList + 1] = {
+				model = h.model, top = h.top,
+				x = h.acrossIsX and ac or bc,
+				z = h.acrossIsX and bc or ac,
+				hx = h.acrossIsX and ah or bh,
+				hz = h.acrossIsX and bh or ah,
+			}
+		end
+	end
+	return outList, clipped, dropped
 end
 
 -- ===== THE WALL ITSELF, RE-TINTED -- WITHOUT OPENING `ZoneBuilder` =====
@@ -278,6 +461,54 @@ end
 --
 -- Returns the POST-YAW box, because that -- not the number this file asked for -- is the footprint
 -- the planter has to keep its trees out of.
+-- ===== A WORLD-AXIS QUESTION NEEDS A WORLD-AXIS ANSWER (32.15) =====
+-- `Model:GetBoundingBox()` answers in the model's PIVOT frame, and every question asked of a hill
+-- here is a world-axis one: how far inward does it reach, where does its collider go. Those two
+-- frames differ by the stock's parked 82-degree yaw (see the header), so a hill on a fixed-x run
+-- has its ACROSS extent read off its ALONG axis -- the same shape of fault as the corner-hill bug
+-- the report's own 32.1b note describes. The union of the parts' world AABBs has no frame in it to
+-- get wrong. The mountain is one MeshPart, so this is not a loop worth avoiding.
+--
+-- Returns half-extents, the top, and the world centre.
+local function worldBox(m)
+	local mnx, mxx = math.huge, -math.huge
+	local mnz, mxz = math.huge, -math.huge
+	local top = -math.huge
+	for _, d in ipairs(m:GetDescendants()) do
+		if d:IsA("BasePart") then
+			local c, sz, p = d.CFrame, d.Size, d.Position
+			local hx = (math.abs(c.RightVector.X) * sz.X + math.abs(c.UpVector.X) * sz.Y
+				+ math.abs(c.LookVector.X) * sz.Z) / 2
+			local hy = (math.abs(c.RightVector.Y) * sz.X + math.abs(c.UpVector.Y) * sz.Y
+				+ math.abs(c.LookVector.Y) * sz.Z) / 2
+			local hz = (math.abs(c.RightVector.Z) * sz.X + math.abs(c.UpVector.Z) * sz.Y
+				+ math.abs(c.LookVector.Z) * sz.Z) / 2
+			mnx, mxx = math.min(mnx, p.X - hx), math.max(mxx, p.X + hx)
+			mnz, mxz = math.min(mnz, p.Z - hz), math.max(mxz, p.Z + hz)
+			top = math.max(top, p.Y + hy)
+		end
+	end
+	if top == -math.huge then return nil end
+	return (mxx - mnx) / 2, (mxz - mnz) / 2, top, (mnx + mxx) / 2, (mnz + mxz) / 2
+end
+
+-- ===== HOW MUCH OF THAT BOX IS ROCK AT THE GROUND LINE =====
+-- `FILL` 0.55 is a SILHOUETTE -- how much of the box is rock taken over the whole height of it --
+-- and it is the right answer for the keep-out it serves. It is the wrong answer for a collider,
+-- which is a question asked at the player's feet, where a mountain fills nearly its whole box.
+--
+-- Measured on a scale-2.24 hill, raycast on a grid with the mesh temporarily made queryable: the
+-- surface stands **4.5 studs proud out to +-164 across a 359-stud world box and +-208 along a
+-- 462-stud one** -- 0.92 of the box on both axes. 4.5 is not an arbitrary line: it is the step this
+-- body stops at anyway, measured in `MapSolids`. So a box at 0.92 stops the player exactly where
+-- the ground would have. Narrower and she walks into the mountain before stopping; wider and she is
+-- stopped by nothing she can see.
+--
+-- The same sweep says the mesh is a RIDGE and not a cone, which is what makes an axis-aligned box
+-- an honest collider for it: the across reach is flat at +-164..168 for along offsets of 0, 50, 97
+-- and 150, and only falls away past 200.
+local ROCK_FOOT = 0.92
+
 local function hill(proto, parent, cx, x, z, yaw, scale)
 	local m = proto:Clone()
 	local _, raw = m:GetBoundingBox()
@@ -290,6 +521,8 @@ local function hill(proto, parent, cx, x, z, yaw, scale)
 	for _, d in ipairs(m:GetDescendants()) do
 		if d:IsA("BasePart") then
 			d.Anchored = true
+			-- STILL NOT THE MESH. See the header: `CanCollide = true` on a mountain MeshPart is the
+			-- 30.19 trap. `MapSolids` builds the box that stops her, beside this.
 			d.CanCollide = false
 			d.CanQuery = false
 			d.CastShadow = false
@@ -297,6 +530,14 @@ local function hill(proto, parent, cx, x, z, yaw, scale)
 	end
 	m.Name = "HorizonHill"
 	m.Parent = parent
+	-- Measured AFTER seating, so it is the rock standing there and not the box it had two transforms
+	-- ago -- `MapForest.plantOne` has the same rule for the same reason.
+	local rx, rz, top, wx, wz = worldBox(m)
+	if not rx then m:Destroy() return nil end
+	MapHorizon.LastHill = {
+		model = m, top = top, wx = wx, wz = wz,
+		rx = rx * ROCK_FOOT, rz = rz * ROCK_FOOT,
+	}
 	return sz
 end
 
@@ -306,6 +547,8 @@ end
 -- run built from a count cannot overrun its own end.
 --
 -- `lane` is the half-width of the gap left in the middle of the run; a run with no gate gets 0.
+-- `spec.solid`, when present, collects the hills of this run for `Colliders`. Only the inner row
+-- passes one -- see `Colliders`.
 local function buildRun(proto, folder, cx, rng, spec, out)
 	local placed = 0
 	-- The rock's half-length, not the box's -- see the note on `LANE_PORTAL`.
@@ -331,6 +574,15 @@ local function buildRun(proto, folder, cx, rng, spec, out)
 			end
 			local sz = hill(proto, folder, cx, x, z, yaw + rng:NextNumber(-YAW_JITTER, YAW_JITTER),
 				spec.scale * rng:NextNumber(SIZE_JITTER[1], SIZE_JITTER[2]))
+			if sz and spec.solid then
+				-- The rock this hill really covers, world-axis, for `MapSolids` to box. Kept in a
+				-- second list rather than folded into `out`: `out` is the WOOD's keep-out and is
+				-- read by `MapForest` on every one of its 5,467 candidate points, and it has no
+				-- business growing four fields it never looks at.
+				local h = MapHorizon.LastHill
+				h.acrossIsX = spec.axis == "z"
+				spec.solid[#spec.solid + 1] = h
+			end
 			if sz then
 				-- The footprint the planter subtracts, taken from the hill's OWN post-yaw box
 				-- rather than from the number this run asked for. The two differ by the scale and
@@ -373,6 +625,7 @@ function MapHorizon.Build(zoneKey, cx, map)
 	local longAxis = math.max(s.X, s.Z)
 
 	local out = {}
+	local solid = {}
 	local runs, hills = 0, 0
 	-- where the inner row ended up standing, so the boot line can say whether 32.1b moved it
 	local innerAtX, innerAtZ = AT.innerX, AT.innerZ
@@ -452,12 +705,14 @@ function MapHorizon.Build(zoneKey, cx, map)
 			{ axis = "x", at = atZ, span = spanX, lane = inner and LANE_PORTAL or 0 },
 		}) do
 			r.scale, r.acrossHalf, r.alongLen, r.spacing = scale, acrossHalf, alongLen, spacing
+			r.solid = inner and solid or nil
 			hills += buildRun(proto, folder, cx, rng, r, out)
 			runs += 1
 		end
 	end
 
 	MapHorizon.Placed[zoneKey] = out
+	MapHorizon.Solid[zoneKey] = solid
 
 	-- ===== THE BOOT LINE IS A TEST, NOT A COUNT =====
 	-- Two things here are invisible from any capture taken from inside the zone, and both of them
@@ -502,12 +757,19 @@ function MapHorizon.Build(zoneKey, cx, map)
 		end
 	end
 
+	-- ===== AND WHAT THE COLLISION PASS ENDED UP WITH (32.15) =====
+	-- Reported here rather than left to `MapSolids`, because the clipping decision is this file's:
+	-- `clipped` is how many boxes had to be cut back off a camp floor and `dropped` how many were
+	-- cut to nothing and got no box at all. A non-zero `dropped` is a stretch of range you can still
+	-- walk through, which is the whole of what this row set out to close.
+	local boxes, clipped, dropped = MapHorizon.Colliders(zoneKey)
 	local outerVis = s.Y * scaleFor(COVER_OUTER) - SINK
 	local needed = WALL_H * AT.outerX / WALL_X
 	print(("[MapHorizon] %s: %d hills over %d runs from a %.0f x %.0f x %.0f stock; "
 		.. "tops %.0f..%.0f against the wall's %d -- %s; outer peaks %.0f, needs %.0f to clear "
 		.. "the wall from mid-zone -- %s; inner row at %.0f/%.0f (pinned %d/%d)%s; "
-		.. "tightest rock-to-camp-floor gap %+.1f studs, %s -- %s")
+		.. "tightest rock-to-camp-floor gap %+.1f studs, %s -- %s; "
+		.. "%d collider box(es) offered, %d clipped off a camp floor, %d dropped%s")
 		:format(zoneKey, hills, runs, s.X, s.Y, s.Z, lowTop, highTop, WALL_H,
 			lowTop > WALL_H and "RIDGE BREAKS THE SKYLINE"
 				or ("WALL SHOWS BY %.0f"):format(WALL_H - lowTop),
@@ -519,7 +781,13 @@ function MapHorizon.Build(zoneKey, cx, map)
 					or "  [pushed off the camps]")
 				or "",
 			gap, gapWhat,
-			gap > 0 and "clear of every camp" or "*** ROCK IS STANDING IN A CAMP ***"))
+			-- NOTE: this gap is the FILL-and-pivot-box figure the header's fault 2 describes. It is
+			-- left exactly as it was so the line stays comparable with every log before it; the
+			-- real number is in the 32.15 row and in `agent-board/CLAUDE-REVIEW.md`.
+			gap > 0 and "clear of every camp (see the 32.15 header: this test reads the wrong axis)"
+				or "*** ROCK IS STANDING IN A CAMP ***",
+			#boxes, clipped, dropped,
+			dropped > 0 and "  *** A DROPPED BOX IS RANGE YOU CAN WALK THROUGH ***" or ""))
 	return hills
 end
 

@@ -478,3 +478,99 @@ counted sub-segments, inflating the boot log's own number ~24x.
 bookkeeping and nothing else, and code changes go in their own commit ending with the
 `Co-Authored-By` line. And `[~]` is the ceiling -- a step whose own Check says *no code changes* is
 not closed by writing code.
+
+---
+
+## S9 | VERIFIED | 2026-08-24T16:20 | R16
+
+**Done by Claude, not by Gemini.** Roadmap row 32.15 is `[x]`. The mountains stop you.
+
+**What shipped:** `MapSolids` grew a third `kind` beside tree and rock. A hill arrives through
+`OfferHill` carrying the WORLD-AXIS half-extents `MapHorizon` measured off the rock it stood up; it
+is exempt from the gap rule like a rock, and unlike either it stays out of the cell grid and out of
+`built`, so every 32.10 number still means what it meant. `MapHorizon.Colliders` publishes the inner
+row and `MapForest` offers it right after `MapSolids.Begin` -- it cannot be offered inside
+`MapHorizon`, which runs BEFORE that `Begin` and would be recorded into the previous zone's state.
+The mesh still does not collide: that is the 30.19 trap.
+
+**The box size is measured, not chosen.** Clone a hill, make the clone queryable, sweep a raycast
+grid: the surface stands 4.5 studs proud -- the step this body stops at, from 32.10 -- out to
+**+-164 across a 359-stud world box and +-208 along a 462-stud one, i.e. 0.92 of the box on both
+axes**. The same sweep says the mesh is a RIDGE and not a cone (across reach flat at +-164..168 for
+along offsets 0/50/97/150, falling away only past 200), which is what makes an axis-aligned box an
+honest collider for it.
+
+**The box CLIPS instead of dropping, against two different things.**
+
+- **Camps.** 11 of 20 floors have rock on them (below), and a box at the rock's edge there is an
+  invisible wall across a camp -- strictly worse than rock you can see. Cut back on the across axis,
+  outer face held, until it clears the floor plus `ESCORT_RING + 7 = 29`. 29 of 34 clipped.
+- **Roads.** Six boxes covered one: four over a camp trail at |z| 340, and **two across the south
+  gate road at x -17 and +5 -- the doorway closing again.** The lane is sized with `FILL` 0.55 while
+  the rock is 0.92, so the ROCK closes more of the gate than the lane reserves. `trimOffRoads` walks
+  whichever edge is nearest the offending cell, on either axis. `evolution-lab-arc-must-not-close`
+  caught by an alarm rather than by the owner.
+- `MapSolids`' own road test had to change shape too: `ROAD_KEEP + math.max(hX, hZ)` is a circle
+  drawn round the box, which demands 232 studs of clearance from a 460-stud mountain and refused 4
+  hills outright. It now asks whether the box's own footprint covers a road.
+
+**Evidence, all re-measured against the final build:**
+
+```
+Play walk   server-simulated clone of the real 8.4-stud rig, wood boxes off for the approach only
+            +X along z=-107: walked 73.5 studs at speed 146, stopped x=501.5 vs a face at x=502.4
+            body CENTRE to box SURFACE 0.92 studs, HRP half-depth on X 0.96 -> touching the outside
+            stayed on the ground at y=4.3 (did not climb)
+boot line   34 boxes offered, 29 clipped, 0 dropped, 0 refused by the road rule
+32.10 probe re-run UNCHANGED: 1656 samples, 0 blocked over 26 corridors
+32.10 sets  1072 tree + 880 rock, big trees 585/817 = 71.6%, 5354 planted, 2230 pairs
+            -- IDENTICAL to a HEAD rebuild of the same world. No art moved; the capture matches.
+camps       0 of 20 floors overlapped by a box; nearest face +30.0 studs (NW4)
+BFS         village spawn, 8-stud cells, real 9 x 8.4 x 7 body box: 8155 cells
+            20/20 camps, portal ring, boss ground, all 3 gate lanes REACHED
+            north and south platform edges REACHED (through the gate lane)
+            east and west platform edges NOT REACHED -- the range is solid, reported not hidden
+```
+
+**FOUR PROBE ROUTES DIED BEFORE THE WALK WORKED, and the cause is worth writing down.** Under
+StreamingEnabled the player's own character is simulated by the **client**, and the client had not
+been given the far corner's floor -- the body fell through a 4-stud floor the server's raycast
+reports as solid, four times, at y -122 / -123. `RequestStreamAroundAsync` plus a 1.6 s anchored
+hold did not fix it. What works is a **clone of the character with no player on it, parented to
+workspace**: no player owns it, so the server simulates it and the server has the whole platform.
+A fifth attempt also failed for an unrelated reason worth naming: the start point was inside the
+CORNER run's boxes, which are thin on Z and span |x| widely, so classifying a box by
+`|Position.X| > |Position.Z|` picks the wrong run.
+
+**TWO FAULTS FOUND AND DELIBERATELY NOT FIXED -- new roadmap row 32.18, BLOCKED on 32.17.**
+
+1. **Every hill stands 82 degrees from the angle the file asks for.** `hill()` turns the clone off
+   whatever orientation the stock was parked at, and `RidgeStock` is parked at yaw **-1.429**. The
+   file's entire "long axis ALONG the ridge" section has never once happened -- measured, an inner
+   hill reaches +-212 across its run and +-168 along it. Cancelled: +-164 across.
+2. **Rock stands on 11 of the 20 camp floors, 151 of 740 cells, up to 74 studs proud.** The boot
+   line prints `+19.7 -- clear of every camp` because its test reads the PIVOT box against WORLD
+   coordinates and then takes `FILL` 0.55 of it. This is the owner's *"mobovi zaglavljeni"* capture,
+   still there.
+3. Smaller: `RidgeStock` is parked at `ScaleTo(1.15)` and `hill()` calls `ScaleTo(scale)`, which is
+   ABSOLUTE -- `scaleFor(1.55)` asks for 294 studs and the world gets 255.7 = 294/1.15.
+
+**Why they are not fixed here, with the capture that decided it.** Both fixes turn the hills
+narrow-side-in and push the row off the camps, and the row has nowhere to go: the band between the
+outermost camp floor (|x| 482) and the wall (625) is 143 studs, and a hill tall enough to clear the
+wall is 359 wide. Built both ways -- row-wide worst-case push (inner row to 759/669, 8588 trees,
+big-tree solidity down to 67.4%) and then per-hill push (751/669, 7319 trees, 70.7%) -- and captured
+from the hunting ground at eye height, **the range ends up BEHIND the boundary wall and the wall
+returns as the flat grey slab the whole file exists to hide.** That is a worse regression than the
+bug, and it is the finding `MapHorizon`'s own `AT` note already predicted: *"a finding about the
+platform, not a number to tune away."* Both builds were reverted; the art in the shipped version is
+byte-for-byte where it was.
+
+**S11 / roadmap 32.17 is therefore a PREREQUISITE for 32.18, not a follow-up.** After it the
+arithmetic closes: at `CAMP_RADIUS` 28 the camp floor edge is 408 and a correctly-turned hill needs
+408 + 164 + 40 = 612, which is inside the wall. The dependency in `STEPS.md` said S11 depends on S9;
+measured, it is the other way round for the horizon half.
+
+**One thing found in passing and NOT actioned:** `[MapSolids] GAP RULE REJECTED 60.6% OF TREE
+CANDIDATES` fires on the HEAD baseline too, not just on anything I changed. It is pre-existing and
+unrecorded.

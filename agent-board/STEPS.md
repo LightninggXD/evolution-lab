@@ -189,9 +189,18 @@ same commit as 32.10. Write the plan and stop:
 ---
 
 ## S9 | The mountains are walk-through, and that is the "walls" complaint
-- **Owner:** Gemini
+- **Owner:** Claude
 - **Depends:** none
-- **Check:** a Play-mode walk INTO a named `HorizonHill` stops at its surface, and a BFS from the village still reaches all four platform edges
+- **Check:** DONE -- see `CLAUDE-REVIEW.md` R16 and roadmap row 32.15. Walk stops touching the box
+  (0.92 studs to the surface against a 0.96 half-depth), 32.10 probe unchanged at 0 blocked, BFS
+  reaches all 20 camps / the portal / the boss / all 3 gate lanes.
+- **Note on the Check as written:** it demanded all four platform edges. Two of them are the range
+  itself and are now behind it, which is what a solid mountain range is; the north and south stay
+  reachable through the gate lane. Reported in R16 rather than quietly redefined.
+- **Two faults found and NOT fixed here** -- the 82-degree stock yaw and rock on 11 of 20 camp
+  floors. New roadmap row **32.18**, and it is BLOCKED on S11 / roadmap 32.17. See R16 for the
+  captures that decided it: fixing them without the camp shrink bares the boundary wall.
+- **S11's dependency line below is wrong for the horizon half** -- S11 comes FIRST.
 
 The owner: *"da se ne prolazi kroz zidove"*. It is measured and it is one file.
 `MapProps/MapHorizon.lua:290-296`, in `hill()`, sets **every** part of every hill to

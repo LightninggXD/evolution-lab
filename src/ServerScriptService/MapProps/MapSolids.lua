@@ -24,6 +24,16 @@
 -- so no tree is displaced by one, and they answer to the road rule only. What that costs is
 -- reported: `slots` counts the pairs left with a gap too narrow to walk through, and both walk
 -- probes are the veto on that number.
+-- A MOUNTAIN IS A THIRD KIND, ADDED BY 32.15, and it is the reason `kind` is a field rather than a
+-- boolean. `MapHorizon`'s horizon hills were `CanCollide = false` too, so the map edge was walked
+-- through -- but a mountain must not be given the mesh's own collision (30.19: a MeshPart's convex
+-- hull is close to its own box, and a ring of those seals the player in), and it must not be given
+-- a TREE's box either, because the trunk measurement below is meaningless on one. So a hill arrives
+-- through `OfferHill` carrying the WORLD-AXIS extents `MapHorizon` measured off the rock it stood
+-- up, and this file only decides where the box sits on the ground. Like a rock it is exempt from
+-- the gap rule -- there are 33 of them and they are meant to overlap into a continuous ridge -- and
+-- unlike either it stays out of the cell grid and out of `built`, so 32.10's tree-and-rock numbers
+-- mean the same thing after this row as they did before it.
 local JungleLayout = require(script.Parent.JungleLayout)
 
 local MapSolids = {}
@@ -79,6 +89,7 @@ function MapSolids.Begin(zoneKey, segments)
 		built = {},
 		treesMade = 0,
 		rocksMade = 0,
+		hillsMade = 0,
 		-- one set per kind: a shared `skippedShort` cannot be attributed, and the two kinds are
 		-- rejected by completely different tests (S3.5)
 		treeShort = 0,
@@ -86,6 +97,10 @@ function MapSolids.Begin(zoneKey, segments)
 		treeRoad = 0,
 		rockShort = 0,
 		rockRoad = 0,
+		-- a hill rejected by the road rule is a HOLE in the ridge, i.e. a mountain you can still
+		-- walk through, so it is counted separately and warned about rather than folded into a total
+		hillRoad = 0,
+		tightestHillRoad = math.huge,
 		-- 59% of the tree models hold no part except `Top`, so their box is a FRACTION of the
 		-- model's own footprint and not a measurement of a trunk. Both halves are reported so no
 		-- reader believes every box was measured (S3.2).
@@ -126,16 +141,37 @@ local function addCell(x, z, hX, hZ)
 	table.insert(state.cells[cx][cz], {x = x, z = z, hX = hX, hZ = hZ})
 end
 
+-- Returns the clearance as well as the verdict, so the caller can file it under the right kind.
+-- It used to record `tightestRoad` itself; a hill's box is 40 times a trunk's and would have
+-- rewritten that number into something 32.10's own boot line could not be compared against.
 local function checkRoad(x, z, hX, hZ)
 	local clearance = JungleLayout.RoadClearance(state.zoneKey, x, z, state.segments)
-	local req = ROAD_KEEP + math.max(hX, hZ)
-	if clearance < req then
-		return false
+	return clearance >= ROAD_KEEP + math.max(hX, hZ), clearance
+end
+
+-- ===== A MOUNTAIN'S BOX NEEDS A DIFFERENT SHAPE OF ROAD TEST (32.15) =====
+-- `checkRoad` asks whether the road is further off than the box's biggest half-extent. That is a
+-- CIRCLE drawn around the box, and for a 6-stud trunk the difference does not matter. For a
+-- 460-stud mountain it demands 232 studs of clearance from a road that may be running parallel to
+-- the range 200 studs away and never under it -- measured, that refused 4 of the 34 hills, i.e.
+-- four holes in the range, which is the exact thing this row exists to close.
+-- The question was always whether the BOX covers a road, so the box is what gets asked: a grid over
+-- its own footprint with every cell clear by `ROAD_KEEP`. The step is the width of the narrowest
+-- road this map has (`MapRoad` paves 44..58, `JungleLayout`'s trails less), halved, so a lane
+-- cannot slip between two samples.
+local HILL_ROAD_STEP = 24
+local function checkRoadBox(x, z, hX, hZ)
+	local nx = math.max(1, math.ceil(hX * 2 / HILL_ROAD_STEP))
+	local nz = math.max(1, math.ceil(hZ * 2 / HILL_ROAD_STEP))
+	local worst = math.huge
+	for i = 0, nx do
+		for j = 0, nz do
+			local c = JungleLayout.RoadClearance(state.zoneKey,
+				x - hX + hX * 2 * i / nx, z - hZ + hZ * 2 * j / nz, state.segments)
+			if c < worst then worst = c end
+		end
 	end
-	if clearance < state.tightestRoad then
-		state.tightestRoad = clearance
-	end
-	return true
+	return worst >= ROAD_KEEP, worst
 end
 
 -- `CanQuery = false` ON A COLLIDING PART IS A LIE, AND IT IS WRITTEN HERE ANYWAY. Measured in this
@@ -207,6 +243,28 @@ function MapSolids.Offer(inst, parent, sink)
 	})
 end
 
+-- ONE HILL, and everything about its shape is PASSED IN rather than measured here -- the same rule
+-- `Offer`'s `sink` follows and for the same reason (31.5a). `hx`/`hz` are the WORLD-AXIS half
+-- extents of the rock at its ground line and `top` its highest point, all three measured by
+-- `MapHorizon` off the model it actually stood up. World-axis is what makes the box square to the
+-- world in `place`: the hill's own yaw must NOT be applied to extents that already have it in them,
+-- which is the fault 32.15 found in `MapHorizon` itself.
+-- `x`/`z` are the BOX's centre and not the hill's: `MapHorizon.Colliders` clips a box back off a
+-- camp floor, which moves its centre while leaving its outer face where the rock is. A yaw-free
+-- CFrame is handed over so `place` reads the centre through the same field a tree does.
+function MapSolids.OfferHill(model, parent, x, z, hx, hz, top)
+	table.insert(state.candidates, {
+		inst = model,
+		parent = parent,
+		kind = "hill",
+		cf = CFrame.new(x, 0, z),
+		height = top,
+		hx = hx,
+		hz = hz,
+		sink = 0
+	})
+end
+
 -- `gapRule` is false for a rock -- see the header. A rock still enters the cell grid, so a tree
 -- placed after one would respect it; there is no such tree, because every tree is committed first.
 -- `rp` excludes everything this pipeline planted -- see the note over `buildBox` for why that is
@@ -262,6 +320,24 @@ local function place(c, gapRule, rp)
 			end
 			h = math.max(c.height * COLLIDER_HEIGHT_FRAC, MIN_COLLIDER_HEIGHT)
 			bottomY = (c.cf.Y - c.height / 2) - SINK
+		elseif c.kind == "hill" then
+			-- SQUARE TO THE WORLD. `hx`/`hz` arrive already world-axis, so applying the hill's own
+			-- yaw here would turn a box that has the turn in it a second time -- and a 470-stud box
+			-- turned 12 degrees reaches 50 studs further than it should, straight at a camp.
+			yaw = 0
+			w, d = c.hx * 2, c.hz * 2
+			-- ASK THE GROUND, for the reason the rock branch gives below, and from ABOVE THE PEAK:
+			-- a hill is 250 studs tall, so a ray started at the candidate's own centre height would
+			-- begin inside it. `rp` excludes everything this pipeline planted, the mountain
+			-- included, so the answer is the platform floor.
+			local hit = workspace:Raycast(Vector3.new(x, c.height + 50, z),
+				Vector3.new(0, -(c.height + 450), 0), rp)
+			local groundY = hit and hit.Position.Y or 0
+			-- The box TOP lands on the rock's own top and the SINK is the buried skirt below the
+			-- ground line, exactly as for a rock. There is no `MIN_COLLIDER_HEIGHT` here: that is a
+			-- tree floor (S3.3) and a mountain is never near it.
+			h = math.max(c.height - groundY, MIN_STEP_STOP) + SINK
+			bottomY = groundY - SINK
 		else
 			w = c.inst.Size.X * ROCK_FRACTION
 			d = c.inst.Size.Z * ROCK_FRACTION
@@ -285,13 +361,40 @@ local function place(c, gapRule, rp)
 		local hX = w / 2
 		local hZ = d / 2
 
-		if not checkRoad(x, z, hX, hZ) then
-			if c.kind == "tree" then state.treeRoad += 1 else state.rockRoad += 1 end
+		local roadOk, clearance
+		if c.kind == "hill" then
+			roadOk, clearance = checkRoadBox(x, z, hX, hZ)
+		else
+			roadOk, clearance = checkRoad(x, z, hX, hZ)
+		end
+		if not roadOk then
+			if c.kind == "tree" then
+				state.treeRoad += 1
+			elseif c.kind == "hill" then
+				state.hillRoad += 1
+			else
+				state.rockRoad += 1
+			end
 			return
+		end
+		if c.kind == "hill" then
+			state.tightestHillRoad = math.min(state.tightestHillRoad, clearance)
+		else
+			state.tightestRoad = math.min(state.tightestRoad, clearance)
 		end
 
 		if gapRule and not checkGap(x, z, hX, hZ) then
 			state.treeClumped += 1
+			return
+		end
+
+		-- A HILL STAYS OUT OF THE GRID AND OUT OF `built`. Both exist to answer one question -- is
+		-- the wood pinching the player between two trunks -- and a 470-stud mountain box dropped
+		-- into that set would dominate every pair in it and make 32.10's `tightest built gap`
+		-- incomparable with the number that row closed on. The mountains are a ridge, not a slot.
+		if c.kind == "hill" then
+			buildBox("HorizonHillCollider", x, bottomY, z, yaw, w, h, d, c.parent)
+			state.hillsMade += 1
 			return
 		end
 
@@ -329,7 +432,9 @@ function MapSolids.Commit()
 
 	-- Everything this pipeline plants -- the art AND the boxes built below -- is excluded, so the
 	-- rock branch's ground ray answers about the floor. Collected from the candidates rather than
-	-- named, so this file still does not know what MapForest calls its folder.
+	-- named, so this file still does not know what MapForest calls its folder, nor what MapHorizon
+	-- calls its own -- since 32.15 the mountains' folder lands in this list the same way, which is
+	-- what keeps a hill's ground ray from reading the top of a mountain it is standing on.
 	local rp = RaycastParams.new()
 	rp.FilterType = Enum.RaycastFilterType.Exclude
 	rp.IgnoreWater = true
@@ -348,6 +453,14 @@ function MapSolids.Commit()
 	for _, c in ipairs(state.candidates) do
 		if c.kind == "tree" then
 			place(c, true, rp)
+		end
+	end
+	-- The mountains sit between the two passes only for readability: a hill neither enters the cell
+	-- grid nor is judged against it, so nothing it does can move a tree or a rock, and nothing they
+	-- do can move it.
+	for _, c in ipairs(state.candidates) do
+		if c.kind == "hill" then
+			place(c, false, rp)
 		end
 	end
 	for _, c in ipairs(state.candidates) do
@@ -409,20 +522,30 @@ function MapSolids.Report(zoneKey)
 			state.treeClumped / trees * 100))
 	end
 
+	-- A hill lost to the road rule is a gap in the ridge you can walk through, which is the whole of
+	-- what 32.15 set out to close -- so it is a warning and not a statistic.
+	if state.hillRoad > 0 then
+		warn(("[MapSolids] %d HORIZON HILL(S) REFUSED A COLLIDER BY THE ROAD RULE -- that is a hole"
+			.. " in the range you can walk through"):format(state.hillRoad))
+	end
+
 	local gap, slots = tightestBuiltGap()
 	local pct = state.bigOffered > 0 and (state.bigSolid / state.bigOffered * 100) or 0
 
-	print(("[MapSolids] %s: %d tree + %d rock colliders | big trees (h>=%d) solid: %d of %d = %.1f%%"
-		.. " | trunk-measured %d / fallback %d | skipped trees %d short %d clumped %d road, rocks"
-		.. " %d short %d road (rocks do not run the gap rule) | tightest built gap %.1f studs,"
-		.. " %d pairs under %d apart, tightest road clearance %.1f studs"):format(
-		tostring(zoneKey), state.treesMade, state.rocksMade,
+	print(("[MapSolids] %s: %d tree + %d rock + %d mountain colliders | big trees (h>=%d) solid:"
+		.. " %d of %d = %.1f%% | trunk-measured %d / fallback %d | skipped trees %d short %d clumped"
+		.. " %d road, rocks %d short %d road (rocks do not run the gap rule) | tightest built gap"
+		.. " %.1f studs, %d pairs under %d apart, tightest road clearance %.1f studs | mountains:"
+		.. " %d refused by the road rule, tightest road clearance %.0f studs"):format(
+		tostring(zoneKey), state.treesMade, state.rocksMade, state.hillsMade,
 		BIG_TREE, state.bigSolid, state.bigOffered, pct,
 		state.trunkMeasured, state.trunkFallback,
 		state.treeShort, state.treeClumped, state.treeRoad,
 		state.rockShort, state.rockRoad,
 		gap == math.huge and 0 or gap, slots, GAP_MIN,
-		state.tightestRoad == math.huge and 0 or state.tightestRoad))
+		state.tightestRoad == math.huge and 0 or state.tightestRoad,
+		state.hillRoad,
+		state.tightestHillRoad == math.huge and 0 or state.tightestHillRoad))
 
 	return state
 end

@@ -257,6 +257,18 @@ function MapForest.Plant(zoneKey, cx, map, spec)
 	-- point would rebuild twenty spurs about nine hundred times.
 	local segments = JungleLayout.Segments(zoneKey)
 	MapSolids.Begin(zoneKey, segments)
+	-- ===== THE MOUNTAINS ARE OFFERED FROM HERE, NOT FROM WHERE THEY ARE BUILT (32.15) =====
+	-- `MapHorizon.Build` runs BEFORE this -- that is the whole of the ordering note at its call site
+	-- in `ForestMapService` -- and `MapSolids.Begin` one line above is what opens the candidate
+	-- list. A hill offered inside `MapHorizon` would therefore be recorded into the PREVIOUS zone's
+	-- state and thrown away by this `Begin`, silently and with a correct-looking boot line. So the
+	-- horizon publishes and this file offers, exactly as it already does with `Footprints` six lines
+	-- below. Inner row only; `MapHorizon.Colliders` is where that is argued.
+	for _, hl in ipairs(MapHorizon.Colliders(zoneKey)) do
+		if hl.model and hl.model.Parent then
+			MapSolids.OfferHill(hl.model, hl.model.Parent, hl.x, hl.z, hl.hx, hl.hz, hl.top)
+		end
+	end
 	-- ===== TWO SOURCES OF ROCK, ONE LIST (31.24) =====
 	-- `MapRidge` reports whatever the ARTIST's mountains left standing; `MapHorizon` reports the
 	-- range this phase raises around the boundary wall. Both are "rock a tree must not grow inside"
