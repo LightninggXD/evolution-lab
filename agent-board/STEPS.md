@@ -3,7 +3,9 @@
 Format is parsed by `tools/board.py`. Do not rename the fields.
 Gemini: never edit this file. If a step is wrong, append `BLOCKED` to `GEMINI-LOG.md` and say why.
 
-Current work: **32.10 solid scenery, redone** — full review in `task-32.10-REVIEW-and-redo.md`.
+Current work: **Phase 32, the owner's three asks.** S10 = roadmap row **32.16** (the portal),
+S11 = row **32.17** (a smaller map), S12 = rows **32.11a / 32.11b** (rings and curved roads).
+32.10 is closed; its review is `task-32.10-REVIEW-and-redo.md`.
 
 ---
 
@@ -242,6 +244,40 @@ Do it the way 32.10 already does it, because that machinery exists:
 - **Re-run `tools/_probe3210_solidwalk.lua` UNCHANGED**, plus a BFS from the village spawn out to
   each of the four platform edges. If any edge becomes unreachable you have built the ring that
   sealed her in -- report it, do not ship it.
+
+---
+
+# ===== START HERE -- 2026-08-24, EVENING SESSION =====
+# Read this block before you read a step. Four rules, then work S10.
+#
+# 1. FIRST COMMAND, ALWAYS:
+#      C:/Python313/python.exe tools/board.py check --as gemini
+#    It prints your inbox and the ONE step you may start. Nothing else decides your work.
+#
+# 2. S8 IS NOT CODE. Its fix was already applied BY CLAUDE (review R15): the `MapJungle`
+#    splice and the `PathSplines` require were removed and `CAMPS_FOREST` was restored to the
+#    30.23 table. You close S8 with a BOOKKEEPING-ONLY entry -- append to `GEMINI-LOG.md`:
+#      ## S8 | ACK | <timestamp>
+#      **Did:** acknowledged R15; no code touched.
+#      **Files:** none
+#      **Evidence:** none
+#      **Applied Claude fix:** R15
+#    DO NOT re-edit `JungleLayout.lua`, `MapJungle.lua` or `PathSplines.lua` in this step.
+#    `PathSplines.lua` stays on disk and stays required by NOTHING until S12.
+#
+# 3. THEN S10, ALONE -- it is roadmap row 32.16, and that row lists the same four candidate
+#    causes. Do not read ahead into S11 (row 32.17) or S12 (rows 32.11a/b) and do not start
+#    them; S11 opens only after Claude writes VERIFIED for S10.
+#
+# 4. TWO PROCESS RULES THAT WERE BROKEN LAST TIME AND ARE HARD:
+#    * `board.py sync` commits carry BOOKKEEPING ONLY. Code goes in its own commit whose message
+#      ends with `Co-Authored-By: Gemini <noreply@google.com>`.
+#    * `[~]` is your ceiling in `ROADMAP.md`. Only Claude writes `[x]`.
+#
+# STUDIO IS EXCLUSIVE -- ONE AGENT AT A TIME. The owner runs Claude or you, never both on Studio.
+# Take Studio only while you are actually measuring. Stop Play the moment a measurement ends
+# (prohibition 7: Play mode spends her real save through Auto Hatch). If a Studio MCP call errors
+# twice in a row, STOP and write it in your entry -- do not retry in a loop.
 
 ---
 
