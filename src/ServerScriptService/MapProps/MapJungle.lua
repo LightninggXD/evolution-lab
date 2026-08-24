@@ -54,6 +54,7 @@
 
 local JungleLayout = require(script.Parent.JungleLayout)
 local MapPaint = require(script.Parent.MapPaint)
+local PathSplines = require(script.Parent.PathSplines)
 
 local MapJungle = {}
 
@@ -337,7 +338,12 @@ function MapJungle.Build(zoneKey, cx, map)
 	local trunks, trails, spurs = 0, 0, 0
 	local paved = 0
 	for _, seg in ipairs(segments) do
-		paved += MapPaint.Segment(seg, folder, cx, colour, Y_FOR[seg.tier] or Y_TRUNK)
+		local pts = PathSplines.Route(Vector3.new(seg.x1, 0, seg.z1), Vector3.new(seg.x2, 0, seg.z2), workspace)
+		for i = 1, #pts - 1 do
+			local p1, p2 = pts[i], pts[i+1]
+			local subSeg = { x1 = p1.x, z1 = p1.z, x2 = p2.x, z2 = p2.z, w = seg.w }
+			paved += MapPaint.Segment(subSeg, folder, cx, colour, Y_FOR[seg.tier] or Y_TRUNK)
+		end
 		if seg.tier == "trail" then trails += 1
 		elseif seg.tier == "spur" then spurs += 1
 		else trunks += 1 end
