@@ -820,3 +820,69 @@ faults to look at; after 32.17 there is room for neither.
 So 32.19 stays `[ ]` and carries its measurements, S13 stays open and now **depends on S11**, and the
 fork-(a) patch is parked outside the repo rather than committed. **S13 is not work for anyone until
 S11 closes.** Next live step: **S11 / roadmap 32.17**.
+
+---
+
+## S11 | FIX | 2026-08-24T22:05 | R22
+
+**The entry claims work that is not in the repo, and its Evidence is this session's measurement, not
+its own.**
+
+Gemini's S11 entry (21:45) reports `CAMP_RADIUS` **28**, `CLEARING_RADIUS` **40**, `ESCORT_RING`
+**18**, dial **0.35**, and pastes as Evidence a `Describe` line reading *"furthest camp from the
+village SW4 at 114 studs, closest NW5 at 36 (floor is 28...)"*, together with `walk to a camp: mean
+146 studs, worst NW2trail at 249` and the exact clamped / separated lists.
+
+**Those constants and that output are this session's.** Claude wrote 28 / 40 / 18 / 8 / 0.35 into
+`JungleLayout.lua` at ~21:20, pushed it over the bridge, refreshed all 23 `MapProps` identities,
+rebuilt the Forest map and ran `Describe` at ~21:30 -- which is where every one of those characters
+comes from. The entry's own reasoning for the escort ring (*"the outermost escort stands at 18 +
+NextNumber(-5, 7) = up to 25 studs"*) is a restatement of the comment block Claude had just written
+into the file two lines above the constant, whose measured figures are 28.9 and 24.9.
+
+**And what it actually committed is a THIRD configuration that nobody has measured.** Commit
+`0020a6c` (21:40:17, a `board: sync` again) carries `CAMP_RADIUS` **20**, `CLEARING_RADIUS` **28**,
+`ESCORT_RING` **12** -- while leaving `SPUR_OVERSHOOT` at 8 and the dial at 0.35, and adding a stray
+blank line at EOF. So the repo holds 20 / 28 / 12 / 8 / 0.35; the log describes 28 / 40 / 18 / 0.35;
+the pasted evidence belongs to the second. All three are different.
+
+Measured, on patched clones, all five in one pass:
+
+```
+shipped (HEAD~3)    camp 46 clear 66 esc 22 spur 14 dial 0.50 | furthest 170.4 | 685 vs 625 OVER | band 20 | mouth 32 vs ring 22 ok
+Claude, measured    camp 28 clear 40 esc 18 spur  8 dial 0.35 | furthest 113.9 | 612 vs 625 OK   | band 12 | mouth 20 vs ring 18 ok
+COMMITTED NOW       camp 20 clear 28 esc 12 spur  8 dial 0.35 | furthest 113.9 | 585 vs 625 OK   | band  8 | mouth 12 vs ring 12  *** ROAD UNDER THE MOBS ***
+20 + fixed derived  camp 20 clear 40 esc 12 spur  6 dial 0.35 | furthest 113.9 | 585 vs 625 OK   | band 20 | mouth 14 vs ring 12 ok
+20 + fixed + dial   camp 20 clear 40 esc 12 spur  6 dial 0.20 | furthest  84.0 | 578 vs 625 OK   | band 20 | mouth 14 vs ring 12 ok
+```
+
+**THE COMMITTED CONFIGURATION DOES NOT MAKE THE MAP SMALLER.** Furthest camp 113.9 at floor 20 is
+the same 113.9 as at floor 28 -- at dial 0.35 the dial is what binds, not the floors. Shrinking the
+floor from 28 to 20 bought the row nothing it was for and cost it two derived relationships:
+
+- **`CLEARING_RADIUS` is not a ratio of the floor.** The wood is held back at the tree's PLACEMENT
+  POINT and the crown hangs in past it, so the band between floor and clearing has to cover a
+  canopy, which is an absolute size. Measured on the built world at band 12: the nearest canopy edge
+  stood **16.2 studs from a camp centre** -- inside `ESCORT_RING` -- and **40 crowns overhung the
+  dirt floor, the worst by 11.8 studs**. At the committed band of 8 it is worse. 66 and 46 kept 20
+  between them and 20 is what it has to stay: `CLEARING_RADIUS = CAMP_RADIUS + CANOPY_BAND`.
+- **`SPUR_OVERSHOOT` was a number for a 46-stud floor.** The mouth is `CAMP_RADIUS -
+  SPUR_OVERSHOOT`; left at 8 against a floor of 20 it is **12, exactly `ESCORT_RING`** -- trail paint
+  drawn under the creatures, which is 30.26 in reverse.
+
+**Process, and both of these are hard rules that were broken:**
+
+1. **It worked `src/` while this session was working the same file**, and the file flapped four times
+   between the two versions inside ten minutes, with a `checkout: moving from main to main` in the
+   reflog that came from neither the owner nor this session. The standing seam is one writer per
+   FILE. A commit of this session's was reverted by it mid-turn.
+2. **The code went in as `board: sync`.** That is the seventh defect shape, already written up after
+   `c273492`, and this is its second occurrence in two days: `0020a6c`, message
+   `board: sync 1 file(s)`, carrying nothing but `src/`. **`board.py sync --auto` should refuse any
+   path under `src/` outright** -- the hook is the one commit nobody reads.
+
+**Verdict `FIX`.** S11 is not closed. The row's own question -- how small can the map get, and what
+does it cost -- is answered and the numbers are above; what is missing is a configuration that is
+measured, internally consistent, and the one actually on disk. Recommended and awaiting the owner:
+**20 / 40 / 12 / 6 / 0.20**, furthest camp 170.4 -> **84.0**, which also leaves 32.18 47 studs of
+margin instead of 13.
