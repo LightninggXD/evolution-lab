@@ -886,3 +886,45 @@ does it cost -- is answered and the numbers are above; what is missing is a conf
 measured, internally consistent, and the one actually on disk. Recommended and awaiting the owner:
 **20 / 40 / 12 / 6 / 0.20**, furthest camp 170.4 -> **84.0**, which also leaves 32.18 47 studs of
 margin instead of 13.
+
+---
+
+## S11 | VERIFIED | 2026-08-24T23:25 | R23
+
+**Done by Claude, on the owner's own floor.** Roadmap row 32.17 is `[x]`. Shipped:
+`CAMP_RADIUS` 20, `CLEARING_RADIUS` 40, `ESCORT_RING` 12, `SPUR_OVERSHOOT` 6, `HUNT_SHRINK` 0.20,
+commit `526b290`. **Furthest camp from the village 170.4 -> 84.0 studs.**
+
+R22's three findings were applied rather than argued: the clearing is `CAMP_RADIUS + CANOPY_BAND`
+(20) instead of a ratio, the escort ring came down with the floor, and the spur was re-sized so the
+mouth stays outside that ring. The owner chose the floor of 20; everything hanging off it is derived
+here so the next round only moves one number.
+
+**The Check, and every line is a measurement off the rebuilt world:**
+
+```
+Describe   shrink 0.20: furthest camp NW4 at 84 studs, closest NW1 at 28 (floor is 20)
+           tightest gap between two camp floors: SW1/SW2 at +20.0
+           tightest road across a floor it does not serve: SW4trail vs SW3 at +15.2
+           20 camps, 74 creatures (Apex 4, Brute 12, Critter 22, Elite 6, Swarmer 30) -- census matches
+keep-outs  street +46 (SW5) | plaza +250 (NW1) | boss +92 (SW5) | platform edge +199 (SW4)
+           -> 0 VIOLATIONS
+creatures  0 of 74 standing off their own floor, furthest 18.9 against a floor of 20
+canopy     nearest crown edge to a camp centre 10.0 (was 16.2 at band 12); crowns over the dirt
+           4, worst 10.0 (was 40, worst 11.8) -- and 10 studs is what the shipped 46/66 also had
+solids     0 32.10 boxes inside any camp floor OR escort ring; nearest box face 33.9 studs from a
+           camp centre; nearest creature to a box 20.5. The crown overhang is foliage overhead and
+           nothing a creature can be stuck in.
+horizon    66 hills, 34 colliders, inner row back at its PINNED 600/568, 0 camp floors under a box
+           camp floor edge 481 -> 374, so a wall-clearing hill needs 578 vs the wall at 625: +46
+push       Studio byte-identical to disk (rolling hash 764898374 both sides)
+```
+
+**32.18 IS UNBLOCKED** and its roadmap row says so now: it was 60 studs over the wall and it has 46
+to spare. 32.19 stays parked behind it (R21).
+
+**Two things this row cost that are worth naming.** A `rstrip('\n')` of mine left a stray `\r`
+behind a blank line and put a lone CRLF at EOF -- caught by hashing Studio against disk, which is the
+only reason it is not in the repo. And the trail is 30 wide against a 40-stud floor: still wider than
+its path, but the ratio went 3x -> 1.33x, so a floor smaller than this stops reading as a clearing
+before any of the other limits bite.
