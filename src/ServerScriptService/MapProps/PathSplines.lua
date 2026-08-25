@@ -29,23 +29,35 @@ local function isBlocked(a, b, obstacles)
 	
 	if not obstacles then return false end
 	for _, obs in ipairs(obstacles) do
-		-- obs is { x, z, r }
-		local ox, oz, orad = obs.x, obs.z, obs.r
-		
-		-- distance from circle center to segment
-		local t = ((ox - a.X) * dx + (oz - a.Z) * dz) / (dx*dx + dz*dz)
-		t = math.clamp(t, 0, 1)
-		local qx, qz = a.X + t * dx, a.Z + t * dz
-		
-		local d2 = (ox - qx)^2 + (oz - qz)^2
-		if d2 < orad * orad then
-			-- collision! normal is from obstacle center to point
-			local nx, nz = qx - ox, qz - oz
-			local d = math.sqrt(nx*nx + nz*nz)
-			if d > 0.001 then
-				return true, Vector3.new(qx, 0, qz), Vector3.new(nx/d, 0, nz/d)
-			else
-				return true, Vector3.new(qx, 0, qz), Vector3.new(1, 0, 0)
+		if obs.type == "rect" then
+			-- distance from segment to rect
+			-- simple bounding check: does segment AABB intersect rect?
+			local minX, maxX = math.min(a.X, b.X), math.max(a.X, b.X)
+			local minZ, maxZ = math.min(a.Z, b.Z), math.max(a.Z, b.Z)
+			local rMinX, rMaxX = obs.x - obs.hx, obs.x + obs.hx
+			local rMinZ, rMaxZ = obs.z - obs.hz, obs.z + obs.hz
+			if not (maxX < rMinX or minX > rMaxX or maxZ < rMinZ or minZ > rMaxZ) then
+				-- collision with rect!
+				local cx, cz = math.clamp(a.X + dx/2, rMinX, rMaxX), math.clamp(a.Z + dz/2, rMinZ, rMaxZ)
+				local nx, nz = a.X + dx/2 - obs.x, a.Z + dz/2 - obs.z
+				local l = math.sqrt(nx*nx + nz*nz)
+				return true, Vector3.new(cx, 0, cz), Vector3.new(nx/l, 0, nz/l)
+			end
+		else
+			-- circle
+			local ox, oz, orad = obs.x, obs.z, obs.r or obs.radius or 20
+			local t = ((ox - a.X) * dx + (oz - a.Z) * dz) / (dx*dx + dz*dz)
+			t = math.clamp(t, 0, 1)
+			local qx, qz = a.X + t * dx, a.Z + t * dz
+			local d2 = (ox - qx)^2 + (oz - qz)^2
+			if d2 < orad * orad then
+				local nx, nz = qx - ox, qz - oz
+				local d = math.sqrt(nx*nx + nz*nz)
+				if d > 0.001 then
+					return true, Vector3.new(qx, 0, qz), Vector3.new(nx/d, 0, nz/d)
+				else
+					return true, Vector3.new(qx, 0, qz), Vector3.new(1, 0, 0)
+				end
 			end
 		end
 	end
@@ -54,7 +66,7 @@ end
 
 function PathSplines.Route(startPos, endPos, rng, options, obstacles)
 	options = options or {}
-	local maxJitter = options.maxJitter or 6
+	local maxJitter = options.maxJitter or 8
 	local yOffset = options.yOffset or 0
 	
 	startPos = Vector3.new(startPos.X, yOffset, startPos.Z)
@@ -64,7 +76,7 @@ function PathSplines.Route(startPos, endPos, rng, options, obstacles)
 	local dist = dir.Magnitude
 	if dist < 1 then return {} end
 	
-	local numSegments = math.max(2, math.ceil(dist / 20))
+	local numSegments = math.max(4, math.ceil(dist / 10))
 	local right = Vector3.new(-dir.Z, 0, dir.X).Unit
 	
 	local p1 = startPos

@@ -244,9 +244,10 @@ function JungleTrails.Build(camps, cross, opts)
 		local obs = {}
 		for _, c in ipairs(camps) do
 			if c.id ~= best.camp.id and (not best.from or c.id ~= best.from.id) then
-				table.insert(obs, { x = c.x, z = c.z, r = o.campRadius + 5 })
+				table.insert(obs, { type="circle", x = c.x, z = c.z, r = o.campRadius + 5 })
 			end
 		end
+		table.insert(obs, { type="rect", x = 0, z = 0, hx = o.villageHalfX + 15, hz = o.villageHalfZ + 15 })
 		
 		local rng = opts.rng or Random.new(math.floor(math.abs(best.sx + best.sz)))
 		local pts = PathSplines.Route(startPos, endPos, rng, { maxJitter = 15 }, obs)

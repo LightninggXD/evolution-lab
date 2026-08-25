@@ -345,7 +345,7 @@ function MapJungle.Build(zoneKey, cx, map)
 	-- the new road, which is the whole of 32.4 again. A curved road has to be decomposed back into
 	-- `Segments()` so that every consumer sees the curve. See row 32.11b.
 	for _, seg in ipairs(segments) do
-		paved += MapPaint.Segment(seg, folder, cx, colour, Y_FOR[seg.tier] or Y_TRUNK)
+		paved += MapPaint.Segment(seg, folder, cx, colour, Y_FOR[seg.tier] or Y_TRUNK, nil, seg.caps)
 		if seg.tier == "trail" then trails += 1
 		elseif seg.tier == "spur" then spurs += 1
 		else trunks += 1 end

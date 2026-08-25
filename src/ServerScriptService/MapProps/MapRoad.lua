@@ -1,3 +1,4 @@
+local PathSplines = require(script.Parent.PathSplines)
 -- MapProps/MapRoad -- the approach road, from the arrival plaza into the village square.
 --
 -- ===== WHAT WAS ACTUALLY WRONG, WHICH IS NOT WHAT 31.10 WAS OPENED FOR =====
@@ -112,17 +113,51 @@ function MapRoad.Build(zoneKey, cx, map)
 
 	local dirt = MapPaint.DirtColour(map)
 	local edge = MapPaint.Shade(dirt, EDGE_SHADE)
+	
+	-- We want a curved, scribbled, realistic path instead of a straight taper
+	local rng = Random.new(42) -- fixed seed so it doesn't change every boot
+	local pts = PathSplines.Route(Vector3.new(FROM.X, 0, FROM.Y), Vector3.new(TO.X, 0, TO.Y), rng, { maxJitter = 18 })
+	
+	local made = 0
+	if #pts >= 2 then
+		for i = 1, #pts - 1 do
+			local p1 = pts[i]
+			local p2 = pts[i+1]
+			
+			local t1 = (i - 1) / (#pts - 1)
+			local t2 = i / (#pts - 1)
+			
+			local w1 = W_PLAZA + (W_VILLAGE - W_PLAZA) * t1
+			local w2 = W_PLAZA + (W_VILLAGE - W_PLAZA) * t2
+			local wMid = (w1 + w2) / 2
+			
+			local y1 = TOP + (TOP_VILLAGE - TOP) * t1
+			local y2 = TOP + (TOP_VILLAGE - TOP) * t2
+			local yMid = (y1 + y2) / 2
+			
+			local ey1 = EDGE_TOP + (EDGE_TOP_VILLAGE - EDGE_TOP) * t1
+			local ey2 = EDGE_TOP + (EDGE_TOP_VILLAGE - EDGE_TOP) * t2
+			local eyMid = (ey1 + ey2) / 2
+			
+			local cap = "none"
+			if i == 1 then cap = "both" else cap = "b" end
+			
+			local seg = { x1 = p1.x, z1 = p1.z, x2 = p2.x, z2 = p2.z, w = wMid + EDGE_W * 2 }
+			made += MapPaint.Segment(seg, folder, cx, edge, eyMid - THICK / 2, THICK, cap)
+			
+			local seg2 = { x1 = p1.x, z1 = p1.z, x2 = p2.x, z2 = p2.z, w = wMid }
+			made += MapPaint.Segment(seg2, folder, cx, dirt, yMid - THICK / 2, THICK, cap)
+		end
+	else
+		-- fallback to taper if spline fails
+		made = MapPaint.Taper(FROM, TO, W_PLAZA + EDGE_W * 2, W_VILLAGE + EDGE_W * 2,
+			folder, cx, edge, EDGE_TOP - THICK / 2, THICK, QUADS, false, true,
+			EDGE_TOP_VILLAGE - THICK / 2)
+		made += MapPaint.Taper(FROM, TO, W_PLAZA, W_VILLAGE,
+			folder, cx, dirt, TOP - THICK / 2, THICK, QUADS, false, true,
+			TOP_VILLAGE - THICK / 2)
+	end
 
-	-- outline first, mass second: `evolution-lab-world-look-pass`
-	local made = MapPaint.Taper(FROM, TO, W_PLAZA + EDGE_W * 2, W_VILLAGE + EDGE_W * 2,
-		folder, cx, edge, EDGE_TOP - THICK / 2, THICK, QUADS, false, true,
-		EDGE_TOP_VILLAGE - THICK / 2)
-	made += MapPaint.Taper(FROM, TO, W_PLAZA, W_VILLAGE,
-		folder, cx, dirt, TOP - THICK / 2, THICK, QUADS, false, true,
-		TOP_VILLAGE - THICK / 2)
-
-	-- The road is street furniture with no prompt on it, but it is the thing that tells a player
-	-- arriving for the first time which way the village is -- so it does not stream out.
 	for _, p in ipairs(folder:GetChildren()) do
 		if p:IsA("BasePart") then p.CanQuery = false end
 	end

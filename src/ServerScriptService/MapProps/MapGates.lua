@@ -36,6 +36,7 @@
 -- `MapPaint` gives: a road you can trip on is worse than no road.
 
 local MapPaint = require(script.Parent.MapPaint)
+local PathSplines = require(script.Parent.PathSplines)
 local MapCut = require(script.Parent.MapCut)
 -- 32.4: this file MOVES anchors now, so it has to tell the census it did. See `MapAnchors.Remeasure`.
 local MapAnchors = require(script.Parent.MapAnchors)
