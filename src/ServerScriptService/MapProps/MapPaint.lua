@@ -92,7 +92,7 @@ end
 -- place has zero length and is refused. Added for 30.23's camp clearings -- the floor of a camp is
 -- a round patch of the same dirt its road is made of, and that is what makes an opening in the wood
 -- read as somewhere rather than as a gap.
-function MapPaint.Disc(x, z, d, parent, cx, colour, y, thick)
+function MapPaint.Disc(x, z, d, parent, cx, colour, y, thick, untextured)
 	y = y or MapPaint.Y
 	thick = thick or MapPaint.THICK
 	local p = Instance.new("Part")
@@ -105,7 +105,11 @@ function MapPaint.Disc(x, z, d, parent, cx, colour, y, thick)
 	p.CanTouch = false
 	p.CastShadow = false
 	p.Color = colour
-	addSandTexture(p, true, colour)
+	if untextured then
+		p.Material = Enum.Material.Sand
+	else
+		addSandTexture(p, true, colour)
+	end
 	p.Parent = parent
 	return 1
 end
