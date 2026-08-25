@@ -408,29 +408,29 @@ end
 -- The shrink itself is untouched -- furthest camp from the village is still 84.0 (SW2).
 local CAMPS_FOREST = {
 	-- ---- north-west quadrant, front (plaza end) to back
-	{ id = "NW1", kind = "swarm     ", x =  -411, z =   179 }, -- final r=28
-	{ id = "NW2", kind = "swarm     ", x =  -622, z =   460 }, -- final r=84
-	{ id = "NW3", kind = "brute     ", x =  -241, z =   370 }, -- final r=28
-	{ id = "NW4", kind = "brute     ", x =  -212, z =   650 }, -- final r=84
-	{ id = "NW5", kind = "elite     ", x =  -551, z =   159 }, -- final r=56
+	{ id = "NW1", kind = "swarm",     x =  -411, z =   179 }, -- final r=28
+	{ id = "NW2", kind = "swarm",     x =  -622, z =   460 }, -- final r=84
+	{ id = "NW3", kind = "brute",     x =  -241, z =   370 }, -- final r=28
+	{ id = "NW4", kind = "brute",     x =  -212, z =   650 }, -- final r=84
+	{ id = "NW5", kind = "elite",     x =  -551, z =   159 }, -- final r=56
 	-- ---- north-east quadrant, mirrored
-	{ id = "NE1", kind = "swarm     ", x =   411, z =   209 }, -- final r=28
-	{ id = "NE2", kind = "swarm     ", x =   283, z =   650 }, -- final r=84
-	{ id = "NE3", kind = "brute     ", x =   411, z =    80 }, -- final r=28
-	{ id = "NE4", kind = "brute     ", x =   564, z =   555 }, -- final r=84  [32.18: was 600/491]
-	{ id = "NE5", kind = "elite     ", x =   410, z =   302 }, -- final r=56  [32.18: was 551/40]
+	{ id = "NE1", kind = "swarm",     x =   411, z =   209 }, -- final r=28
+	{ id = "NE2", kind = "swarm",     x =   283, z =   650 }, -- final r=84
+	{ id = "NE3", kind = "brute",     x =   411, z =    80 }, -- final r=28
+	{ id = "NE4", kind = "brute",     x =   564, z =   555 }, -- final r=84  [32.18: was 600/491]
+	{ id = "NE5", kind = "elite",     x =   410, z =   302 }, -- final r=56  [32.18: was 551/40]
 	-- ---- south-west quadrant: everything gated, and the deep end of the walk
-	{ id = "SW1", kind = "brute     ", x =   -84, z =  -370 }, -- final r=28
-	{ id = "SW2", kind = "raidBrute ", x =  -174, z =  -650 }, -- final r=84
-	{ id = "SW3", kind = "raidElite ", x =  -174, z =  -370 }, -- final r=28
-	{ id = "SW4", kind = "apex      ", x =  -371, z =  -638 }, -- final r=84
-	{ id = "SW5", kind = "apex      ", x =  -551, z =  -229 }, -- final r=56
+	{ id = "SW1", kind = "brute",     x =   -84, z =  -370 }, -- final r=28
+	{ id = "SW2", kind = "raidBrute", x =  -174, z =  -650 }, -- final r=84
+	{ id = "SW3", kind = "raidElite", x =  -174, z =  -370 }, -- final r=28
+	{ id = "SW4", kind = "apex",      x =  -371, z =  -638 }, -- final r=84
+	{ id = "SW5", kind = "apex",      x =  -551, z =  -229 }, -- final r=56
 	-- ---- south-east quadrant, mirrored
-	{ id = "SE1", kind = "brute     ", x =   209, z =  -370 }, -- final r=28
-	{ id = "SE2", kind = "raidBrute ", x =   417, z =  -278 }, -- final r=84  [32.18: was 691/-6]
-	{ id = "SE3", kind = "raidElite ", x =   115, z =  -370 }, -- final r=28
-	{ id = "SE4", kind = "apex      ", x =    33, z =  -650 }, -- final r=84
-	{ id = "SE5", kind = "apex      ", x =   410, z =   -11 }, -- final r=56  [32.18: was 551/-34]
+	{ id = "SE1", kind = "brute",     x =   209, z =  -370 }, -- final r=28
+	{ id = "SE2", kind = "raidBrute", x =   417, z =  -278 }, -- final r=84  [32.18: was 691/-6]
+	{ id = "SE3", kind = "raidElite", x =   115, z =  -370 }, -- final r=28
+	{ id = "SE4", kind = "apex",      x =    33, z =  -650 }, -- final r=84
+	{ id = "SE5", kind = "apex",      x =   410, z =   -11 }, -- final r=56  [32.18: was 551/-34]
 }
 
 -- The table above stays readable AS AUTHORED and the shrink is applied over it here, rather than
@@ -719,6 +719,24 @@ function JungleLayout.Spawns(zoneKey)
 	local out = {}
 	for _, camp in ipairs(camps) do
 		local roster = JungleLayout.ROSTERS[camp.kind]
+		-- ===== A KIND THAT NAMES NO ROSTER IS AN ALARM, NOT A SKIP (32.24) =====
+		-- This was `if roster then` alone, and on 2026-08-25 that silence cost the starting zone
+		-- every creature it has. A reformat inside a `board: sync` commit aligned this table's
+		-- columns by padding the STRING LITERALS -- `kind = "swarm     "` -- and ROSTERS is keyed
+		-- `swarm`, so all twenty lookups missed, `Spawns` returned an empty list, and Forest booted
+		-- with 20 camps and 0 creatures. Nothing threw. `Describe` did print
+		-- `0/WANT 4 ... ROSTER DOES NOT MATCH THE TIER COUNTS` and nobody was reading the boot log.
+		-- A census in a log line is not a guard; the guard is here, at the lookup that failed.
+		if not roster then
+			warn(("[JungleLayout] %s camp %s names kind %q, which is not in ROSTERS (%s) -- "):format(
+				zoneKey, tostring(camp.id), tostring(camp.kind),
+				table.concat((function()
+					local names = {}
+					for k in pairs(JungleLayout.ROSTERS) do names[#names + 1] = k end
+					table.sort(names)
+					return names
+				end)(), ", ")) .. "that camp will stand empty")
+		end
 		if roster then
 			-- flatten the roster first so the ring can be shared out across every escort in the
 			-- camp rather than restarting per row -- two rows of three on the same ring at the same

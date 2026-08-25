@@ -1046,3 +1046,25 @@ its line count`, forever, on a file whose code is perfectly correct. All three a
 re-pushed (`codediff` over the pair: **0 code lines changed**, it was only the endings), and they
 hash `OK` against Studio now. Write LF.
 
+
+## S13 | NOTE | 2026-08-25T12:10 | R26
+
+Still PARKED by the owner and not worked. This entry is a WARNING for the lane, not a review of S13.
+
+**The overnight batch emptied the starting zone of every creature, and it landed inside a
+`board: sync` commit.** Commit `6d668fa` rewrote 1646 lines of `JungleLayout.lua` and, tidying the
+camp table's columns, padded the **string literals**: `kind = "swarm     "` against a `ROSTERS`
+keyed `swarm`. All twenty lookups missed, `JungleLayout.Spawns` returned an empty list, and Forest
+booted with **20 camps and 0 creatures** for a day. Fixed today under roadmap row **32.24** — the
+padding moved outside the quotes and an unknown `kind` now warns by name instead of being skipped.
+
+**Two rules for the next step in this lane, both load-bearing:**
+
+1. **Never pad a string literal to align a column.** Spaces go OUTSIDE the quotes. A table key that
+   is a string can be silently mangled by any formatting pass; the four lints do not catch it,
+   because the file parses, every name exists and every scope is right.
+2. **A whole-file reformat is not a free change and must not ride inside a `board: sync`.** If a
+   step reformats a file, say so in the GEMINI-LOG entry and run `codediff.py` over it. 1646
+   changed lines in one file is exactly where a deleted guard hides.
+
+S12 is still FIX-PENDING on R24; nothing about that has changed.

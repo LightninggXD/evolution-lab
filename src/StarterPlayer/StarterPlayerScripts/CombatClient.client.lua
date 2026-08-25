@@ -43,18 +43,33 @@ fxFolder.Parent = workspace
 -- THE SWING
 -- ============================================================================
 --
--- Procedural, not an Animation asset. Two reasons it is not one:
+-- TWO PATHS, AND THE CANNED ONE IS THE ONE THAT SHIPS ON AN AVATAR RIG (32.9).
 --
---   1. There is nothing to load. A catalog animation id has to be owned by the place's creator or
---      it fails at LoadAnimation and the character simply never swings -- with no error a player
---      would ever see. Nothing here can fail to load.
---   2. It composes with whatever is already playing. The Animator drives each joint's `Transform`,
---      which is applied on top of the joint's own static offset -- so writing that offset ADDS a
---      swing to the run or idle the character is already in, instead of replacing it and freezing
---      the legs mid-stride.
+-- This file was written procedural-only and the comment here argued two reasons for it. The second
+-- reason was measured and it is FALSE on the rig this game actually gets:
 --
--- It also survives the thing that would break a canned animation here: the body scales 1x -> 9x
--- across the twenty stages. A rotation is scale-free, so the same code swings a Cell and a 28-stud
+--   * The claim was "it composes -- the Animator drives each joint's Transform, which is applied
+--     on top of the joint's own static offset, so writing that offset ADDS a swing". That is true
+--     of a `Motor6D` rig. Roblox is midway through replacing Motor6D with `AnimationConstraint`,
+--     and the character this game gets has 15 AnimationConstraints and ZERO Motor6Ds.
+--   * MEASURED ON THE LIVE BODY, 2026-08-25 -- hand travel in the root's own frame, written every
+--     RenderStepped for 0.6s: `Attachment0.CFrame` with the idle track playing moves the hand
+--     **0.54 studs**; the identical write with every track stopped moves it **2.31**. Writing
+--     `AnimationConstraint.Transform` instead is **0.03** -- the Animator overwrites it the same
+--     frame. So the Animator wins and four fifths of the swing this file draws is never seen.
+--     That is the "the character stands still and only the ground shakes" complaint, still true.
+--   * The first reason -- "a catalog animation id has to be owned by the place's creator" -- is
+--     half true, and the missing half is the fix: an animation owned by **Roblox** loads in any
+--     place. `rbxassetid://522635514` is the classic sword slash. Loaded and played at `Action4`
+--     on this very rig it moves the hand **3.33 studs with the idle track playing** -- six times
+--     what the joint writes manage. Nothing is uploaded and nothing waits on the owner.
+--
+-- So: an `AnimationTrack` above Idle is the swing, and the procedural code below is the FALLBACK --
+-- for an R6 avatar, for a Motor6D rig where it always worked, and for the case the asset declines
+-- to load. It is not dead code; it is what runs when the Animator is not in the way.
+--
+-- Both survive the thing that would break a canned animation here: the body scales 1x -> 9x across
+-- the twenty stages. A rotation is scale-free, so the same swing reads on a Cell and on a 28-stud
 -- Absolute identically.
 --
 -- ---- two kinds of joint ----
@@ -70,6 +85,37 @@ fxFolder.Parent = workspace
 -- kind it got. Written against Motor6D alone the arm simply never moved and nothing errored, which
 -- is the failure that is hardest to notice.
 local SWING_TIME = 0.30
+-- ---- the canned swing ----
+-- Roblox's own classic-sword slash. Owned by Roblox, so `LoadAnimation` succeeds in this place
+-- with nothing uploaded -- see the block above for the measurement that chose it.
+--
+-- THE ASSET IS 0.50s LONG AND ONLY ITS FIRST 0.30s IS THE BLOW. Sampled at 0.05s steps, the hand
+-- sits 2.83 studs from rest at t=0.00 (blades up over the shoulder), reaches rest at t=0.20, and
+-- climbs back out to 3.13 by t=0.50. Played whole it reads as chop-then-re-raise and ends with the
+-- arms in the air. So the track runs 0.00 -> SWING_ANIM_ARC and is then faded out: the chop plays,
+-- and the fade carries the arms back into whatever the Animator was already doing.
+--
+-- The fade-in IS the wind-up. There is no keyframe for one -- the blend from idle up to the raised
+-- first pose is what a player reads as loading the blow, which is why it is not 0.
+--
+-- ===== AND THE BLEND MUST HAPPEN ON A FROZEN POSE, WHICH COST THE FIRST BUILD ITS PEAK =====
+--
+-- Built the obvious way -- Play(fade) and let the clock run -- the swing measured **1.81 studs** of
+-- hand travel in the live game against the **3.33** the same track reaches in isolation. It is not
+-- a blend-priority problem, it is arithmetic: the track's biggest pose is its FIRST frame (2.83
+-- studs from rest at t=0.00, already back at rest by t=0.20), and a fade ramps weight 0 -> 1 across
+-- the same 0.10s. So the frames where the pose is worth the most are the frames it is worth the
+-- least of, and by the time the weight reaches 1 the arm is already 1.78 studs down its own arc --
+-- which is 1.81, the number measured. The peak is never drawn at full strength.
+--
+-- So the track is played FROZEN (`AdjustSpeed(0)`) and only starts moving once the blend is done:
+-- the arm rises into the raised pose over SWING_ANIM_WIND, and the chop then plays at full weight.
+-- A re-cut skips the hold entirely -- the weight is already 1, so restarting the clock puts the
+-- raised pose on screen at full strength on the very first frame.
+local SWING_ANIM_ID = "rbxassetid://522635514"
+local SWING_ANIM_WIND = 0.08  -- blend in, held on the raised first pose: the wind-up
+local SWING_ANIM_ARC = 0.22   -- seconds of the asset then played: the drop, t=0.00 -> ~0.20
+local SWING_ANIM_FADE = 0.10  -- blend out: the recovery back into whatever the Animator was doing
 -- A new swing may cut into the tail of the one before it. Holding the old "one swing at a time"
 -- rule made auto-attack look broken: the loop fires faster than a swing lasts, so every second
 -- request was dropped and the character stood still through half its own hits.
@@ -90,6 +136,59 @@ end
 
 local function setJoint(joint, cframe)
 	joint.inst[joint.prop] = cframe
+end
+
+-- ---- the canned track, one per character ----
+-- Weak-keyed: a character that despawns takes its track with it, and a respawn gets a fresh one
+-- because the cached track's Animator went with the old body.
+--
+-- `false` is cached for a character whose animator refused the asset, so a failed load is paid for
+-- once rather than on every swing of a fight -- and the warning is printed once for the same
+-- reason. That character then swings procedurally for its whole life, which is the old behaviour.
+local swingAnim = Instance.new("Animation")
+swingAnim.AnimationId = SWING_ANIM_ID
+local swingTracks = setmetatable({}, { __mode = "k" })
+
+local function swingTrack(character, humanoid)
+	local cached = swingTracks[character]
+	if cached == false then return nil end
+	if cached and cached.Animator and cached.Animator.Parent then return cached end
+
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		swingTracks[character] = false
+		return nil
+	end
+	local ok, track = pcall(function()
+		return animator:LoadAnimation(swingAnim)
+	end)
+	if not ok or not track then
+		swingTracks[character] = false
+		warn("[CombatClient] the swing animation would not load (" .. SWING_ANIM_ID ..
+			") -- falling back to the procedural swing, which barely moves an AnimationConstraint rig")
+		return nil
+	end
+	-- Above Idle and above Movement, or the idle this body is always playing wins the blend and the
+	-- whole point of the change is lost. Action4 is the top of the ladder: nothing this game plays
+	-- should outrank a blow landing.
+	track.Priority = Enum.AnimationPriority.Action4
+	track.Looped = false
+	swingTracks[character] = track
+	return track
+end
+
+-- Someone else's body is already swinging on our screen without our help: an AnimationTrack played
+-- on a player's own client REPLICATES, which the procedural joint writes never did. So the CombatFx
+-- handler must not lay a second copy on top of the one that arrived by itself -- it still owes that
+-- character its trail and its whoosh, but not its arm.
+local function alreadySwinging(humanoid)
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then return false end
+	for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+		local a = t.Animation
+		if a and a.AnimationId == SWING_ANIM_ID then return true end
+	end
+	return false
 end
 
 -- ---- the shape of the swing ----
@@ -264,6 +363,10 @@ local function resetSwing(character)
 	local state = swinging[character]
 	if not state then return end
 	swinging[character] = nil
+	-- the canned path owns a track and no joints; the procedural path owns joints and no track
+	if state.track then
+		pcall(function() state.track:Stop(SWING_ANIM_FADE) end)
+	end
 	for _, j in pairs(state.joints) do
 		if j.inst.Parent then setJoint(j, j.base) end
 	end
@@ -280,6 +383,64 @@ local function playSwing(character)
 	end
 
 	local isR6 = humanoid.RigType == Enum.HumanoidRigType.R6
+
+	-- ===== THE CANNED SWING (32.9) =====
+	-- Tried first on every rig that is not R6. If the asset loads, this IS the swing and the
+	-- procedural block below never runs for this character.
+	local track = (not isR6) and swingTrack(character, humanoid) or nil
+	if track then
+		local swingRoot = character:FindFirstChild("HumanoidRootPart")
+		if swingRoot then
+			SoundLibrary.Play("swing", swingRoot)
+		end
+		-- The asset swings the RIGHT arm. The old alternation existed because a procedural swing
+		-- could be mirrored for free and a repeated identical throw read as a tic; here the variety
+		-- comes from the speed instead, which is the same mitigation `swing` already carries in
+		-- SoundLibrary.
+		nextHand[character] = "Right"
+		handTrail(character, "Right", false)
+
+		if alreadySwinging(humanoid) and character ~= player.Character then
+			-- their own client is already playing it and it replicated to us; the trail and the
+			-- whoosh above are all this call still owes them
+			return
+		end
+
+		local token = {}
+		swinging[character] = { token = token, startedAt = os.clock(), joints = {}, track = track }
+
+		-- Variety without a mirrored pose: at one swing every 0.20s a fixed-length arc reads as a
+		-- stuck loop, the same way a fixed sound sample does.
+		local speed = 0.92 + math.random() * 0.16
+		local recut = track.IsPlaying
+		if recut then
+			-- every swing once auto-attack is running. The weight is already 1, so restarting the
+			-- clock in place shows the raised pose at full strength immediately -- no second
+			-- wind-up, and no Stop/Play whose fade-out would eat the front of this one.
+			track.TimePosition = 0
+			track:AdjustSpeed(speed)
+		else
+			track:Play(SWING_ANIM_WIND)
+			track.TimePosition = 0
+			track:AdjustSpeed(0)
+			task.delay(SWING_ANIM_WIND, function()
+				local st = swinging[character]
+				if st and st.token == token then track:AdjustSpeed(speed) end
+			end)
+		end
+
+		task.delay((recut and 0 or SWING_ANIM_WIND) + SWING_ANIM_ARC, function()
+			local state = swinging[character]
+			-- a newer swing has taken over: it owns the track and the stop, exactly as the
+			-- procedural loop's token check does below
+			if state and state.token == token then
+				swinging[character] = nil
+				pcall(function() track:Stop(SWING_ANIM_FADE) end)
+			end
+		end)
+		return
+	end
+
 	local hand = (nextHand[character] == "Right") and "Left" or "Right"
 	local other = (hand == "Right") and "Left" or "Right"
 	nextHand[character] = hand
