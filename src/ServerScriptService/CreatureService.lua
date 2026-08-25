@@ -3200,6 +3200,57 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 		maxTextSize = 22,
 	})
 
+	-- ===== A GATE WORTH 4.2x HAS TO SAY SO SOMEWHERE (32.8) =====
+	--
+	-- 32.5 made a rebirth-gated creature pay a MEASURED 0.462 / 1.000 / 7.000 diamonds a kill against
+	-- an open-ground 0.025..0.040 -- pooled, 4.2x what the same 45 kills were worth before -- and the
+	-- game stated it nowhere. Worse than nowhere: `CombatClient.paintLock` writes the plate as
+	-- `LOCK Name -- N rebirths` while the creature is locked and reverts it to the bare name once it
+	-- is not, so **the moment the reward becomes available is the moment the last trace of it leaves
+	-- the screen**. The Journal prints no layer and there is no drop toast.
+	--
+	-- That is the exact failure the 10.x block in `Diamonds.lua` is written about -- *"a player kills
+	-- two hundred Swarmers, sees nothing, and correctly concludes the mechanic does not exist"* -- one
+	-- axis over. An Apex on a 120-second respawn gives a player about thirty chances an hour to notice.
+	--
+	-- ===== IT IS BUILT HERE, ON THE SERVER, AND NOT TOGGLED BY THE CLIENT =====
+	-- The row's own note suggested the unlocked branch of `paintLock`'s `if`. This is the same fact
+	-- said in a better place, for three reasons. The plate builder is the only code that knows the
+	-- layout, so the label lands with real geometry instead of being retro-fitted into a 36 px plate
+	-- by a repaint loop. It costs one instance at spawn instead of a `FindFirstChild` per creature per
+	-- second. And it is idempotent by construction under streaming -- the plate is rebuilt whole, so
+	-- there is no decorated text to re-decorate, which is the bug `PlateName` exists to prevent.
+	--
+	-- ===== AND IT IS SHOWN WHILE THE CREATURE IS STILL LOCKED, DELIBERATELY =====
+	-- The lock line states the PRICE. On its own that is a toll with no destination written on it.
+	-- Standing beside it, the bonus line is the reason to pay: a player who walks into a raid camp
+	-- three rebirths early reads `LOCK Apex -- 3 rebirths` and `x12 DNA  x12 gem  x5 XP` together, and
+	-- the gate becomes a thing to want rather than a thing in the way.
+	--
+	-- `diamondMult` mirrors `dnaMult` by design (see the 32.5 block over `GameConfig.RaisedLayers`),
+	-- so the two share one number here and the line stays short enough to read at 150 studs. `%g`
+	-- rather than `%d`: these are floats in the config and a future 1.5x must not print as `x1`.
+	local plateLayer = GameConfig.GetRaisedLayer(raised)
+	if plateLayer then
+		-- 18 px taller, and every existing child keeps its own edge: the bar is bottom-anchored so it
+		-- rides down with the growth, and the name is pushed clear of the new top line.
+		billboard.Size = UDim2.new(0, 112, 0, 54)
+		-- the plate grew both ways about its anchor, so the extra 9 px downward is lifted back off the
+		-- creature's head. Expressed against `tier.size` like the original, so it scales with the rig.
+		billboard.StudsOffset = Vector3.new(0, tier.size * 1.04, 0)
+		nameLabel.Position = UDim2.new(0, 0, 0, 14)
+		UITheme.Label(billboard, {
+			name = "BonusLabel",
+			text = ("x%g DNA  x%g \u{1F48E}  x%g XP")
+				:format(plateLayer.dnaMult, plateLayer.diamondMult, plateLayer.xpMult),
+			size = UDim2.new(1, 0, 0, 16),
+			position = UDim2.new(0, 0, 0, 0),
+			color = UITheme.Color.Gold,
+			minTextSize = 9,
+			maxTextSize = 14,
+		})
+	end
+
 	-- ===== A CLICK IS MELEE. It used to be artillery. =====
 	--
 	-- This was `math.max(26, tier.size * 2.2)`, which put an Elite at 57 studs and a Swarmer at 26 --
