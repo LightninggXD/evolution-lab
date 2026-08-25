@@ -233,22 +233,65 @@ local function buildPortal(model, wallX, target, faceOverride)
 	end
 	newPart({ Name = "PortalMat", Size = Vector3.new(34, 0.4, PORTAL_GAP - 2), Position = Vector3.new(wallX + face * 56, 0.4, 0), Color = accent, Material = Enum.Material.Neon, Transparency = 0.5, CanCollide = false, CastShadow = false, Parent = model })
 
-	local sparkle = Instance.new("ParticleEmitter")
-	sparkle.Color = ColorSequence.new(Color3.new(1, 1, 1), accent)
-	sparkle.Rate = 14
-	sparkle.Lifetime = NumberRange.new(1.4, 2.6)
-	sparkle.Speed = NumberRange.new(3, 7)
-	sparkle.SpreadAngle = Vector2.new(14, 14)
-	sparkle.Size = NumberSequence.new(1.6, 0.2)
-	sparkle.Transparency = NumberSequence.new(0.15, 1)
-	sparkle.LightEmission = 1
-	sparkle.Parent = gate
+	-- Rich dimensional particle vortex
+	local vortex = Instance.new("ParticleEmitter")
+	vortex.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	vortex.Color = ColorSequence.new({
+		NumberSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
+		NumberSequenceKeypoint.new(0.5, glow),
+		NumberSequenceKeypoint.new(1, accent),
+	})
+	vortex.Rate = 28
+	vortex.Lifetime = NumberRange.new(2.0, 4.0)
+	vortex.Speed = NumberRange.new(2, 8)
+	vortex.SpreadAngle = Vector2.new(45, 45)
+	vortex.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.5),
+		NumberSequenceKeypoint.new(0.3, 3.5),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	vortex.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.1),
+		NumberSequenceKeypoint.new(0.8, 0.3),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	vortex.LightEmission = 1
+	vortex.LightInfluence = 0
+	vortex.Rotation = NumberRange.new(0, 360)
+	vortex.RotSpeed = NumberRange.new(-80, 80)
+	vortex.Parent = gate
+
+	-- Ambient cosmic mist drifting outward
+	local mist = Instance.new("ParticleEmitter")
+	mist.Texture = "rbxasset://textures/particles/smoke_main.dds"
+	mist.Color = ColorSequence.new(accent, glow)
+	mist.Rate = 12
+	mist.Lifetime = NumberRange.new(3.0, 5.5)
+	mist.Speed = NumberRange.new(1, 4)
+	mist.SpreadAngle = Vector2.new(60, 60)
+	mist.Size = NumberSequence.new(6, 16)
+	mist.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.8),
+		NumberSequenceKeypoint.new(0.4, 0.6),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	mist.LightEmission = 0.8
+	mist.LightInfluence = 0
+	mist.Parent = gate
 
 	local light = Instance.new("PointLight")
 	light.Color = accent
-	light.Range = 46
-	light.Brightness = 4
+	light.Range = 64
+	light.Brightness = 6
+	light.Shadows = false
 	light.Parent = gate
+
+	local surfLight = Instance.new("SurfaceLight")
+	surfLight.Color = glow
+	surfLight.Face = Enum.NormalId.Front
+	surfLight.Range = 45
+	surfLight.Brightness = 4
+	surfLight.Parent = gate
 
 	-- THE NAME BOARD, BOLTED TO THE GATE.
 	--

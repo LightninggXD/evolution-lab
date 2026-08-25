@@ -184,7 +184,7 @@ local CAMP_CLEAR = 15
 --
 -- The offset is still the rock's half-length, but we now reserve what the COLLIDER occupies (ROCK_FOOT),
 -- not just the visual silhouette (FILL).
-local LANE_PORTAL = 132
+local LANE_PORTAL = 240
 
 -- ===== HOW FAR APART, AND WHY 0.62 OF A BOUNDING BOX IS NOT AN OVERLAP =====
 -- A hill stands this fraction of its own length from the next one. `buildRidge` used ~1.0 and the
