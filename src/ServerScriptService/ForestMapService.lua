@@ -106,6 +106,10 @@ local MapGates = require(script.Parent.MapProps.MapGates)
 local MapRidge = require(script.Parent.MapProps.MapRidge)
 local MapHorizon = require(script.Parent.MapProps.MapHorizon)
 local MapWaterfall = require(script.Parent.MapProps.MapWaterfall)
+-- 32.28: the pass cut runs between Build and Plant below, and MapPortalArt disarms her inserted
+-- ad-portal template and seats its island at the same gate.
+local MapPass = require(script.Parent.MapProps.MapPass)
+local MapPortalArt = require(script.Parent.MapProps.MapPortalArt)
 
 local ForestMapService = {}
 
@@ -564,6 +568,15 @@ function ForestMapService.Init()
 				-- knows the world that existed when it ran.
 				local hills = MapHorizon.Build(zoneKey, cx, map)
 				MapHorizon.TintWall(zoneKey, cx)
+				-- 32.28: the cut runs HERE, and the ordering is the whole fix. Build raised the
+				-- hills first -- a cut before it cuts nothing -- and `MapForest.Plant` below is
+				-- what turns the surviving hills' boxes into `HorizonHillCollider` parts and
+				-- wood keep-outs, both read from the tables MapPass purges: a hill deleted here
+				-- leaves neither an invisible wall nor a ghost no-tree zone in the pass
+				-- ([[evolution-lab-placement-search-ordering]]: a pass only knows the world that
+				-- ran before it, and the point is what the NEXT pass sees).
+				MapPass.Cut(zoneKey, cx, map)
+				MapPortalArt.Init(zoneKey, cx)
 				local planted = MapForest.Plant(zoneKey, cx, map, spec)
 				-- AFTER the planting, and that ordering matters: the ridge hills and the alcove
 				-- rocks are placed against authored coordinates, but the trees are scattered, and a

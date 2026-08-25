@@ -84,8 +84,11 @@ Claude pushes and runs. So:
    your own comment why your step goes where it goes.
 7. **English** in every file, comment and log line. (Chat with the owner may be Bosnian; artifacts
    are English.)
-8. **Line endings: the files on disk are CRLF.** Preserve them. A file rewritten as LF mismatches
-   Studio's hash check forever and the push is refused.
+8. **Line endings: the files on disk are LF, and `.gitattributes` pins them (`* -text`).** Preserve
+   whatever a file already has — `src/` is a byte-exact mirror of the Roblox place, so a rewritten
+   line ending shows as an all-lines diff and mismatches Studio's hash check. Measure with
+   `git ls-files --eol <path>`; never assume. *(Corrected 2026-08-25: this rule said CRLF and it was
+   wrong — OX measured it.)*
 9. **Do not touch these** — they are another agent's lane right now:
    `JungleLayout.lua`, `PathSplines.lua`, `JungleTrails.lua`, `MapRoad.lua`, and everything under
    `agent-board/` except your own log file.
