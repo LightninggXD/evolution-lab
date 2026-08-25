@@ -304,16 +304,28 @@ function MapGates.Build(zoneKey, cx, map, protected)
 	end
 
 	-- ===== PASS 3: PAINT =====
+	local rng = Random.new(99)
 	for _, lane in ipairs(LANES) do
-		-- outline first, mass second: `evolution-lab-world-look-pass`
-		local a = Vector2.new(lane.x1, lane.z1)
-		local b = Vector2.new(lane.x2, lane.z2)
-		MapPaint.Taper(a, b, lane.wA + EDGE_W * 2, lane.wB + EDGE_W * 2,
-			folder, cx, edge, EDGE_TOP - THICK / 2, THICK, QUADS, true, true)
-		MapPaint.Taper(a, b, lane.wA, lane.wB,
-			folder, cx, dirt, TOP - THICK / 2, THICK, QUADS, true, true)
+		local pts = PathSplines.Route(Vector3.new(lane.x1, 0, lane.z1), Vector3.new(lane.x2, 0, lane.z2), rng, { maxJitter = 12 })
+		if #pts >= 2 then
+			for i = 1, #pts - 1 do
+				local p1 = pts[i]
+				local p2 = pts[i+1]
+				local t1 = (i - 1) / (#pts - 1)
+				local t2 = i / (#pts - 1)
+				local w1 = lane.wA + (lane.wB - lane.wA) * t1
+				local w2 = lane.wA + (lane.wB - lane.wA) * t2
+				local wMid = (w1 + w2) / 2
+				local cap = (i == 1) and "both" or "b"
+				local segDirt = { x1 = p1.x, z1 = p1.z, x2 = p2.x, z2 = p2.z, w = wMid }
+				MapPaint.Segment(segDirt, folder, cx, dirt, TOP - THICK / 2, THICK, cap)
+			end
+		else
+			local a = Vector2.new(lane.x1, lane.z1)
+			local b = Vector2.new(lane.x2, lane.z2)
+			MapPaint.Taper(a, b, lane.wA, lane.wB, folder, cx, dirt, TOP - THICK / 2, THICK, QUADS, true, true)
+		end
 	end
-
 	local painted = 0
 	for _, p in ipairs(folder:GetChildren()) do
 		if p:IsA("BasePart") then
