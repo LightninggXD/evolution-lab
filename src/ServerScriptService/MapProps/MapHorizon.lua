@@ -86,19 +86,28 @@
 --        c. the four runs read the camps on their OWN side instead of one `math.abs` maximum.
 --      Re-measured, 6-stud grid over all twenty floors: **1 of 20 camps, 33 of 660 cells.**
 --
--- ===== AND THE ONE THAT IS LEFT IS NOT THIS FILE'S TO FIX =====
--- The survivor is **SE2, at (440, -4)**. Every other camp on the platform is inside |x| 351; SE2 is
--- 89 studs beyond the next one, on the east flank at mid-z, which is exactly where the inner east
--- run has to stand. Its floor edge is 460, the reservation is 287, so that run wants to centre at
--- **747** -- and the boundary wall is at 625. It is clamped there, and the boot line now says so
--- per side, in studs: `east -122, west -33, north -46, south -46`.
+-- ===== AND THE ONE THAT WAS LEFT WAS NOT THIS FILE'S TO FIX -- IT IS FIXED IN `JungleLayout` =====
+-- The survivor was **SE2, at (440, -4)**, with every other camp inside |x| 351. Its floor edge was
+-- 460, the reservation is 287, so the inner east run wanted to centre at **747** against a wall at
+-- 625: clamped there, and the boot line said `east -122, west -33, north -46, south -46`.
 --
--- Past the wall a hill stands behind the thing it exists to hide, so the clamp is not negotiable
--- and the 122 studs are not this file's to find. **The lever is `JungleLayout`.** 32.17 shrank the
--- hunting ground by pulling the camps toward the village and it worked -- the furthest camp went
--- 170.4 -> 84.0 studs off the village edge -- but it never touched `max |x|`, which went 436 -> 440.
--- Review R23's "camp floor edge 481 -> 374, so 32.18 has 46 studs of margin" is arithmetic on a
--- number nobody measured: the edge is 460 and the margin is -122.
+-- Past the wall a hill stands behind the thing it exists to hide, so the clamp was never
+-- negotiable and the 122 studs were never this file's to find. **The lever was `JungleLayout` and
+-- 👤 the owner took it on 2026-08-25**: NE4, NE5, SE5 and SE2 are re-authored so the east column
+-- lands on the village line. The east camp edge is **460.2 -> 319.8** and the shortfall is
+-- **-122 -> 0**. Read that block in `JungleLayout` before moving a camp: the ceiling for a final
+-- |x| is `WALL_X - reservation - CAMP_RADIUS` = 318, and it was three camps stacked on one bearing
+-- rather than one camp being far out -- moving SE2 alone would have left the edge at 403.5.
+--
+-- West / north / south are unchanged and still short 33 / 46 / 46. That is deliberate: the
+-- reservation is the WORST hill this file may stand up, so a shortfall smaller than the margin
+-- inside it costs nothing, and the raycast grid -- which is the test, not the arithmetic -- has
+-- never found rock on a camp on those three sides.
+--
+-- 32.17 shrank the hunting ground by pulling the camps toward the village and it worked -- the
+-- furthest camp went 170.4 -> 84.0 studs off the village edge -- but it never touched `max |x|`,
+-- which went 436 -> 440. Review R23's "camp floor edge 481 -> 374, so 32.18 has 46 studs of
+-- margin" was arithmetic on a number nobody measured: the edge was 460 and the margin -122.
 --
 -- 32.15's clipping sits underneath all of this and is why SE2 is walkable rather than walled: a
 -- collider box that would come inside a camp floor is cut back on its across axis (see
@@ -177,18 +186,35 @@ local AT = {
 -- moving the west run 38 studs further out for nothing -- 38 studs of range that ends up behind the
 -- boundary wall, which is the one regression this whole file exists to avoid. A run is asked about
 -- the camps on ITS OWN side now.
+--
+-- ===== AND EACH EDGE CARRIES THE CAMP THAT SET IT (32.18) =====
+-- The shortfall line used to print four numbers and no names, so `east -122` said that SOMETHING
+-- was 122 studs too far out and left the reader to re-derive which camp -- which is exactly the
+-- work R23 did wrong: it unblocked this row on a camp edge of 374 that no camp had ever stood at.
+-- The edge is a `math.max` over the camps, so the argmax is free; carrying it turns the alarm from
+-- "the east is short" into "SE2 is 122 studs too far east", which is a fault someone can act on.
+-- `MapHorizon` still does not own where the camps go -- it only names the one it is stuck behind.
 local function campEdge()
 	local camps = JungleLayout.Camps("Forest")
-	if not camps then return 446, 446, 388, 388 end
+	if not camps then return 446, 446, 388, 388, {} end
 	local ex, wx, nz, sz = 0, 0, 0, 0
+	local who = { east = "-", west = "-", north = "-", south = "-" }
 	for _, c in ipairs(camps) do
-		if c.x > 0 then ex = math.max(ex, c.x) else wx = math.max(wx, -c.x) end
-		if c.z > 0 then nz = math.max(nz, c.z) else sz = math.max(sz, -c.z) end
+		if c.x > 0 then
+			if c.x > ex then ex, who.east = c.x, c.id end
+		elseif -c.x > wx then
+			wx, who.west = -c.x, c.id
+		end
+		if c.z > 0 then
+			if c.z > nz then nz, who.north = c.z, c.id end
+		elseif -c.z > sz then
+			sz, who.south = -c.z, c.id
+		end
 	end
 	local r = JungleLayout.CAMP_RADIUS
-	return ex + r, wx + r, nz + r, sz + r
+	return ex + r, wx + r, nz + r, sz + r, who
 end
-local CAMP_EDGE_E, CAMP_EDGE_W, CAMP_EDGE_N, CAMP_EDGE_S = campEdge()
+local CAMP_EDGE_E, CAMP_EDGE_W, CAMP_EDGE_N, CAMP_EDGE_S, CAMP_EDGE_WHO = campEdge()
 
 -- Daylight between the innermost rock and the outermost camp's floor. 15 and not 2: `innerZ` was
 -- 568 rather than 550 because at 550 the check read 390 against a camp edge of 388, and two studs
@@ -747,7 +773,7 @@ function MapHorizon.Build(zoneKey, cx, map)
 			innerAtX, innerAtZ = math.max(atE, atW), math.max(atN, atS)
 			MapHorizon.LastShort = {
 				east = shortE, west = shortW, north = shortN, south = shortS,
-				clear = clear,
+				clear = clear, who = CAMP_EDGE_WHO,
 			}
 		end
 		-- ===== A RUN HAS TO OVERSHOOT THE CORNER, NOT STOP AT IT =====
@@ -853,7 +879,8 @@ function MapHorizon.Build(zoneKey, cx, map)
 				local bits = {}
 				for _, side in ipairs({ "east", "west", "north", "south" }) do
 					if sh[side] > 0.5 then
-						bits[#bits + 1] = ("%s %+.0f"):format(side, -sh[side])
+						bits[#bits + 1] = ("%s %+.0f (%s)")
+							:format(side, -sh[side], (sh.who and sh.who[side]) or "-")
 					end
 				end
 				if #bits == 0 then

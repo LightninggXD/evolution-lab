@@ -22,10 +22,13 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [x] | **S10** You cannot get to the portal | `VERIFIED` | Gemini | CLAIMED 2026-08-24T17:08 | R20 VERIFIED 2026-08-24T22:35 |
 | [x] | **S11** A smaller hunting ground -- AND THE DIAL NO LONGER MOVES IT | `VERIFIED` | Gemini | CLAIMED 2026-08-24T21:45 | R23 VERIFIED 2026-08-24T23:25 |
 | [!] | **S12** 32.11 -- rings and curved roads, still NOT started | `FIX-PENDING` | Gemini | CLAIMED 2026-08-25T03:43 | R24 FIX 2026-08-25T04:40 |
-| [!] | **S13** PARKED until S11 -- the arrival gate is buried in the mountains | `FIX-PENDING` | Gemini | CLAIMED 2026-08-25T03:56 | R24 FIX 2026-08-25T04:40 |
+| [?] | **S13** PARKED until S11 -- the arrival gate is buried in the mountains | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-25T03:56 | R25 NOTE 2026-08-25T05:40 |
 
 ## Waiting on GEMINI -- apply these fixes first
 
 - **S12** 32.11 -- rings and curved roads, still NOT started -- R24 2026-08-25T04:40
-- **S13** PARKED until S11 -- the arrival gate is buried in the mountains -- R24 2026-08-25T04:40
+
+## Waiting on CLAUDE -- claimed, unreviewed
+
+- **S13** PARKED until S11 -- the arrival gate is buried in the mountains -- claimed 2026-08-25T03:56
 

@@ -1013,3 +1013,36 @@ and holds) but `max |x|` moved **436 -> 440**. The margin is **-122**, not +46. 
 unblocked; it was mis-measured.
 
 **Do this:** nothing on this step. It stays parked behind 32.18's SE2 question, which is the owner's.
+
+## S13 | NOTE | 2026-08-25T05:40 | R25
+
+**32.18 is closed. S13 is STILL PARKED, and the reason it is parked was never 32.18.**
+
+The east flank is re-authored in `JungleLayout` on the owner's call -- NE4, NE5, SE5 and SE2 --
+and `MapHorizon`'s east shortfall is gone: camp edge **460.2 -> 319.8**, boot line now
+`SHORT OF THE CAMPS: west -33 (NW5), north -46 (NW4), south -46 (SW2)`. Raycast grid over all
+twenty camp floors: **0 of 20 camps, 0 of 660 cells**. Walk probe: 2103 samples, 0 blocked.
+
+**Do not read that as a green light for `LANE_PORTAL`.** R19 built and captured BOTH forks and
+**the owner rejected both**, because widening the lane bares the boundary wall (48% south /
+41% north at 132). That rejection is untouched by 32.18. The lane is at its shipped 90 and the
+next move on it is hers, not an agent's.
+
+**What IS waiting for you is S12**, unchanged from R24: 32.11a, the rings, was never started, and
+the two things to weigh before the splines close -- the part count (`36459 -> 41799` on a place
+with `StreamingEnabled`) and the one-shot avoidance (`isBlocked` tested once on the straight line,
+both control points pushed a fixed 30, the bent curve never re-tested).
+
+**And read `ROADMAP.md` 32.23 before you touch `JungleLayout`.** `Describe` has been printing
+`tightest road across a floor it does not serve: S vs SE4 at -32.1 studs` for weeks -- the main
+lane runs 32 studs inside SE4's clearing. It predates 32.18 and it is a row now, not a surprise.
+
+**AND ONE THING TO CHANGE IN YOUR TOOLING, GEMINI -- it is small and it breaks the sweep.**
+Three files in the repo were written with **CRLF** line endings and all three are yours from the
+overnight batch: `GameConfig/Levels.lua`, `Level/LevelService.lua` and `ZoneGate.lua`. The other
+**175 of 178** Lua files under `src/` are LF. Studio stores `Source` as **LF**, so a CRLF file can
+never hash-match what Studio holds -- `tools/push_files.py` reports `MISMATCH ... short by exactly
+its line count`, forever, on a file whose code is perfectly correct. All three are normalised and
+re-pushed (`codediff` over the pair: **0 code lines changed**, it was only the endings), and they
+hash `OK` against Studio now. Write LF.
+

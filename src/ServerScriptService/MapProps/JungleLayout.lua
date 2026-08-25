@@ -367,7 +367,45 @@ end
 -- EVERY CAMP IS 52 TO 120 STUDS OFF A ROAD and that number is CHECKED AT BOOT, not trusted --
 -- `Describe` prints the nearest-road distance for the worst camp in the table. A camp further than
 -- a spur's length from the network is the exact fault this row was opened for, and it is invisible
--- from any single screenshot.
+-- from any single screenshot.--
+-- ===== THE EAST COLUMN IS CAPPED, AND THE CAP IS THE MOUNTAINS' ARITHMETIC (32.18) =====
+-- 👤 OWNER'S CALL, 2026-08-25: the whole east flank comes in, not just the one offender.
+--
+-- `MapHorizon` stands its inner row of hills at `campEdge + ROCK_FOOT reservation` and may never
+-- place a run outside the boundary wall, so a camp's FINAL |x| is what decides whether the range
+-- has anywhere to stand. The reservation measures 287 and `WALL_X` is 625, so the ceiling is
+--
+--     final |x| <= 625 - 287 - CAMP_RADIUS = 318
+--
+-- and it is NOT written here as a constant: `MapHorizon` owns both numbers and prints the shortfall
+-- per side at boot, naming the camp that caused it. This block is the reason the four coordinates
+-- below are what they are, so that a re-author knows the ceiling exists before it moves them.
+--
+-- WHAT WAS WRONG AND WHY A CAP ON SE2 ALONE WOULD NOT HAVE FIXED IT. NE5, SE5 and SE2 were authored
+-- within 40 studs of `z = 0` at |x| 551/551/691 -- radially STACKED. `PullIn` preserves the bearing
+-- exactly, so the shrink can never separate three camps on one bearing: each one is walked back out
+-- by `MIN_CAMP_SEPARATION` until it clears the one in front, and SE2 ended up at 440 with rock
+-- standing on its floor while everything else sat inside 351. Moving SE2 alone put the east edge at
+-- 403.5 (SE5 is next in the chain), still 65 studs short. The stack had to be spread in z.
+--
+--     NE4  (600, 491) -> (564, 555)   final (336.4, 275.3) -> (299.8, 295.0)
+--     NE5  (551, 159) -> (410, 302)   final (348.8,  25.3) -> (298.5, 219.9)   village-clamped
+--     SE5  (551, -34) -> (410, -11)   final (383.5, -23.7) -> (298.5,  -8.0)   village-clamped
+--     SE2  (691,  -6) -> (417, -278)  final (440.2,  -3.8) -> (299.8, -199.9)
+--
+--     east camp edge 460.2 -> 319.8, shortfall 122.2 -> 0.0
+--
+-- THREE THINGS THE NEW COORDINATES ARE CHOSEN AGAINST, not just the ceiling:
+--   * `MIN_VILLAGE_CLEAR` puts a camp with |z| <= 230 on the line |x| = 298.5, and that line is
+--     already occupied by NE1 (z 151.8) and NE3 (z 58.1). The four finals are spread so the
+--     tightest floor gap in the whole zone is still +20.0 -- exactly the clamp, nothing riding it.
+--   * THE `E` TRUNK ROAD RUNS AT z = -100 FROM x 286 TO 450. A camp on that line needs
+--     |z + 100| >= 43 (23 of road plus 20 of floor), which is what rules out the obvious slot at
+--     z = -62 and puts SE2 at -200 rather than just south of SE5.
+--   * The quadrants and the north-to-south difficulty gradient hold: SE2 is a gated raidBrute and
+--     it has moved from due east to genuinely south-east, which the paragraph above asks for.
+--
+-- The shrink itself is untouched -- furthest camp from the village is still 84.0 (SW2).
 local CAMPS_FOREST = {
 	-- ---- north-west quadrant, front (plaza end) to back
 	{ id = "NW1", kind = "swarm     ", x =  -411, z =   179 }, -- final r=28
@@ -379,8 +417,8 @@ local CAMPS_FOREST = {
 	{ id = "NE1", kind = "swarm     ", x =   411, z =   209 }, -- final r=28
 	{ id = "NE2", kind = "swarm     ", x =   283, z =   650 }, -- final r=84
 	{ id = "NE3", kind = "brute     ", x =   411, z =    80 }, -- final r=28
-	{ id = "NE4", kind = "brute     ", x =   600, z =   491 }, -- final r=84
-	{ id = "NE5", kind = "elite     ", x =   551, z =    40 }, -- final r=56
+	{ id = "NE4", kind = "brute     ", x =   564, z =   555 }, -- final r=84  [32.18: was 600/491]
+	{ id = "NE5", kind = "elite     ", x =   410, z =   302 }, -- final r=56  [32.18: was 551/40]
 	-- ---- south-west quadrant: everything gated, and the deep end of the walk
 	{ id = "SW1", kind = "brute     ", x =   -84, z =  -370 }, -- final r=28
 	{ id = "SW2", kind = "raidBrute ", x =  -174, z =  -650 }, -- final r=84
@@ -389,10 +427,10 @@ local CAMPS_FOREST = {
 	{ id = "SW5", kind = "apex      ", x =  -551, z =  -229 }, -- final r=56
 	-- ---- south-east quadrant, mirrored
 	{ id = "SE1", kind = "brute     ", x =   209, z =  -370 }, -- final r=28
-	{ id = "SE2", kind = "raidBrute ", x =   691, z =    -6 }, -- final r=84
+	{ id = "SE2", kind = "raidBrute ", x =   417, z =  -278 }, -- final r=84  [32.18: was 691/-6]
 	{ id = "SE3", kind = "raidElite ", x =   115, z =  -370 }, -- final r=28
 	{ id = "SE4", kind = "apex      ", x =    33, z =  -650 }, -- final r=84
-	{ id = "SE5", kind = "apex      ", x =   551, z =   -34 }, -- final r=56
+	{ id = "SE5", kind = "apex      ", x =   410, z =   -11 }, -- final r=56  [32.18: was 551/-34]
 }
 
 -- The table above stays readable AS AUTHORED and the shrink is applied over it here, rather than

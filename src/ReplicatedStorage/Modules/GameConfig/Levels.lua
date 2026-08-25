@@ -174,14 +174,35 @@ function GameConfig.GetLevelZoneMult(zoneIndex)
 	return GameConfig.LevelZoneGrowth ^ (i - 1)
 end
 
--- ===== REBIRTH XP MULTIPLIER =====
--- Each completed rebirth makes leveling up faster by +25% per rebirth milestone,
--- so players climb back up to higher gates smoothly and feel permanent momentum.
+-- ===== REBIRTH XP MULTIPLIER, AND IT IS CAPPED =====
+-- Each completed rebirth makes levelling up faster by +25%, so a player climbing back to a gate she
+-- has already passed does it faster than the first time. This is the whole of 32.22 and it is the
+-- owner's ask: *"levelling should be faster after a rebirth"*.
+--
+-- 👤 THE CAP IS HERS TOO, 2026-08-25, AND IT IS THE HALF THAT WAS MISSING. The bonus was authored
+-- linear with no ceiling of its own, and its only ceiling was an accident of a different constant:
+-- `MaxRebirths` is 20, so the multiplier topped out at **6.0x** wherever that number went next. A
+-- bonus that big is not a smoother climb -- 32.7 made the rebirth gate a LEVEL, so a 6x XP rate is
+-- a rebirth ladder whose last rungs cost nothing, and the ladder is the game's spine.
+--
+-- 3.0 is reached at **8 rebirths** -- the full +25% for the first eight, then flat for the last
+-- twelve. That is where the bonus stops being momentum and starts being the whole climb: eight is
+-- also where `GetNextRebirthLevel`'s gates have stopped moving in the same proportion.
+--
+-- IT IS A `math.min` AND NOT A SMALLER PERCENTAGE, deliberately: the early rebirths are the ones
+-- the ask was about and they keep the full step. And the ceiling is stated as its own constant
+-- rather than left to fall out of `MaxRebirths`, so moving the rebirth count can never move the
+-- XP economy by accident -- which is exactly how it read before.
 GameConfig.RebirthXpBonusPct = 25
+GameConfig.RebirthXpMaxMult = 3
 
 function GameConfig.GetRebirthXpMult(data)
-	local r = (data and data.Rebirths) or 0
-	return 1 + r * (GameConfig.RebirthXpBonusPct / 100)
+	-- Read the same defensive way as `GetLevelXp` above: this multiplies the one function that
+	-- turns damage into levels, so a save carrying a string or a NaN in `Rebirths` must come out
+	-- as x1 rather than as an error inside the kill path or as a NaN XP bar.
+	local r = tonumber(data and data.Rebirths) or 0
+	if r ~= r or r < 0 then r = 0 end
+	return math.min(1 + r * (GameConfig.RebirthXpBonusPct / 100), GameConfig.RebirthXpMaxMult)
 end
 
 -- The one place damage becomes XP. damage is the health the target actually LOST, not the swing

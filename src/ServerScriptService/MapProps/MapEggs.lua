@@ -171,8 +171,10 @@ end
 -- `PetService.WireKiosks` is watching (see the header).
 local ADOPT = { PriceCardAnchor = true, EggOddsAnchor = true }
 
--- 👤 OWNER DECISION, PENDING. `true` clears the fence ring out of the plaza; `false` keeps the pen
--- 30.24 asked the eggs to stand inside. Radius 45 about the fountain anchor.
+-- 👤 OWNER DECISION, TAKEN 2026-08-25: `true` -- the fence ring comes OUT of the plaza. It stays a
+-- named constant rather than being deleted along with the code, because 30.24 put the eggs inside
+-- that pen on her own instruction and `false` is how the pen comes back in one line. Radius 45
+-- about the fountain anchor.
 local DROP_PLAZA_FENCE = true
 
 local function adoptStrays(shop, claimed, slots)
