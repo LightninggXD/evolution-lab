@@ -259,6 +259,7 @@ function JungleTrails.Build(camps, cross, opts)
 					x1 = pts[i].x, z1 = pts[i].z, x2 = pts[i+1].x, z2 = pts[i+1].z,
 					w = o.width,
 					tier = "trail",
+					caps = (i == 1) and "both" or "b",
 					serves = { [best.camp.id] = true, [best.from and best.from.id or ""] = true },
 					parent = best.from and best.from.id or nil,
 					walk = (i == 1) and best.total or 0,

@@ -307,43 +307,25 @@ function MapJungle.Build(zoneKey, cx, map)
 		warn("[MapJungle] " .. zoneKey .. ": the map has no Rock meshes -- no alcoves built")
 	end
 
-	-- Seeded off the zone, never off the clock: two servers of the same place have to grow the same
-	-- jungle, which is the rule `MapForest`, `raisedSpots` and `JungleLayout.Spawns` all follow.
 	local rng = Random.new(20260822 + math.floor(cx))
-
 	local colour = MapPaint.DirtColour(map)
-	-- ===== A PLANE PER KIND, LOWEST FIRST (30.26) =====
-	-- Everything the jungle paints overlaps something else it paints: spurs run onto camp floors by
-	-- design since this row, trunk roads cross at junctions, and a floor's rim is under both. Drawn
-	-- at one Y they z-fight into the patchwork the owner photographed. The order is what the eye
-	-- should see from the bottom up -- rim, trunk, spur, floor -- and the whole ladder spans 0.16 of
-	-- a stud, which is nothing to walk on and everything to a depth buffer.
-	local Y_RIM = MapPaint.Y - MapPaint.STEP * 2
-	local Y_TRUNK = MapPaint.Y
+	local EDGE_SHADE = 0.42
+	local edgeColour = MapPaint.Shade(colour, EDGE_SHADE)
+	local EDGE_W = 3
+
+	local Y_RIM = MapPaint.Y - MapPaint.STEP * 3
+	local Y_TRUNK_EDGE = MapPaint.Y - MapPaint.STEP * 2
+	local Y_TRUNK = MapPaint.Y - MapPaint.STEP
+	local Y_SPUR_EDGE = MapPaint.Y
 	local Y_SPUR = MapPaint.Y + MapPaint.STEP
 	local Y_FLOOR = MapPaint.Y + MapPaint.STEP * 2
-	-- ONE list of trunks and spurs, from `JungleLayout.Segments` -- the same list `MapForest` keeps
-	-- its wood out of. Before 30.23 the spurs were derived here and the planter knew only the
-	-- trunks, so every spur was a road with a wood grown across it.
+
 	local segments = JungleLayout.Segments(zoneKey) or {}
-	-- ===== THE HEIGHT COMES OFF THE SEGMENT'S OWN TIER, NOT OFF ITS INDEX (32.1) =====
-	-- This used to read `i <= trunks`, because `Segments` returned every trunk and then one spur per
-	-- camp. 32.1 appends the trails to the trunk list, so that ordering stopped being true and the
-	-- test would have painted every trail at the trunk's height. Two things go wrong when it does,
-	-- and both are `roblox-coplanar-paint-zfights`: a trail JOINS a trunk, so the two overlap on
-	-- exactly one plane and shimmer down the join, and two trails meeting inside one camp do the
-	-- same. A step apiece and the ladder draws in the order the eye should read it.
 	local Y_FOR = { trunk = Y_TRUNK, trail = Y_SPUR, spur = Y_SPUR }
+	local Y_EDGE_FOR = { trunk = Y_TRUNK_EDGE, trail = Y_SPUR_EDGE, spur = Y_SPUR_EDGE }
 	local trunks, trails, spurs = 0, 0, 0
 	local paved = 0
-	-- ===== THE PAINT DRAWS `Segments()` AND NOTHING ELSE, AND THAT IS 32.11b's WHOLE PROBLEM =====
-	-- A spline was spliced in here on 2026-08-24 -- `PathSplines.Route` per segment, painted as its
-	-- own sub-segments -- and it was reverted because the paint is not the only consumer of this
-	-- list. `MapForest`'s planter and `MapSolids` both keep out of the road by asking
-	-- `JungleLayout.RoadClearance`, which measures against these STRAIGHT segments; a curve painted
-	-- here and nowhere else is invisible to both, and the first symptom is a tree down the middle of
-	-- the new road, which is the whole of 32.4 again. A curved road has to be decomposed back into
-	-- `Segments()` so that every consumer sees the curve. See row 32.11b.
+
 	for _, seg in ipairs(segments) do
 		local segEdge = { x1 = seg.x1, z1 = seg.z1, x2 = seg.x2, z2 = seg.z2, w = seg.w + EDGE_W * 2 }
 		paved += MapPaint.Segment(segEdge, folder, cx, edgeColour, Y_EDGE_FOR[seg.tier] or Y_TRUNK_EDGE, nil, seg.caps)
@@ -353,8 +335,6 @@ function MapJungle.Build(zoneKey, cx, map)
 		else trunks += 1 end
 	end
 
-	-- AFTER the paint and with `segments` in hand, because the backstop is placed against the roads
-	-- now (32.4) and the one list of them is the one the paint was just drawn from.
 	local rocks, dropped = 0, 0
 	if #stock > 0 then
 		for _, camp in ipairs(camps) do
@@ -365,16 +345,8 @@ function MapJungle.Build(zoneKey, cx, map)
 		end
 	end
 
-	-- SPURS READING ZERO IS THE FIX, NOT THE FAULT, and the wording says so because 31.24's boot
-	-- log killed a build on that exact number meaning the opposite (every camp had landed ON the
-	-- ring). Since 32.1 a trail ends inside each camp's floor, so `SpurFor` has nothing left to
-	-- connect. See `JungleLayout`'s note above `PATHS_FOREST`.
-	-- THE DROPPED COUNT IS PRINTED EVEN WHEN IT IS ZERO, and that is the point of it: 32.4's fault
-	-- was eight camps quietly standing a stone in a road, and the only thing that would ever have
-	-- said so is a number beside the count that should equal it. A run that suddenly drops half the
-	-- backstop is a road that has moved under the camps.
 	print(("[MapJungle] %s: %d clearings with %d rocks and floors (%d dropped off the roads), "
-		.. "%d path parts (%d cross + %d trails + %d spurs) -- the horizon is `MapHorizon` since 31.24")
+		.. "%d path parts (%d cross + %d trails + %d spurs) -- the horizon is MapHorizon since 31.24")
 		:format(zoneKey, #camps, rocks, dropped, paved, trunks, trails, spurs))
 	return #camps
 end
