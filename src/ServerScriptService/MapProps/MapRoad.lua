@@ -142,18 +142,12 @@ function MapRoad.Build(zoneKey, cx, map)
 			local cap = "none"
 			if i == 1 then cap = "both" else cap = "b" end
 			
-			local seg = { x1 = p1.x, z1 = p1.z, x2 = p2.x, z2 = p2.z, w = wMid + EDGE_W * 2 }
-			made += MapPaint.Segment(seg, folder, cx, edge, eyMid - THICK / 2, THICK, cap)
-			
 			local seg2 = { x1 = p1.x, z1 = p1.z, x2 = p2.x, z2 = p2.z, w = wMid }
 			made += MapPaint.Segment(seg2, folder, cx, dirt, yMid - THICK / 2, THICK, cap)
 		end
 	else
 		-- fallback to taper if spline fails
-		made = MapPaint.Taper(FROM, TO, W_PLAZA + EDGE_W * 2, W_VILLAGE + EDGE_W * 2,
-			folder, cx, edge, EDGE_TOP - THICK / 2, THICK, QUADS, false, true,
-			EDGE_TOP_VILLAGE - THICK / 2)
-		made += MapPaint.Taper(FROM, TO, W_PLAZA, W_VILLAGE,
+		made = MapPaint.Taper(FROM, TO, W_PLAZA, W_VILLAGE,
 			folder, cx, dirt, TOP - THICK / 2, THICK, QUADS, false, true,
 			TOP_VILLAGE - THICK / 2)
 	end
