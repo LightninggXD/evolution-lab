@@ -196,4 +196,9 @@ function MapPass.Cut(zoneKey, cx, map)
 	return #removed, dressed
 end
 
+-- Exported for MapGateFlanks, which dresses the wall either side of her arch from the same stock
+-- -- a second copy of the placed-map-then-Ridge-fallback lookup would be the
+-- [[evolution-lab-zone-geometry-constants]] drift all over again.
+MapPass.RockStock = rockStock
+
 return MapPass

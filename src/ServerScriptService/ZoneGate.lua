@@ -236,10 +236,16 @@ local function buildPortal(model, wallX, target, faceOverride)
 	-- Rich dimensional particle vortex
 	local vortex = Instance.new("ParticleEmitter")
 	vortex.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	-- 32.31: these keypoints were NumberSequenceKeypoints carrying Color3 values, which throws
+	-- "invalid argument #2 to 'new' (number expected, got Color3)" -- and buildPortal dies at the
+	-- first gate, taking the WHOLE ZoneBuilder.Build with it (found 2026-08-25 by forcing Forest's
+	-- first fresh rebuild since the file was last touched; every boot in between had skipped the
+	-- zones as already-built, so a crash this loud sat latent for that whole time). A color
+	-- gradient takes ColorSequenceKeypoints.
 	vortex.Color = ColorSequence.new({
-		NumberSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
-		NumberSequenceKeypoint.new(0.5, glow),
-		NumberSequenceKeypoint.new(1, accent),
+		ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
+		ColorSequenceKeypoint.new(0.5, glow),
+		ColorSequenceKeypoint.new(1, accent),
 	})
 	vortex.Rate = 28
 	vortex.Lifetime = NumberRange.new(2.0, 4.0)

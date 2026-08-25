@@ -1031,3 +1031,42 @@ The rings and the roads are two separate deliverables and the last attempt merge
 commit with a broken file. They should be two rows — **32.11a rings, 32.11b curved roads** — because
 32.11a is a table edit whose verification is two boot-log lines, and 32.11b is new geometry whose
 verification is the walk probes again.
+
+### 32.30 - her stone arch becomes the Forest -Z gate (MapGateArch + MapGateFlanks)
+
+- **Date:** 2026-08-25
+- **Status set in ROADMAP.md:** `[~]`
+- **Files changed:**
+  - `src/ServerScriptService/MapProps/MapGateArch.lua` (new)
+  - `src/ServerScriptService/MapProps/MapGateFlanks.lua` (new)
+  - `src/ServerScriptService/ForestMapService.lua` (wiring: both Inits into the portal block, after MapPortalArt)
+  - `src/ServerScriptService/MapProps/MapPass.lua` (exports `RockStock` for the flank dresser; repaired an accidental two-statements-on-one-line left by the previous session)
+- **Commit:** (this sync)
+- **What was built:** Her `PortalArchTemplate` model replaces the built -Z gate on every boot: the clone is seated on the sheet floor by bounds, the `PortalGate` sheet itself is resized into the red door film (0.4 x 119 x 73) so ZoneService's one-shot scan and Touched wiring keep working untouched, and the built stonework is stripped by name+radius. `MapGateFlanks` dresses the bare wall either side (8 seeded crags 40..75 tall, long axis along the wall, |x| 56..126) plus 2 back-fills in the slot above the door. Two robustness fixes over the previous session's draft, both found by running it twice: idempotent re-seat (old `PortalArch` destroyed before the new one is seated) and template recovery from ServerStorage (a save that picked up the parking step no longer falls back to the vanilla gate forever).
+- **Why this shape:** The teleport is ZoneService's, not this file's -- resizing the existing sheet keeps the one-shot scan, the attribute and the Touched handler all intact, where a renamed/re-parented door is the dead-remote shape this repo has shipped before. Film geometry is measured in TEMPLATE space before `ScaleTo` because post-scale measurement let the decorative rocks into the film (her "malo ti izviruje ova crvena").
+- **Evidence (live, in Studio):**
+  - Fresh Forest build (Forest deleted first): `[MapGateArch] Forest: arch seated at (0, 0, -575) scale 8.25, door film 73 x 119, sheet recolored (0.53, 0.00, 0.00), removed 47 built gate parts, template -> ServerStorage`
+  - `[MapGateFlanks] Forest: dressed 10 crags against the wall at z -575 (8 flanks 40..75 tall a side-step of the arch, 2 back-fill 130..165 tall in the slot)`
+  - Second Init over the same world: `[MapGateArch] Forest: template recovered from ServerStorage` then `removed 0 built gate parts`; structural count after: `PortalArch models in Forest: 1 (want 1)`
+  - `probe_portal_walk` S2 on the fresh Play boot: `len 931, samples 233, BLOCKED 9` -- 1 = her own character at spawn, 5 = village furniture on the straight line (Barrel1 x2, EggPodiumTop x3; 32.16's known shape), 3 = the arch mesh's bounding box. Mesh-accurate rays at walk heights y+2.5/5/7 from BOTH sides: nothing solid before the door film at z -575 -- the 3 are bbox artifacts, the passage is physically open.
+  - S3: `sight ray village-eye -> door: hit Workspace.Zones.Forest.PortalGate at (0, 81, -575)`
+  - S1: `corridor offenders remaining: 1` = `Workspace.Folder.HorizonHill` (row 32.29, pre-existing, untouched)
+  - Captures: village approach, mouth close-up (red door inside the arch silhouette, no overhang), flanks side view.
+- **Not verified:** which spawner stood the expedition boss ("The Devourer" LIVE bar) on the gate approach in her capture -- nothing in this row moves it, but it wants a look (candidate row beside 33.1). Also: the live published game does not get any of this until she saves and publishes.
+- **Rules broken:** none.
+- **Open questions for review:** the boss-on-the-approach question above; and whether the wall ABOVE the flanks (still flat slate between the crag tops and the 180-stud wall top) is close enough to her "kao da si u prirodi zatvoren" or wants a second, taller flank tier.
+
+### 32.31 - ZoneGate.buildPortal crashed the whole world build (latent behind the skip-guard)
+
+- **Date:** 2026-08-25
+- **Status set in ROADMAP.md:** `[~]`
+- **Files changed:**
+  - `src/ServerScriptService/ZoneGate.lua` (one block: NumberSequenceKeypoint -> ColorSequenceKeypoint, with a comment)
+- **Commit:** (this sync)
+- **What was built:** Fix only. `vortex.Color` was a `ColorSequence.new` over NUMBER keypoints carrying Color3 values -- throws `invalid argument #2 to 'new' (number expected, got Color3)`, killing `buildPortal` at the first gate and, with it, `ZoneBuilder.Build` -> `ServerMain:80`: no zones, no remotes, five client scripts dead on WaitForChild. It sat latent because `Build()` skips existing zones stamped `Complete` at the current BUILD_VERSION and the saved place carries a built world -- the line had not actually run in weeks.
+- **Why this shape:** One-line class fix plus a comment naming the trap (the version guard is a cache, not a guarantee the build code still runs). No behaviour change: the intended white->glow->accent gradient, now with the right keypoint class.
+- **Evidence (live, in Studio):**
+  - Before: `ServerScriptService.ZoneGate:240: invalid argument #2 to 'new' (number expected, got Color3)` with stack `buildPortal <- buildPortalInZWall <- buildZWall <- Build <- ServerMain:80`, followed by five client `WaitForChild` deaths.
+  - After the fix, the same fresh build: full boot to `[Evolution Lab Tycoon] Server systems initialized.`, 20 doors wired, remotes up, and 32.30's `removed 47 built gate parts` proving the gate block ran.
+- **Not verified:** the vortex emitter's look was never seen before the fix (it had never run) -- judged only by the code's intent; a visual pass over the gate particles is fair game for her next walk.
+- **Rules broken:** none.

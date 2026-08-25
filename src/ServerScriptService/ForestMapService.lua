@@ -110,6 +110,13 @@ local MapWaterfall = require(script.Parent.MapProps.MapWaterfall)
 -- ad-portal template and seats its island at the same gate.
 local MapPass = require(script.Parent.MapProps.MapPass)
 local MapPortalArt = require(script.Parent.MapProps.MapPortalArt)
+-- 32.30: her arch model replaces the built -Z gate art. The gate itself already exists here --
+-- `ZoneBuilder.Build()` ran at ServerMain:82, this service at :93 -- so the pass can find the
+-- `PortalGate` sheet, resize it into the arch's doorway and keep the teleport the scan wired.
+local MapGateArch = require(script.Parent.MapProps.MapGateArch)
+-- 32.30: the wall either side of the arch gets the mouth's own treatment -- stock crags leaning
+-- on the slate, and two tall back-fills behind the arch so the slot above it reads as rock.
+local MapGateFlanks = require(script.Parent.MapProps.MapGateFlanks)
 
 local ForestMapService = {}
 
@@ -577,6 +584,12 @@ function ForestMapService.Init()
 				-- ran before it, and the point is what the NEXT pass sees).
 				MapPass.Cut(zoneKey, cx, map)
 				MapPortalArt.Init(zoneKey, cx)
+				-- LAST of the portal block, and only because it eats what the two above it left
+				-- standing: the arch seats onto the cut corridor's gate and strips the built
+				-- stonework around it. Before the cut it would seat against hills that are
+				-- about to leave; before the art it could inherit an ad unit's island pose.
+				MapGateArch.Init(zoneKey)
+				MapGateFlanks.Init(zoneKey, cx, map)
 				local planted = MapForest.Plant(zoneKey, cx, map, spec)
 				-- AFTER the planting, and that ordering matters: the ridge hills and the alcove
 				-- rocks are placed against authored coordinates, but the trees are scattered, and a
