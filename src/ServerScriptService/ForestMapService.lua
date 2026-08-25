@@ -105,6 +105,7 @@ local MapCut = require(script.Parent.MapProps.MapCut)
 local MapGates = require(script.Parent.MapProps.MapGates)
 local MapRidge = require(script.Parent.MapProps.MapRidge)
 local MapHorizon = require(script.Parent.MapProps.MapHorizon)
+local MapWaterfall = require(script.Parent.MapProps.MapWaterfall)
 
 local ForestMapService = {}
 
@@ -580,13 +581,20 @@ function ForestMapService.Init()
 				-- run any earlier is blind to everything placed after it, which is the whole of
 				-- `evolution-lab-placement-search-ordering`.
 				local gates = MapGates.Build(zoneKey, cx, map, protected)
+				-- AFTER EVERYTHING, and that is the whole of why it is here rather than earlier.
+				-- The waterfall is seated against the mountain wall and then the wood that was planted
+				-- INSIDE the cliff is cut back out of it -- so the wood has to be standing first, and
+				-- the hills have to be raised first, or the seat has nothing to be measured against.
+				-- `evolution-lab-placement-search-ordering`: a pass only knows the world that ran before it.
+				local _wf, wfCut, wfGrotto = MapWaterfall.Build(zoneKey, cx, map)
 				print(("[ForestMapService] %s: dropped %d dressing, laid %d map parts at x%.2f, "
 					.. "cut %d props for the arrival and hunt bands, %d for the entrance road, "
 					.. "%d left floating by the mountain cut, "
 					.. "raised %d horizon hills, planted %d trees over the whole platform, "
-					.. "built %d jungle camps, paved %d road parts and %d gate parts")
+					.. "built %d jungle camps, paved %d road parts and %d gate parts, "
+					.. "cut %d props out of the waterfall cliff and built %d grotto parts")
 					:format(zoneKey, dropped, #map:GetDescendants(), spec.scale, cleared, road,
-						floatingCut, hills, planted, camps, paved, gates))
+						floatingCut, hills, planted, camps, paved, gates, wfCut, wfGrotto))
 				print("[MapAnchors] " .. MapAnchors.Describe(zoneKey))
 			end
 		end

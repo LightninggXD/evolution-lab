@@ -368,14 +368,32 @@ function GameConfig.GetTotalZoneBonusPct(unlockedZoneKeys)
 	return total
 end
 
+-- ===== SECRETS: A HIDDEN SPOT THAT PAYS A MUTATION =====
+--
+-- `offset` is ZONE-LOCAL: the trigger is built at `Vector3.new(zone.offset, 0, 0) + offset`, and
+-- `MapWaterfall` builds the grotto around the SAME number, so the room and the trigger cannot
+-- drift apart.
+--
+-- THE OLD VALUE WAS `(-32.7, 176.1, -151.2)` AND IT WAS UNREACHABLE. That is the waterfall model's
+-- bounding-box CENTRE, measured to 0.1 studs -- the middle of a 217 x 234 x 307 prop, inside five
+-- of its own 80-stud rock parts. Nothing could ever touch it, and nothing said so. See 32.26.
+--
+-- The value below is the grotto behind the falls: the water column lands at x 291 / z -260 and the
+-- lowest `Plunge` shelf spans z -276..-244, so z -290 puts the room's doorway directly behind the
+-- curtain. Y is 6 rather than 0 because a 12-stud touch part centred on the floor is half buried
+-- in it.
 GameConfig.Secrets = {
 	{
 		id = "ForestWaterfall",
 		zoneKey = "Forest",
 		rewardType = "mutation",
 		rewardName = "Godly",
-		offset = Vector3.new(-32.7, 176.1, -151.2),
+		offset = Vector3.new(291, 6, -290),
 	}
+}
+
+GameConfig.SpeedTracks = {
+	{ id = "ForestTrack", zoneKey = "Forest", offset = Vector3.new(0, 0, 70), width = 20, length = 60, interval = 1 },
 }
 
 end
