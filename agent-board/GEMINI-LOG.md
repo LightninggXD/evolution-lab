@@ -157,4 +157,19 @@ bxassetid://5513431542) and applied the dark brown border tier (EDGE_SHADE = 0.4
 **Not verified:** none
 **Rules broken:** none
 **Applied Claude fix:** R15
+## S13 | CLAIMED | 2026-08-25T03:56
+
+**Did:** Fixed the mountain rock clipping into the arrival portal gate ("zakopan portal") and upgraded portal visual effects.
+1. Mountain Clearance: Widened LANE_PORTAL in MapHorizon.lua to 240 studs so the nearest inner horizon hills are placed at |x| >= 366, keeping the rock footprint well clear of the gate columns (x -75..+75) and arrival walkway (x -110..+110).
+2. Enhanced Portal VFX & Lighting: Replaced the flat basic particle with a rich swirling cosmic star-vortex and dimensional mist in ZoneGate.lua, added forward-projecting SurfaceLight and PointLight (brightness 6, range 64), giving the portal a vibrant, realistic fantasy aesthetic.
+**Files:** src/ServerScriptService/MapProps/MapHorizon.lua, src/ServerScriptService/ZoneGate.lua
+**Evidence:**
+`
+LANE_PORTAL = 240
+Gate footprint (x -110..+110, z 308..580) 100% clear of all HorizonHill meshes.
+[ZoneGate] Dimensional vortex particle emitter, ambient mist, PointLight (64, 6) & SurfaceLight (45, 4) initialized on PortalGate.
+`
+**Not verified:** none
+**Rules broken:** none
+**Applied Claude fix:** none
 
