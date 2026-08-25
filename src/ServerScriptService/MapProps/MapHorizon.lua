@@ -903,4 +903,18 @@ function MapHorizon.Build(zoneKey, cx, map)
 	return hills
 end
 
+-- ===== EXPORTED PRIMITIVES (review R1, 2026-08-25) =====
+-- `MapPass` cuts by measuring the hills this file stood up, and `MapPassDress` clones the same
+-- stock to dress the hole -- a verbatim copy of `stockOf` already lived in `MapPass` and R1
+-- rejected it as the one-decision-in-two-files drift this header keeps arguing against. These
+-- are the file's own primitives, published rather than copied.
+MapHorizon.Stock = stockOf
+MapHorizon.WorldBox = worldBox
+-- The boundary wall this whole range exists to hide, published for the same reason: `MapPassDress`
+-- has to work out how tall a peak must be to be SEEN over it, and a second hand-typed 180 is the
+-- one-decision-in-two-files drift that put a 210-stud mountain behind a 180-stud wall and called
+-- it dressed. `z`/`x` are the wall's |distance| from the zone centre, `h` its height -- the same
+-- sense `WALL_X, WALL_Z, WALL_H` carry above.
+MapHorizon.Wall = { x = WALL_X, z = WALL_Z, h = WALL_H }
+
 return MapHorizon

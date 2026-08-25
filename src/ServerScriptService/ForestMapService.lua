@@ -109,6 +109,10 @@ local MapWaterfall = require(script.Parent.MapProps.MapWaterfall)
 -- 32.28: the pass cut runs between Build and Plant below, and MapPortalArt disarms her inserted
 -- ad-portal template and seats its island at the same gate.
 local MapPass = require(script.Parent.MapProps.MapPass)
+-- Review R1 fault 2 (32.28): the hole the cut opens gets its skyline back -- two stock shoulders
+-- on the outer row's line behind the wall, plus the mouth crags moved out of `MapPass` so each
+-- file keeps one purpose.
+local MapPassDress = require(script.Parent.MapProps.MapPassDress)
 local MapPortalArt = require(script.Parent.MapProps.MapPortalArt)
 -- 32.30: her arch model replaces the built -Z gate art. The gate itself already exists here --
 -- `ZoneBuilder.Build()` ran at ServerMain:82, this service at :93 -- so the pass can find the
@@ -583,6 +587,11 @@ function ForestMapService.Init()
 				-- ([[evolution-lab-placement-search-ordering]]: a pass only knows the world that
 				-- ran before it, and the point is what the NEXT pass sees).
 				MapPass.Cut(zoneKey, cx, map)
+				-- Immediately after the cut, because it dresses the hole the cut just made and
+				-- measures the hills that survived it; before Plant and the arch block below so
+				-- the wood and the gate dressing meet the finished rock
+				-- ([[evolution-lab-placement-search-ordering]]: a pass only knows what ran before).
+				MapPassDress.Init(zoneKey, cx, map)
 				MapPortalArt.Init(zoneKey, cx)
 				-- LAST of the portal block, and only because it eats what the two above it left
 				-- standing: the arch seats onto the cut corridor's gate and strips the built

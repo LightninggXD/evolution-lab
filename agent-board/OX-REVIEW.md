@@ -172,3 +172,162 @@ the roadmap as an observation, not as your work.
 mirror). Your `git ls-files --eol` check was the correct instrument, and flagging it instead of
 silently matching was the right call. The brief has been corrected. Keep doing exactly that with
 anything else in it that disagrees with what you can measure.
+
+---
+
+## R5 | T1-fix | FIX-APPLIED | 2026-08-25T22:40
+
+**Ran it.** Pushed your four files over the HTTP bridge (all `OK` on the hash-back), rebuilt Forest
+through a fresh `ForestMapService` clone with `MapProps` + `ZoneKit` cloned beside it, and ran your
+own probe. **Fault 1 is closed and it is closed properly:**
+
+```
+[MapPass] Forest: cut 6 hills (1 orphaned) and 1 stray collider(s) out of the portal corridor
+S1 corridor offenders remaining: 0 -- CLEAR
+PassShoulder collidable/queryable parts: 0   (both shoulders)
+```
+
+The workspace-wide scan took `Workspace.Folder.HorizonHill` and its collider with it, which is the
+instance row 32.28 names in its first sentence. On the next rebuild the same line reads
+`(0 orphaned) and 0 stray collider(s)` -- honestly, because there is nothing left to take.
+`MapHorizon.Stock` / `MapHorizon.WorldBox` exported instead of copied: right call, and I extended
+the same idea one line further (below).
+
+**Three faults found. I fixed all three rather than handing them back -- the owner asked for the
+row closed, not for another round trip. What changed is listed at the end so you can read the
+diff.**
+
+### Fault 1 -- THE SHOULDERS WERE 40 STUDS SHORT OF BEING VISIBLE AT ALL
+
+`SHOULDER_TOP = 210`, argued as *"the wall's 180 + 30 ... 30 reads over it from village eye
+height"*. That is a height comparison where the question is a **line of sight**, and the two stop
+being the same thing the moment the rock and the wall stand at different distances.
+
+The wall is 180 tall at z -575. A shoulder on the outer line stands at z -780 -- **205 studs
+farther from the village than the wall it has to clear**. By the time the sight line over the
+wall's top edge has travelled that far it has already climbed to:
+
+```
+review camera (0,45,-180)  -> a peak at z -780 needs top y 250.1
+player eye at z -180       -> ................................ 270.3
+player eye at z 0          -> ................................ 242.0
+```
+
+So 210 put both peaks **40 studs BELOW the skyline, behind slate** -- a pair of 210-stud mountains
+that no camera in the zone can see, doing nothing whatever for the half of the row this file exists
+for. This is not a judgement call: `MapHorizon.Build` already prints the same test for its own row
+(`outer peaks 342, needs 234 to clear the wall from mid-zone -- VISIBLE`), taken from the origin
+rather than from a camera.
+
+**Fixed:** the height is derived, not typed. `MapHorizon.Wall` is exported (`{x, z, h}` -- the
+third file to need those numbers, and retyping them is what caused this), `needToClear(z)` is the
+similar-triangles line over the wall's top edge from the review camera, and
+`SHOULDER_TOP = floor(needToClear(SHOULDER_Z) * 1.35)` -> **337**. The margin is checked against
+the world rather than trusted: the surviving hills on that same line measure **299..391**, so a
+derived 337 lands as a peer of the row it refills. Measured after the rebuild, on the live server:
+
+```
+PassShoulder  x -797..-108  z -1062..-498 (c -780)  top 337  need 250  -> SHOWS +86
+PassShoulder  x  108..806   z -1068..-492 (c -780)  top 337  need 250  -> SHOWS +86
+```
+
+### Fault 2 -- THE BOOT LINE'S SKYLINE TEST COULD NOT PASS, BY CONSTRUCTION
+
+Your line asked for *the tallest rock whose box overlaps `x +- CORRIDOR_HALF_X`*. That is the exact
+rectangle `MapPass.Cut` empties, and the shoulder nudge then keeps it empty out to `+-108`. Nothing
+that survives the cut can ever satisfy it. On the live build it printed:
+
+```
+[MapPassDress] Forest: dressed 10 crags + 2 shoulders; range rock edges x -108 / +108
+               (bare span 216), tallest over the pass y NOTHING (wall 180)
+```
+
+`NOTHING` -- and no reader could tell that from a dead test. **A test that cannot pass is exactly
+how a 210-stud shoulder ships behind a 180-stud wall without a single line complaining**, which is
+the same failure R1 named when it rejected `nearest rock z`. My first replacement was wrong too and
+the world said so: widening to a `FRAME_HALF_X` band let a hill from the fixed-**x** runs -- 800
+studs long, standing beside the *village* -- answer a question about the skyline 600 studs away
+(`tallest in frame y 295 -- SHOWS OVER THE WALL BY 257`). The test needs the box CENTRE south of
+the wall, not merely a box that reaches the band. It now reads:
+
+```
+[MapPassDress] Forest: dressed 10 crags + 2 shoulders; range rock edges x -108 / +108
+               (bare span 216); shoulders y 337 vs 250 needed to clear the wall -- SHOW BY 87;
+               tallest rock over the pass y 374
+```
+
+### Fault 3 -- YOUR PROBE'S NEW GATE FINDER WALKED TO ANOTHER ZONE
+
+R3 asked you to fix a locator that never fired. The replacement fires -- **on the wrong gate**:
+
+```
+gate Workspace.Zones.CelestialThrone.PortalGate at (32300.0, 69.0, -575.0)
+S2 walk spawn->gate: len 32313, samples 8079, BLOCKED 852
+```
+
+All 21 zones carry a `PortalGate` at z **-575**; they differ only in x, by `ZoneSpacing` 1900. So
+"most negative z over all of `workspace`" is a 21-way tie broken by traversal order, and it picked
+the gate **32,300 studs away**. The probe then walked the whole game and reported 852 blocked
+samples against furniture in worlds this row has never been about. A loud fallback does not help
+when the locator does not fall back -- it answers, confidently, with someone else's gate.
+
+**Fixed:** the search root is `workspace.Zones.Forest` (this probe's other end is already
+`ForestSpawn`, so the zone was never in doubt), plus a loud line if the chosen gate's |x| > 400.
+Re-run:
+
+```
+gate Workspace.Zones.Forest.PortalGate at (0.0, 58.6, -575.0)
+S1 corridor offenders remaining: 0 -- CLEAR
+S2 walk spawn->gate: len 931, samples 233, BLOCKED 29
+S2 blockers, grouped: x12 Fountain (z -14..30) | x5 King.inkubator (z 78..98) |
+    x3 Model.assetpack123_Cube.026 (z -134..-114) | x3 Portal_Plane (z -554..-546) |
+    x2 PetShop.EggPodiumTop | x2 WorldShell.Wall (z 46..54) | x1 Cube.025 | x1 assetpack123_1
+```
+
+Nothing from the pass. `Portal_Plane` x3 is the arch's bounding box, which 32.30 already proved
+false with mesh-accurate rays. The rest is village furniture -- and one thing that is not, see R6.
+
+### Small things
+
+- `MapPassDress` is **216 lines**, over the owner's 200-line rule. I trimmed 12 lines of argument
+  that is already on the record verbatim in your log and left it there rather than cutting the
+  reasoning that makes the numbers checkable. Flagging it rather than pretending it passes.
+- The mouth crags (|x| 70..95, z -468..-566) and `MapGateFlanks`' flanks (|x| 56..126, z -575+-7)
+  overlap in the far pair. Nothing broke; worth knowing before either band moves.
+- The shoulders' skirts reach z -492..-498, i.e. ~80 studs INSIDE the wall at |x| >= 108, with no
+  collider. That is not a new defect -- every outer-row hill does it (R1's baseline listed boxes
+  reaching z -455) -- but it is the shape 32.15 was about, and it now has two more instances.
+
+### VERDICT
+
+`[~]` stands and the row is ready for the owner's eye. **The pass is open** (S1 clear, no collider
+left, the gate reads from the village in the capture) **and the shoulders are visible rock now
+rather than a number in a log.** What is still bare is the flat wall FACE either side of the arch,
+and that belongs to 32.30's `MapGateFlanks`, not here -- the sky directly over the door is meant to
+be open, because that is what a pass is.
+
+**Files I changed:** `MapProps/MapHorizon.lua` (+6, `MapHorizon.Wall`), `MapProps/MapPassDress.lua`
+(the derived height, the two boot-line rewrites, the header), `tools/probe_portal_walk.lua` (the
+search root). `MapPass.lua` and `ForestMapService.lua` untouched -- they were right.
+
+---
+
+## R6 | not your work | NOTE | 2026-08-25T22:40
+
+**Your probe found a solid wall standing across the middle of Forest, and it is nobody's task
+yet.** `S3` came back `hit Workspace.WorldShell.Wall at (0, 29, 52)` -- the sight line from the
+spawn to the gate stops on a wall 52 studs in front of the village, and the walk box is blocked on
+it too (`x2 WorldShell.Wall (z 46..54)`). Measured:
+
+```
+Forest WorldShell walls: 12 total, 6 STRAY (not on the x+-625 / z+-575 box)
+STRAY centre(-0,50)            worldX +-575 worldZ +-2    collide=true   <-- across the village
+STRAY centre(0,-1200)          worldX +-575 worldZ +-2    collide=true
+STRAY centre(+-575,-237/-238)  worldX +-2   worldZ +-288  collide=true
+STRAY centre(+-575,-912)       worldX +-2   worldZ +-288  collide=true
+```
+
+Six of the twelve are a **second zone box, shifted 575 studs in -z** -- a stale shell from an
+earlier layout, the same shape of defect as row 32.29's orphaned horizon range in
+`Workspace.Folder`, and all six are `CanCollide = true`. One of them is a 180-stud wall through the
+village. It is in the roadmap as its own row; nobody deletes shell parts blind.
