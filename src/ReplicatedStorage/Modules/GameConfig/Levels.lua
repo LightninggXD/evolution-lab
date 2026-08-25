@@ -174,14 +174,25 @@ function GameConfig.GetLevelZoneMult(zoneIndex)
 	return GameConfig.LevelZoneGrowth ^ (i - 1)
 end
 
--- The one place damage becomes XP. `damage` is the health the target actually LOST, not the swing
+-- ===== REBIRTH XP MULTIPLIER =====
+-- Each completed rebirth makes leveling up faster by +25% per rebirth milestone,
+-- so players climb back up to higher gates smoothly and feel permanent momentum.
+GameConfig.RebirthXpBonusPct = 25
+
+function GameConfig.GetRebirthXpMult(data)
+	local r = (data and data.Rebirths) or 0
+	return 1 + r * (GameConfig.RebirthXpBonusPct / 100)
+end
+
+-- The one place damage becomes XP. damage is the health the target actually LOST, not the swing
 -- -- see the note above on why overkill pays nothing.
-function GameConfig.GetLevelXpForDamage(damage, zoneIndex)
+function GameConfig.GetLevelXpForDamage(damage, zoneIndex, data)
 	damage = tonumber(damage) or 0
 	if damage ~= damage or damage <= 0 then return 0 end
 	local reference = GameConfig.GetZoneReferenceDamage(zoneIndex)
 	if not (reference > 0) then return 0 end
-	return damage / reference * GameConfig.GetLevelZoneMult(zoneIndex)
+	local rebirthMult = GameConfig.GetRebirthXpMult(data)
+	return (damage / reference * GameConfig.GetLevelZoneMult(zoneIndex)) * rebirthMult
 end
 
 -- The one damage term. Quoted from `DNAService.GetCombatDamage` (the only thing in the game that

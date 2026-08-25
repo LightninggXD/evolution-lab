@@ -67,7 +67,7 @@ function LevelService.AwardDamage(player, data, damage, zoneIndex)
 		return
 	end
 
-	local gained = GameConfig.GetLevelXpForDamage(damage, zoneIndex)
+	local gained = GameConfig.GetLevelXpForDamage(damage, zoneIndex, data)
 	if gained <= 0 then return end
 
 	local xp = GameConfig.GetLevelXp(data) + gained

@@ -487,6 +487,26 @@ function ForestMapService.Init()
 				local protected = MapAnchors.Collect(zoneKey, map)
 				local cleared = spec.clear and clearBands(map, cx, spec.clear, protected) or 0
 				local road = spec.entrance and cutEntrance(map, cx, spec.entrance, protected) or 0
+
+				-- Clean up any orphaned floating trees or terrain caps from the removed mountain ring
+				local floatingCut = 0
+				for _, c in ipairs(map:GetChildren()) do
+					if c.Name ~= "MainPart" and c.Name ~= "Terrain" and not (protected and protected[c]) then
+						local cf, size
+						if c:IsA("Model") then
+							cf, size = c:GetBoundingBox()
+						elseif c:IsA("BasePart") then
+							cf, size = c.CFrame, c.Size
+						end
+						if cf and size then
+							local bottomY = cf.Position.Y - size.Y / 2
+							if bottomY > 5 then
+								c:Destroy()
+								floatingCut += 1
+							end
+						end
+					end
+				end
 				-- BEFORE the planting, because the planter asks `MapRidge.Footprints` what is left
 				-- and would otherwise keep its wood out of rock that is about to be deleted.
 				MapRidge.Clear(zoneKey, cx, map)
