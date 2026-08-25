@@ -59,37 +59,51 @@
 -- hill by `MapSolids` -- 32.10's machinery, already built and already probed. `Colliders` publishes
 -- the inner row and `MapForest` offers it; see the note at each for why the call is made there.
 --
--- ===== AND TWO FAULTS FOUND WHILE MEASURING FOR IT, NEITHER OF THEM FIXED HERE =====
+-- ===== AND TWO FAULTS FOUND WHILE MEASURING FOR IT -- BOTH FIXED IN 32.18 =====
 -- Both were found by raycasting the mesh (clone it, make the clone queryable, sweep a grid) rather
--- than by reading the code, and both are recorded because the numbers cost something to get.
+-- than by reading the code, and the numbers are kept because they cost something to get.
 --
---   1. **EVERY HILL STANDS 82 DEGREES FROM THE ANGLE THIS FILE ASKS FOR.** `hill()` turns the clone
---      with `m:PivotTo(CFrame.new(m:GetPivot().Position) * CFrame.Angles(0, yaw, 0))` -- a nudge off whatever
+--   1. **EVERY HILL STOOD 82 DEGREES FROM THE ANGLE THIS FILE ASKS FOR.** `hill()` turned the clone
+--      with `m:PivotTo(m:GetPivot() * CFrame.Angles(0, yaw, 0))` -- a nudge off whatever
 --      orientation the stock was parked at -- and `ServerStorage.RidgeStock` is parked at yaw
 --      **-1.429**. So the yaw section above, which is entirely about presenting the mesh's NARROW
---      side across the ridge, has never once happened. Measured: an inner hill reaches **+-212
---      studs across** its run and +-168 along it -- long axis across, the shape that section calls
---      "30.19 all over again". Cancel the parked yaw and the same hill reaches +-164 across.
---   2. **ROCK STANDS ON ELEVEN OF THE TWENTY CAMP FLOORS**, up to 74 studs proud, 151 of 740 cells
---      on a raycast grid over the floors. The boot line has never said so because its camp test
---      reads `msz` from `GetBoundingBox` -- the PIVOT box -- against WORLD camp coordinates, and
---      then takes `FILL` 0.55 of it as the rock. On a fixed-x run the pivot box's X is the hill's
---      ALONG extent, so the reach is read off the wrong axis and then halved. It prints
---      `+19.7 -- clear of every camp`.
+--      side across the ridge, had never once happened: an inner hill reached **+-212 studs across**
+--      its run and +-168 along it, the long axis across, the shape that section calls "30.19 all
+--      over again". FIXED by building the pivot from scratch -- `CFrame.new(pivot.Position) *
+--      Angles(0, yaw, 0)` -- so the stock's parked rotation is REPLACED instead of added to.
+--      Re-measured on the built world: the fixed-x runs reach a mean **288 across against 309
+--      along**, narrow side in. `MapRidge.Stock` also stopped handing out a stock parked at
+--      `ScaleTo(1.15)`, which is why `scaleFor(1.55)` used to ask for 294 studs and get 255.7.
+--   2. **ROCK STOOD ON ELEVEN OF THE TWENTY CAMP FLOORS**, up to 74 studs proud, 151 of 740 cells.
+--      The boot line never said so because its camp test read `msz` from `GetBoundingBox` -- the
+--      PIVOT box -- against WORLD camp coordinates, so on a fixed-x run it read the across reach
+--      off the ALONG axis and then halved it with `FILL`. It printed `+19.7 -- clear of every
+--      camp`. FIXED in three places, and only the first of them is the reporting:
+--        a. the camp test uses `worldBox`, which has no frame in it to get wrong;
+--        b. `Build` reserves `ROCK_FOOT` (0.92, the rock at the player's FEET) instead of `FILL`
+--           (0.55, a silhouette averaged over the hill's whole height) -- the reservation went 178
+--           studs to 287, and that 109-stud difference is what was standing in the camps;
+--        c. the four runs read the camps on their OWN side instead of one `math.abs` maximum.
+--      Re-measured, 6-stud grid over all twenty floors: **1 of 20 camps, 33 of 660 cells.**
 --
--- **Neither is fixed here, and that is a decision with a capture behind it.** Both fixes turn the
--- hills narrow-side-in and push the row off the camps, and the row has nowhere to go: at
--- `CAMP_RADIUS` 46 the band between the outermost camp floor (|x| 482) and the wall (625) is 143
--- studs, while a hill that clears the wall is 359 wide. Built that way and captured from the
--- hunting ground, the range goes BEHIND the boundary wall and the wall comes back as the flat grey
--- slab this entire file exists to hide. That is the finding the `AT` note already predicted --
--- *"a finding about the platform, not a number to tune away"* -- and the row that buys the room
--- back is the camp shrink, not this one.
+-- ===== AND THE ONE THAT IS LEFT IS NOT THIS FILE'S TO FIX =====
+-- The survivor is **SE2, at (440, -4)**. Every other camp on the platform is inside |x| 351; SE2 is
+-- 89 studs beyond the next one, on the east flank at mid-z, which is exactly where the inner east
+-- run has to stand. Its floor edge is 460, the reservation is 287, so that run wants to centre at
+-- **747** -- and the boundary wall is at 625. It is clamped there, and the boot line now says so
+-- per side, in studs: `east -122, west -33, north -46, south -46`.
 --
--- So 32.15 does the collision only, and the collider CLIPS where a camp is behind it (see
--- `Colliders`): the rock stays where it looks right, the mountain stops you, and no camp floor is
--- walled off. What it costs is named rather than hidden -- at those eleven camps you walk further
--- into the rock before the box stops you.
+-- Past the wall a hill stands behind the thing it exists to hide, so the clamp is not negotiable
+-- and the 122 studs are not this file's to find. **The lever is `JungleLayout`.** 32.17 shrank the
+-- hunting ground by pulling the camps toward the village and it worked -- the furthest camp went
+-- 170.4 -> 84.0 studs off the village edge -- but it never touched `max |x|`, which went 436 -> 440.
+-- Review R23's "camp floor edge 481 -> 374, so 32.18 has 46 studs of margin" is arithmetic on a
+-- number nobody measured: the edge is 460 and the margin is -122.
+--
+-- 32.15's clipping sits underneath all of this and is why SE2 is walkable rather than walled: a
+-- collider box that would come inside a camp floor is cut back on its across axis (see
+-- `Colliders`), so at SE2 you walk further into the rock before the box stops you, and the camp is
+-- never sealed. That is the cost, named rather than hidden.
 
 local ServerStorage = game:GetService("ServerStorage")
 
@@ -155,36 +169,58 @@ local AT = {
 -- only kind worth printing.
 --
 -- `AT.innerX/innerZ` are solved from the same measurement rather than pinned -- see `AT`.
+--
+-- ===== AND IT IS FOUR EDGES, NOT TWO (32.18) =====
+-- `math.abs` folded the four sides into two numbers, so the single furthest camp on the platform
+-- pushed the run on the OPPOSITE side out with it. Measured on the shipped 32.17 coordinates: SE2
+-- sits at (440, -4) and every other camp is inside |x| 351, so one camp on the east flank was
+-- moving the west run 38 studs further out for nothing -- 38 studs of range that ends up behind the
+-- boundary wall, which is the one regression this whole file exists to avoid. A run is asked about
+-- the camps on ITS OWN side now.
 local function campEdge()
 	local camps = JungleLayout.Camps("Forest")
-	if not camps then return 446, 388 end
-	local mx, mz = 0, 0
+	if not camps then return 446, 446, 388, 388 end
+	local ex, wx, nz, sz = 0, 0, 0, 0
 	for _, c in ipairs(camps) do
-		mx = math.max(mx, math.abs(c.x))
-		mz = math.max(mz, math.abs(c.z))
+		if c.x > 0 then ex = math.max(ex, c.x) else wx = math.max(wx, -c.x) end
+		if c.z > 0 then nz = math.max(nz, c.z) else sz = math.max(sz, -c.z) end
 	end
-	return mx + JungleLayout.CAMP_RADIUS, mz + JungleLayout.CAMP_RADIUS
+	local r = JungleLayout.CAMP_RADIUS
+	return ex + r, wx + r, nz + r, sz + r
 end
-local CAMP_EDGE_X, CAMP_EDGE_Z = campEdge()
+local CAMP_EDGE_E, CAMP_EDGE_W, CAMP_EDGE_N, CAMP_EDGE_S = campEdge()
 
 -- Daylight between the innermost rock and the outermost camp's floor. 15 and not 2: `innerZ` was
 -- 568 rather than 550 because at 550 the check read 390 against a camp edge of 388, and two studs
 -- is a pass by luck. This is that judgement written down instead of re-made.
 local CAMP_CLEAR = 15
 
--- ===== THE GATE LANE, AND WHY 132 IS BACK (32.19) =====
--- A lane is the gap left in an inner run so a hill does not stand on the portal. The first cut used
--- PORTAL_CLEAR_HALF (132) and offset it by the hill's whole half-LENGTH, leaving a 760-stud hole
--- that bared 48% of the boundary wall. It was shrunk to 90 because the hills did not collide, so
--- the gap only had to clear the gate's stonework.
+-- ===== THE GATE LANE, AND WHY 132 WAS THE WRONG NUMBER TWICE OVER =====
+-- A lane is the gap left in a run so a hill does not stand on the portal. The first cut used
+-- `PORTAL_CLEAR_HALF` (132) and offset it by the hill's whole half-LENGTH, which put the nearest
+-- rock 380 studs from the centre line -- a 760-stud hole in a 1250-stud wall, straight ahead of the
+-- player as she walks to the gate. The occlusion probe read it plainly: **the south wall was 48%
+-- hidden and the north 41%**, with bare slate visible down to y = 10.
 --
--- 32.15 gave the inner hills colliders, and 90 was no longer enough. The walkway reservation this
--- codebase already owns is ZoneGate.PORTAL_CLEAR_HALF = 132 ("how far boulders stay off the centre line").
--- 32.19 restores 132 so the gate footprint is completely clear of colliders.
+-- Both halves of that were wrong. `PORTAL_CLEAR_HALF` is a WALKWAY reservation and these hills do
+-- not collide, do not query and are sunk 15 studs -- nothing walks into them. What the lane really
+-- has to miss is the portal's own STONEWORK, which is `PORTAL_GAP` 100 wide plus its columns. 90
+-- clears that and lets the range close right up to the doorway, which reads as a gate cut through a
+-- mountain rather than a gate in a fence.
 --
--- The offset is still the rock's half-length, but we now reserve what the COLLIDER occupies (ROCK_FOOT),
--- not just the visual silhouette (FILL).
-local LANE_PORTAL = 240
+-- And the offset is the rock's half-length (`FILL`), not the bounding box's: a hill's box is mostly
+-- air, so offsetting by the box holds the rock back another 110 studs for nothing.
+--
+-- ===== THE "NOTHING WALKS INTO THEM" PREMISE DIED WITH 32.15, AND THE ROW THAT ANSWERS IT IS PARKED =====
+-- 32.15 gave the inner row colliders, so the second paragraph above is now false: a hill's box CAN
+-- be walked into, and it overhangs this lane. Measured 2026-08-24 on the live server: 252 of 600
+-- cells over the north gate's footprint stand on a `HorizonHillCollider`. Two forks were built and
+-- captured -- widen the lane (132), or clip the boxes off the gate -- and 👤 THE OWNER TOOK
+-- NEITHER: widening it against those coordinates bared the boundary wall again, so she parked the
+-- row behind the camp shrink (32.17) and then behind 32.18. Roadmap row **32.19**, review R21.
+-- The lane stays at 90 until that row runs. A 132 and a 240 have both been in this file since and
+-- both were reverted -- neither was measured, and 240 is 2.7x a reservation nobody re-derived.
+local LANE_PORTAL = 90
 
 -- ===== HOW FAR APART, AND WHY 0.62 OF A BOUNDING BOX IS NOT AN OVERLAP =====
 -- A hill stands this fraction of its own length from the next one. `buildRidge` used ~1.0 and the
@@ -534,6 +570,9 @@ local function hill(proto, parent, cx, x, z, yaw, scale)
 	MapHorizon.LastHill = {
 		model = m, top = top, wx = wx, wz = wz,
 		rx = rx * ROCK_FOOT, rz = rz * ROCK_FOOT,
+		-- The RAW world half-extents as well as the ROCK_FOOT ones: the collider wants the rock at
+		-- the player's feet, the wood's keep-out wants the whole box at a different fraction.
+		bx = rx, bz = rz,
 	}
 	return sz
 end
@@ -581,12 +620,18 @@ local function buildRun(proto, folder, cx, rng, spec, out)
 				spec.solid[#spec.solid + 1] = h
 			end
 			if sz then
-				-- The footprint the planter subtracts, taken from the hill's OWN post-yaw box
-				-- rather than from the number this run asked for. The two differ by the scale and
-				-- yaw jitter, and it is the real box a tree would be standing inside.
+				-- The footprint the planter subtracts, taken from the hill's OWN box after it is
+				-- seated rather than from the number this run asked for -- the two differ by the
+				-- scale and yaw jitter, and it is the real box a tree would be standing inside.
+				--
+				-- WORLD-AXIS, and that is 32.18. This read `sz.X`/`sz.Z` off the PIVOT box, which
+				-- is the same fault the camp test had: on an x-axis run the pivot frame is turned a
+				-- quarter-turn, so the wood's keep-out was measured ACROSS where it meant ALONG.
+				-- It survived only because the parked stock yaw made both boxes wrong together.
+				local h = MapHorizon.LastHill
 				out[#out + 1] = {
-					x = x, z = z,
-					hx = sz.X * KEEPOUT_FILL / 2, hz = sz.Z * KEEPOUT_FILL / 2,
+					x = h.wx - cx, z = h.wz,
+					hx = h.bx * KEEPOUT_FILL, hz = h.bz * KEEPOUT_FILL,
 				}
 				placed += 1
 			end
@@ -672,11 +717,38 @@ function MapHorizon.Build(zoneKey, cx, map)
 		-- 625 and a hill reaches 128 studs in, so an outer camp edge past ~482 leaves nothing to
 		-- stand a range on inside the boundary -- which is exactly where 32.1a puts it. That is a
 		-- finding about the platform, not a number to tune away.
+		--
+		-- ===== AND THE FRACTION IS `ROCK_FOOT`, NOT `FILL` (32.18) =====
+		-- `FILL` 0.55 is a silhouette averaged over the hill's WHOLE HEIGHT. A camp floor is a
+		-- question asked at the ground line, where a mountain fills 0.92 of its box -- the same
+		-- disagreement `MapHorizon.Colliders` is built from, and the reason the boot line could
+		-- print `+70.2 -- clear of every camp` over a raycast grid that found rock standing 20.4
+		-- studs proud on SE2. Reserving the silhouette under-reserves by `(0.92 - 0.55) / 2` of the
+		-- box, which on these hills is ~107 studs.
+		--
+		-- THE RESERVATION IS HONEST AND THE CLAMP IS WHAT IS NEGOTIABLE. Past the wall a hill is
+		-- behind the thing it exists to hide, so a run is never placed outside `WALL_X` / `WALL_Z`
+		-- however much room it asks for -- it is clamped there, and `short` carries how many studs
+		-- it did not get. The boot line prints that rather than swallowing it: a clamped run is a
+		-- run with rock still on a camp, and the number says which one and by how much.
+		local shortE, shortW, shortN, shortS = 0, 0, 0, 0
+		local atE, atW, atN, atS = atX, atX, atZ, atZ
 		if inner then
-			local clear = acrossHalf * FILL * SIZE_JITTER[2] + CAMP_CLEAR
-			atX = math.max(atX, CAMP_EDGE_X + clear)
-			atZ = math.max(atZ, CAMP_EDGE_Z + clear)
-			innerAtX, innerAtZ = atX, atZ
+			local clear = acrossHalf * ROCK_FOOT * SIZE_JITTER[2] + CAMP_CLEAR
+			local function seat(pinned, edge, wall)
+				local want = math.max(pinned, edge + clear)
+				if want > wall then return wall, want - wall end
+				return want, 0
+			end
+			atE, shortE = seat(atX, CAMP_EDGE_E, WALL_X)
+			atW, shortW = seat(atX, CAMP_EDGE_W, WALL_X)
+			atN, shortN = seat(atZ, CAMP_EDGE_N, WALL_Z)
+			atS, shortS = seat(atZ, CAMP_EDGE_S, WALL_Z)
+			innerAtX, innerAtZ = math.max(atE, atW), math.max(atN, atS)
+			MapHorizon.LastShort = {
+				east = shortE, west = shortW, north = shortN, south = shortS,
+				clear = clear,
+			}
 		end
 		-- ===== A RUN HAS TO OVERSHOOT THE CORNER, NOT STOP AT IT =====
 		-- These were `at - acrossHalf/2`, i.e. "stop where the other run starts". That leaves the
@@ -696,10 +768,10 @@ function MapHorizon.Build(zoneKey, cx, map)
 		-- hole in the skyline directly above the gate, which is the one part of the wall the player
 		-- walks straight at. Run whole, it is what fills that hole.
 		for _, r in ipairs({
-			{ axis = "z", at = -atX, span = spanZ, lane = 0 },
-			{ axis = "z", at = atX, span = spanZ, lane = 0 },
-			{ axis = "x", at = -atZ, span = spanX, lane = inner and LANE_PORTAL or 0 },
-			{ axis = "x", at = atZ, span = spanX, lane = inner and LANE_PORTAL or 0 },
+			{ axis = "z", at = -atW, span = spanZ, lane = 0 },
+			{ axis = "z", at = atE, span = spanZ, lane = 0 },
+			{ axis = "x", at = -atS, span = spanX, lane = inner and LANE_PORTAL or 0 },
+			{ axis = "x", at = atN, span = spanX, lane = inner and LANE_PORTAL or 0 },
 		}) do
 			r.scale, r.acrossHalf, r.alongLen, r.spacing = scale, acrossHalf, alongLen, spacing
 			r.solid = inner and solid or nil
@@ -772,16 +844,32 @@ function MapHorizon.Build(zoneKey, cx, map)
 				or ("WALL SHOWS BY %.0f"):format(WALL_H - lowTop),
 			outerVis, needed, outerVis > needed and "VISIBLE" or "SUNK BELOW THE WALL",
 			innerAtX, innerAtZ, AT.innerX, AT.innerZ,
-			(innerAtX > AT.innerX or innerAtZ > AT.innerZ)
-				and ((innerAtX > WALL_X or innerAtZ > WALL_Z)
-					and "  [pushed off the camps, and the row centre is now OUTSIDE the wall]"
-					or "  [pushed off the camps]")
-				or "",
+			(function()
+				-- 32.18: a run is clamped at the wall, so "pushed" is no longer the whole story --
+				-- what matters is whether it got the room it asked for. `short` is the studs it did
+				-- not get, per side, and a non-zero one is rock still standing on a camp.
+				local sh = MapHorizon.LastShort
+				if not sh then return "" end
+				local bits = {}
+				for _, side in ipairs({ "east", "west", "north", "south" }) do
+					if sh[side] > 0.5 then
+						bits[#bits + 1] = ("%s %+.0f"):format(side, -sh[side])
+					end
+				end
+				if #bits == 0 then
+					return (innerAtX > AT.innerX or innerAtZ > AT.innerZ)
+						and "  [pushed off the camps, and every run got the room it asked for]" or ""
+				end
+				return ("  *** CLAMPED AT THE WALL, SHORT OF THE CAMPS: %s (reservation %.0f) ***")
+					:format(table.concat(bits, ", "), sh.clear)
+			end)(),
 			gap, gapWhat,
-			-- NOTE: this gap is the FILL-and-pivot-box figure the header's fault 2 describes. It is
-			-- left exactly as it was so the line stays comparable with every log before it; the
-			-- real number is in the 32.15 row and in `agent-board/CLAUDE-REVIEW.md`.
-			gap > 0 and "clear of every camp (see the 32.15 header: this test reads the wrong axis)"
+			-- 32.18 made this an honest number: `worldBox` above, not the pivot box, so a fixed-x
+			-- run is no longer measured across its ALONG axis. It is still the `FILL` silhouette
+			-- rather than `ROCK_FOOT`, and that is deliberate -- it keeps the figure comparable
+			-- with every log this file has printed. The reservation that has to be right is the one
+			-- in `Build`, and the clamp report beside `inner row at` is what says whether it was.
+			gap > 0 and "clear of every camp (FILL silhouette; the ground-line test is the grid)"
 				or "*** ROCK IS STANDING IN A CAMP ***",
 			#boxes, clipped, dropped,
 			dropped > 0 and "  *** A DROPPED BOX IS RANGE YOU CAN WALK THROUGH ***" or ""))

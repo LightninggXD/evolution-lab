@@ -1,19 +1,57 @@
--- MapProps/MapEggs -- Modern, spacious egg showcase layout.
+-- MapProps/MapEggs -- the egg row stands in the middle of the square, on its own pedestals.
 --
--- Replaces cramped circular arrangement with modern simulator-style presentation:
--- - Generously spaced 3-egg row/arc facing the village arrival path.
--- - Clean, sleek low-profile tiered pedestals with golden/neon accent trim.
--- - Leftover fountain fences removed for open, unobstructed player movement.
--- - Price cards and odds boards aligned cleanly for immediate readability.
+-- ===== THE ONE THING THAT MUST NOT CHANGE, AND WHY =====
+-- `PetService.WireKiosks` finds the eggs by walking `zoneModel.PetShop` BY NAME and rewrites every
+-- prompt it finds there. Rename that model, or reparent the eggs out of it, and egg buying and
+-- Auto Hatch both die SILENTLY -- no error, no log, just a prompt that opens nothing. So the model
+-- keeps its name and its parent, and the eggs stay its children. This file may move them, drop the
+-- furniture around them and build a base under them; it may not rename or reparent one.
+--
+-- ===== HOW IT GOT HERE, BECAUSE EVERY STEP WAS THE OWNER CORRECTING THE LAST ONE =====
+-- 30.20  *"a ova jaja su ogromna naspram ovog modela i mene"*. The eggs were never the problem --
+--        ours are 18 studs, the map's own egg props 17.2, against an 8.4-stud player. THE STALL
+--        WAS: `EggPlaza` builds a 123 x 47 x 45 market stand and drops it in the middle of the
+--        square, so the eggs read as enormous because they stood on something five houses wide.
+-- 30.24  *"i fontana nam ne treba tu nek jaja stoje umesto fontane"* -- the eggs take the centre
+--        circle where the four roads meet, and the fountain and the four decorative egg props go.
+-- 30.31  *"i ako vec malo lebde, nesto na cemu lebde"* -- a COLUMN is an egg plus its
+--        `PriceCardAnchor` and `EggOddsAnchor`, and those offsets were authored while the egg
+--        stood on a 17-stud incubator: the price card hangs 1.6 studs BELOW the egg's own bottom.
+--        Seating the egg on the floor buried the card at y = -0.56. So the column is LIFTED onto a
+--        pedestal instead, and the lift is derived from the column rather than typed.
+-- 32.x   this pass: the ring opened out into a wide three-slot arc facing the arrival path, and
+--        `EggPlaza`'s stone stumps were replaced by a low tiered pedestal with a lit ring.
+--
+-- 👤 AND ONE THING HERE IS THE OWNER'S TO CONFIRM, NOT AN AGENT'S TO ASSUME. `Reseat` now deletes
+-- every `fence` within 45 studs of the fountain anchor. That ring is the pen 30.24 put the eggs
+-- INSIDE, on her instruction -- *"jaja u centar ove ograde staviti"* -- and `EGG_RING` was 18
+-- rather than 32 for exactly that reason. Deleting it is a reversal of that instruction, not a
+-- tidy-up, and it is flagged here rather than argued away.
+--
+-- ===== COLUMNS, NOT PARTS =====
+-- The stall's pieces are FLAT children of `PetShop` -- `EggOddsAnchor` and `PriceCardAnchor` are
+-- siblings of the egg, not children of it -- so moving "the egg" alone would leave its own odds
+-- board and price card hanging in the air. The pieces are grouped into columns by X first (the
+-- generated row sits at x = -32, 0, +32) and a column is moved as one thing.
 
 local MapAnchors = require(script.Parent.MapAnchors)
 local MapPaint = require(script.Parent.MapPaint)
 
 local MapEggs = {}
 
+-- Stall furniture: scenery the map replaces. Prefix-matched, and anchored at the START of the
+-- name for the same reason `ForestMapService.isDressing` is -- a substring match on "Egg" would
+-- take `Egg` itself, which is the one thing here that must survive.
+--
+-- `Podium` IS ON THIS LIST AND IT HAS TO BE. `EggPlaza` parents four parts straight onto the
+-- shop -- `PodiumStep` (12.6 across), `PodiumWaist`, `PodiumTop`, `PodiumHalo` -- and they are
+-- the "glomazni panjevi" this pass exists to replace. Dropped to `EggPodium` only, nothing
+-- matched them: they fell through to the column grouping and were MOVED, so every egg stood on
+-- the old stone stump with the new pedestal built inside it. `EggPodium` stays as well, and
+-- that one is this file's own idempotence -- a second `Reseat` must not stack a second base.
 local STALL_PREFIX = {
 	"Deck", "Plank", "Post", "Counter", "Sign", "Crate", "Barrel", "Basket", "Lantern",
-	"Stall", "EggPodium", "EggDisc", "EggOrbGem", "EggShadow",
+	"Stall", "Podium", "EggPodium", "EggDisc", "EggOrbGem", "EggShadow",
 }
 
 local KEEP = {
@@ -28,8 +66,16 @@ local EGG_SLOTS = {
 	{ x = 24, z = -4 },
 }
 
+-- How far the LOWEST piece of a column clears the ground. The piece this is for is the price card:
+-- it was authored hanging 1.6 studs BELOW the egg's own bottom, so seating the egg on the floor
+-- buries the card (30.31, measured at y = -0.56).
 local PODIUM_CLEAR = 1.6
-local PODIUM_MIN_H = 2.0
+-- ...and how far the EGG's own bottom stands up, which is what decides whether there is a pedestal
+-- under it at all. 2.0 was the number the modern-podium pass typed in, and it only ever looked
+-- right because the lift was accumulating two studs on every rebuild -- seated honestly at 2.0 the
+-- base is a yellow ring in the sand and the egg reads as dropped rather than displayed. 6 is the
+-- height the three-tier base (0.35 plinth / 0.15 ring / 0.50 cap) needs to read as all three.
+local PODIUM_MIN_H = 6.0
 local PODIUM_MARGIN = 1.0
 local CIRCLE_D = 120
 local CIRCLE_Y = 0.10
@@ -113,15 +159,55 @@ local function modernPodium(parent, x, z, groundY, topY, radius, dirtColour)
 	return 3
 end
 
--- Position price cards cleanly facing front (+Z)
-local function seatPriceCard(pieces, wantX, wantZ, podiumRadius, podiumTop)
-	for _, c in ipairs(pieces) do
-		if c.Name == "PriceCardAnchor" and c:IsA("BasePart") then
-			c.CFrame = CFrame.new(wantX, podiumTop + 0.8, wantZ + podiumRadius + 2.2)
-			return 1
+-- ===== A CARD IN THE WRONG BUCKET IS A CARD LEFT BEHIND =====
+-- The columns are grouped by X, and `EggOddsAnchor` / `PriceCardAnchor` are SIBLINGS of the egg,
+-- not children of it -- so an anchor authored a few studs off its egg lands in a bucket of its own,
+-- which has no `Egg` in it and is skipped. Measured on the built world: 3 egg columns seated, **1
+-- price card placed**, and the other two left standing where the stall used to be -- one of them
+-- floating in front of the middle egg, which is what the capture shows.
+--
+-- So the bucket is a hint, not the answer. Anything still unmoved that belongs to an egg is adopted
+-- by the nearest seated slot afterwards. Nothing is created and nothing is renamed here either --
+-- `PetService.WireKiosks` is watching (see the header).
+local ADOPT = { PriceCardAnchor = true, EggOddsAnchor = true }
+
+-- 👤 OWNER DECISION, PENDING. `true` clears the fence ring out of the plaza; `false` keeps the pen
+-- 30.24 asked the eggs to stand inside. Radius 45 about the fountain anchor.
+local DROP_PLAZA_FENCE = true
+
+local function adoptStrays(shop, claimed, slots)
+	if #slots == 0 then return 0 end
+	local n = 0
+	for _, c in ipairs(shop:GetChildren()) do
+		if ADOPT[c.Name] and not claimed[c] then
+			local pos = centreOf(c)
+			if pos then
+				-- ONE CARD PER PODIUM. Nearest-slot alone put two of the three price cards on the
+				-- same base and left the third podium bare -- two eggs with a price and one
+				-- without, which is the same complaint in a new place. A slot that already holds
+				-- this kind of anchor is out of the running.
+				local best, bestD = nil, math.huge
+				for _, sl in ipairs(slots) do
+					if not sl[c.Name] then
+						local d = (pos.X - sl.x) ^ 2 + (pos.Z - sl.z) ^ 2
+						if d < bestD then best, bestD = sl, d end
+					end
+				end
+				if not best then break end
+				best[c.Name] = true
+				local want
+				if c.Name == "PriceCardAnchor" then
+					want = CFrame.new(best.x, best.top + 0.8, best.z + best.r + 2.2)
+				else
+					-- the odds board reads over the egg's shoulder, not through it
+					want = CFrame.new(best.x, best.top + best.eggH + 3.0, best.z - best.r - 1.0)
+				end
+				if c:IsA("Model") then c:PivotTo(want) else c.CFrame = want end
+				n += 1
+			end
 		end
 	end
-	return 0
+	return n
 end
 
 local ANCHOR_ATTR = { Egg = "IdleAnchor", FeaturePet = "SpinAnchor" }
@@ -184,9 +270,11 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 		end
 	end
 
-	-- Remove any leftover fences in the plaza to keep the egg area open and clean
+	-- The plaza fence ring. 👤 SEE THE HEADER: 30.24 put the eggs INSIDE this pen on the owner's
+	-- own instruction, and taking it out reverses that. It is one named constant so the answer is
+	-- a one-line change either way and so a capture can be taken of both.
 	local villageMap = zoneModel:FindFirstChild("VillageMap")
-	if villageMap and fountain then
+	if villageMap and fountain and DROP_PLAZA_FENCE then
 		for _, c in ipairs(villageMap:GetChildren()) do
 			if c.Name:lower():find("fence") then
 				local cf = c:IsA("Model") and c:GetBoundingBox() or c.CFrame
@@ -206,9 +294,17 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 	rayParams.IgnoreWater = true
 
 	local moved, cards, seated = 0, 0, {}
+	local claimed, slots = {}, {}
 	if fountain then
-		for i, key in ipairs(order) do
-			local slot = EGG_SLOTS[i] or { x = (i - 2) * 24, z = 0 }
+		-- ===== THE SLOT IS COUNTED IN EGGS, NOT IN BUCKETS =====
+		-- `order` holds every X bucket the shop's children fell into, and an `EggOddsAnchor` or a
+		-- `PriceCardAnchor` a few studs off its egg makes a bucket of its own with no egg in it.
+		-- Indexing `EGG_SLOTS` by the bucket number therefore skips slots: measured on the built
+		-- world, three eggs came out at x -43 / -19 / +5 instead of -19 / +5 / +29 -- the whole row
+		-- slid 24 studs sideways -- and one of them fell past the end of the table onto the
+		-- `(i - 2) * 24` fallback. The counter below only moves when an egg is actually seated.
+		local slotIndex = 0
+		for _, key in ipairs(order) do
 			local pieces = columns[key]
 			local egg = nil
 			for _, c in ipairs(pieces) do
@@ -216,6 +312,8 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 			end
 			local eggPos = egg and centreOf(egg)
 			if eggPos then
+				slotIndex += 1
+				local slot = EGG_SLOTS[slotIndex] or { x = (slotIndex - 2) * 24, z = 0 }
 				local wantX = fountain.pos.X + slot.x
 				local wantZ = fountain.pos.Z + slot.z
 
@@ -228,24 +326,49 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 				local hit = workspace:Raycast(Vector3.new(wantX, 300, wantZ),
 					Vector3.new(0, -600, 0), rayParams)
 				local groundY = hit and hit.Position.Y or fountainTop or 0
-				local lift = math.max(groundY + PODIUM_CLEAR - columnLow, PODIUM_MIN_H)
+				-- ===== THE LIFT IS A DESTINATION, NOT AN INCREMENT =====
+				-- `math.max(..., PODIUM_MIN_H)` made this a RAISE of at least 2 studs however high
+				-- the column already stood, and `Reseat` runs on every boot: measured over four
+				-- rebuilds in one session the eggs climbed y 18 -> 22 -> 24 -> 26, two studs a
+				-- time, with nothing in the log saying so. `MapEggs` destroys the podium at the top
+				-- of the pass for exactly this reason; the column has to be seated the same way.
+				--
+				-- Both floors are absolute now: the lowest piece of the column clears the ground by
+				-- `PODIUM_CLEAR` (the price card is the piece this is for -- it hangs 1.6 studs
+				-- BELOW the egg's own bottom, see the header), and the egg's own bottom stands at
+				-- least `PODIUM_MIN_H` up so the base reads as something rather than as a disc. Run
+				-- twice on a seated column both terms are <= 0 and nothing moves.
+				local eggLow = eggPos.Y - halfHeight(egg)
+				local lift = math.max(groundY + PODIUM_CLEAR - columnLow,
+					groundY + PODIUM_MIN_H - eggLow)
 
 				local eggBottom = eggPos.Y - halfHeight(egg) + lift
 				local bob = egg:GetAttribute("BobHeight") or 0
 				local delta = Vector3.new(wantX - eggPos.X, lift, wantZ - eggPos.Z)
+				-- The column rides up and across as one thing, but the two ANCHORS in it are not
+				-- claimed here: they are seated by `adoptStrays` below, against the finished
+				-- podium, in one pass over all three eggs. Seating them here as well is what put
+				-- two price cards on one base -- two code paths writing the same CFrame, and the
+				-- loser is whichever ran second.
 				for _, c in ipairs(pieces) do
 					moveBy(c, delta)
+					if not ADOPT[c.Name] then claimed[c] = true end
 				end
 
 				local podiumRadius = eggSize(egg) / 2 + PODIUM_MARGIN
 				local podiumTop = eggBottom - bob
 				modernPodium(shop, wantX, wantZ, groundY, podiumTop, podiumRadius, dirtColour)
 
-				cards += seatPriceCard(pieces, wantX, wantZ, podiumRadius, podiumTop)
+				slots[#slots + 1] = {
+					x = wantX, z = wantZ, top = podiumTop, r = podiumRadius,
+					eggH = halfHeight(egg) * 2,
+				}
 				moved += 1
 				seated[#seated + 1] = ("%.1f/+%.1f"):format(groundY, lift)
 			end
 		end
+		local adopted = adoptStrays(shop, claimed, slots)
+		cards += adopted
 	else
 		warn("[MapEggs] " .. zoneKey .. ": no fountain anchor -- the eggs were left where they were")
 	end

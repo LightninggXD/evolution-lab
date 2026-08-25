@@ -488,7 +488,30 @@ function ForestMapService.Init()
 				local cleared = spec.clear and clearBands(map, cx, spec.clear, protected) or 0
 				local road = spec.entrance and cutEntrance(map, cx, spec.entrance, protected) or 0
 
-				-- Clean up any orphaned floating trees or terrain caps from the removed mountain ring
+				-- BEFORE the planting, because the planter asks `MapRidge.Footprints` what is left
+				-- and would otherwise keep its wood out of rock that is about to be deleted.
+				MapRidge.Clear(zoneKey, cx, map)
+
+				-- ===== A FLOATING PROP IS ONE WITH NOTHING UNDER IT, NOT ONE THAT IS HIGH UP =====
+				-- Her words, 2026-08-25: trees left hanging in the sky. The cause is the line above --
+				-- `MapRidge.Clear` takes the artist's mountains out and whatever was standing on one
+				-- stays where it was. So this runs AFTER that cut, not before it: run first it deletes
+				-- caps off mountains that are about to be KEPT, and leaves the ones it was written for.
+				--
+				-- And the test is support, not altitude. `bottomY > 5` on its own condemns every prop
+				-- this map legitimately stands up high -- a roof piece, a banner, a lantern on a post,
+				-- anything on a terrace shelf -- and this village is scaled 1.15, so "high up" is a
+				-- moving line. It cost 87 props on its first run, a quarter of the top-level set.
+				-- The height stays only as a cheap pre-filter; the thing that condemns a prop is that a
+				-- short ray straight down out of its own footprint hits NOTHING.
+				--
+				-- Five samples rather than one: a group's bounding-box centre can sit over the hole in
+				-- an L-shaped set of parts, and one ray there condemns a prop that is standing on the
+				-- ground at both ends. Any hit keeps it.
+				local FLOAT_MIN_Y = 5      -- below this it is on the village floor whatever a ray says
+				local FLOAT_DROP = 8       -- a prop this far off the ground is not standing on it
+				local floatParams = RaycastParams.new()
+				floatParams.FilterType = Enum.RaycastFilterType.Exclude
 				local floatingCut = 0
 				for _, c in ipairs(map:GetChildren()) do
 					if c.Name ~= "MainPart" and c.Name ~= "Terrain" and not (protected and protected[c]) then
@@ -500,16 +523,30 @@ function ForestMapService.Init()
 						end
 						if cf and size then
 							local bottomY = cf.Position.Y - size.Y / 2
-							if bottomY > 5 then
-								c:Destroy()
-								floatingCut += 1
+							if bottomY > FLOAT_MIN_Y then
+								floatParams.FilterDescendantsInstances = { c }
+								local qx, qz = size.X / 4, size.Z / 4
+								local supported = false
+								for _, o in ipairs({ Vector3.zero, Vector3.new(qx, 0, qz),
+									Vector3.new(-qx, 0, qz), Vector3.new(qx, 0, -qz),
+									Vector3.new(-qx, 0, -qz) }) do
+									-- Started just BELOW the prop, never inside it: a ray that begins in a
+									-- part reports nothing at all (`roblox-raycast-from-inside-a-part`).
+									local from = Vector3.new(cf.Position.X + o.X, bottomY - 0.2,
+										cf.Position.Z + o.Z)
+									if workspace:Raycast(from, Vector3.new(0, -FLOAT_DROP, 0), floatParams) then
+										supported = true
+										break
+									end
+								end
+								if not supported then
+									c:Destroy()
+									floatingCut += 1
+								end
 							end
 						end
 					end
 				end
-				-- BEFORE the planting, because the planter asks `MapRidge.Footprints` what is left
-				-- and would otherwise keep its wood out of rock that is about to be deleted.
-				MapRidge.Clear(zoneKey, cx, map)
 				-- ===== THE HORIZON IS BUILT BEFORE THE WOOD (31.24) =====
 				-- It used to be the other way round -- `MapJungle` raised the ridge AFTER the
 				-- planting -- and that ordering is why `spec.forest`'s bounds were fudge factors.
@@ -545,10 +582,11 @@ function ForestMapService.Init()
 				local gates = MapGates.Build(zoneKey, cx, map, protected)
 				print(("[ForestMapService] %s: dropped %d dressing, laid %d map parts at x%.2f, "
 					.. "cut %d props for the arrival and hunt bands, %d for the entrance road, "
+					.. "%d left floating by the mountain cut, "
 					.. "raised %d horizon hills, planted %d trees over the whole platform, "
 					.. "built %d jungle camps, paved %d road parts and %d gate parts")
 					:format(zoneKey, dropped, #map:GetDescendants(), spec.scale, cleared, road,
-						hills, planted, camps, paved, gates))
+						floatingCut, hills, planted, camps, paved, gates))
 				print("[MapAnchors] " .. MapAnchors.Describe(zoneKey))
 			end
 		end
