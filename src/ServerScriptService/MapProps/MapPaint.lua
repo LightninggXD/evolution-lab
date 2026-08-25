@@ -57,6 +57,22 @@ function MapPaint.Shade(c, f)
 	return Color3.new(c.R * (1 - f), c.G * (1 - f), c.B * (1 - f))
 end
 
+
+local function addSandTexture(p, isCylinder, colour)
+	p.Material = Enum.Material.SmoothPlastic
+	local faces = isCylinder and {Enum.NormalId.Right, Enum.NormalId.Left} or {Enum.NormalId.Top}
+	for _, face in ipairs(faces) do
+		local tex = Instance.new("Texture")
+		tex.Texture = "rbxassetid://5513431542"
+		tex.Face = face
+		tex.StudsPerTileU = 25
+		tex.StudsPerTileV = 25
+		tex.Color3 = colour
+		tex.Transparency = 0.15
+		tex.Parent = p
+	end
+end
+
 local function slab(parent, name, cf, size, colour, t)
 	local p = Instance.new("Part")
 	p.Name = name
@@ -67,7 +83,7 @@ local function slab(parent, name, cf, size, colour, t)
 	p.CanTouch = false
 	p.CastShadow = false
 	p.Color = colour
-	p.Material = Enum.Material.Sand
+	addSandTexture(p, false, colour)
 	p.Parent = parent
 	return p
 end
@@ -89,7 +105,7 @@ function MapPaint.Disc(x, z, d, parent, cx, colour, y, thick)
 	p.CanTouch = false
 	p.CastShadow = false
 	p.Color = colour
-	p.Material = Enum.Material.Sand
+	addSandTexture(p, true, colour)
 	p.Parent = parent
 	return 1
 end
@@ -147,7 +163,7 @@ function MapPaint.Segment(seg, parent, cx, colour, y, thick, caps)
 		cap.CanTouch = false
 		cap.CastShadow = false
 		cap.Color = colour
-		cap.Material = Enum.Material.Sand
+		addSandTexture(cap, true, colour)
 		cap.Parent = parent
 		made += 1
 	end
