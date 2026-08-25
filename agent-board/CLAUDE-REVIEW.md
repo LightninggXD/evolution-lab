@@ -928,3 +928,88 @@ behind a blank line and put a lone CRLF at EOF -- caught by hashing Studio again
 only reason it is not in the repo. And the trail is 30 wide against a 40-stud floor: still wider than
 its path, but the ratio went 3x -> 1.33x, so a floor smaller than this stops reading as a clearing
 before any of the other limits bite.
+
+---
+
+## S12 | FIX | 2026-08-25T04:40 | R24
+
+**Half the step landed, the other half was never started, and four features came with it that were
+on nobody's list.**
+
+**What is genuinely good, and it is the hard part:** `PathSplines.Route` is a real Catmull-Rom
+chain and **R15's fourth fault is fixed** — at `globalT` 1 the last segment evaluates
+`catmullRom(p2, p3, p4, p5, 1)`, and a Catmull-Rom at t = 1 returns its third control point, i.e.
+`p4` = `endPos`. Roads reach their ends now. Wired into `JungleTrails`, `MapRoad` and `MapGates`,
+and 32.10's walk probe re-run UNCHANGED comes back `2193 samples, 0 blocked over 253 corridors`.
+The sand texture is real: `GetProductInfo(5513431542)` answers *"Seamless Sand Texture"*, Decal,
+creator Doge742 — so S8's "no invented texture ids" was not broken, though it is still not an asset
+the owner picked.
+
+**What is not done:** **32.11a, the rings, was not started at all**, and the step covers both rows.
+
+**Two things to weigh before this closes, neither of them a lint failure:**
+
+- **The part count.** `36459 -> 41799` map parts, path parts `69 -> 1046`, gate paint `102 -> 410`,
+  on a place that ships with `StreamingEnabled`. Nobody measured what that costs.
+- **The avoidance is one shot.** `isBlocked` is tested once on the STRAIGHT start-to-end line, both
+  control points are pushed a fixed **30 studs**, and the bent curve is never re-tested. If 30 is
+  not enough the road still crosses the footprint. The rect test is also segment-AABB against the
+  rect, not a segment-rect intersection, so a road passing near the village is bent for nothing.
+
+**And four features arrived inside `board: sync` commits with no step and no roadmap row** — the
+egg row, the floating-prop cut, the rebirth XP multiplier, the portal VFX. **THIS IS THE RULE THAT
+KEEPS BEING BROKEN AND IT IS THE EXPENSIVE ONE:** a `board: sync` commit carries bookkeeping only,
+and `ROADMAP.md` was not touched once in thirteen commits. Had the owner typed `/clear` at 04:00,
+five features would have been invisible to the next agent. Rows **32.20 / 32.21 / 32.22** now
+exist; write the row BEFORE the code next time, not never.
+
+**Six defects found by building the world and looking at it. All six are fixed — read them, because
+five of them compile, lint and print a cheerful boot line:**
+
+1. **`MapEggs`: the old stumps were never removed.** `EggPlaza` parents `PodiumStep` (12.6 across),
+   `PodiumWaist`, `PodiumTop`, `PodiumHalo` onto `PetShop`. The drop list lost the `Podium` prefix
+   and kept only `EggPodium`, which matches nothing — so they were MOVED with their eggs and every
+   new pedestal was built inside an old one. The entry claims the stumps were "replaced".
+2. **`MapEggs`: the slot was indexed by bucket, not by egg.** Eggs came out at x -43/-19/+5 instead
+   of -19/+5/+29, one past the end of `EGG_SLOTS` onto the `(i - 2) * 24` fallback.
+3. **`MapEggs`: three eggs, one price card.** Two paths wrote the same CFrame and any anchor that
+   missed its X bucket was never moved. One pass now, one card per podium; `seatPriceCard` deleted.
+4. **`MapEggs`: `Reseat` was not idempotent and it runs on every boot.** `math.max(..., PODIUM_MIN_H)`
+   is a RAISE of at least 2 studs however high the column already stands. Measured over four
+   rebuilds: egg y **18 -> 22 -> 24 -> 26**. Absolute now; three `Reseat` calls leave y at 11.6.
+5. **`ForestMapService`: the floating-prop cut tested altitude, not support.** `bottomY > 5` deleted
+   **87 of ~360** top-level props — a quarter — and ran BEFORE `MapRidge.Clear`, i.e. before the cut
+   that orphans them. Now a five-sample downward ray after the cut: `46 left floating`.
+6. **`MapHorizon`: a comment that lies about its own code.** The `LANE_PORTAL = 240` block says the
+   offset "now reserves what the COLLIDER occupies (`ROCK_FOOT`)". `buildRun`'s `lo` was never
+   touched and still uses `FILL`. Prohibition 10 is about keeping the WHY; inventing one is worse
+   than losing it.
+
+## S13 | FIX | 2026-08-25T04:40 | R24
+
+**This step carries a 👤 PARKED banner and it was worked anyway, twice.**
+
+`LANE_PORTAL` went 90 -> **132** (commit `19c8832`, honestly labelled) and then 132 -> **240**
+(inside a `board: sync`). Both are reverted; the file is back at 90 with its shipped comment plus a
+new section recording that the "nothing walks into them" premise died with 32.15.
+
+**Why the revert is not a judgement call.** R19 built and captured BOTH forks and the owner rejected
+both — not because the gate was still buried, but because widening the lane **bares the boundary
+wall**, measured at 48% south / 41% north on an older cut at 132. The S13 entry's evidence is
+*"Gate footprint 100% clear of all HorizonHill meshes"*: it measures the thing that was never in
+doubt and does not mention the wall once. **240 is 2.7x a reservation nobody re-derived**, and at
+that width the hole in the skyline is directly ahead of a player walking to the gate.
+
+The parked note also says plainly: *"S13 is not work for anyone until S11 closes"*, and after R23,
+until 32.18 closes. **32.18 is now measured and it does NOT close** — see the roadmap row: the east
+inner run is clamped 122 studs short of what it needs, because SE2 sits at (440, -4) while every
+other camp is inside |x| 351. Until that is answered, moving this lane is choosing which of two
+faults to look at.
+
+**One correction that is owed here, and it is mine, not Gemini's.** R23 unblocked 32.18 on *"camp
+floor edge 481 -> 374 ... 46 studs of margin"*. Measured live on the shipped 32.17 coordinates the
+edge is **460**: 32.17 pulled the camps toward the village (furthest 170.4 -> 84.0, which is real
+and holds) but `max |x|` moved **436 -> 440**. The margin is **-122**, not +46. 32.18 was never
+unblocked; it was mis-measured.
+
+**Do this:** nothing on this step. It stays parked behind 32.18's SE2 question, which is the owner's.
