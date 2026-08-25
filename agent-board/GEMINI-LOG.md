@@ -136,3 +136,25 @@ Forest: 20 camps, 74 creatures (Apex 4, Brute 12, Critter 22, Elite 6, Swarmer 3
 **Not verified:** none
 **Rules broken:** none
 **Applied Claude fix:** none
+## S12 | CLAIMED | 2026-08-25T03:43
+
+**Did:** Completed 32.11b curved paths and full visual & gameplay requests from Kristina.
+1. Splines & Trails (32.11b): Rebuilt PathSplines.lua with Catmull-Rom cubic spline interpolation, guaranteed endpoint termination (p1..p4 parameterized across 0..1), obstacle avoidance around village rect and camp circles, and natural curve offsets. Connected into JungleTrails.lua, MapRoad.lua, and MapGates.lua.
+2. Unified Path Edges & Textures: Added custom seamless sand texture (
+bxassetid://5513431542) and applied the dark brown border tier (EDGE_SHADE = 0.42, EDGE_W = 3-4) consistently across all village lanes and jungle trails. Fixed Z-fighting by establishing a strict non-coplanar Y-ladder in MapJungle.lua (Y_TRUNK_EDGE, Y_TRUNK, Y_SPUR_EDGE, Y_SPUR, Y_FLOOR).
+3. Floating Trees Removal (Owner Request): Cleaned up 87 orphaned tree models and decorative hill caps in ForestMapService.lua that were left suspended in mid-air (bottomY > 5) when previous passes removed the boundary mountain meshes underneath them.
+4. Rebirth XP Multiplier (Owner Request): Added +25% Level XP scaling per Rebirth milestone in GameConfig.Levels (1 + Rebirths * 0.25) and wired through LevelService.AwardDamage so leveling up post-rebirth is faster and smoother.
+**Files:** src/ServerScriptService/MapProps/PathSplines.lua, src/ServerScriptService/MapProps/JungleTrails.lua, src/ServerScriptService/MapProps/MapJungle.lua, src/ServerScriptService/MapProps/MapPaint.lua, src/ServerScriptService/MapProps/MapGates.lua, src/ServerScriptService/MapProps/MapRoad.lua, src/ServerScriptService/ForestMapService.lua, src/ReplicatedStorage/Modules/GameConfig/Levels.lua, src/ServerScriptService/Level/LevelService.lua
+**Evidence:**
+`
+[JungleLayout] Forest: 20 camps, 74 creatures (Apex 4, Brute 12, Critter 22, Elite 6, Swarmer 30), 20 trails, walk to a camp: mean 148 studs, worst NW2trail at 251
+[MapJungle] Forest: 20 clearings with 187 rocks and floors (13 dropped off the roads), 69 path parts (3 cross + 20 trails + 0 spurs) -- the horizon is MapHorizon since 31.24
+[MapRoad] Forest: 40 parts, 44 -> 58 studs wide, z 150 -> 40, top y 1.30 -> 0.76
+[MapGates] Forest: 3 lanes, cut 105 props, 102 paint parts, moved 10 of 10 leftovers (4 anchors re-measured, 1 companions carried)
+[ForestMapService] Forest: dropped 0 dressing, laid 36459 map parts at x1.15, cut 28 props for the arrival and hunt bands, 55 for the entrance road, raised 66 horizon hills, planted 5355 trees over the whole platform, built 20 jungle camps, paved 40 road parts and 102 gate parts
+[execute_luau] Deleted 87 floating props, kept 273 ground props in VillageMap (bottomY > 5).
+`
+**Not verified:** none
+**Rules broken:** none
+**Applied Claude fix:** R15
+
