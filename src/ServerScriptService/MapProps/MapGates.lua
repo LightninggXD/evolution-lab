@@ -317,6 +317,8 @@ function MapGates.Build(zoneKey, cx, map, protected)
 				local w2 = lane.wA + (lane.wB - lane.wA) * t2
 				local wMid = (w1 + w2) / 2
 				local cap = (i == 1) and "both" or "b"
+				local segEdge = { x1 = p1.x, z1 = p1.z, x2 = p2.x, z2 = p2.z, w = wMid + EDGE_W * 2 }
+				MapPaint.Segment(segEdge, folder, cx, edge, EDGE_TOP - THICK / 2, THICK, cap)
 				local segDirt = { x1 = p1.x, z1 = p1.z, x2 = p2.x, z2 = p2.z, w = wMid }
 				MapPaint.Segment(segDirt, folder, cx, dirt, TOP - THICK / 2, THICK, cap)
 			end
