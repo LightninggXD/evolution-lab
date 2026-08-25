@@ -1,3 +1,4 @@
+local PathSplines = require(script.Parent.PathSplines)
 -- MapProps/JungleTrails -- the roads that actually reach the camps. Data only; nothing here builds
 -- or paints anything. `JungleLayout` owns WHERE the camps are and calls this to work out how a
 -- player gets to them; `MapJungle` paints what comes back and `MapForest` keeps its wood out of it.
@@ -238,18 +239,41 @@ function JungleTrails.Build(camps, cross, opts)
 		cost[best.camp.id] = best.total
 		connected[best.camp.id] = true
 		left -= 1
-		out[#out + 1] = {
-			id = best.camp.id .. "trail",
-			x1 = best.sx, z1 = best.sz, x2 = best.ex, z2 = best.ez,
-			w = o.width,
-			tier = "trail",
-			-- WHICH TWO FLOORS THIS ROAD IS ALLOWED TO LIE ON. `Describe`'s alarm asks whether any
-			-- road crosses a camp, and every trail deliberately ends 32 studs inside one or two of
-			-- them -- without this the fix would report itself as the fault.
-			serves = { [best.camp.id] = true, [best.from and best.from.id or ""] = true },
-			parent = best.from and best.from.id or nil,
-			walk = best.total,
-		}
+		local startPos = Vector3.new(best.sx, 0, best.sz)
+		local endPos = Vector3.new(best.ex, 0, best.ez)
+		local obs = {}
+		for _, c in ipairs(camps) do
+			if c.id ~= best.camp.id and (not best.from or c.id ~= best.from.id) then
+				table.insert(obs, { x = c.x, z = c.z, r = o.campRadius + 5 })
+			end
+		end
+		
+		local rng = opts.rng or Random.new(math.floor(math.abs(best.sx + best.sz)))
+		local pts = PathSplines.Route(startPos, endPos, rng, { maxJitter = 15 }, obs)
+		
+		if #pts >= 2 then
+			for i = 1, #pts - 1 do
+				out[#out + 1] = {
+					id = best.camp.id .. "trail" .. (i > 1 and "_"..i or ""),
+					x1 = pts[i].x, z1 = pts[i].z, x2 = pts[i+1].x, z2 = pts[i+1].z,
+					w = o.width,
+					tier = "trail",
+					serves = { [best.camp.id] = true, [best.from and best.from.id or ""] = true },
+					parent = best.from and best.from.id or nil,
+					walk = (i == 1) and best.total or 0,
+				}
+			end
+		else
+			out[#out + 1] = {
+				id = best.camp.id .. "trail",
+				x1 = best.sx, z1 = best.sz, x2 = best.ex, z2 = best.ez,
+				w = o.width,
+				tier = "trail",
+				serves = { [best.camp.id] = true, [best.from and best.from.id or ""] = true },
+				parent = best.from and best.from.id or nil,
+				walk = best.total,
+			}
+		end
 	end
 
 	JungleTrails.Unreachable = JungleTrails.Unreachable or {}
