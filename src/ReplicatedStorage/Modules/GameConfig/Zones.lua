@@ -368,4 +368,14 @@ function GameConfig.GetTotalZoneBonusPct(unlockedZoneKeys)
 	return total
 end
 
+GameConfig.Secrets = {
+	{
+		id = "ForestWaterfall",
+		zoneKey = "Forest",
+		rewardType = "mutation",
+		rewardName = "Godly",
+		offset = Vector3.new(-32.7, 176.1, -151.2),
+	}
+}
+
 end

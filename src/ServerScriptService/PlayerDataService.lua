@@ -73,6 +73,7 @@ local function defaultData()
 		-- the collection log, name -> how many of that mutation have been rolled.
 		SplicerRolls = 0,
 		SplicerFound = {},
+		FoundSecrets = {}, -- keys are secret IDs (e.g. "JungleWaterfall"), value is true when found
 		Pets = {}, -- list of { id, key, tier } owned pet instances
 		EquippedPetIds = {}, -- list of pet ids currently equipped (max GameConfig.MaxEquippedPets)
 		Rebirths = 0,
@@ -484,6 +485,7 @@ function PlayerDataService.Load(player)
 		-- both are written so that running them twice changes nothing -- an autosave can land
 		-- between a load and the next read, and a refund paid twice is free DNA forever.
 		if type(data.SplicerFound) ~= "table" then data.SplicerFound = {} end
+		if type(data.FoundSecrets) ~= "table" then data.FoundSecrets = {} end
 		data.SplicerRolls = tonumber(data.SplicerRolls) or 0
 		-- (a) The "Mutation Chance" upgrade no longer exists -- there is no ambient roll left for
 		-- it to speed up -- so every level ever bought is refunded at the exact geometric sum
