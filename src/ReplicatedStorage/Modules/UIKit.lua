@@ -159,7 +159,8 @@ local function themeLabel(label, maxSize, color)
 		-- FALSE in this branch, so it was handed the full 4 px Color.Outline halo. Dark ink inside a
 		-- dark halo is exactly the blob 15.1 was written to kill, wearing the fix's own clothes.
 		-- One palette, one number, and now genuinely one number.
-		if UITheme.IsDarkInk(label.TextColor3) then
+		darkInk = UITheme.IsDarkInk(label.TextColor3)
+		if darkInk then
 			label.TextColor3 = UITheme.Color.White
 		end
 	end
@@ -474,25 +475,28 @@ local function styleButton(btn, baseColor, radius, thickness)
 	if btn:IsA("TextButton") then
 		-- A TextButton's own text draws at the button's ZIndex, i.e. UNDER the gloss. Mirror it
 		-- into a child label above the gloss so `btn.Text = ...` keeps working at every call site.
-		local proxy = Instance.new("TextLabel")
-		proxy.Name = "Label"
-		proxy.BackgroundTransparency = 1
-		proxy.Size = UDim2.new(1, -14, 1, -10)
-		proxy.Position = UDim2.new(0.5, 0, 0.5, 0)
-		proxy.AnchorPoint = Vector2.new(0.5, 0.5)
+		local proxy = btn:FindFirstChild("Label")
+		if not proxy then
+			proxy = Instance.new("TextLabel")
+			proxy.Name = "Label"
+			proxy.BackgroundTransparency = 1
+			proxy.Size = UDim2.new(1, -14, 1, -10)
+			proxy.Position = UDim2.new(0.5, 0, 0.5, 0)
+			proxy.AnchorPoint = Vector2.new(0.5, 0.5)
+			proxy.ZIndex = btn.ZIndex + UITheme.Z.Content
+			proxy.Parent = btn
+			btn:GetPropertyChangedSignal("Text"):Connect(function()
+				proxy.Text = btn.Text
+			end)
+			btn:GetPropertyChangedSignal("TextColor3"):Connect(function()
+				proxy.TextColor3 = btn.TextColor3
+			end)
+		end
 		proxy.TextColor3 = btn.TextColor3
 		proxy.TextWrapped = true
 		proxy.Text = btn.Text
-		proxy.ZIndex = btn.ZIndex + UITheme.Z.Content
-		proxy.Parent = btn
 		themeLabel(proxy, 24)
 		btn.TextTransparency = 1
-		btn:GetPropertyChangedSignal("Text"):Connect(function()
-			proxy.Text = btn.Text
-		end)
-		btn:GetPropertyChangedSignal("TextColor3"):Connect(function()
-			proxy.TextColor3 = btn.TextColor3
-		end)
 
 		-- PRESS FEEDBACK THAT SURVIVES A LAYOUT.
 		--
