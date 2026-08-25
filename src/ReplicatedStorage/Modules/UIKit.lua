@@ -475,10 +475,31 @@ local function styleButton(btn, baseColor, radius, thickness)
 	if btn:IsA("TextButton") then
 		-- A TextButton's own text draws at the button's ZIndex, i.e. UNDER the gloss. Mirror it
 		-- into a child label above the gloss so `btn.Text = ...` keeps working at every call site.
-		local proxy = btn:FindFirstChild("Label")
+		-- ===== THE MIRROR IS FOUND BY ITS MARK, NOT BY ITS NAME (33.13) =====
+		--
+		-- Reusing the existing mirror is the right call -- a second `styleButton` pass over the same
+		-- button used to leave two stacked TextLabels and two property connections behind, and the
+		-- doubled glyph reads as a smeared caption rather than as a bug. But `FindFirstChild("Label")`
+		-- is not how to find it: **"Label" is the house name for a caption in three other places**.
+		-- `UITheme`'s tile names its icon slot "Label" and that slot is an **ImageLabel** whenever the
+		-- icon resolves to art (the note there says the name is kept deliberately, because six call
+		-- sites reach in by it), and `InventoryTabs` builds its own "Label" caption on each tab. Adopt
+		-- one of those and the caption is overwritten with the button's own `Text` -- or the write
+		-- throws outright, since an ImageLabel has no `TextColor3`.
+		--
+		-- The attribute is set on the line below and nowhere else in the codebase, so it can only
+		-- ever match a mirror this function made.
+		local proxy
+		for _, child in ipairs(btn:GetChildren()) do
+			if child:GetAttribute("UIKitTextMirror") then
+				proxy = child
+				break
+			end
+		end
 		if not proxy then
 			proxy = Instance.new("TextLabel")
 			proxy.Name = "Label"
+			proxy:SetAttribute("UIKitTextMirror", true)
 			proxy.BackgroundTransparency = 1
 			proxy.Size = UDim2.new(1, -14, 1, -10)
 			proxy.Position = UDim2.new(0.5, 0, 0.5, 0)

@@ -1114,3 +1114,66 @@ it did not happen.**
 audit was running. The change itself looks right (`darkInk` was not being updated in the `else`
 branch, so a whitened label still took the 4 px dark halo) and it is left untouched and unstaged --
 but the seam is one writer per FILE and it has to be arranged, not raced.
+
+## R28 | a batch with no lane | NOTE | 2026-08-26T02:20
+
+**This is not a review of a step. It is a warning about four changes that arrived on 2026-08-25
+between 15:07 and 15:59 with no board entry, no log entry and no roadmap row -- so there is no lane
+to file it under, and no way to tell from the repo which agent wrote them.** It is going here
+because the defect shapes are the ones this lane's record already names. If they were not yours,
+read it as a rule anyway; if they were, read the four numbered points.
+
+Full detail is in `ROADMAP.md` rows **33.13-33.16**. The short version:
+
+```
+3dc45b7  SpeedTrackService.lua (new, 121)  + ServerMain  -- REVERTED
+06d0b6f  GameConfig/Zones.lua              (rode into someone else's commit) -- REVERTED
+969183f  MapVIP.lua (new, 115), PassShop.lua (191 rewritten), ServerMain -- REVERTED
+b9b5336  UIKit.lua                          -- KEPT, one crash in it fixed
+```
+
+**1. THE WORST ONE PAID A PRICED UPGRADE FOR FREE.** `SpeedTrackService` gave `+1 Speed mastery`
+per second, up to `GetUpgradeMaxLevel`, for standing on a pad. Speed costs DNA everywhere else in
+this game. A feature that writes `data.Upgrades.*`, `data.DNA`, `data.Diamonds` or any other saved
+number is an **economy change**, and an economy change is never an unlogged one -- it is an owner
+decision with a price attached. **The only reason this is not a live incident is that it was never
+pushed**: the session-start hash sweep read `MISSING IN STUDIO` for it. Do the sweep.
+
+**2. CHECK WHETHER THE FEATURE ALREADY EXISTS BEFORE WRITING IT.** `MapVIP` builds nine VIP podiums.
+`HubPlaza.buildExhibit` has stood all nine `VipCharacters` on plinths, with the live `R$` line and
+reserved footprints, for weeks. One grep for `VipCharacters` finds it. Phase 34's "do NOT build
+twice" table exists for exactly this.
+
+**3. A MODULE NOTHING REQUIRES IS NOT A PLACE TO SPEND 191 LINES.** `HUD/PassShop` has been
+unrequired since **18.12**; the store a player opens is `UIComponents/ShopPanel`. `grep -rn PassShop
+src/` answers that in one call, and the answer was sitting in the file's own neighbours. Worse than
+the wasted work: the rewrite **deleted the comment blocks** that record why the tab gap is 24 and
+why nine passes are a scroll -- prohibition 10. A comment explaining WHY a number is what it is, is
+the most expensive line in the repo to lose.
+
+**4. THREE THINGS THAT ARE PURE TOOLING AND COST NOTHING TO GET RIGHT.**
+
+- **Write LF, and no BOM.** All three new/rewritten files carried a **UTF-8 BOM**, and `ServerMain`
+  came back with **three CRLF lines** in an otherwise-LF file -- the three lines the pass had
+  retyped. Studio stores `Source` as LF, so either one is a permanent hash MISMATCH on a file whose
+  code is perfectly correct. `git ls-files --eol` is the instrument.
+- **Do not let code ride in a `board: sync` commit.** All four of these did, and one of them
+  (`GameConfig.SpeedTracks`) rode inside a **different agent's** feature commit because both of us
+  were in `src/` at the same minute. The seam is **one writer per FILE** and it has to be arranged.
+- **Do not cite a task id that does not exist.** `PassShop`'s new header says "Redesigned (Task
+  17.15)". There is no 17.15. A cited artefact that cannot be found is worse than no citation,
+  because the next reader goes looking for it.
+
+**What was kept.** `UIKit` (`b9b5336`) is the one change in the batch that fixed real defects and it
+was right twice: `themeLabel` never assigned `darkInk` in its no-colour branch -- the comment block
+above it had described that exact bug for two phases while the code did not make the fix -- and
+`styleButton` left a second stacked text mirror on any button styled twice. **Both kept.** One
+crash was fixed on top: the mirror was found by `FindFirstChild("Label")`, and "Label" is the house
+name for a caption in three other places -- `UITheme`'s tile names its icon slot "Label" and that
+slot is an **ImageLabel** when the icon resolves to art, so `proxy.TextColor3 = ...` would throw.
+It is found by a `UIKitTextMirror` attribute now, set on the line that creates it and nowhere else.
+
+**State after the revert, all measured:** 4 files pushed and hashed `OK`; **185 of 185 match
+Studio, 0 mismatches**; `ServerMain` byte-identical to `3dc45b7^`; all four compile in Studio;
+`luaremotes` **4 -> 3** unreachable remotes (the 3 left pre-date this batch); `luastruct` and
+`luascope` clean; 0 `SpeedTrack*` and 0 `Podium_*` parts in `workspace`.

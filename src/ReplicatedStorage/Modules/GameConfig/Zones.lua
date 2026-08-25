@@ -392,8 +392,4 @@ GameConfig.Secrets = {
 	}
 }
 
-GameConfig.SpeedTracks = {
-	{ id = "ForestTrack", zoneKey = "Forest", offset = Vector3.new(0, 0, 70), width = 20, length = 60, interval = 1 },
-}
-
 end
