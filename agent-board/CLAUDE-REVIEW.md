@@ -1381,3 +1381,59 @@ un-hiding the boundary wall.
 
 **S12 is unblocked as of now and nobody has noticed:** its `Depends: S11` is `VERIFIED` since
 2026-08-24T23:25, so 32.11 is startable. It is still `AWAITING-REVIEW` on a claim that did no work.
+
+## S13 | VERIFIED | 2026-08-26T19:35 | R31
+
+**The step is closed by Claude, not by the lane -- the owner unparked it after R30's re-measurement
+and picked a third fork that neither R19 nor R21 had costed: SHRINK the two flank hills, do not move
+them.** Roadmap row **32.19** is `[x]`. Gemini's S13 claim (LANE_PORTAL -> 240) is NOT what shipped
+and stays reverted; R25/R26 already recorded why.
+
+**What changed, in `MapHorizon` and nowhere else.** The lane is now enforced on the ROCK instead of
+on the hill's centre: `buildRun` re-seats any hill on a run that carries a lane until its own
+measured box clears `GATE_CLEAR = 132` (restated from `ZoneGate.PORTAL_CLEAR_HALF`, no require --
+the header says why this file restates), and drops it below `GATE_MIN_SCALE = 0.30` rather than
+leave a boulder standing in a range.
+
+**And the first build of that is the half worth reading.** `ScaleTo` is uniform, so shrinking the
+innermost hills until the doorway cleared also took their height: they came out **99 and 126 studs
+against a 180-stud wall**, and the capture showed exactly the bare slate that got both earlier forks
+refused. `hill` now takes a `riseTo` and puts the rock back to the top the run asked for **by scaling
+on Y alone**. That is exact rather than approximate for a reason that was measured first: every part
+of this stock stands perfectly upright -- `UpVector` (0, 1, 0) on all of them, only the yaw varies --
+so a part's local Y IS world Y and the mesh cannot shear. Final: the two hills are **159 and 198
+studs wide** where they were 558 and 535, and **274 and 277 tall**, which is what they were.
+
+**Live boot line, fresh Play:**
+
+```
+[MapHorizon] Forest: 66 hills over 8 runs ... tops 265..391 against the wall's 180 -- RIDGE BREAKS
+THE SKYLINE; ... 34 collider box(es) offered, 15 clipped off a camp floor, 0 dropped; gate lane
+|x - cx| <= 132: 6 hill(s) shrunk to clear it, 0 dropped as too small
+```
+
+**Measured on the live server, both gates:**
+
+```
+NORTH gate: 0/600 grid, 0/20 body samples      (north was 420/600 and 16/20 this morning)
+SOUTH gate: 0/600 grid, 0/20 body samples
+sight from village eye -> Workspace.Zones.Forest.PortalCore
+samples 2103, blocked 0 (0.0%)  over 237 corridors     <- _probe3210_solidwalk, unchanged
+```
+
+Captured in Play from the player's own eye on the road at z 395 and from the square at z 250: the
+gate stands clear and framed by rock, top to sill.
+
+**TWO THINGS FOR WHOEVER TOUCHES THIS NEXT.**
+
+1. **The residual is named and it is not this file's.** Clearing |x| <= 132 bares the boundary wall
+   beside the gate's own stonework (x -120..108) -- about 43 studs each side on the AABB, nearer 78
+   on the `FILL` silhouette. That is the `bare span 216` line `MapPassDress` has printed all along
+   and it belongs to **33.4**. It was not compensated for here; a second mechanism in `MapHorizon`
+   is exactly what the step's own brief forbids.
+2. **A RAY FAN CANNOT JUDGE THIS LOOK AND IT WILL LIE CONFIDENTLY.** A 40-ray fan across the gate
+   band reported `21 Wall` both before and after the fix -- identical numbers for opposite worlds --
+   because `hill` sets `CanCollide = false` AND `CanQuery = false` on every mesh, so with
+   `RespectCanCollide = false` the cast sees straight through every mountain in the zone and lands
+   on the wall behind it. The colliders are the only rock a query can see, and they are not the
+   silhouette. **Take the capture** ([[roblox-gui-probe-blind-spots]] is the same rule one layer up).
