@@ -2251,6 +2251,35 @@ local function refreshRewardPanel()
 
 	if rewardBadge then
 		rewardBadge.Visible = canClaim
+		
+		-- Task 7: Idle pulse on claimable tiles (A 2.5)
+		local scale = rewardButton:FindFirstChildOfClass("UIScale")
+		if not scale then
+			scale = Instance.new("UIScale")
+			scale.Scale = 1
+			scale.Parent = rewardButton
+		end
+		
+		local TweenService = game:GetService("TweenService")
+		local GuiService = game:GetService("GuiService")
+		if canClaim and not GuiService.ReducedMotionEnabled then
+			if not rewardButton:GetAttribute("Pulsing") then
+				rewardButton:SetAttribute("Pulsing", true)
+				local t = TweenService:Create(scale, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, -1, true, 3), {Scale = 1.06})
+				t:Play()
+				-- Save it so we can cancel later
+				if not _G.RewardPulseTween then _G.RewardPulseTween = t end
+			end
+		else
+			if rewardButton:GetAttribute("Pulsing") then
+				rewardButton:SetAttribute("Pulsing", false)
+				if _G.RewardPulseTween then
+					_G.RewardPulseTween:Cancel()
+					_G.RewardPulseTween = nil
+				end
+				TweenService:Create(scale, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Scale = 1}):Play()
+			end
+		end
 	end
 
 	if canClaim then

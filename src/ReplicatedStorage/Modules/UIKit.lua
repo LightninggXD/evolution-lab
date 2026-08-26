@@ -539,15 +539,19 @@ local function styleButton(btn, baseColor, radius, thickness)
 			squash.Parent = btn
 		end
 		local pressed = false
+				local TweenService = game:GetService("TweenService")
+		local GuiService = game:GetService("GuiService")
 		btn.MouseButton1Down:Connect(function()
 			if pressed then return end
 			pressed = true
-			squash.Scale = 0.96
+			local t = GuiService.ReducedMotionEnabled and 0 or 0.06
+			TweenService:Create(squash, TweenInfo.new(t, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Scale = 0.96}):Play()
 		end)
 		local function release()
 			if not pressed then return end
 			pressed = false
-			squash.Scale = 1
+			local t = GuiService.ReducedMotionEnabled and 0 or 0.12
+			TweenService:Create(squash, TweenInfo.new(t, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
 		end
 		btn.MouseButton1Up:Connect(release)
 		btn.MouseLeave:Connect(release)
