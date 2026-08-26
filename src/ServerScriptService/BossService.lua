@@ -6,6 +6,7 @@ local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
 
 local GameConfig = require(RS.Modules.GameConfig)
+local PetService = require(script.Parent.PetService)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
@@ -2282,8 +2283,14 @@ local function spawnBoss(zone)
 					and (hrp.Position - body.Position).Magnitude <= auraRange then
 					-- the same fight length the retaliation is held to, computed off the same two
 					-- numbers, so the aura and the blows cannot disagree about how long this is
-					local plrDamage = DNAService.GetCombatDamage(plrData)
-						/ GameConfig.GetBossDamageDivisor(plrData)
+										local baseDivisor = GameConfig.GetBossDamageDivisor(plrData)
+					local incomeMult = 1 + (plrData.Upgrades.Income or 0) * 0.01
+					local petMult = PetService.GetEquippedBonus(plrData).damageMult
+					local masteryMult = GameConfig.GetStageMasteryBonus(plrData).damageMult
+					local gearedMult = incomeMult * petMult * masteryMult
+					local squash = math.max(gearedMult ^ 0.45, 1)
+					local finalDivisor = baseDivisor * squash
+					local plrDamage = DNAService.GetCombatDamage(plrData) / finalDivisor
 					hurtPlayer(plr, math.random(boss.auraDamage[1], boss.auraDamage[2]),
 						blowsToFell(boss.health, plrDamage))
 				end
@@ -2342,8 +2349,14 @@ local function spawnBoss(zone)
 		-- floored, and floored at 1: the divisor keeps the health attribute an integer the way every
 		-- other write to it is, and a rebirth deep enough to round a blow to zero would be a boss
 		-- that cannot be hurt at all
-		local playerDamage = math.max(
-			math.floor(DNAService.GetCombatDamage(data) / GameConfig.GetBossDamageDivisor(data)), 1)
+				local baseDivisor = GameConfig.GetBossDamageDivisor(data)
+		local incomeMult = 1 + (data.Upgrades.Income or 0) * 0.01
+		local petMult = PetService.GetEquippedBonus(data).damageMult
+		local masteryMult = GameConfig.GetStageMasteryBonus(data).damageMult
+		local gearedMult = incomeMult * petMult * masteryMult
+		local squash = math.max(gearedMult ^ 0.45, 1)
+		local finalDivisor = baseDivisor * squash
+		local playerDamage = math.max(math.floor(DNAService.GetCombatDamage(data) / finalDivisor), 1)
 		local before = model:GetAttribute("Health") or boss.health
 		local health = math.max(before - playerDamage, 0)
 		model:SetAttribute("Health", health)

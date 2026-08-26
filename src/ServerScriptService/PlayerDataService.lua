@@ -692,6 +692,11 @@ function PlayerDataService.Load(player)
 		data.InGroup = false
 	end
 
+	
+	-- Wipe session buffs
+	data.GrottoSessionDamage = nil
+	data.GrottoHits = nil
+	
 	PlayerDataService.Cache[player.UserId] = data
 	return data
 end

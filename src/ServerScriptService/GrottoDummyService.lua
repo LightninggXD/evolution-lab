@@ -30,19 +30,20 @@ local function onHit(player, isAuto)
 	local data = PlayerDataService.Get(player)
 	if not data then return end
 	
-	-- Defect 1 Fix: Cap at level 10 so it doesn't break later mob curves
-	local currentLevel = tonumber(data.Level) or 1
-	if currentLevel >= 10 then
-		Remotes.Notify:FireClient(player, { kind = "error", text = "You have outgrown the dummy!" })
+		-- Task 33.21: Dummy grants a session buff to avoid breaking permanent mob curves
+	-- Up to 50 hits, max +50% damage
+	local currentHits = data.GrottoHits or 0
+	if currentHits >= 50 then
+		Remotes.Notify:FireClient(player, { kind = "error", text = "You feel you can learn no more today!" })
 		return
 	end
 	
-	data.LevelXp = (data.LevelXp or 0) + 1
-	
-	-- Publish change so the bar fills
-	LevelService.Publish(player, data)
+	data.GrottoHits = currentHits + 1
+	data.GrottoSessionDamage = 1 + (data.GrottoHits * 0.01)
 	
 	-- Play hit effect locally
+	-- Play hit effect locally
+-- Play hit effect locally
 	local CombatFx = Remotes:FindFirstChild("CombatFx")
 	if CombatFx then
 		CombatFx:FireClient(player, "hit", dummyBody.Position, 1)

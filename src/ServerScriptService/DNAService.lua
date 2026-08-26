@@ -144,6 +144,10 @@ function DNAService.GetCombatDamage(data)
 	-- and every rebirth the player has ever done. This is what a rebirth buys -- see the note over
 	-- GameConfig.GetRebirthDamageMult for why it is damage and not income.
 	mult = mult * GameConfig.GetRebirthDamageMult(data)
+	
+	-- Task 33.21: Grotto Dummy session buff
+	mult = mult * (data.GrottoSessionDamage or 1)
+
 	-- Robux game passes: 2x Damage and VIP. Note this raises damage DEALT only -- the incoming-damage
 	-- cap in CreatureService/BossService is a fraction of the player's own health and is untouched,
 	-- so a pass makes fights shorter without making the player unkillable.

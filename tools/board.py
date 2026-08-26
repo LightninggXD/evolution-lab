@@ -342,6 +342,11 @@ def _mojibake_markers():
 
 
 MOJIBAKE = _mojibake_markers()
+
+# A UTF-8 BOM and a CRLF pair, as numbers. See the block in `guard` for why they are not
+# written as escape sequences.
+BOM_BYTES = bytes((0xEF, 0xBB, 0xBF))
+CRLF_BYTES = bytes((13, 10))
 # Nothing outside these roots is auto-committed. `src/` is the mirror and is the point; the board and
 # the docs are the paperwork. A .rbxl, a key, or an agent's scratch file is not any agent's to
 # commit, and .gitignore already knows which is which.
@@ -411,6 +416,33 @@ def guard(paths):
                 problems.append(p + ": MOJIBAKE (" + repr(m) + ") -- this file was read as cp1252 "
                                 "and written back as UTF-8; restore it with `git checkout -- " + p + "`")
                 break
+
+        # ===== THE TWO TELLS THAT ARRIVE BEFORE THE MOJIBAKE DOES =====
+        # A BOM and a wholesale CRLF rewrite are the SAME accident as the mojibake above -- a tool
+        # that read the file with the Windows ANSI codepage and wrote it back "helpfully" -- but
+        # they land on files that had no non-ASCII to mangle, so the marker test above sees nothing
+        # and waves them through. Both have already cost this repo real work:
+        #
+        #   * A BOM makes the file a permanent MISMATCH against Studio, which stores Source as LF
+        #     and without one. Roadmap 33.15 is that bug, and 2026-08-26 produced five more.
+        #   * A CRLF rewrite buries the real change. On 2026-08-26 four files came back carrying
+        #     4,808 CRLF endings and a 4,675-line diff, inside which the actual edit was 47 lines --
+        #     in PlayerDataService, BossService and DNAService. Board step S1 is the same fault on
+        #     ROADMAP.md: "a 10,618-line diff over 5,309 lines, in which any real change is
+        #     invisible".
+        #
+        # Both are LOSSLESS to repair, so these say how to repair rather than saying
+        # `git checkout`: the content is fine, only the bytes around it are wrong. The byte
+        # constants are built from numbers rather than written as escapes -- a typed escape in this
+        # file is exactly what the last tool to get encoding wrong would rewrite.
+        if raw[:3] == BOM_BYTES:
+            problems.append(p + ": BOM -- Studio stores Source as LF with no BOM, so this file can "
+                            "never hash-match. Strip the first three bytes; the content is fine.")
+        crlf = raw.count(CRLF_BYTES)
+        if crlf:
+            problems.append(p + ": " + str(crlf) + " CRLF line ending(s) -- this repo is LF and so "
+                            "is Studio, so this is a permanent hash MISMATCH and it buries the real "
+                            "change in the diff. Replace CRLF with LF; the content is fine.")
 
     # A Lua file that does not parse must never reach Studio, and `git checkout` is the whole cure
     # while it is still uncommitted.
