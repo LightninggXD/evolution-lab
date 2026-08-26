@@ -68,14 +68,14 @@ local function getPath(inst)
 	return table.concat(parts, ".")
 end
 
-local results = {}
+local results = { files = {}, backdoors = {} }
 local function scan(parent)
 	if not parent then return end
 	for _, child in ipairs(parent:GetDescendants()) do
 		if child:IsA("LuaSourceContainer") then
 			local path = getPath(child)
 			local src = child.Source
-			results[path] = {
+			results.files[path] = {
 				len = #src,
 				hash = roll(src),
 				className = child.ClassName
@@ -84,11 +84,35 @@ local function scan(parent)
 	end
 end
 
+local function scanBackdoors()
+	for _, service in ipairs(game:GetChildren()) do
+		local s, err = pcall(function()
+			for _, child in ipairs(service:GetDescendants()) do
+				if child:IsA("LuaSourceContainer") then
+					local src = child.Source
+					if src:find("JobId") and src:find("==") and src:find('""') then
+						table.insert(results.backdoors, {path = getPath(child), type = "JobId =="})
+					end
+					if src:find("require%([^%)]*%.Value%)") or src:find("require%([^%)]*:GetAttribute") then
+						table.insert(results.backdoors, {path = getPath(child), type = "require(Value/Attribute)"})
+					end
+				elseif child:IsA("NumberPose") then
+					if child.Value and child.Value > 1000000 then
+						table.insert(results.backdoors, {path = getPath(child), type = "NumberPose ID"})
+					end
+				end
+			end
+		end)
+	end
+end
+
 scan(game:GetService("ReplicatedFirst"))
 scan(game:GetService("ReplicatedStorage"))
 scan(game:GetService("ServerScriptService"))
 scan(game:GetService("ServerStorage"))
 scan(game:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts"))
+
+scanBackdoors()
 
 return HttpService:JSONEncode(results)
 """
@@ -99,7 +123,9 @@ return HttpService:JSONEncode(results)
             return 1
         
         try:
-            live_files = json.loads(res_text)
+            parsed = json.loads(res_text)
+            live_files = parsed.get("files", parsed)
+            backdoors = parsed.get("backdoors", [])
         except Exception as e:
             print("Failed to decode JSON. Raw text response was:")
             print(repr(res_text))
@@ -136,6 +162,10 @@ return HttpService:JSONEncode(results)
             missing_on_disk.append(dotted)
             
     print(f"Sweep complete: {matches_count} matches.")
+    if backdoors:
+        print(f"\n[!] BACKDOORS DETECTED ({len(backdoors)}):")
+        for bd in backdoors:
+            print(f"  {bd['path']} -> Signature: {bd['type']}")
     if missing_in_studio:
         print(f"\nMissing in Studio ({len(missing_in_studio)}):")
         for m in missing_in_studio:
@@ -151,7 +181,7 @@ return HttpService:JSONEncode(results)
             print(f"    Disk:   len={disk['len']} hash={disk['hash']}")
             print(f"    Studio: len={live['len']} hash={live['hash']}")
             
-    if missing_in_studio or missing_on_disk or mismatches:
+    if missing_in_studio or missing_on_disk or mismatches or backdoors:
         return 1
     return 0
 
