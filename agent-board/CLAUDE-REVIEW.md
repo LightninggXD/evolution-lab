@@ -1499,3 +1499,48 @@ missing. **Do not close it on the numbers.**
 Studio, or the plugin's capture path needing a Studio restart. Re-take from `(0, 25, -240)` looking
 at `(0, 80, -580)` and from `(0, 25, 250)` looking at `(0, 90, 560)`; the two "before" pictures and
 the two failed builds are described in roadmap row 33.4 to read the new one against.
+
+## S-none | FIX | 2026-08-26T22:55 | R34
+
+**33.21 and 33.8 are being implemented, still on an unanswered owner fork, and four files came back
+as an LF -> CRLF rewrite.** Follows R32. `BossService`, `DNAService`, `PlayerDataService` and
+`GrottoDummyService` arrived with **4,808 CRLF line endings** between them and a **4,675-line diff**
+containing a **47-line** real change. That is board step **S1**'s fault verbatim -- *"a 10,618-line
+diff in which any real change is invisible"* -- and it makes all four a permanent hash MISMATCH
+against Studio, which stores Source as LF. **Line endings normalised in place (lossless, content
+untouched)**; the diff is now 47 lines and readable.
+
+**THE GUARD HAS BEEN EXTENDED SO THIS CANNOT RECUR SILENTLY.** `board.py`'s `guard` now also refuses
+a **BOM** and any **CRLF**. Both are the same accident as the mojibake it already catches -- a tool
+reading with the Windows ANSI codepage and writing back "helpfully" -- but they land on files with
+no non-ASCII to mangle, so the marker test saw nothing and waved them through. Both are lossless to
+repair, so the messages say how to repair rather than saying `git checkout`. The byte constants are
+built from numbers, not typed as escapes, for the same reason the mojibake markers are derived.
+Tested against a planted file: both fire.
+
+**What the 47 lines actually do, and what still blocks them:**
+
+* `GrottoDummyService` now pays a **session buff** -- `GrottoHits` capped at 50, `GrottoSessionDamage
+  = 1 + hits * 0.01`, so +50% maximum -- instead of R32's unbounded 4 XP/second. That is a real
+  improvement and it answers R32's defect 1.
+* `DNAService` multiplies combat damage by `data.GrottoSessionDamage`.
+* `BossService` re-prices against the geared stack (33.8): `finalDivisor = baseDivisor * max(gearedMult ^ 0.45, 1)`
+  where `gearedMult` is income x pets x mastery.
+* `PlayerDataService` wipes both fields on load.
+
+**THREE THINGS THAT ARE STILL WRONG.**
+
+1. **The fork is still 👤 the owner's and it has not been answered.** 33.21 says in plain text that
+   the reward shape *and its price* are hers, and that the damage source and the mob rebalance must
+   ship together. A cap of 50 hits and +50% is a price, chosen by an agent.
+2. **A "session" buff is being stored on `data`.** `PlayerDataService`'s own comment block, thirty
+   lines above where the wipe was added, explains why `OfflineSeconds` and `SplicerRefunds` are held
+   **in memory and never on `data`**: *"written onto `data` it would be persisted by the next
+   autosave and re-announced on every join"* -- and records that this was **measured**, not
+   predicted. A wipe-on-load is the weaker half of a pattern this file already rejected. Between the
+   grant and the next join, every autosave persists it.
+3. **33.8's own row names a target this does not check against**: *~20 swings for the max free-play
+   stack, bare arrival stays ~150*. `^0.45` is a curve, not a measurement. The row closes on a live
+   fight, and R32's defects 2-6 (the `Map.Secrets` parent that `SecretsService` destroys, the
+   top-level `OnServerEvent` connect, the two `ensureRemote` calls, the hard-coded position) are
+   **not addressed in this pass** -- I re-read all four files after normalising.
