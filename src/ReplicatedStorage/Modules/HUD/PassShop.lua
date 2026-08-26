@@ -72,12 +72,14 @@ return function(hud)
 	-- and the two things a buyer compares -- what it does and what it costs -- read better on a wide
 	-- row than stacked in a square.
 	local passScroll = Instance.new("ScrollingFrame")
+	passScroll.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+	passScroll.ScrollBarThickness = 12
 	passScroll.Name = "PassScroll"
 	passScroll.Size = UDim2.new(1, -32, 1, -(TOP + 16))
 	passScroll.Position = UDim2.new(0, 16, 0, TOP)
 	passScroll.BackgroundTransparency = 1
 	passScroll.BorderSizePixel = 0
-	passScroll.ScrollBarThickness = 6
+	passScroll.ScrollBarThickness = 12
 	passScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	passScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 	passScroll.Visible = false

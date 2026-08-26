@@ -302,13 +302,15 @@ return function(hud)
 	-- right: the thirty columns, scrolling sideways. x=268 rather than 224 -- the 44px it gives up
 	-- is the tray's gutter, and the canvas scrolls anyway so no reward cell is lost for it.
 	local trackScroll = Instance.new("ScrollingFrame")
+	trackScroll.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+	trackScroll.ScrollBarThickness = 12
 	trackScroll.Name = "TrackScroll"
 	trackScroll.Size = UDim2.new(1, -268, 0, SCROLL_H)
 	trackScroll.Position = UDim2.new(0, 268, 0.5, 0)
 	trackScroll.AnchorPoint = Vector2.new(0, 0.5)
 	trackScroll.BackgroundTransparency = 1
 	trackScroll.BorderSizePixel = 0
-	trackScroll.ScrollBarThickness = 8
+	trackScroll.ScrollBarThickness = 12
 	trackScroll.ScrollingDirection = Enum.ScrollingDirection.X
 	trackScroll.CanvasSize = UDim2.new(0, SEASON.maxLevel * PITCH + 8, 0, 0)
 	trackScroll.ZIndex = trackPage.ZIndex
@@ -535,11 +537,13 @@ return function(hud)
 	-- ================= QUEST PAGE =================
 
 	local questScroll = Instance.new("ScrollingFrame")
+	questScroll.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+	questScroll.ScrollBarThickness = 12
 	questScroll.Name = "QuestScroll"
 	questScroll.Size = UDim2.new(1, 0, 1, 0)
 	questScroll.BackgroundTransparency = 1
 	questScroll.BorderSizePixel = 0
-	questScroll.ScrollBarThickness = 8
+	questScroll.ScrollBarThickness = 12
 	questScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 	questScroll.ZIndex = questPage.ZIndex
 	questScroll.Parent = questPage

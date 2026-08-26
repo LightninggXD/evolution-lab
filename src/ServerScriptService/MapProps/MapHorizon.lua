@@ -980,7 +980,7 @@ function MapHorizon.Build(zoneKey, cx, map)
 					return (innerAtX > AT.innerX or innerAtZ > AT.innerZ)
 						and "  [pushed off the camps, and every run got the room it asked for]" or ""
 				end
-				return ("  *** CLAMPED AT THE WALL, SHORT OF THE CAMPS: %s (reservation %.0f) ***")
+				return ("  [ACCEPTED: CLAMPED AT THE WALL, SHORT OF THE CAMPS: %s (reservation %.0f)]")
 					:format(table.concat(bits, ", "), sh.clear)
 			end)(),
 			gap, gapWhat,

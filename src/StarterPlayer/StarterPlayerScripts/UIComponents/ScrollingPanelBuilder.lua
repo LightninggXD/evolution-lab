@@ -236,6 +236,8 @@ function Builder.CreatePanel(options)
 	local footerHeight = options.FooterHeight or 0
 	
 	local scroll = Instance.new("ScrollingFrame")
+	scroll.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+	scroll.ScrollBarThickness = 12
 	scroll.Name = "List"
 	-- 75 -> 20 and 85 -> 30: the 70 px header band is gone, so the list starts a margin under the
 	-- board's own top edge instead of under a band. Every card in every one of these overlays gains
@@ -244,7 +246,7 @@ function Builder.CreatePanel(options)
 	scroll.Position = UDim2.new(0, 10, 0, 20)
 	scroll.BackgroundTransparency = 1
 	scroll.BorderSizePixel = 0
-	scroll.ScrollBarThickness = 6
+	scroll.ScrollBarThickness = 12
 	scroll.ScrollBarImageColor3 = Color3.fromRGB(120, 120, 140)
 	scroll.ClipsDescendants = true
 	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)

@@ -305,6 +305,8 @@ return function(hud)
 	-- And a fourth thing falls out of the tabs for free: only the OPEN page is ever written, so the
 	-- cost of a refresh is bounded by what is on screen rather than by what exists.
 	local tabs = Instance.new("ScrollingFrame")
+	tabs.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+	tabs.ScrollBarThickness = 12
 	tabs.Name = "SetTabs"
 	-- 40 FOR 28 PX TABS, and the 12 is not slack. A CardKit card draws a 3 px border stroke and a
 	-- 2 px inner one OUTSIDE its own bounds, so a 28 px tab occupies 38 px of a clipping parent --
@@ -319,7 +321,7 @@ return function(hud)
 	tabs.ScrollingDirection = Enum.ScrollingDirection.X
 	tabs.AutomaticCanvasSize = Enum.AutomaticSize.X
 	tabs.CanvasSize = UDim2.new(0, 0, 0, 0)
-	tabs.ScrollBarThickness = 4
+	tabs.ScrollBarThickness = 12
 	-- Grey, not white: 25.4's sweep found nine lists in this game with a white bar on a white sheet,
 	-- which is a scrollbar that only exists for people who already know it is there.
 	tabs.ScrollBarImageColor3 = Color3.fromRGB(186, 192, 214)
@@ -352,12 +354,14 @@ return function(hud)
 
 	local function newPage(name)
 		local page = Instance.new("ScrollingFrame")
+		page.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+		page.ScrollBarThickness = 12
 		page.Name = "Page_" .. name
 		page.Size = PAGE_SIZE
 		page.Position = PAGE_POS
 		page.BackgroundTransparency = 1
 		page.BorderSizePixel = 0
-		page.ScrollBarThickness = 6
+		page.ScrollBarThickness = 12
 		page.ScrollBarImageColor3 = Color3.fromRGB(180, 186, 208)
 		page.ClipsDescendants = true
 		page.AutomaticCanvasSize = Enum.AutomaticSize.Y

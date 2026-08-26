@@ -315,6 +315,8 @@ return function(hud)
 	themeLabel(invLabel, 18, UITheme.Color.Outline)
 
 	local invScroll = Instance.new("ScrollingFrame")
+	invScroll.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+	invScroll.ScrollBarThickness = 12
 	invScroll.Name = "InvPickerScroll"
 	invScroll.Size = UDim2.new(1, -32, 0, 110)
 	invScroll.Position = UDim2.new(0, 16, 0, topY + 232)
@@ -324,7 +326,7 @@ return function(hud)
 	invScroll.BackgroundColor3 = PET_ROW_SHELL
 	invScroll.BorderSizePixel = 0
 	invScroll.ZIndex = 42
-	invScroll.ScrollBarThickness = 6
+	invScroll.ScrollBarThickness = 12
 	invScroll.ScrollBarImageColor3 = UITheme.Color.Locked
 	invScroll.Parent = tradeModal
 
@@ -752,13 +754,15 @@ return function(hud)
 	})
 
 	local pickerScroll = Instance.new("ScrollingFrame")
+	pickerScroll.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+	pickerScroll.ScrollBarThickness = 12
 	pickerScroll.Name = "PlayerList"
 	pickerScroll.BackgroundTransparency = 1
 	pickerScroll.BorderSizePixel = 0
 	pickerScroll.Position = UDim2.new(0, 16, 0, pickerTopY)
 	pickerScroll.Size = UDim2.new(1, -32, 1, -pickerTopY - 16)
 	pickerScroll.ZIndex = pickerPanel.ZIndex + UITheme.Z.Content
-	pickerScroll.ScrollBarThickness = 6
+	pickerScroll.ScrollBarThickness = 12
 	pickerScroll.ScrollBarImageColor3 = UITheme.Color.Locked
 	pickerScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 	pickerScroll.Parent = pickerPanel

@@ -205,7 +205,7 @@ function MapBoards.Adopt(zoneKey)
 				clearRows(stats)
 				stats.AutomaticCanvasSize = Enum.AutomaticSize.Y
 				stats.CanvasSize = UDim2.new()
-				stats.ScrollBarThickness = 6
+				stats.ScrollBarThickness = 12
 				-- A pale bar on a pale surface is the fault the scroll-affordance sweep found in
 				-- nine of fifteen lists. These boards are bright, so the bar is dark.
 				stats.ScrollBarImageColor3 = Color3.fromRGB(40, 40, 55)

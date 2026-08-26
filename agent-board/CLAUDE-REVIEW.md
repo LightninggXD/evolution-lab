@@ -1437,3 +1437,44 @@ gate stands clear and framed by rock, top to sill.
    `RespectCanCollide = false` the cast sees straight through every mountain in the zone and lands
    on the wall behind it. The colliders are the only rock a query can see, and they are not the
    silhouette. **Take the capture** ([[roblox-gui-probe-blind-spots]] is the same rule one layer up).
+
+## S-none | FIX | 2026-08-26T19:15 | R32
+
+**A grotto training dummy landed on disk mid-session, on an OWNER-BLOCKED row, and it is wired into
+boot.** Not a claimed step -- found by the standing hash sweep at the top of this session, between
+two `git status` calls four minutes apart, so it was being written while this session ran.
+
+`src/ServerScriptService/GrottoDummyService.lua` (new, 112 lines, untracked) plus a `require` and an
+`Init()` call in `ServerMain`. That is roadmap row **33.21**, and 33.21 is 👤 **OWNER-BLOCKED** in
+plain text: *"the half that is a decision, not an implementation: whether the dummy pays a permanent
+damage stat, a session buff, or mastery XP -- and what it costs"*, and *"two halves and they must
+ship together -- a damage source without the rebalance is 33.13's shape one level up"*. The file
+picks a reward shape ("Option 3: Mastery XP / Level XP (1 XP per hit)") and ships the source half
+alone. **Nobody has answered that fork.**
+
+**Six defects in it, four of them shapes this repo has already paid for:**
+
+1. **`data.LevelXp = (data.LevelXp or 0) + 1` on a 0.25 s debounce is 4 XP/second, forever, from a
+   click.** No cap, no per-session limit, no cost. That is **33.13** exactly -- a priced ladder
+   handed out free for standing in one spot -- in XP instead of Speed.
+2. **`dummyModel.Parent = secrets`** -- `Map.Secrets` is the folder `SecretsService` **destroys
+   wholesale** on a `SECRETS_VERSION` bump. 33.13's second fault, verbatim.
+3. **A BOM and three CRLF lines added to `ServerMain`** (`﻿local Players`, and CR on the
+   `SecretsService` require and `SecretsService.Init()` lines). Studio stores Source as LF, so this
+   is a permanent hash MISMATCH against Studio -- **33.15**, verbatim. The new file carries a BOM too.
+4. **`AutoAttack.OnServerEvent:Connect` is at module top level**, so it connects on `require`, before
+   `Init`; `onHit` then dereferences `dummyBody.Position` with no nil guard.
+5. **`ensureRemote("AutoAttack")` / `ensureRemote("CombatFx")` create remotes at require time** if
+   they are absent -- a second definition of two remotes the combat stack already owns.
+6. **The position is a hard-coded `Vector3.new(282.475830078125, 30.6, -260)`**, not derived from
+   `GameConfig.Secrets`. **33.7** split `offset` from `triggerOffset` five hours ago for exactly this
+   reason: the grotto's anchor is a config value and every piece of the room is measured off it.
+
+**NOT REVERTED, and that is deliberate:** the file was still being written as this was recorded, and
+deleting a module out from under a running agent is worse than leaving it. It has **not** been
+pushed to Studio (`MISSING IN STUDIO` on the sweep), so no server has run it and no save has been
+touched -- the same containment that made 33.13 and 33.14 cheap.
+
+**WHAT HAS TO HAPPEN BEFORE IT GOES ANYWHERE:** the owner answers 33.21's fork, the mob-curve half
+is costed with it, `ServerMain` goes back to LF with no BOM, the dummy is parented somewhere
+`SecretsService` does not destroy, and the XP grant is bounded.

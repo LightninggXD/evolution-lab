@@ -138,12 +138,14 @@ return function(hud)
 	themeLabel(costLabel, 22, Color3.fromRGB(46, 34, 66))
 
 	local oddsScroll = Instance.new("ScrollingFrame")
+	oddsScroll.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+	oddsScroll.ScrollBarThickness = 12
 	oddsScroll.Name = "OddsScroll"
 	oddsScroll.Size = UDim2.new(1, -36, 0, 232)
 	oddsScroll.Position = UDim2.new(0, 18, 0, 186)
 	oddsScroll.BackgroundTransparency = 1
 	oddsScroll.BorderSizePixel = 0
-	oddsScroll.ScrollBarThickness = 6
+	oddsScroll.ScrollBarThickness = 12
 	oddsScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	oddsScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 	oddsScroll.ZIndex = panel.ZIndex + UITheme.Z.Content

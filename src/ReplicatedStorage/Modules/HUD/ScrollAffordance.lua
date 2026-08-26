@@ -111,7 +111,7 @@ return function(hud)
 		-- for the pass to say what it is for rather than to be worked around at each call site.
 		if scroll.ScrollingDirection == Enum.ScrollingDirection.X then return end
 
-		if scroll.ScrollBarThickness < 10 then scroll.ScrollBarThickness = 10 end
+		if scroll.ScrollBarThickness < 10 then scroll.ScrollBarThickness = 12 end
 
 		-- Trailing space has to be bought differently depending on who owns the canvas. Padding on
 		-- an AutomaticCanvasSize scroll grows the canvas with it; on a fixed canvas it would only

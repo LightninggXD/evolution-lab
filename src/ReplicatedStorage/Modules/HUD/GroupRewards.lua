@@ -39,13 +39,15 @@ return function(hud)
 	})
 
 	local scroll = Instance.new("ScrollingFrame")
+	scroll.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+	scroll.ScrollBarThickness = 12
 	scroll.Name = "RewardsList"
 	scroll.BackgroundTransparency = 1
 	scroll.BorderSizePixel = 0
 	scroll.Position = UDim2.new(0, 16, 0, topY)
 	scroll.Size = UDim2.new(1, -32, 1, -topY - 14)
 	scroll.ZIndex = groupPanel.ZIndex + UITheme.Z.Content
-	scroll.ScrollBarThickness = 6
+	scroll.ScrollBarThickness = 12
 	scroll.ScrollBarImageColor3 = Color3.fromRGB(60, 70, 90)
 	scroll.CanvasSize = UDim2.new(0, 0, 0, 310)
 	scroll.Parent = groupPanel

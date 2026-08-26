@@ -65,10 +65,22 @@ local CRAG_SINK = 3
 local WALL = MapHorizon.Wall
 local VIEW_Y, VIEW_Z = 45, -180
 
--- How tall a peak standing at `z` must be for its top to appear ABOVE the wall's top edge from
--- VIEW. The -Z wall stands at z = -WALL.z, so `VIEW_Z + WALL.z` is the distance to it.
+-- How tall a peak standing at `z` must be for its top to appear ABOVE the wall's top edge from a
+-- camera at (`viewY`, `viewZ`). Similar triangles: the wall's top edge and the peak are read on the
+-- same line of sight, so a peak farther away than the wall has to be taller by the ratio of the two
+-- distances. That is the whole reason a 210-stud shoulder once stood 40 studs BELOW the skyline.
+--
+-- EXPORTED, because `MapGateFlanks` needs the same answer for the rampart it stands behind the wall
+-- at each gate (33.4) and a second copy of this is the 31.5a trap -- one fact, two files, drifting.
+-- Which of the zone's two walls is in the way is taken from the SIGN of the look direction, so it
+-- serves the +Z gate as well as the -Z pass this file was written for.
+function MapPassDress.NeedToClear(viewY, viewZ, z)
+	local wallZ = (z > viewZ) and WALL.z or -WALL.z
+	return viewY + (WALL.h - viewY) * (z - viewZ) / (wallZ - viewZ)
+end
+
 local function needToClear(z)
-	return VIEW_Y + (WALL.h - VIEW_Y) * (VIEW_Z - z) / (VIEW_Z + WALL.z)
+	return MapPassDress.NeedToClear(VIEW_Y, VIEW_Z, z)
 end
 
 -- ===== THE SHOULDERS =====

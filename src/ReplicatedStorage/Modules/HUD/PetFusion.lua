@@ -60,13 +60,15 @@ return function(hud)
 	themeLabel(hintLabel, 18)
 
 	local scroll = Instance.new("ScrollingFrame")
+	scroll.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+	scroll.ScrollBarThickness = 12
 	scroll.Name = "FusionScroll"
 	-- header 14+68, gap 12, hint 44, gap 12 => 150; bottom margin 16, so 166 short.
 	scroll.Size = UDim2.new(1, -32, 1, -166)
 	scroll.Position = UDim2.new(0, 16, 0, 150)
 	scroll.BackgroundTransparency = 1
 	scroll.BorderSizePixel = 0
-	scroll.ScrollBarThickness = 6
+	scroll.ScrollBarThickness = 12
 	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 	scroll.Parent = panel
 

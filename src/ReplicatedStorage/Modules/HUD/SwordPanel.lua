@@ -96,6 +96,8 @@ return function(hud)
 
 	local listTop = contentTop + 52
 	local scroll = Instance.new("ScrollingFrame")
+	scroll.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+	scroll.ScrollBarThickness = 12
 	scroll.Name = "SwordScroll"
 	scroll.Size = UDim2.new(1, -32, 1, -(listTop + 16))
 	scroll.Position = UDim2.new(0, 16, 0, listTop)
@@ -104,7 +106,7 @@ return function(hud)
 	-- Thickness and colour are both overwritten by `HUD/ScrollAffordance`, which sweeps every
 	-- ScrollingFrame under the ScreenGui and also hooks DescendantAdded -- so this list gets the
 	-- visible grip and the bottom fade whichever order the two modules happen to run in.
-	scroll.ScrollBarThickness = 6
+	scroll.ScrollBarThickness = 12
 	scroll.CanvasSize = UDim2.new(0, 0, 0, maxLevel * (ROW_H + ROW_GAP))
 	scroll.Parent = panel
 

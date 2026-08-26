@@ -71,12 +71,14 @@ return function(hud)
 	local flatText, colorTag = hud.flatText, hud.colorTag
 
 	local petsScroll = Instance.new("ScrollingFrame")
+	petsScroll.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+	petsScroll.ScrollBarThickness = 12
 	petsScroll.Name = "PetsScroll"
 	petsScroll.Size = UDim2.new(0, SCROLL_W, 1, -BOTTOM)
 	petsScroll.Position = UDim2.new(0, 22, 0, GRID_TOP)
 	petsScroll.BackgroundTransparency = 1
 	petsScroll.BorderSizePixel = 0
-	petsScroll.ScrollBarThickness = 6
+	petsScroll.ScrollBarThickness = 12
 	-- Grey, not white: 25.4's sweep found nine lists in this game wearing a white bar on a white
 	-- sheet, which is a scrollbar that only exists for people who already know it is there.
 	petsScroll.ScrollBarImageColor3 = Color3.fromRGB(186, 192, 214)

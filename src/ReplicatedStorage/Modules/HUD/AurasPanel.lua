@@ -119,6 +119,8 @@ return function(hud)
 	well:SetAttribute("BaseColor", WELL)
 
 	local list = Instance.new("ScrollingFrame")
+	list.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+	list.ScrollBarThickness = 12
 	list.Name = "AuraList"
 	list.Position = UDim2.new(0, 8, 0, 8)
 	list.Size = UDim2.new(1, -16, 1, -16)
@@ -130,7 +132,7 @@ return function(hud)
 	-- that goes stale the moment that file is re-tuned.
 	list.CanvasSize = UDim2.new(0, 0, 0, 0)
 	list.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	list.ScrollBarThickness = 10
+	list.ScrollBarThickness = 12
 	list.ZIndex = well.ZIndex + UITheme.Z.Content
 	list.Parent = well
 	-- No `ScrollInk` here any more. 31.22 added one because `ScrollAffordance`'s near-black grip at
