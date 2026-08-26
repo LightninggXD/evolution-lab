@@ -1478,3 +1478,24 @@ touched -- the same containment that made 33.13 and 33.14 cheap.
 **WHAT HAS TO HAPPEN BEFORE IT GOES ANYWHERE:** the owner answers 33.21's fork, the mob-curve half
 is costed with it, `ServerMain` goes back to LF with no BOM, the dummy is parented somewhere
 `SecretsService` does not destroy, and the XP grant is bounded.
+
+## S-none | NOTE | 2026-08-26T22:40 | R33
+
+**`screen_capture` is wedged in this Studio session and `execute_luau` is not.** Seven attempts,
+seven `Request timeout` after 120 s -- with camera arguments and without them, and with the camera
+posed separately by `execute_luau` first so the capture had nothing to do but grab a settled
+viewport. Every other Studio tool answers normally in the same minute: `get_studio_state` (Edit),
+`execute_luau` (a 2103-sample walk probe, a full `MapGateFlanks.Init`, three `UpdateSourceAsync`
+pushes verified byte-identical), `get_console_output`. Three captures **did** succeed earlier in the
+same session, so this is not the scene size alone (146,705 workspace descendants).
+
+**It blocks 33.4 and nothing else.** The row's verification is half arithmetic and half picture, and
+the picture is the half that matters: two builds of the rampart passed the wall survey at 0 of 840
+and were refused by the capture -- once for burying the gate, once for reading as a picket fence.
+So the row is `[~]` with the code shipped, pushed and measured, and the capture named as what is
+missing. **Do not close it on the numbers.**
+
+**For whoever picks it up:** the fix is almost certainly outside the agent -- a modal dialog open in
+Studio, or the plugin's capture path needing a Studio restart. Re-take from `(0, 25, -240)` looking
+at `(0, 80, -580)` and from `(0, 25, 250)` looking at `(0, 90, 560)`; the two "before" pictures and
+the two failed builds are described in roadmap row 33.4 to read the new one against.
