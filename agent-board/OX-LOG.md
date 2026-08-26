@@ -114,3 +114,48 @@ $ EOL check: all five files LF (matches .gitattributes byte-exact mirror rule)
 (`tools/luaremotes.py`: same 4 pre-existing unreachable remotes as last session, none mine.)
 **Not verified:** I have no Studio. Claude's checks after push: (1) boot line shows `orphaned` >= 1 and colliders swept on the live BETA place, then `S1 corridor offenders remaining: 0 -- CLEAR` including the Folder hill; (2) `[MapPassDress]` line shows edges ~+-115 or tighter, tallest ~210 > 180; (3) capture from (0, 45, -180): gate framed by rock, not bare slate; (4) walk probe still BLOCKED 0 up the lane.
 **Open questions:** (1) SHOULDER_X seed is 305, outside R1's suggested "|x| ~130-200" band -- deliberate: turned with the run, a 210-top shoulder's long axis is ~400 studs, so a centre inside 200 puts its skirt across the lane; 305 keeps the box clear by construction and the nudge enforces it regardless. If the capture wants the shoulders tighter in, shrink SHOULDER_TOP first (smaller mountain, shorter axis) -- say so and I will re-solve. (2) Shoulder pose (behind the wall at z -780) is reasoned from the offender coordinates, not captured; if she wants the peaks closer to the door, SHOULDER_Z is one constant. (3) Crags reproduce at slightly different heights/yaws than build 1 because the seat routine draws height before yaw now; nothing depends on the old draw order.
+
+## 33.1 + 33.2 + 33.6 | CLAIMED | 2026-08-26T18:40
+
+**Did:** Verified 32.28/S13 live end to end and closed the two rows hanging on it. (1) Ran `tools/probe_portal_walk.lua` in Studio against the live world: S1 geometry 0 offenders, S3 sight ray lands on the `PortalGate` film, S2 walk decomposed every blocker by full path. The straight centre line crosses only authored village exhibits (Fountain, two inkubator rows, Spawn.Model structure) and climbable PortalSteps; a waypoint route of body-box Blockcast legs (slot x ~9.5 between the Basic inkubator and house123, east of Fountain, west of merchant/Spawn.Model) reaches the door. Captured the gate framed from (0, 45, -180). (2) **Fixed the probe's own false witness**: old S2 used `GetPartBoundsInBox`, which reads the stone arch's OBB and cannot see that its doorway is a hole in the mesh -- it reported the arch as 3 blocked samples no sidestep could clear (a greedy walk died at its flank). Rewrote S2 to `workspace:Blockcast` + `RaycastParams.RespectCanCollide` + STEP_UP 4.0 (32.10's measured walk-over limit). (3) 33.2 ad sweep: 0 AdPortal/AdGui/named-ad in all of workspace; `Forest Portal Template` absent from Workspace AND ServerStorage -- she removed it, nothing returns, the arch is the surround (her own answer "Iza kapije" already on record for the pose question). (4) 33.6: measured 0 HorizonHill outside workspace.Zones (60 inside), `Workspace.Folder` empty (0 children), deleted the husk (grep: nothing in src/ creates or parents into it), skyline captured unchanged.
+**Files:** tools/probe_portal_walk.lua (S2 rewrite, +24/-23), ROADMAP.md (33.1/33.2/33.6 -> `[~]` with evidence), agent-board/OX-LOG.md
+**Evidence:**
+```
+S1 corridor offenders remaining: 0 -- CLEAR
+S2 walk spawn->gate: len 931, samples 233, BLOCKED 10   (all village exhibits + PortalSteps)
+S3 sight ray village-eye -> door: hit Workspace.Zones.Forest.PortalGate at (0, 71, -575)
+ROUTE VERDICT: the full body-box walk REACHES THE DOOR through the village   (10/10 legs ok)
+33.2 AD SWEEP: 0 AdPortal/AdGui/named-ad descendant(s) in workspace -- CLEAR
+33.2 template 'Forest Portal Template': Workspace=absent, ServerStorage=absent
+HorizonHill models: inside Zones 60, OUTSIDE Zones 0 ; Workspace.Folder: present, 0 children
+live boot: [MapPass] Forest: cut 6 hills (0 orphaned) and 0 stray collider(s)
+           [MapPassDress] edges x -108 / +108 (bare span 216); shoulders y 337 -- SHOW BY 87
+           [MapPortalArt] Forest: stripped 0 ad unit(s); template Forest Portal Template not found
+hash sweep (5 map-lane files): disk == Studio byte-identical
+   MapPass 5915/1879107592  MapPassDress 11248/389011106  MapPortalArt 3734/1433617866
+   ForestMapService 37896/1177192303  MapHorizon 52676/778150623
+git diff --numstat tools/probe_portal_walk.lua  ->  24 insertions, 23 deletions
+```
+**Not verified:** nothing on a real published server (Studio only); the Play session was stopped before the probe could re-run inside it -- every number above is Edit-mode world + one captured Play boot log, which is the same world ZoneBuilder rebuilds. The `[x]` on 33.1/33.2/33.6 stays Claude's to write.
+**Open questions:** (1) The village plaza north exit is TIGHT for a max-size body: the only slot between the Basic inkubator exhibit and house123 is ~11 studs wide (body needs 9). It passed, but if she ever widens those exhibits the route closes -- flagging, not fixing. (2) `[MapGates] Forest: 10 prop(s) STILL IN THE ROAD with nowhere to go` printed on the live boot (Barrels/Fences/Shop in South road) -- pre-existing, no row found for it; left for triage.
+
+## 32.32 | CLAIMED | 2026-08-26T04:15
+
+**Did:** Measured row 32.32's world state live after the 33.17 frame-leak fix landed (`fc2c678`, committed by a concurrent writer DURING this session at 04:09 -- no code touched here, verification only). (1) Full `WorldShell` census: exactly **6** `Wall` parts per zone, every one on its own zone box -- Forest reads `x +-625` full-depth plus `z +-575` in two 575-wide segments a side with the gate gap between them; **72 unique Wall rows over 12 zones**, and the six strays the row names (`centre(0,50)`, `centre(0,-1200)`, `centre(+-575,-237)`, `centre(+-575,-912)`) exist **nowhere** in the folder. (2) `probe_portal_walk` re-run UNCHANGED against the rebuilt world: S1 `0 offenders -- CLEAR`; S2 **`BLOCKED 0 of 233 samples`** on the dead-centre line -- better than 33.1's waypoint route, and explained: the post-fix rebuild let `MapSquare` finally ring the village groups (`[MapSquare] Forest: 43 props moved in 3 of 3 groups ... shop narrow (46,55)->(79,52)`; the pre-fix boots printed `0 props moved ... LEFT WHERE THEY WERE`, because half-shifted exhibits filled their own clearings); S3 sight ray hits the `PortalGate` film at `(0, 71, -575)` -- the door, not a Wall. (3) Eggs healthy on the `stamp 137 -> 138` rebuild: three columns seated `ground/lift 0.0/+1.6`, **no split warnings**. The warning itself proved real on the pre-rebuild boot: `egg 1/2/3 is in 2 pieces standing up to 608/575/544 studs from its own shell`.
+**Writer-pass answer the row demanded:** `ZoneBuilder.lua:1844-1854` is the pass that stamps the `Zone` attribute and collects `ALWAYS_LOADED` direct children into WorldShell. The strays were once Forest direct children built through the leaked frame, collected like any wall, and preserved by same-world handback (`ShellId` match -> parts handed back, never position-checked). A rebuild that regenerates the zones folder issues a NEW `ShellId`, so every old shell part is destroyed and only correctly-framed walls are laid again -- that is what removed them.
+**Evidence:**
+```
+gate Workspace.Zones.Forest.PortalGate at (0.0, 59.3, -575.0)
+S1 corridor offenders remaining: 0 -- CLEAR
+S2 walk spawn->gate: len 931, samples 233, BLOCKED 0 -- CLEAR
+S3 sight ray village-eye -> door: hit Workspace.Zones.Forest.PortalGate at (0, 71, -575)
+VERDICT: geometry CLEAR, walk CLEAR, sight hit (see S3)
+Forest walls: pos(-625,90,0) 4x180x1150 | pos(625,90,0) | pos(-+338,90,-575) 575x180x4
+              pos(-+338,90,575) 575x180x4   == exactly the authored zone box, 6 of 6
+live boot (pre-rebuild):  [MapEggs] egg 1..3 is in 2 pieces standing up to 608/575/544 studs ...
+live boot (stamp 138):    [MapEggs] seated 3 egg columns in modern row (0.0/+1.6 x3)  <- no split lines
+                          [MapSquare] 43 props moved in 3 of 3 groups ringed about (-19, 8)
+hash sweep: disk == Studio byte-identical for all six files touched by 33.17
+```
+**Not verified:** whether a FUTURE fresh build could still re-create strays -- reasoned closed rather than re-measured: the leak path is closed in code (`ZoneKit.withFrame` restores on every exit path incl. throw; `ZoneBuilder` warns and clears a leaked frame at each zone start), and the observed full rebuild produced zero strays and zero split eggs. Console noise during the rebuild (`ZoneService:51 OnServerEvent can only be used on the server`, then `MapPortals:68` / `MapSigns:52` module-load failures) are **Edit-context artifacts**: `ReadyRemote.OnServerEvent` at module top level throws outside a running-server context, so any Edit-mode require of ZoneService trips it; Play boots in the same console print both modules clean.
+**Open questions:** (1) `fc2c678` landed mid-session from another writer closing 33.17 `[x]`; this session overlapped it in Studio (Edit-mode measurements only, read-only probes). If Claude reviews both entries: the two sessions are complementary, not conflicting -- 33.17 wrote the fix, this entry measures its world effect under 32.32. (2) Row 32.32 stays `[~]` until Claude runs or accepts these numbers; the `[x]` ceiling rule stands.

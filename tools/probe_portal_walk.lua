@@ -9,13 +9,18 @@
 --      mountain and call that proof. This check enumerates every `HorizonHill` model left in
 --      the world whose body still meets the corridor (x gate.x +-100, z -660..-460) and lists
 --      it by full path. Expected after MapPass.Cut: 0 offenders.
---   S2 WALK -- a body-sized box (her measured 9 x 8.4 x 7) stepped 4 studs up the lane from
---      the spawn to the gate, against everything that CAN collide. Box bottom held CLEAR above
---      the per-sample ground cast (`probe-body-box-counts-the-floor`); a hit counts as a wall
---      only if its top stands more than RISE above that ground, i.e. a kerb steps, a wall does
---      not. EVERY blocker is reported, GROUPED by instance with its z-range (review R3: five
---      identical lines that hide the rest made this probe run twice; x5 inkubator | x12 Fountain
---      says it once).
+--   S2 WALK -- a body-sized box (her measured 9 x 8.4 x 7) swept 4 studs per sample up the
+--      lane from the spawn to the gate, MESH-HONEST: workspace:Blockcast with
+--      RaycastParams.RespectCanCollide, not GetPartBoundsInBox. The bounds test was the probe's
+--      own false witness, found when 33.1 first ran it live (2026-08-26): the stone arch
+--      (MapGateArch, 32.30) is ONE MeshPart whose OBB spans the whole mouth z -549..-601, and
+--      its DOORWAY IS A HOLE IN THE MESH -- rays pass through and land on the red door film,
+--      but the bounds test reported the arch as 3 blocked samples and no side step could ever
+--      clear it (a greedy walk died at its flank). A box query reads the wrapper; only a
+--      shape cast reads the hole. A hit still counts as a WALL only if the part's top stands
+--      more than STEP_UP above the local ground -- 32.10 measured the real body walking OVER
+--      4.0 and stopping at 4.5, so 4.0 is the climb allowance and a stair is not a wall.
+--      EVERY blocker is reported, GROUPED by instance with its z-range.
 --   S3 SIGHT -- one eye-height ray from the village to the door, printing what it hit by full
 --      instance path -- the whole point of 32.28 is that this used to be a hill nobody
 --      expected. With the hills invisible to rays, this answers "wall / collider / tree", and
@@ -26,7 +31,7 @@
 local BOX_W, BOX_H, BOX_L = 9, 8.4, 7    -- her measured body
 local STEP = 4
 local CLEAR = 1.0                        -- box bottom this far off the per-sample ground
-local RISE = 3.0                         -- taller than this is a wall, shorter is a step
+local STEP_UP = 4.0                      -- climbable step (32.10: body walks over 4.0, stops at 4.5)
 local EYE = 7                            -- eye height for the 8.4-stud body
 
 local CORRIDOR_HALF_X = 100              -- 32.28's cut, verbatim: x +-100, z -660..-460
@@ -125,10 +130,12 @@ p(("S1 corridor offenders remaining: %d %s"):format(offenders,
 	offenders == 0 and "-- CLEAR" or "-- STILL WALLING THE PASS"))
 
 -- ===== S2: the body walk =====
+-- RespectCanCollide: the sweep wants walls, and decoration that happens to be queryable
+-- (non-collide arch film, hill meshes) must not answer. Blockcast honours mesh collision
+-- geometry at Default fidelity, which is what a walking body actually hits.
 local rp = RaycastParams.new()
 rp.IgnoreWater = true
-local params = OverlapParams.new()
-params.MaxParts = 200
+rp.RespectCanCollide = true
 
 local tx, tz = gx, gz + 10              -- stand-off one prompt-reach short of the door
 local dx, dz = tx - spawn.Position.X, tz - spawn.Position.Z
@@ -157,21 +164,15 @@ while t <= len + 0.001 do
 	local x, z = spawn.Position.X + ux * t, spawn.Position.Z + uz * t
 	local hit = workspace:Raycast(Vector3.new(x, 400, z), Vector3.new(0, -600, 0), rp)
 	local gyy = hit and hit.Position.Y or 0
-	local cf = CFrame.lookAt(Vector3.new(x, gyy + CLEAR + BOX_H / 2, z),
-		Vector3.new(x + ux, gyy + CLEAR + BOX_H / 2, z + uz))
-	local worst, worstH = nil, 0
-	for _, part in ipairs(workspace:GetPartBoundsInBox(cf, Vector3.new(BOX_W, BOX_H, BOX_L), params)) do
-		if part.CanCollide then
-			local h = topOf(part) - gyy
-			if h > RISE and part.Position.Y - part.Size.Y / 2 < gyy + BOX_H and h > worstH then
-				worst, worstH = part, h
-			end
-		end
-	end
+	local cy = gyy + CLEAR + BOX_H / 2
+	local cf = CFrame.lookAt(Vector3.new(x, cy, z),
+		Vector3.new(x + ux, cy, z + uz))
+	local wallHit = workspace:Blockcast(cf, Vector3.new(BOX_W, BOX_H, BOX_L),
+		Vector3.new(ux * STEP, 0, uz * STEP), rp)
 	samples += 1
-	if worst then
+	if wallHit and topOf(wallHit.Instance) - gyy > STEP_UP then
 		blocked += 1
-		bump(worst, z)
+		bump(wallHit.Instance, z)
 	end
 	t += STEP
 end
