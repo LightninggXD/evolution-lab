@@ -741,6 +741,7 @@ function PetService.HandleFuse(player, petKey, tier)
 	local petDef = GameConfig.GetPetDef(petKey)
 
 	SeasonPassService.Track(player, "fuse", 1)
+	data.Fuses = (data.Fuses or 0) + 1
 
 	PlayerDataService.PushToClient(player)
 	Remotes.Notify:FireClient(player, {
@@ -778,6 +779,71 @@ end
 -- panel that drew them the same way would read as "nothing happened" half the time.
 local ENCHANT_INTERVAL = 0.35   -- the EGG_INTERVAL pattern: far slower than a loop, faster than a click
 local lastEnchant = {}          -- [userId] = os.clock()
+
+
+-- ===== TRANSFERRING AN ENCHANT (34.5) =====
+--
+-- The terminal Diamond sink. Move an enchant from one pet to another for a fixed Diamond price.
+-- Best-kept-wins so no confirm dialog is needed.
+local TRANSFER_COST = 25000
+
+function PetService.HandleEnchantTransfer(player, sourcePetId, targetPetId)
+	local data = PlayerDataService.Get(player)
+	if not data then return end
+
+	if sourcePetId == targetPetId then return end
+
+	local sourcePet, targetPet = nil, nil
+	for _, p in ipairs(data.Pets) do
+		if p.id == sourcePetId then sourcePet = p end
+		if p.id == targetPetId then targetPet = p end
+	end
+	if not (sourcePet and targetPet) then return end
+
+	if not sourcePet.enchant then
+		Remotes.Notify:FireClient(player, { kind = "error", message = "Source pet has no enchant!" })
+		return
+	end
+
+	if GameConfig.IsPetAway(data, sourcePetId) or GameConfig.IsPetAway(data, targetPetId) then
+		Remotes.Notify:FireClient(player, { kind = "error", message = "One of those pets is away on an adventure!" })
+		return
+	end
+
+	if (data.Diamonds or 0) < TRANSFER_COST then
+		Remotes.Notify:FireClient(player, { kind = "error", message = ("Transfer costs %s Diamonds!"):format(GameConfig.FormatNumber and GameConfig.FormatNumber(TRANSFER_COST) or tostring(TRANSFER_COST)) })
+		return
+	end
+
+	-- Charge
+	data.Diamonds -= TRANSFER_COST
+	Telemetry.Economy(player, "Sink", Telemetry.Currency.Diamonds, TRANSFER_COST, data.Diamonds, Telemetry.Tx.Shop, "enchant_transfer")
+
+	local incoming = sourcePet.enchant
+	sourcePet.enchant = nil
+
+	local upgraded = GameConfig.IsEnchantBetter(incoming, targetPet.enchant)
+	if upgraded then
+		targetPet.enchant = incoming
+	end
+
+	PlayerDataService.PushToClient(player)
+	
+	local targetDef = GameConfig.GetPetDef(targetPet.key)
+	local rolledDef = GameConfig.GetEnchantDef(incoming)
+	
+	if upgraded then
+		Remotes.Notify:FireClient(player, {
+			kind = "success",
+			message = ("Successfully transferred %s to %s!"):format(rolledDef and rolledDef.name or incoming, targetDef and targetDef.name or targetPet.key)
+		})
+	else
+		Remotes.Notify:FireClient(player, {
+			kind = "info",
+			message = ("Transfer completed, but target pet's enchant was stronger!")
+		})
+	end
+end
 
 function PetService.HandleEnchant(player, petId)
 	local data = PlayerDataService.Get(player)
@@ -1214,6 +1280,12 @@ function PetService.Init()
 	ensureRemote("EnchantPet").OnServerEvent:Connect(function(player, petId)
 		if typeof(petId) == "string" then
 			PetService.HandleEnchant(player, petId)
+		end
+	end)
+
+	ensureRemote("EnchantTransfer").OnServerEvent:Connect(function(player, sourceId, targetId)
+		if typeof(sourceId) == "string" and typeof(targetId) == "string" then
+			PetService.HandleEnchantTransfer(player, sourceId, targetId)
 		end
 	end)
 

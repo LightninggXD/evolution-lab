@@ -389,6 +389,7 @@ function MinigameService.HandleFinish(player, payload)
 	local Telemetry = require(script.Parent.Telemetry)
 
 	data.DNA = (data.DNA or 0) + reward.dna
+	data.MinigamesPlayed = (data.MinigamesPlayed or 0) + 1
 	Telemetry.Economy(player, "Source", Telemetry.Currency.DNA, reward.dna, data.DNA,
 		Telemetry.Tx.Gameplay, "minigame_" .. kind.key)
 

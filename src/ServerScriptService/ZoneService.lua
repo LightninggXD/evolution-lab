@@ -133,6 +133,7 @@ function ZoneService.CheckUnlocks(player, data)
 	for _, zone in ipairs(GameConfig.Zones) do
 		if GameConfig.IsZoneUnlocked(zone, data) and not hasZone(data, zone.key) then
 			table.insert(data.UnlockedZones, zone.key)
+			data.ZoneFloorsCleared = (data.ZoneFloorsCleared or 0) + 1
 			table.insert(newlyUnlocked, zone)
 		end
 	end

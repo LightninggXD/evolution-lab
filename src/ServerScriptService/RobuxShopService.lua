@@ -211,6 +211,9 @@ local function getProductByPurchaseId(productId)
 	for _, p in ipairs(GameConfig.RobuxProducts) do
 		if p.productId == productId then return p end
 	end
+	for _, c in ipairs(GameConfig.Cosmetics) do
+		if c.productId == productId then return c end
+	end
 	return nil
 end
 
@@ -293,6 +296,11 @@ local function processReceipt(receiptInfo)
 	-- same shape, same reasoning: a counted charge, spent later by PetService.HandleTierUp
 	if product.grantTierUps then
 		data.TierUpTokens = (data.TierUpTokens or 0) + product.grantTierUps
+	end
+
+	if product.type and (product.type == "Trail" or product.type == "NamePlate" or product.type == "Emote") then
+		data.CosmeticsOwned = data.CosmeticsOwned or {}
+		data.CosmeticsOwned[product.key] = true
 	end
 
 	-- SPEND IT NOW IF THERE IS SOMETHING TO SPEND IT ON. A buyer who paid in the middle of a fight

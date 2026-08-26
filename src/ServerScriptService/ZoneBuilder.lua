@@ -1967,6 +1967,7 @@ local WORLD_AMBIENT = Color3.fromRGB(52, 56, 72)
 local WORLD_OUTDOOR_AMBIENT = Color3.fromRGB(112, 122, 144)
 local WORLD_CLOCK = 15.8
 local WORLD_HAZE = 0.55
+local WORLD_DENSITY = 0.18
 
 -- ===== THE SKY, WHICH DID NOT EXIST =====
 --
@@ -2035,6 +2036,7 @@ local function applyDistanceFog()
 	Lighting.GlobalShadows = true
 	if atmosphere then
 		atmosphere.Haze = WORLD_HAZE
+		atmosphere.Density = WORLD_DENSITY
 	end
 	-- The grade is created if it is missing, so a place that lost it still comes up looking right.
 	local grade = Lighting:FindFirstChild("ToonPunch")

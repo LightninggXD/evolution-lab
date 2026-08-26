@@ -176,6 +176,18 @@ GameConfig.Events = {
 	-- simply in the past or the future, GetEventWindow says so, and no effect and no skin is handed
 	-- out until the moment named below.
 	{
+		key = "GlobalGoal",
+		name = "Global Challenge",
+		emoji = "\u{1F30D}",
+		blurb = "Server-wide objective",
+		color = Color3.fromRGB(80, 200, 120),
+		recurring = { wday = GameConfig.Weekday.Sat, hour = 0, hours = 48 },
+		priority = 20,
+		metric = "Kills",
+		target = 5000000,
+		reward = { diamonds = 500 },
+	},
+	{
 		key = "PrismFest",
 		name = "Prism Festival",
 		emoji = "\u{1F308}",

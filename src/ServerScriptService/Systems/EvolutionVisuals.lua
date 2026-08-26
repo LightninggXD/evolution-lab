@@ -662,6 +662,36 @@ end
 -- Applies the full visual package (scale + aura) for a player's current stage.
 -- opts.animate: tween the scale change instead of snapping (use for live evolves)
 -- opts.burst: play a one-shot particle/light burst (use for live evolves, not initial spawn)
+local function setupCosmetics(player, character)
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+
+	-- Remove existing cosmetic trail if any
+	local existing = root:FindFirstChild("CosmeticTrailAttachment")
+	if existing then existing:Destroy() end
+
+	local wornTrail = player:GetAttribute("WornTrail")
+	if not wornTrail then return end
+
+	-- Find trail config
+	local path = nil
+	for _, c in ipairs(GameConfig.Cosmetics) do
+		if c.key == wornTrail and c.type == "Trail" then
+			path = c.path
+			break
+		end
+	end
+
+	if path and VFXLibrary.Exists(path) then
+		local att = VFXLibrary.Attach(root, path, {
+			name = "CosmeticTrailAttachment",
+			targetRate = 15,
+			targetSize = 4.0,
+			minTransparency = 0.2
+		})
+	end
+end
+
 function EvolutionVisuals.ApplyStage(player, stageIndex, opts)
 	opts = opts or {}
 	local character = player.Character
@@ -715,6 +745,7 @@ function EvolutionVisuals.ApplyStage(player, stageIndex, opts)
 	-- the stage light has to be the colour of the character being WORN, not of the stage. Nothing
 	-- between the two positions touches the root part's light or attachment.
 	setupAura(character, stage, stageIndex, entry and entry.color)
+	setupCosmetics(player, character)
 
 	-- THE LOOK COMES FROM THE SKIN, THE SIZE COMES FROM THE STAGE.
 	--

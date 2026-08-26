@@ -56,7 +56,7 @@ PetDetail.WIDTH = 200
 -- 40 equip + 8 + 38 enchant + 8 + 36 release + 12 foot. **A card beside a grid does not have to be
 -- as tall as the grid** -- it is not in Kristina's reference either, where the card is visibly the
 -- shorter of the two.
-PetDetail.HEIGHT = 296
+PetDetail.HEIGHT = 338
 
 --- Builds the board into `panel` and returns `show(pet, data)` / `clear()`.
 --- `hud` supplies `colorTag`, `flatText`, `petDisplayInfo` and `confirmRelease`.
@@ -170,8 +170,9 @@ function PetDetail.Build(panel, hud, top)
 	end
 
 	local equipBtn = actionButton("EquipButton", 158, 40)
-	local enchantBtn = actionButton("EnchantButton", 206, 38)
-	local releaseBtn = actionButton("ReleaseButton", 252, 36)
+	local enchantBtn = actionButton("EnchantButton", 206, 36)
+	local transferBtn = actionButton("TransferButton", 248, 36)
+	local releaseBtn = actionButton("ReleaseButton", 290, 36)
 
 	local current   -- the pet the three buttons are aimed at
 
@@ -203,6 +204,13 @@ function PetDetail.Build(panel, hud, top)
 		if not current then return end
 		if hud.confirmRelease then
 			hud.confirmRelease(current.pet.id, current.name, current.rarityName, current.rarityColor)
+		end
+	end)
+
+	transferBtn.MouseButton1Click:Connect(function()
+		if not current or not current.pet.enchant then return end
+		if hud.openTransferPicker then
+			hud.openTransferPicker(current.pet.id)
 		end
 	end)
 
