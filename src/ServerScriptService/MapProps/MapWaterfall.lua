@@ -236,8 +236,19 @@ local CURTAIN_W = 40
 -- draws a visible seam across the fall at the exact height this part starts. Measured against the
 -- capture: a deep 96/176/224 sheet read as a blue slab hung under a white waterfall.
 local CURTAIN_TRANSPARENCY = 0.20
-local CURTAIN_REFLECTANCE = 0.06
-local WATER = Color3.fromRGB(186, 226, 250)
+-- `CURTAIN_REFLECTANCE` and the pale `WATER` tone both died with 33.22 and are deleted rather than
+-- parked: the sheet is no longer Glass and no longer the water. The tone it used to hold is quoted
+-- in the paragraph above so the argument survives without a dead constant to mislead the next read.
+
+-- ===== AND 33.20's SECOND HALF EXPIRED WHEN THE BEAM WENT IN FRONT OF IT (33.22) =====
+-- The paragraph above argues the sheet must stay NEAR the model's own water tone, because a deeper
+-- sheet drew a visible seam across the fall at the height the part starts. That was measured on a
+-- sheet that WAS the water. It is not any more: the fall now runs past it as a beam (see
+-- `buildCurtain`), so the sheet is the dark body of water BEHIND the falling water -- which is
+-- exactly what the rock does for the eighty studs above it. Held at the pale tone it read as a lit
+-- white panel below a cyan fall, i.e. the slab again from a different direction. Glass and the
+-- reflectance go with it: this surface is now lit by nothing and reflects nothing.
+local SHEET_COLOR = Color3.fromRGB(96, 168, 214)
 
 -- ===== THE POOL IS NOT THE CURTAIN, AND SHARING ONE COLOUR IS WHY IT BLEW OUT =====
 -- The pool was `WATER` on Glass at 0.35 with Reflectance 0.2 -- i.e. a near-white 50-stud disc
@@ -247,6 +258,18 @@ local WATER = Color3.fromRGB(186, 226, 250)
 local POOL_COLOR = Color3.fromRGB(58, 138, 190)
 local POOL_TRANSPARENCY = 0.25
 local POOL_W = CURTAIN_W - 6       -- inside the curtain's own span, so no rim shows past the water
+
+-- ===== THE LAST DROP IS A BEAM, AND THESE TWO NUMBERS ARE ITS WHOLE CONFIGURATION =====
+-- Both belong to `buildCurtain`; the long argument for them is in the comment block over it.
+-- `BEAM_TAPER` narrows the foot of the fall against the width it inherits from the pad, so the
+-- water lands inside the grotto's 46-stud mouth instead of washing across both jambs.
+local BEAM_TAPER = 0.8
+-- The water is drawn IN FRONT of the sheet, not in its mid-plane. Hung on the centre line the
+-- sheet's own front face -- Glass, at 0.20 -- is drawn over the beam and pales it out, which reads
+-- as the slab again. Half the sheet's thickness plus a stud of daylight.
+local FRONT_OF_SHEET = 2.1
+-- What is left of the PAD's own splash once the water runs past it instead of stopping on it.
+local PAD_MIST_RATE = 40
 
 -- ===== MOVING 1,102 ANCHORED PARTS IS ONE CALL, AND IT MUST BE IDEMPOTENT =====
 -- `Init` runs once per server, but a hot reload or a future rebuild hook must not walk the tower
@@ -466,6 +489,30 @@ end
 -- ===== THE LAST THIRTY STUDS OF THE FALL =====
 -- See the note over `SPLASH`. Built into the grotto folder rather than the ridge one because it
 -- belongs to the cave: it is the door.
+--
+-- ===== AND IT IS THE MODEL'S OWN BEAM, NOT A PANE OF GLASS (33.22) =====
+-- The first build hung a Glass slab under the fall and called it the last drop. From the approach
+-- it read as exactly what it was: a flat pale rectangle with a hard top edge, a hard bottom edge
+-- and no motion, with the pad's own 284/sec splash drawn straight across the join -- so the
+-- waterfall appeared to STOP in mid-air and hang over a lit box. That is the owner's complaint
+-- verbatim, 2026-08-26: *"prolaz u vodopadu ne ispod njega, ovako vodopad lebdi nad prolazom"*.
+--
+-- The fix is the rule this function already follows for the spray thirty lines down: the last drop
+-- is the model's OWN `Water` beam, cloned, so the column is one unbroken fall of the same texture
+-- at the same scroll speed from the cliff to the pool. Three things have to change on the clone and
+-- each is derived, not chosen:
+--
+--   * `CurveSize` goes to 0. The authored 15 / -5 bows a beam that is 85 studs long; the same bow
+--     on a 28-stud one throws the water out of the gap in the cliff sideways.
+--   * `Width0` is the source beam's OWN `Width1` -- the width it ends at, on the pad -- so there is
+--     no step at the join to see. It tapers to 0.8 of that at the pool, which is the only number
+--     here that is a look and not an arithmetic, and it is what keeps the foot inside the grotto's
+--     46-stud mouth instead of washing over the jambs.
+--   * `Segments` drops from 23 to 6: a straight 28-stud ribbon does not need 23 of them.
+--
+-- The sheet stays, because the sheet is what hides the room (see `CURTAIN_TRANSPARENCY`), but it is
+-- now BEHIND the water instead of standing in for it -- 40 studs wide inside a 64-wide beam, so its
+-- edges can never again read as the edges of a slab.
 local function buildCurtain(folder, cx, wf)
 	local base = Vector3.new(cx + SPLASH.X, 0, SPLASH.Z)
 
@@ -475,10 +522,10 @@ local function buildCurtain(folder, cx, wf)
 	sheet.CanCollide = false   -- you walk THROUGH it; that is the whole point of the room behind it
 	sheet.CanQuery = false
 	sheet.CastShadow = false
-	sheet.Material = Enum.Material.Glass
-	sheet.Color = WATER
+	sheet.Material = Enum.Material.SmoothPlastic
+	sheet.Color = SHEET_COLOR
 	sheet.Transparency = CURTAIN_TRANSPARENCY
-	sheet.Reflectance = CURTAIN_REFLECTANCE
+	sheet.Reflectance = 0
 	sheet.Size = Vector3.new(CURTAIN_W, SPLASH.Y + 1, 2.2)
 	sheet.Position = base + Vector3.new(0, (SPLASH.Y + 1) / 2, 0)
 	sheet.Parent = folder
@@ -509,7 +556,7 @@ local function buildCurtain(folder, cx, wf)
 	end
 	local emitter = lowest and lowest:FindFirstChildWhichIsA("ParticleEmitter")
 	if emitter then
-		local e = emitter:Clone()
+		local e = emitter:Clone()   -- CLONED FIRST, then the source is turned down: see PAD_MIST_RATE
 		-- THE CLONE HAS TO BE RE-SCALED, and taking it as-authored is why the foreground was fog.
 		-- That emitter was tuned for the TOP of a hundred-stud fall, where 284 particles a second
 		-- five studs across read as spray seen from far away. On a 34-stud pool at eye height it
@@ -527,8 +574,70 @@ local function buildCurtain(folder, cx, wf)
 			NumberSequenceKeypoint.new(1, 1),
 		})
 		e.Parent = pool
+
+		-- ===== AND THE PAD'S OWN SPLASH IS TURNED DOWN, BECAUSE NOTHING LANDS THERE ANY MORE =====
+		-- 284 particles a second at (291, 29, -260) is a fall hitting a shelf, and that is what the
+		-- pad was until this function ran water past it. Left alone it draws a bright white bar
+		-- across the column at exactly the height the beam hands over, which is the "it ends here"
+		-- line the owner saw. The splash belongs at the bottom of a fall and the bottom is the
+		-- clone above. Idempotent: a second build sets the same number again.
+		emitter.Rate = PAD_MIST_RATE
 	end
-	return 2
+
+	-- ===== THE WATER ITSELF, AND IT IS THE ONE ALREADY FALLING =====
+	-- Taken by its own END POINT rather than by name or by order, so a re-authored fall still hands
+	-- over whichever beam finishes lowest.
+	local lowestBeam
+	for _, d in ipairs(wf:GetDescendants()) do
+		if d:IsA("Beam") and d.Attachment1 then
+			if not lowestBeam
+				or d.Attachment1.WorldPosition.Y < lowestBeam.Attachment1.WorldPosition.Y then
+				lowestBeam = d
+			end
+		end
+	end
+	if not lowestBeam then
+		-- Loud, because the sheet alone is the look that was rejected: a silent fallback here would
+		-- put the glass slab back and nothing would say so.
+		warn("[MapWaterfall] the model has no Beam to continue -- the fall stops at the pad")
+		return 2
+	end
+
+	-- ===== A BEAM'S WIDTH RUNS ALONG ITS ATTACHMENT'S *UP* AXIS, AND THAT COST A RENDER =====
+	-- Hung off attachments with the default orientation, this beam ran DOWN (-Y) and was also
+	-- widened along Y -- degenerate, so it drew nothing at all and the capture showed the same flat
+	-- slab as before with no error anywhere to say why. The model's own beams are the proof: every
+	-- one of them carries `UpVector` (1, 0, 0), which is exactly the axis its fall is 64 studs wide
+	-- across. So the width axis is stated here rather than inherited: UP across the mouth (+X),
+	-- RIGHT out toward whoever is looking (+Z).
+	local FACE = function(y)
+		return CFrame.fromMatrix(Vector3.new(0, y, FRONT_OF_SHEET), Vector3.new(0, 0, 1), Vector3.new(1, 0, 0))
+	end
+
+	-- The attachments hang off the sheet, so the water and the thing it hides can never drift apart.
+	local top = Instance.new("Attachment")
+	top.Name = "FallTop"
+	top.CFrame = FACE(sheet.Size.Y / 2)
+	top.Parent = sheet
+
+	local foot = Instance.new("Attachment")
+	foot.Name = "FallFoot"
+	-- one stud into the pool, not level with it: water that ends exactly on the surface shows a
+	-- seam, and the pool's own spray covers the overlap
+	foot.CFrame = FACE(-sheet.Size.Y / 2 + 1)
+	foot.Parent = sheet
+
+	local fall = lowestBeam:Clone()
+	fall.Name = "FallBeam"
+	fall.Attachment0, fall.Attachment1 = top, foot
+	fall.CurveSize0, fall.CurveSize1 = 0, 0
+	fall.Segments = 6
+	fall.Width0 = lowestBeam.Width1
+	fall.Width1 = lowestBeam.Width1 * BEAM_TAPER
+	fall.Enabled = true
+	fall.Parent = sheet
+
+	return 3
 end
 
 -- ===== THE SHRINE ON THE PLINTH =====
