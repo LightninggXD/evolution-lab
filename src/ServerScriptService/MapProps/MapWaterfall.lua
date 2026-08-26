@@ -271,6 +271,73 @@ local FRONT_OF_SHEET = 2.1
 -- What is left of the PAD's own splash once the water runs past it instead of stopping on it.
 local PAD_MIST_RATE = 40
 
+-- ===== THE CLIFF DID NOT MEET THE GROUND, AND YOU COULD SEE THE WOOD THROUGH ITS FOOT (33.23) =====
+--
+-- The owner, 2026-08-27, on a capture taken from the pool: *"ovde ubaci nesto da pokrije rupe isto
+-- drvece or something"*.
+--
+-- MEASURED IN THE BUILT WORLD, in 8-stud columns across the tower's whole 200-stud front: the rock
+-- begins **24 to 30 studs above the ground at EVERY column**, and under it there is nothing at all.
+-- A ray cast at eye height from thirty studs in front of the falls leaves the tower entirely and
+-- lands in the wood 8 to 160 studs BEHIND it -- `HuntTreeCollider` at x 190..250, `HorizonHillCollider`
+-- at x 290..330. That is the hole she photographed: the cliff is a floating slab, and from the pool
+-- you read the forest, the horizon and daylight through its foot on both sides of the mouth.
+--
+-- The answer is what a cliff actually has at its foot -- a talus -- and it is measured PER COLUMN
+-- rather than laid as one wall, because the tower's front is not a plane. Measured: z -357 at
+-- x 194, -273 at x 218, -257 at x 250, -262 across the grotto face, -240 at x 338, back to -358 at
+-- x 386. One slab across that stands up to 120 studs proud of the rock it is meant to be part of,
+-- which is the fault `RIDGE_ROWS` already paid for once: a connector's job is to be invisible.
+local SKIRT_STEP = 8
+local SKIRT_X1, SKIRT_X2 = 188, 400
+-- THE MOUTH STAYS OPEN, AND THIS IS THE WHOLE OF THE SAFETY IN THIS PASS. The grotto's jambs span
+-- x 266..316 and the doorway between them is 280..302; a plate anywhere in that window stands in
+-- the only door the room has. Six studs of margin each side of the doorway and no more: the first
+-- cut left the window at 260..322 and the six studs of daylight between the jamb's outer edge and
+-- the plate were still a hole -- from the pool you read green forest through a slot beside the
+-- water. A plate is tested with its own half width, not by its centre, so the box itself never
+-- reaches the door.
+local SKIRT_GAP_X1, SKIRT_GAP_X2 = 274, 308
+local SKIRT_FROM_Z = -170          -- the probe stands in front of everything the tower owns
+local SKIRT_PROUD = 3              -- the plate's front face stands this far out of the rock above it
+local SKIRT_DEPTH = 26             -- and reaches this far back under the overhang, so no seam shows
+local SKIRT_LIP_TOL = 8            -- "the rock is at the front in this column" -- measured, see above
+local SKIRT_SINK = 6
+local SKIRT_OVERLAP = 6            -- the plate's top goes INTO the rock rather than butting onto it
+local SKIRT_TREES = 24
+-- The wood's own rocks measure 7..16 studs, which against a forty-stud talus face is gravel. Grown
+-- to roughly the height of a player and then some, a line of them breaks the plates' bottom edge
+-- into rubble, which is the one thing that stops a run of boxes reading as masonry
+-- ([[evolution-lab-chunky-look-rules]]: fewer, bigger shapes).
+local SKIRT_ROCKS = 24
+local SKIRT_ROCK_SCALE_MIN, SKIRT_ROCK_SCALE_MAX = 1.3, 2.4
+local SKIRT_SEED = 20260827
+-- ===== AND THE WOOD MAY NOT STAND IN FRONT OF THE FALLS =====
+-- The first run planted its trees off the column they were seated against, and the columns nearest
+-- the mouth are the ones whose rock is furthest forward (x 322..354 fronts at z -240), so four of
+-- them landed at z -234..-210 -- i.e. IN the approach. Captured from the standard walk-up: a single
+-- canopy filled the frame and the waterfall was not visible at all. The talus is meant to close a
+-- hole in the cliff, not to hide the thing the cliff is there for.
+--
+-- So a lane is stated, exactly as `PORTAL_CLEAR_HALF` states one for the gate, and a clone whose
+-- PLACED box reaches into it is dropped rather than nudged. It is the doorway plus the pool plus
+-- the width the falls read across, from the mouth out to where the player first sees them.
+local SKIRT_VIEW_X1, SKIRT_VIEW_X2 = 252, 330
+local SKIRT_VIEW_Z1, SKIRT_VIEW_Z2 = -272, -150
+
+-- ===== AND THE LAST THIRTY-SIX STUDS OF THE WALK-UP ARE CUT, NOT DRESSED =====
+-- The corridor the grotto already clears stops at `SPLASH.Z + 40` (z -220), and the wood picks up
+-- again one tree later: measured on this build, `HuntTree` at (294, -204) -- 3 studs off the mouth's
+-- own centre line, 52 studs tall, standing squarely in the walk AND in the sightline. From the
+-- approach it filled the frame and the waterfall was not visible at all. The scatter is seeded and
+-- deterministic, so this is not luck: that spot is wood in every boot of this map.
+--
+-- Narrower than the corridor above it on purpose -- 52 studs against the corridor's 68. This is the
+-- lane you walk and look down, not a clearing: what stands either side of it is the wood the falls
+-- are meant to be found in.
+local APPROACH_HALF_X = 26
+local APPROACH_DEPTH = 36
+
 -- ===== MOVING 1,102 ANCHORED PARTS IS ONE CALL, AND IT MUST BE IDEMPOTENT =====
 -- `Init` runs once per server, but a hot reload or a future rebuild hook must not walk the tower
 -- 234 studs further east each time. `PivotTo` an ABSOLUTE pivot rather than adding a delta: run it
@@ -484,6 +551,179 @@ local function buildRidge(zoneKey, cx, map)
 	end
 
 	return plates, hills, trees, laneDrops
+end
+
+-- ===== THE TALUS, AND THE WOOD AND STONES THAT DRESS IT =====
+-- See the constants block for the measurement this is built from. Three things, in this order:
+--
+--   * a PLATE per column, standing on the ground and reaching up INTO the rock above it, its front
+--     face three studs proud of the overhang so it reads as the cliff's own base and not as a
+--     panel hung under it,
+--   * TREES in front of the plates, cloned out of the wood this map has already planted -- the
+--     owner asked for trees by name, and they are what turns a closed seam into a wooded foot,
+--   * and STONES at the join, for the reason the plates are jittered: a run of boxes with one top
+--     line reads as masonry, and this is meant to read as rock.
+--
+-- It runs into the RIDGE folder, which `buildRidge` destroys and rebuilds, so a second Build cannot
+-- stack a second talus on the first -- the same idempotence `Seat` is written for.
+local function buildSkirt(folder, cx, wf, map)
+	if not (folder and wf) then return 0, 0, 0 end
+
+	local rockRay = RaycastParams.new()
+	rockRay.FilterType = Enum.RaycastFilterType.Include
+	rockRay.FilterDescendantsInstances = { wf }
+	-- The tower's VISIBLE rock is what has to be met, and parts of it do not collide. A query that
+	-- respects collision measures the collider set instead of the thing you can see through
+	-- ([[roblox-canquery-ignored-when-collides]]).
+	rockRay.RespectCanCollide = false
+
+	local groundRay = RaycastParams.new()
+	groundRay.FilterType = Enum.RaycastFilterType.Exclude
+	groundRay.FilterDescendantsInstances = { wf, folder }
+
+	local rng = Random.new(SKIRT_SEED + math.floor(cx))
+	local plates, columns = 0, {}
+
+	local halfPlate = (SKIRT_STEP + 4) / 2
+	for x = SKIRT_X1 + SKIRT_STEP / 2, SKIRT_X2, SKIRT_STEP do
+		if x + halfPlate <= SKIRT_GAP_X1 or x - halfPlate >= SKIRT_GAP_X2 then
+			local wx = cx + x
+
+			-- WHERE THE ROCK IS FURTHEST FORWARD IN THIS COLUMN, at any height. The plate belongs
+			-- under the OVERHANG; aimed at the first thing a low ray finds it would sit under the
+			-- wall behind it and leave the hole exactly as it was.
+			local frontZ
+			for y = 8, 240, 8 do
+				local r = workspace:Raycast(Vector3.new(wx, y, SKIRT_FROM_Z), Vector3.new(0, 0, -320), rockRay)
+				if r and (not frontZ or r.Position.Z > frontZ) then frontZ = r.Position.Z end
+			end
+
+			if frontZ then
+				-- and the LOWEST height at which it still reaches that front: that is the bottom edge
+				-- of the hole, i.e. the height the plate's top has to meet.
+				local lip
+				for y = 2, 120, 2 do
+					local r = workspace:Raycast(Vector3.new(wx, y, SKIRT_FROM_Z), Vector3.new(0, 0, -320), rockRay)
+					if r and r.Position.Z > frontZ - SKIRT_LIP_TOL then
+						lip = y
+						break
+					end
+				end
+
+				-- The ground is raycast per column and not assumed to be y = 0: this platform is
+				-- terraced, and a plate sized against a floor that is not there floats or buries
+				-- ([[evolution-lab-walk-probe-traps]]). Started ABOVE the tower's foot and aimed down
+				-- the front face, where the player stands.
+				local g = workspace:Raycast(Vector3.new(wx, 160, frontZ + SKIRT_PROUD + 2),
+					Vector3.new(0, -240, 0), groundRay)
+				local gy = g and g.Position.Y or 0
+				-- THE TOP AND THE STAND-OFF ARE BOTH JITTERED, and that is not decoration. Five plates
+				-- of the same height at the same z is a sixty-stud flat panel with one straight top
+				-- line, which is what the first run photographed as on the eastern flank: a concrete
+				-- wall beside a rock cliff. `buildRidge` splits its rows into three jittered plates for
+				-- exactly this reason -- a single slab per row reads as a wall built by somebody.
+				local h = (lip or 28) - gy + SKIRT_OVERLAP + SKIRT_SINK + rng:NextNumber(-4, 4)
+				local stand = SKIRT_PROUD + rng:NextNumber(-3, 1)
+
+				if h > 8 then
+					local p = Instance.new("Part")
+					p.Name = "SkirtPlate"
+					p.Anchored = true
+					p.CanCollide = true
+					p.CastShadow = false
+					p.Material = Enum.Material.Slate
+					p.Color = ROCK:Lerp(Color3.new(0, 0, 0), rng:NextNumber(0, 0.18))
+					p.Size = Vector3.new(SKIRT_STEP + 4, h, SKIRT_DEPTH)
+					-- the FRONT face lands on frontZ + `stand`, so the box grows backwards under the
+					-- rock rather than out into the walk
+					p.CFrame = CFrame.new(wx, gy + h / 2 - SKIRT_SINK, frontZ + stand - SKIRT_DEPTH / 2)
+						* CFrame.Angles(0, rng:NextNumber(-0.05, 0.05), 0)
+					p.Parent = folder
+					plates += 1
+					columns[#columns + 1] = { x = x, z = frontZ + stand, y = gy }
+				end
+			end
+		end
+	end
+
+	-- THE WOOD AND THE STONES. Cloned out of what `MapForest.Plant` already put in this zone rather
+	-- than built, for the reason `buildRidge` gives: the right prototypes, at this zone's scale, are
+	-- already standing, and asking for them by name would be a second copy of a fact MapForest owns.
+	local wood = map and map:FindFirstChild("HuntForest")
+	local trees, stones = 0, 0
+	if wood and #columns > 0 then
+		-- THE TWO STOCKS ARE NOT THE SAME CLASS, and assuming they were is why the first run placed
+		-- zero stones and said so: `HuntTree` is a Model, `HuntRock` is a bare `MeshPart`, so a
+		-- `:IsA("Model")` filter over the wood silently sees 4,865 of one and none of the other.
+		-- Everything below therefore measures through `boxOf`, which answers for both.
+		local function boxOf(c)
+			if c:IsA("Model") then return c:GetBoundingBox() end
+			return (c :: BasePart).CFrame, (c :: BasePart).Size
+		end
+
+		local treeStock, rockStock = {}, {}
+		for _, c in ipairs(wood:GetChildren()) do
+			if c.Name == "HuntTree" and c:IsA("Model") and #treeStock < 40 then
+				local _, sz = boxOf(c)
+				if sz.Y > 24 then treeStock[#treeStock + 1] = c end
+			elseif c.Name == "HuntRock" and #rockStock < 40 then
+				rockStock[#rockStock + 1] = c
+			end
+		end
+
+		-- ONE PASS ALONG THE COLUMNS, not `n` draws out of them. Drawing at random clustered the
+		-- first run's wood -- eleven of thirteen trees landed west of the mouth, and the eastern
+		-- flank, which is the one that photographs as a wall, got two. The talus is a line, so it
+		-- is dressed by walking the line.
+		local function plant(stock, n, name, near, far, grow)
+			local placed = 0
+			if #stock == 0 then return 0 end
+			local i = 0
+			while placed < n and i < #columns * 2 do
+				i += 1
+				local col = columns[(i - 1) % #columns + 1]
+				local c = stock[rng:NextInteger(1, #stock)]:Clone()
+				-- GROWN BEFORE IT IS MEASURED, never after: every number below -- the seat on the
+				-- ground, the lane test -- comes off the box, and a box taken before a resize is the
+				-- wrong box ([[roblox-model-facing-and-scaling]]).
+				if grow then
+					local k = rng:NextNumber(SKIRT_ROCK_SCALE_MIN, SKIRT_ROCK_SCALE_MAX)
+					if c:IsA("Model") then
+						c:ScaleTo(k)
+					elseif c:IsA("BasePart") then
+						c.Size = c.Size * k
+					end
+				end
+				local px = cx + col.x + rng:NextNumber(-SKIRT_STEP, SKIRT_STEP)
+				local pz = col.z + rng:NextNumber(near, far)
+				local cf, sz = boxOf(c)
+				c:PivotTo(c:GetPivot() + Vector3.new(px - cf.Position.X,
+					col.y - (cf.Position.Y - sz.Y / 2) - 1, pz - cf.Position.Z))
+
+				-- THE VIEW LANE, and off the PLACED box rather than off `px`: a canopy is wider than
+				-- the trunk it was aimed by. Dropped rather than nudged -- the only way out of the lane
+				-- is sideways into the next column, which is the same trade `seat` makes for a hill in
+				-- the gate lane.
+				local tcf, tsz = boxOf(c)
+				if tcf.Position.X + tsz.X / 2 > cx + SKIRT_VIEW_X1
+					and tcf.Position.X - tsz.X / 2 < cx + SKIRT_VIEW_X2
+					and tcf.Position.Z + tsz.Z / 2 > SKIRT_VIEW_Z1
+					and tcf.Position.Z - tsz.Z / 2 < SKIRT_VIEW_Z2 then
+					c:Destroy()
+				else
+					c.Name = name
+					c.Parent = folder
+					placed += 1
+				end
+			end
+			return placed
+		end
+
+		trees = plant(treeStock, SKIRT_TREES, "SkirtTree", 4, 18, false)
+		stones = plant(rockStock, SKIRT_ROCKS, "SkirtRock", -2, 10, true)
+	end
+
+	return plates, trees, stones
 end
 
 -- ===== THE LAST THIRTY STUDS OF THE FALL =====
@@ -960,6 +1200,11 @@ function MapWaterfall.Build(zoneKey, cx, map)
 			cut += clearBox(centre.X - GROTTO_CLEAR, centre.X + GROTTO_CLEAR,
 				centre.Z - GROTTO_CLEAR, SPLASH.Z + 40)
 
+			-- and the walk-up in front of it, which the box above stops one tree short of --
+			-- see the note over `APPROACH_HALF_X`
+			cut += clearBox(centre.X - APPROACH_HALF_X, centre.X + APPROACH_HALF_X,
+				SPLASH.Z + 40, SPLASH.Z + 40 + APPROACH_DEPTH)
+
 			-- and then the room's own volume by EXTENT -- see the note over `clearRoom`. The box
 			-- is the walls plus two studs, which is what a prop has to reach to be seen from
 			-- inside, and it runs the full height so a canopy overhead is caught with a trunk.
@@ -1075,13 +1320,22 @@ function MapWaterfall.Build(zoneKey, cx, map)
 		end
 	end
 
+	-- ===== AND LAST, THE FOOT OF THE CLIFF =====
+	-- After everything, and that is the point: it measures the tower's front face by raycast and
+	-- the ground under it, so both have to be finished before it runs
+	-- ([[evolution-lab-placement-search-ordering]]). Into the ridge folder, which is wiped and
+	-- rebuilt each Build, so a second call cannot stack a second talus on the first.
+	local skirtPlates, skirtTrees, skirtRocks = buildSkirt(ridge, cx, wf, map)
+
 	print(("[MapWaterfall] %s: tower seated at pivot (%.0f, %.0f, %.0f), cut %d props out of the cliff, "
 		.. "the ridge and the grotto, built %d grotto parts, %d ridge plates z %d -> %d (tops %d -> %d "
 		.. "against the wall's %d), %d flank hills and %d flank trees; %d prop(s) dropped for the "
-		.. "gate lane (|x - cx| <= %d)")
+		.. "gate lane (|x - cx| <= %d); the foot is %d talus plates, %d trees and %d stones, "
+		.. "open across the mouth at x %d..%d")
 		:format(zoneKey, ANCHOR_PIVOT.X + cx, ANCHOR_PIVOT.Y, ANCHOR_PIVOT.Z, cut, built,
 			plates, RIDGE_ROWS[1].z, RIDGE_ROWS[#RIDGE_ROWS].z, RIDGE_ROWS[1].top,
-			RIDGE_ROWS[#RIDGE_ROWS].top, WALL_TOP, hills, flankTrees, laneDrops, PORTAL_CLEAR_HALF))
+			RIDGE_ROWS[#RIDGE_ROWS].top, WALL_TOP, hills, flankTrees, laneDrops, PORTAL_CLEAR_HALF,
+			skirtPlates, skirtTrees, skirtRocks, cx + SKIRT_GAP_X1, cx + SKIRT_GAP_X2))
 	return 1, cut, built
 end
 
