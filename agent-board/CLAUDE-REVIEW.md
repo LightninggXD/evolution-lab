@@ -1301,3 +1301,83 @@ path, same shape as [[evolution-lab-capture-omits-alwaysontop]] -- so the board 
 instead. Every one of the 140 cells draws a coloured glyph. No blanks, no monochrome boxes, no
 tofu. Board and all five probe clones destroyed afterwards; `GlyphProofBoard` gone, one leftover
 `GameConfigProbe2` swept.
+
+## S13 | NOTE | 2026-08-26T18:40 | R30
+
+**Re-measured on the owner's ask ("proveri opet"), and the answer is that it got WORSE, not better.
+The step is still owner-PARKED and nothing was changed. This entry is the measurement.**
+
+`src/` and Studio agree first, so nothing below is a stale-file artefact:
+
+```
+identical=185  different=0  missing=0
+```
+
+**1. THE CHECK THIS STEP CARRIES NOW READS 420, NOT 252.** Same grid the step names -- 12 studs over
+x -120..108, z 308..657, 600 cells, first hit downward:
+
+```
+grid 600 cells (x -120..108, z 308..657 step 12)
+HorizonHillCollider cells = 420
+sample: (-120,416) y=274.1 full=Workspace.Zones.Forest.VillageMap.Horizon.HorizonHillCollider
+  420  HorizonHillCollider     119  Deck      20  FrameX    8  BandZ    5  PhotoPad
+    5  ArrivalDais               4  SignBoard  4  Plaque     4  JungleRockCollider
+```
+
+**2. AND THE TWO BOXES NOW MEET. There is no gap left at all.** On 2026-08-24 they stood at
+x -448..-35 and 71..451 -- a 106-stud doorway. Today:
+
+```
+BOX  centre(-242,136,599) size(513,276,366)  x -498..15
+BOX  centre( 261,138,583) size(492,279,340)  x  15..507
+ROCK world AABB: x -521..37 (558 wide)  z 348..800  top y 274
+ROCK world AABB: x   -6..528 (535 wide)  z 352..770  top y 277
+```
+
+Both boxes reach x = 15 and touch. The gate's stonework spans x -120..108, so **the whole doorway is
+inside solid collider from z 416 to z 782, ground (y -2) to y 277.** The rock itself overlaps too
+(-6..37), so this is not a box-overhang argument -- the mountains have closed over the gate.
+
+**3. THE WALK IS SEALED, and the probe shape that says otherwise is the trap.** A body box at foot
+height, x = 0:
+
+```
+body-box overlap at x=0, y=6, z 380..570: 16 of 20 samples inside a HorizonHillCollider
+z=380  ok   z=390  ok   z=400  ok   z=410  ok
+z=420 ROCK ... z=530 ROCK   z=540 ROCK [PortalStep]   z=570 ROCK [PortalSill, PortalStep]
+```
+
+**A blockcast walk over the same line returns `52 samples, 0 BLOCKED` and it is lying twice.**
+(a) A ray dropped from above lands on the collider's own 274-stud ROOF, so the body is seated on top
+of the mountain and walks the ridge -- [[evolution-lab-walk-probe-traps]]. (b) Even seated correctly,
+a cast that STARTS inside a part reports no hit -- [[roblox-raycast-from-inside-a-part]]. Only an
+overlap test answers this question. Any future run of `probe_portal_walk` on this lane must use
+`GetPartBoundsInBox`, not `Blockcast`, and must exclude the colliders when it looks for ground.
+
+**4. Sight, from the village eye at y 7 toward the portal core (0, 69, 575):**
+
+```
+eye z= 300 -> HorizonHillCollider at 119 studs (target 282 away)
+eye z= 380 -> HorizonHillCollider at  38 studs (target 205 away)
+eye z= 420 -> PortalCore          at 149 studs   (already inside the rock)
+```
+
+**5. WHY IT MOVES ON ITS OWN, which is the part that matters for the fix.** `LANE_PORTAL` (90) is
+spent in `buildRun` on the hill's CENTRE only. `MapHorizon.Colliders` trims its boxes off **camps**
+and off **roads** (`trimOffRoads`) and off nothing else -- there is no portal-lane test anywhere in
+the collider path. The box is `ROCK_FOOT` 0.92 of the hill's measured WORLD box, and the hill's size
+carries `SIZE_JITTER` +-12%, so **how much of the gate a build swallows is decided by a random roll**.
+252 cells on one build and 420 on the next is that roll, not a code change. Nothing has to be edited
+for this to get worse again.
+
+**6. The arithmetic for any fix, so the next attempt is not another guess.** The rock reaches 279
+studs from its own centre (521 - 242). For it to clear `ZoneGate.PORTAL_CLEAR_HALF = 132` the hill
+centre must sit at |x| >= 411; it sits at 242. **That is a 169-stud move, which is exactly why both
+forks R19/R21 measured came back with a bare wall** -- move it that far and there is nothing left
+above the gate. A third option nobody has costed yet: **do not move the two gate-flank hills, SHRINK
+them**, and let the outer row -- which already runs whole across the gate on purpose, see the note in
+`Build` -- carry the skyline behind them. It is the one lever that opens the doorway without
+un-hiding the boundary wall.
+
+**S12 is unblocked as of now and nobody has noticed:** its `Depends: S11` is `VERIFIED` since
+2026-08-24T23:25, so 32.11 is startable. It is still `AWAITING-REVIEW` on a claim that did no work.
