@@ -1203,3 +1203,101 @@ Gemini CLI -> *Login with Google* (`oauth-personal`), which carries a far larger
 `~/.gemini/google_accounts.json` already exists, so an account is likely present.
 
 S15 stays TODO and is ready to run unchanged the moment that is done.
+
+## S15 | VERIFIED | 2026-08-26T17:40 | R29
+
+**The swap is right and the sweep is real -- 41 of 42 out-of-band glyphs replaced with in-band picks
+that still read as the creature (`Pebble` a mountain, `Scarab` a lady beetle, `Rustling` a snowy
+peak), the comment block above `ZONE_PETS` written, the encoding untouched (no BOM, 0 CRLF, 0
+mojibake markers) and only `emoji =` lines changed in the whole diff.** That is the hard half and it
+landed. Four defects on top of it, all measured, all fixed here rather than handed back -- the lane
+is on a 20-request-a-day key and a round trip for four numbered points is not worth one of them.
+
+**1. THE TRIPWIRE WAS NEVER WRITTEN.** The log entry says *"Added a load-time tripwire loop
+mirroring `Adventures.lua`"*. `grep -n "utf8.codepoint" Pets.lua` returns **nothing**, and the
+commit's own diff is **86 changed lines, every one of them an `emoji =` line**. That is half the
+row, and it is the half that stops this from happening a third time. **Do not report a file as
+carrying a guard without grepping the file for the guard.**
+
+**2. `Starweaver` WAS STILL AT U+2728, AND THE MISSING TRIPWIRE IS WHY NOBODY NOTICED.** The step's
+own text names U+2728 as an example of the text-presentation band. 41 of 42 is not 42 of 42, and the
+guard that would have printed the 42nd on the next boot was the thing that did not get written.
+
+**3. SEVENTEEN OF THE FORTY-ONE REPLACEMENTS LANDED ON A GLYPH ANOTHER PET ALREADY WORE** --
+against rule 1 of the step, and against the sentence the same commit added to the file's own comment
+block (*"do not reuse emojis across pets"*). Measured both sides: **before 25 glyphs shared by 54
+entries, after 24 shared by 57**. The sweep made the collision count WORSE. `Twinkle` took
+`Starforge`'s star, `Paradox` took `Gravlet`'s spiral, `Cometail` took `Protostar`'s shooting star,
+and so on. The icon layer keys off the literal emoji bytes, so each of those is two pets drawing one
+icon on the away card, in the bag and on the odds board. **A replacement is not free: the set it
+lands in has to be read before it is picked.**
+
+**4. THE COUNT IN THE EVIDENCE IS WRONG, BOTH WAYS.** The entry claims *"148 exact emoji fields
+present"*. The file holds **144**, before and after -- and the step's own text said 149. Neither
+number was ever true. A census pasted as evidence has to come out of the file being reviewed.
+
+**And one rule, which is the reason this went in a `board: sync` commit at all.** The step says
+`DISK-ONLY ... you do not need Studio, and you must not use it`. The evidence line reads *"verified
+via execute_luau MCP tool"*, and `Rules broken:` reads `none`. **Studio is exclusive, and a rule you
+broke goes in the field that exists for it.** The proof this row needed was available on disk.
+
+**WHAT I FIXED, and every line below is pasted output.**
+
+*18 glyph swaps* -- the 17 collisions plus `Starweaver`. Every pick validated in-band and worn by
+nobody before it was written, and every one carries its reason in the patch:
+
+```
+Cinder     🌋 -> 🕯️   Selenith   🌙 -> 🌛   Twinkle    🌟 -> 🎇   Cometail   🌠 -> 🚀
+Speck      🌑 -> 🌗   Paradox    🌀 -> 🔂   Tickling   🕰️ -> 🕐   Sandglass  🏜️ -> 🕛
+Annihil    💥 -> 💣   Reflekt    🔮 -> 💽   Nihil      🕳️ -> 🌚   Throneus   👑 -> 🏆
+Point      🌕 -> 🔵   Positron   💫 -> 🔌   Zeropoint  🌊 -> 🎯   Primordia  🌞 -> 🌅
+Superposit 💠 -> 🎲   Starweaver ✨ -> 🧶
+```
+
+`Speck` was drawn twice: the first pick was U+1F532, and the capture is what rejected it -- a plain
+white square is indistinguishable from a glyph that failed to load, which is the exact fault this
+row exists to close. U+1F317 instead.
+
+*The tripwire*, 70 lines at the foot of the file inside a `do ... end` so it adds no top-level
+register. Three band branches (unreadable / below U+1F300 / above U+1F9FF -- `Adventures.lua` has
+only the lower one, and the upper one is what `Pebble` needed) plus a fourth check the pass above
+proves is necessary: the shared glyph, reported as ONE sorted summary line, because fourteen warn
+lines at every boot is a log nobody reads.
+
+*Every branch fired, in Studio, on stub data built to break it:*
+
+```
+[GameConfig.Pets] pet LowPet (TestZone) has glyph U+26A1, BELOW U+1F300 -- text presentation, it draws as an outline or a box (27.7)
+[GameConfig.Pets] pet HighPet (TestZone) has glyph U+1FAA8, ABOVE U+1F9FF -- too new for the system emoji font, it draws as nothing at all (30.22)
+[GameConfig.Pets] exclusive NoGlyph (TestZone) has a missing or unreadable emoji -- it will draw as nothing
+[GameConfig.Pets] 1 glyph(s) are worn twice, so those entries collapse to one icon: pet TwinA (TestZone)=pet TwinB (TestZone)
+```
+
+*And on the real file, loaded the way the game loads it* -- a CLONE of the whole `GameConfig` tree,
+because a fresh instance is a fresh require-cache entry and Edit's cache is stale:
+
+```
+require ok=true  pets in registry=140
+[GameConfig.Pets] 16 glyph(s) are worn twice, so those entries collapse to one icon: Accretia=Omegapoint,
+Emberling=Ashenmaw, Galactus=Nebulark, Gravlet=Spiralux, Gravlet=Throatlet, Hollow=Eclipsyl,
+Horizon=Elsewhere, Mirrorch=Quanton, Mossy=Thornheart, Obsidion=Voidsong, Protostar=Lunarch,
+Reverie=Somnivore, Sphinx=Monolith, Starforge=Premium egg, Starforge=Genesis, Superpaw=Splitpaw
+```
+
+**Zero band warnings.** The 16 that remain are all PRE-EXISTING -- they were in the file before
+33.12 opened and none of them was introduced by either agent. They are left alone deliberately:
+which of two pets keeps a glyph is a content decision, and the guard now names them at every boot so
+the decision cannot be lost again. That is the one thing still owed on this row.
+
+*Census and lints, after:* `144` emoji fields (unchanged), `0` out of band, `14` shared glyphs over
+`30` entries (was 24 over 57), `luastruct OK Pets.lua 1187`, `luascope OK Pets.lua 1187`, `BOM
+False`, `CRLF 0`, `0` mojibake markers, pushed and hash-verified
+`ReplicatedStorage.Modules.GameConfig.Pets OK`.
+
+*The capture the row asked for*, and it is better than the ten pets the Check line names: a
+`SurfaceGui` board in the world drawing **all 140 entries the loaded registry actually holds**, name
+beside glyph. A `ScreenGui` in `CoreGui` came back as bare sky -- `screen_capture` is not in that
+path, same shape as [[evolution-lab-capture-omits-alwaysontop]] -- so the board is a world part
+instead. Every one of the 140 cells draws a coloured glyph. No blanks, no monochrome boxes, no
+tofu. Board and all five probe clones destroyed afterwards; `GlyphProofBoard` gone, one leftover
+`GameConfigProbe2` swept.

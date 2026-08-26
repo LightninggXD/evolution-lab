@@ -102,7 +102,7 @@ local ZONE_PETS = {
 		{ key = "Kraklet",    name = "Kraklet",     emoji = "🐙", color = Color3.fromRGB(226, 78, 128) },
 	},
 	Volcano = {
-		{ key = "Cinder",     name = "Cinder",      emoji = "🌋", color = Color3.fromRGB(84, 62, 58) },
+		{ key = "Cinder",     name = "Cinder",      emoji = "🕯️", color = Color3.fromRGB(84, 62, 58) },
 		{ key = "Emberling",  name = "Emberling",   emoji = "🔥", color = Color3.fromRGB(255, 148, 60) },
 		{ key = "Magmite",    name = "Magmite",     emoji = "🌋", color = Color3.fromRGB(255, 96, 40) },
 		{ key = "Obsidion",   name = "Obsidion",    emoji = "🖤", color = Color3.fromRGB(48, 32, 44) },
@@ -113,7 +113,7 @@ local ZONE_PETS = {
 		{ key = "Cratercub",  name = "Cratercub",   emoji = "🌕", color = Color3.fromRGB(180, 180, 190) },
 		{ key = "Lunamoth",   name = "Lunamoth",    emoji = "🦋", color = Color3.fromRGB(196, 220, 255) },
 		{ key = "Tidalux",    name = "Tidalux",     emoji = "🌙", color = Color3.fromRGB(150, 200, 255) },
-		{ key = "Selenith",   name = "Selenith",    emoji = "🌙", color = Color3.fromRGB(236, 244, 255) },
+		{ key = "Selenith",   name = "Selenith",    emoji = "🌛", color = Color3.fromRGB(236, 244, 255) },
 	},
 	Mars = {
 		{ key = "Rustling",   name = "Rustling",    emoji = "🏔️", color = Color3.fromRGB(178, 88, 56) },
@@ -123,14 +123,14 @@ local ZONE_PETS = {
 		{ key = "Warlord",    name = "Warlord",     emoji = "🔴", color = Color3.fromRGB(226, 62, 42) },
 	},
 	Galaxy = {
-		{ key = "Twinkle",    name = "Twinkle",     emoji = "🌟", color = Color3.fromRGB(255, 240, 190) },
-		{ key = "Cometail",   name = "Cometail",    emoji = "🌠", color = Color3.fromRGB(150, 200, 255) },
+		{ key = "Twinkle",    name = "Twinkle",     emoji = "🎇", color = Color3.fromRGB(255, 240, 190) },
+		{ key = "Cometail",   name = "Cometail",    emoji = "🚀", color = Color3.fromRGB(150, 200, 255) },
 		{ key = "Orbiton",    name = "Orbiton",     emoji = "🌍", color = Color3.fromRGB(206, 160, 110) },
 		{ key = "Starforge",  name = "Starforge",   emoji = "🌟", color = Color3.fromRGB(255, 214, 120) },
 		{ key = "Galactus",   name = "Galactus",    emoji = "🌌", color = Color3.fromRGB(150, 100, 230) },
 	},
 	BlackHole = {
-		{ key = "Speck",      name = "Speck",       emoji = "🌑", color = Color3.fromRGB(52, 44, 66) },
+		{ key = "Speck",      name = "Speck",       emoji = "🌗", color = Color3.fromRGB(52, 44, 66) },
 		{ key = "Gravlet",    name = "Gravlet",     emoji = "🌀", color = Color3.fromRGB(120, 70, 170) },
 		{ key = "Accretia",   name = "Accretia",    emoji = "💫", color = Color3.fromRGB(255, 170, 90) },
 		{ key = "Horizon",    name = "Horizon",     emoji = "🕳️", color = Color3.fromRGB(24, 18, 32) },
@@ -140,7 +140,7 @@ local ZONE_PETS = {
 		{ key = "Gliph",      name = "Gliph",       emoji = "🔷", color = Color3.fromRGB(120, 190, 255) },
 		{ key = "Echo",       name = "Echo",        emoji = "🔭", color = Color3.fromRGB(226, 226, 246) },
 		{ key = "Splitpaw",   name = "Splitpaw",    emoji = "🐾", color = Color3.fromRGB(255, 120, 210) },
-		{ key = "Paradox",    name = "Paradox",     emoji = "🌀", color = Color3.fromRGB(160, 120, 255) },
+		{ key = "Paradox",    name = "Paradox",     emoji = "🔂", color = Color3.fromRGB(160, 120, 255) },
 		{ key = "Everykind",  name = "Everykind",   emoji = "🌈", color = Color3.fromRGB(255, 100, 220) },
 	},
 	Nebula = {
@@ -165,8 +165,8 @@ local ZONE_PETS = {
 		{ key = "Schrodin",   name = "Schrodin",    emoji = "🐱", color = Color3.fromRGB(190, 255, 250) },
 	},
 	TimeRift = {
-		{ key = "Tickling",   name = "Tickling",    emoji = "🕰️", color = Color3.fromRGB(200, 168, 100) },
-		{ key = "Sandglass",  name = "Sandglass",   emoji = "🏜️", color = Color3.fromRGB(238, 208, 130) },
+		{ key = "Tickling",   name = "Tickling",    emoji = "🕐" , color = Color3.fromRGB(200, 168, 100) },
+		{ key = "Sandglass",  name = "Sandglass",   emoji = "🕛" , color = Color3.fromRGB(238, 208, 130) },
 		{ key = "Cogsworth",  name = "Cogsworth",   emoji = "🔧", color = Color3.fromRGB(160, 124, 64) },
 		{ key = "Rewind",     name = "Rewind",      emoji = "🔁", color = Color3.fromRGB(190, 214, 236) },
 		{ key = "Chronos",    name = "Chronos",     emoji = "📼", color = Color3.fromRGB(255, 214, 110) },
@@ -176,7 +176,7 @@ local ZONE_PETS = {
 		{ key = "Flarepup",   name = "Flarepup",    emoji = "💥", color = Color3.fromRGB(255, 140, 110) },
 		{ key = "Contain",    name = "Contain",     emoji = "🧨", color = Color3.fromRGB(248, 208, 40) },
 		{ key = "Nullion",    name = "Nullion",     emoji = "🚫", color = Color3.fromRGB(255, 70, 70) },
-		{ key = "Annihil",    name = "Annihil",     emoji = "💥", color = Color3.fromRGB(255, 40, 40) },
+		{ key = "Annihil",    name = "Annihil",     emoji = "💣", color = Color3.fromRGB(255, 40, 40) },
 	},
 	DreamDimension = {
 		{ key = "Napkin",     name = "Napkin",      emoji = "😴", color = Color3.fromRGB(226, 208, 246) },
@@ -187,7 +187,7 @@ local ZONE_PETS = {
 	},
 	MirrorUniverse = {
 		{ key = "Shardlet",   name = "Shardlet",    emoji = "🔹", color = Color3.fromRGB(200, 214, 238) },
-		{ key = "Reflekt",    name = "Reflekt",     emoji = "🔮", color = Color3.fromRGB(226, 232, 250) },
+		{ key = "Reflekt",    name = "Reflekt",     emoji = "💽", color = Color3.fromRGB(226, 232, 250) },
 		{ key = "Twinpaw",    name = "Twinpaw",     emoji = "👯", color = Color3.fromRGB(180, 200, 255) },
 		{ key = "Inverso",    name = "Inverso",     emoji = "🔃", color = Color3.fromRGB(150, 170, 220) },
 		{ key = "Mirrorch",   name = "Mirrorch",    emoji = "💠", color = Color3.fromRGB(240, 248, 255) },
@@ -196,7 +196,7 @@ local ZONE_PETS = {
 		{ key = "Nibble",     name = "Nibble",      emoji = "🕸️", color = Color3.fromRGB(60, 50, 78) },
 		{ key = "Hollow",     name = "Hollow",      emoji = "🌑", color = Color3.fromRGB(38, 30, 52) },
 		{ key = "Unraveler",  name = "Unraveler",   emoji = "🧵", color = Color3.fromRGB(148, 62, 228) },
-		{ key = "Nihil",      name = "Nihil",       emoji = "🕳️", color = Color3.fromRGB(20, 16, 28) },
+		{ key = "Nihil",      name = "Nihil",       emoji = "🌚" , color = Color3.fromRGB(20, 16, 28) },
 		{ key = "Voidmaw",    name = "Voidmaw",     emoji = "👾", color = Color3.fromRGB(170, 80, 255) },
 	},
 	CelestialThrone = {
@@ -204,10 +204,10 @@ local ZONE_PETS = {
 		{ key = "Haloling",   name = "Haloling",    emoji = "😇", color = Color3.fromRGB(255, 226, 150) },
 		{ key = "Seraphim",   name = "Seraphim",    emoji = "🕊️", color = Color3.fromRGB(255, 250, 226) },
 		{ key = "Regalia",    name = "Regalia",     emoji = "👑", color = Color3.fromRGB(255, 218, 128) },
-		{ key = "Throneus",   name = "Throneus",    emoji = "👑", color = Color3.fromRGB(255, 200, 70) },
+		{ key = "Throneus",   name = "Throneus",    emoji = "🏆", color = Color3.fromRGB(255, 200, 70) },
 	},
 	Singularity = {
-		{ key = "Point",      name = "Point",       emoji = "🌕", color = Color3.fromRGB(226, 230, 244) },
+		{ key = "Point",      name = "Point",       emoji = "🔵", color = Color3.fromRGB(226, 230, 244) },
 		{ key = "Collapse",   name = "Collapse",    emoji = "🌐", color = Color3.fromRGB(190, 200, 226) },
 		{ key = "Infinion",   name = "Infinion",    emoji = "🔀", color = Color3.fromRGB(255, 255, 255) },
 		{ key = "Densita",    name = "Densita",     emoji = "🔘", color = Color3.fromRGB(150, 156, 180) },
@@ -243,13 +243,13 @@ local EXCLUSIVE_PETS = {
 	Wormhole        = { key = "Elsewhere",  name = "Elsewhere",   emoji = "\u{1F573}\u{FE0F}", color = Color3.fromRGB(186, 130, 255) },
 	QuantumRealm    = { key = "Quanton",    name = "Quanton",     emoji = "\u{1F4A0}",         color = Color3.fromRGB(86, 255, 240) },
 	TimeRift        = { key = "Aeonis",     name = "Aeonis",      emoji = "\u{1F570}\u{FE0F}", color = Color3.fromRGB(255, 220, 96) },
-	AntimatterZone  = { key = "Positron",   name = "Positron",    emoji = "💫",          color = Color3.fromRGB(255, 172, 48) },
+	AntimatterZone  = { key = "Positron",   name = "Positron",    emoji = "🔌",          color = Color3.fromRGB(255, 172, 48) },
 	DreamDimension  = { key = "Oneiros",    name = "Oneiros",     emoji = "\u{1F984}",         color = Color3.fromRGB(218, 140, 255) },
 	MirrorUniverse  = { key = "Silverself", name = "Silver Self", emoji = "\u{1F48E}",         color = Color3.fromRGB(238, 248, 255) },
 	VoidExpanse     = { key = "Nullarch",   name = "Nullarch",    emoji = "\u{1F7E3}",         color = Color3.fromRGB(190, 88, 255) },
 	CelestialThrone = { key = "Empyrean",   name = "Empyrean",    emoji = "\u{1F31E}",         color = Color3.fromRGB(255, 230, 130) },
-	Singularity     = { key = "Zeropoint",  name = "Zero Point",  emoji = "🌊",  color = Color3.fromRGB(198, 240, 255) },
-	AbsolutePlane   = { key = "Primordia",  name = "Primordia",   emoji = "🌞",  color = Color3.fromRGB(255, 246, 196) },
+	Singularity     = { key = "Zeropoint",  name = "Zero Point",  emoji = "🎯",  color = Color3.fromRGB(198, 240, 255) },
+	AbsolutePlane   = { key = "Primordia",  name = "Primordia",   emoji = "🌅",  color = Color3.fromRGB(255, 246, 196) },
 }
 
 -- Flattened lookup. Each species carries its zone and its rarity; the rarity is positional --
@@ -335,12 +335,12 @@ local SECRET_PETS = {
 	Volcano         = { key = "Ashenmaw",   name = "Ashen Maw",   emoji = "\u{1F525}",         color = Color3.fromRGB(255, 150, 60) },
 	Moon            = { key = "Eclipsyl",   name = "Eclipsyl",    emoji = "\u{1F311}",         color = Color3.fromRGB(200, 215, 255) },
 	Mars            = { key = "Rustwake",   name = "Rust Wake",   emoji = "\u{1F6F0}\u{FE0F}", color = Color3.fromRGB(255, 130, 96) },
-	Galaxy          = { key = "Starweaver", name = "Star Weaver", emoji = "\u{2728}",          color = Color3.fromRGB(210, 170, 255) },
+	Galaxy          = { key = "Starweaver", name = "Star Weaver", emoji = "\u{1F9F6}",          color = Color3.fromRGB(210, 170, 255) },
 	BlackHole       = { key = "Umbrion",    name = "Umbrion",     emoji = "🌘",          color = Color3.fromRGB(190, 110, 255) },
 	Multiverse      = { key = "Paradoxa",   name = "Paradoxa",    emoji = "\u{1F3AD}",         color = Color3.fromRGB(255, 140, 240) },
 	Nebula          = { key = "Auroran",    name = "Auroran",     emoji = "\u{1F386}",         color = Color3.fromRGB(255, 160, 255) },
 	Wormhole        = { key = "Loopwalker", name = "Loop Walker", emoji = "\u{1F517}",         color = Color3.fromRGB(200, 150, 255) },
-	QuantumRealm    = { key = "Superposit", name = "Superposit",  emoji = "💠",  color = Color3.fromRGB(120, 255, 246) },
+	QuantumRealm    = { key = "Superposit", name = "Superposit",  emoji = "🎲",  color = Color3.fromRGB(120, 255, 246) },
 	TimeRift        = { key = "Chronaught", name = "Chronaught",  emoji = "🎱",          color = Color3.fromRGB(255, 230, 130) },
 	AntimatterZone  = { key = "Antiphase",  name = "Antiphase",   emoji = "🔫",  color = Color3.fromRGB(255, 190, 80) },
 	DreamDimension  = { key = "Somnivore",  name = "Somnivore",   emoji = "\u{1F4AD}",         color = Color3.fromRGB(232, 170, 255) },
@@ -1112,6 +1112,76 @@ function GameConfig.GetEggOdds(egg, luckPercent)
 	end
 
 	return out
+end
+
+-- ===== A GLYPH THAT DOES NOT DRAW IS INVISIBLE TO EVERY PROPERTY PROBE =====
+--
+-- 30.22 photographed `Pebble  •  tier 1  •  luck x1.00` with no rock in front of it. The
+-- label was correct in every way a probe can read: `.Text` held the character, `.TextColor3` was
+-- right and `.TextFits` said true. The glyph was laid out and drawn as NOTHING, because the
+-- system emoji font does not carry U+1FAA8. Only a screenshot finds that, which is why the band
+-- is checked here at load instead of being left to the next person with a camera.
+--
+-- The band is U+1F300 .. U+1F9FF, and both ends of it cost this file a defect:
+--   BELOW it (U+26A1, U+2728, U+2B50, U+2604 ...) the codepoint is text-presentation by default,
+--   so the renderer falls back to the display font and draws a monochrome outline or a box --
+--   27.7's fault, and it is what `Starweaver` was still doing after the 33.12 sweep.
+--   ABOVE it (U+1FA70+) the codepoint is a later Unicode addition the font here does not have at
+--   all -- `Pebble`, `Cinder`, `Rustling`, `Scarab`, `Orbiton`, `Echo`, `Gasbub`, `Fluffle`.
+-- `Adventures.lua` checks only the lower bound; the upper one is half of what this file needed.
+--
+-- The second check is the SHARED glyph, and it is here because a sweep that fixes the first one
+-- causes it: 17 of 33.12's 41 replacements landed on a glyph another pet already wore. The icon
+-- layer keys off the literal emoji bytes, so two pets on one glyph collapse to one icon and the
+-- away card, the bag and the odds board all draw the wrong animal. It reports once, in a single
+-- line, because fourteen warn lines at every boot is a log nobody reads.
+do
+	local SAFE_LO, SAFE_HI = 0x1F300, 0x1F9FF
+	local wornBy, shared = {}, {}
+
+	local function checkGlyph(who, emoji)
+		local ok, cp = pcall(utf8.codepoint, emoji, 1)
+		if not ok or type(cp) ~= "number" then
+			warn(("[GameConfig.Pets] %s has a missing or unreadable emoji -- it will draw as nothing")
+				:format(who))
+		elseif cp < SAFE_LO then
+			warn(("[GameConfig.Pets] %s has glyph U+%04X, BELOW U+1F300 -- text presentation, it draws as an outline or a box (27.7)")
+				:format(who, cp))
+		elseif cp > SAFE_HI then
+			warn(("[GameConfig.Pets] %s has glyph U+%04X, ABOVE U+1F9FF -- too new for the system emoji font, it draws as nothing at all (30.22)")
+				:format(who, cp))
+		end
+
+		local owner = wornBy[emoji]
+		if owner then
+			table.insert(shared, ("%s=%s"):format(owner, who))
+		else
+			wornBy[emoji] = who
+		end
+	end
+
+	for zone, list in pairs(ZONE_PETS) do
+		for _, def in ipairs(list) do
+			checkGlyph(("pet %s (%s)"):format(tostring(def.key), zone), def.emoji)
+		end
+	end
+	for zone, def in pairs(EXCLUSIVE_PETS) do
+		checkGlyph(("exclusive %s (%s)"):format(tostring(def.key), zone), def.emoji)
+	end
+	for zone, def in pairs(SECRET_PETS) do
+		checkGlyph(("secret %s (%s)"):format(tostring(def.key), zone), def.emoji)
+	end
+	for _, tier in ipairs(EGG_TIERS) do
+		checkGlyph(("egg tier %s"):format(tostring(tier.suffix)), tier.emoji)
+	end
+
+	if #shared > 0 then
+		-- `pairs` gives no order, so sort before printing or the line churns between boots and
+		-- two runs of the same file look like two different faults.
+		table.sort(shared)
+		warn(("[GameConfig.Pets] %d glyph(s) are worn twice, so those entries collapse to one icon: %s")
+			:format(#shared, table.concat(shared, ", ")))
+	end
 end
 
 end
