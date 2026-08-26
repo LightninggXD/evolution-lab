@@ -421,35 +421,35 @@ end
 local CAMPS_FOREST = {
 	-- ---- north-west quadrant, front (plaza end) to back
 	{ id = "NW1", kind = "swarm",     x =  -411, z =   179 }, -- final r=28.1
-	{ id = "NW2", kind = "swarm",     x =  -622, z =   460 }, -- final r=73.7
+	{ id = "NW2", kind = "swarm",     x =  -666, z =   492 }, -- final r=84.0
 	{ id = "NW3", kind = "brute",     x =  -241, z =   370 }, -- final r=28.0
 	{ id = "NW4", kind = "brute",     x =  -212, z =   650 }, -- final r=84.0
-	{ id = "NW5", kind = "elite",     x =  -551, z =   159 }, -- final r=80.8  [separated]
+	{ id = "NW5", kind = "elite",     x =  -690, z =   199 }, -- final r=84.0  [separated]
 	-- ---- north-east quadrant, mirrored
 	{ id = "NE1", kind = "swarm",     x =   411, z =   209 }, -- final r=28.1
 	{ id = "NE2", kind = "swarm",     x =   283, z =   650 }, -- final r=84.0
 	{ id = "NE3", kind = "brute",     x =   411, z =    80 }, -- final r=28.1
-	{ id = "NE4", kind = "brute",     x =   564, z =   555 }, -- final r=71.3  [32.18: was 600/491]
+	{ id = "NE4", kind = "brute",     x =   612, z =   602 }, -- final r=84.0  [32.18: was 600/491]
 	{ id = "NE5", kind = "elite",     x =   410, z =   302 }, -- final r=28.0  [village-clamped] [32.18: was 551/40]
 	-- ---- south-west quadrant: everything gated, and the deep end of the walk
 	{ id = "SW1", kind = "brute",     x =   -84, z =  -370 }, -- final r=28.0
 	{ id = "SW2", kind = "raidBrute", x =  -174, z =  -650 }, -- final r=84.0
 	{ id = "SW3", kind = "raidElite", x =  -174, z =  -370 }, -- final r=28.0
-	{ id = "SW4", kind = "apex",      x =  -371, z =  -638 }, -- final r=81.6
+	{ id = "SW4", kind = "apex",      x =  -378, z =  -650 }, -- final r=84.0
 	-- 33.5: was (-551, -229), and it was the SECOND camp under a trunk -- the W road runs at
 	-- z = -100 and SW5 landed at z = -135.8, needing 43 (half of 46, plus CAMP_RADIUS) and
 	-- having 35.8. It never showed in the boot log because `Describe` printed only the worse
 	-- of the two and SE4 was -32.1. Bearing and band both kept: village gap 56.1 -> 56.
-	{ id = "SW5", kind = "apex",      x =  -551, z =  -290 }, -- final r=56.1  [33.5: was -551/-229]
+	{ id = "SW5", kind = "apex",      x =  -690, z =  -363 }, -- final r=84.0  [33.5: was -551/-229]
 	-- ---- south-east quadrant, mirrored
 	{ id = "SE1", kind = "brute",     x =   209, z =  -370 }, -- final r=28.0
-	{ id = "SE2", kind = "raidBrute", x =   417, z =  -278 }, -- final r=29.3  [village-clamped] [32.18: was 691/-6]
+	{ id = "SE2", kind = "raidBrute", x =   689, z =  -460 }, -- final r=84.0  [village-clamped] [32.18: was 691/-6]
 	{ id = "SE3", kind = "raidElite", x =   115, z =  -370 }, -- final r=28.0
 	-- 33.5: was (33, -650), which is the zone's CENTRE LINE, and the S trunk is the centre
 	-- line -- the shrink landed it 15.9 studs off a road 56 wide, so the paint lay 32.1 studs
 	-- inside the clearing. Moved along its own band rather than out of it: the village gap is
 	-- 84.0 -> 83.7 -- the same outer-band apex, standing 168 studs off the lane instead of 16.
-	{ id = "SE4", kind = "apex",      x =   300, z =  -560 }, -- final r=83.7  [33.5: was 33/-650, r=84.0]
+	{ id = "SE4", kind = "apex",      x =   348, z =  -650 }, -- final r=84.0  [33.5: was 33/-650, r=84.0]
 	{ id = "SE5", kind = "apex",      x =   410, z =   -11 }, -- final r=28.0  [village-clamped] [32.18: was 551/-34]
 }
 
