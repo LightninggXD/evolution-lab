@@ -382,6 +382,23 @@ end
 -- lowest `Plunge` shelf spans z -276..-244, so z -290 puts the room's doorway directly behind the
 -- curtain. Y is 6 rather than 0 because a 12-stud touch part centred on the floor is half buried
 -- in it.
+--
+-- ===== `offset` IS THE ROOM AND `triggerOffset` IS THE TOUCH, AND THEY ARE TWO DECISIONS =====
+--
+-- They were one value until 33.19 and the world said so at every boot: *`ForestWaterfall` IS
+-- UNREACHABLE: its trigger at (291, 6, -290) overlaps 1 solid part(s)*. `MapWaterfall` builds the
+-- grotto AROUND `offset` -- the floor, the four walls, the mouth and the plinth are all measured
+-- off it -- and 33.18 put the plinth at `offset + (0, 1.5, -4)`, a 12-stud drum whose near face
+-- lands at z -288. The trigger's own reachability test asks whether a 4 x 6 x 4 humanoid box fits
+-- at (291, 6, -290), and that box runs z -292..-288: it ends exactly ON the pedestal that the
+-- same number placed. Moving the trigger to clear it would have dragged the entire cave 7 studs
+-- towards the doorway, because the cave is built from it.
+--
+-- So the two numbers separate. `offset` stays where the ROOM wants it and keeps its meaning;
+-- `triggerOffset` is where a PLAYER walks, which is the open floor between the mouth (z -270) and
+-- the plinth's face (z -288). z -281 sits in the middle of that corridor -- a 12-stud trigger
+-- there spans z -287..-275, so nothing reaches the cave without crossing it, and its humanoid box
+-- clears the plinth by 3 studs.
 GameConfig.Secrets = {
 	{
 		id = "ForestWaterfall",
@@ -389,6 +406,7 @@ GameConfig.Secrets = {
 		rewardType = "mutation",
 		rewardName = "Godly",
 		offset = Vector3.new(291, 6, -290),
+		triggerOffset = Vector3.new(291, 6, -281),
 	}
 }
 

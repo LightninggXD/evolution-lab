@@ -17,6 +17,7 @@
 local MapWaterfall = {}
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 local MapHorizon = require(script.Parent.MapHorizon)
 
 -- ===== WHERE THE TOWER GOES, AND HOW THE NUMBER WAS ARRIVED AT =====
@@ -71,6 +72,35 @@ local GROTTO_CLEAR = 34      -- props are cut this far around the grotto centre
 
 local FOLDER_NAME = "WaterfallGrotto"
 local RIDGE_FOLDER = "WaterfallRidge"
+
+-- ===== AND WHAT STANDS ON THE PLINTH =====
+--
+-- The owner, 2026-08-26: *"ubaci nesto na postament u pecini iza vodopada"* -- 33.18 left the
+-- pedestal deliberately bare because what goes on it is a decision about the GAME, not about the
+-- room, and the game had already made it: `GameConfig.Secrets` has exactly one entry, this one,
+-- and it pays `rewardType = "mutation", rewardName = "Godly"`. So the thing on the plinth is not
+-- decoration chosen for the cave -- it is the reward, drawn.
+--
+-- THE COLOUR IS NOT PICKED, IT IS READ. `GameConfig.Mutations` gives Godly `color =
+-- Color3.fromRGB(255, 240, 150)` (Upgrades.lua:81, index 7 of 7, weight 1), and that is the aura
+-- that lands on the player's own body two seconds after they touch it. A relic in some other
+-- colour would be the one prop in the game that promises the wrong prize.
+--
+-- WHY IT IS LIT GOLD IN A BLUE ROOM. The brow light 33.18 hung under the roof is pale blue at
+-- brightness 2.2 / range 46, which in a 44 x 40 room is enough to be the brightest thing in it.
+-- A gold relic under a strong blue key reads grey-green -- the same defect as
+-- [[evolution-lab-world-look-pass]], one room down: the light, not the paint. So the brow drops to
+-- 1.5 / 40 and stays the ROOM light, and the relic carries its own key. Two sources, two jobs.
+--
+-- EVERY PIECE OF IT IS `CanCollide = false`, AND THAT IS A CONSTRAINT, NOT A STYLE. The secret's
+-- trigger stands at (291, 6, -290) with a 12-stud box, and `SecretsService.reportBlocked` asks
+-- whether a 4 x 6 x 4 HUMANOID box at that centre overlaps any *collidable* part -- y 3..9, i.e.
+-- exactly the air the relic floats in. One solid prop here and the service warns the secret is
+-- unreachable on every boot, and the player walks through a shrine that pays nothing.
+local RELIC_GOLD = Color3.fromRGB(255, 240, 150)   -- Godly, straight out of GameConfig.Mutations
+local PLINTH_TOP = 3                               -- the plinth is 3 studs of cylinder on the floor
+local RELIC_Y = PLINTH_TOP + 4                     -- the gem floats 4 studs clear of the stone
+local RELIC_OFFSET = Vector3.new(0, 0, -4)         -- the plinth's own offset; the shrine is one stack
 
 -- ===== THE TOWER STOOD ALONE IN THE OPEN, AND THAT IS THE SECOND HALF OF THE ASK =====
 --
@@ -406,6 +436,155 @@ local function buildCurtain(folder, cx, wf)
 	return 2
 end
 
+-- ===== THE SHRINE ON THE PLINTH =====
+--
+-- ENDLESS MOTION WITH NO PER-FRAME LUA, AND A LOCAL COPY OF THE TRICK RATHER THAN `ZoneKit`'S.
+-- The kit's `spinForever` / `pulseForever` multiply their goal by `ACTIVE_FRAME`, the module-level
+-- placement frame the last zone build happened to leave behind -- that leak is the whole of row
+-- 33.17, where it took the eggs apart. Nothing in this file is frame-placed (every prop here takes
+-- a raw world `Position`), so the tween goals have to be raw too, and borrowing the kit's versions
+-- would teleport the shrine to wherever the frame last pointed on its very first tick.
+--
+-- A repeating tween snaps back to its start value at the end of every cycle. That is invisible
+-- ONLY when the cycle covers exactly one step of the arrangement's ROTATIONAL SYMMETRY, which is
+-- why both numbers below are derived from the shape rather than chosen: the gem turns 120 degrees
+-- because a cube stood on its corner has a three-fold axis up the body diagonal, and the ring of
+-- stones turns 360/8 because there are eight of them.
+local function turnForever(part, poseAt, startDeg, stepDeg, seconds)
+	part.CFrame = poseAt(startDeg)
+	TweenService:Create(part, TweenInfo.new(seconds, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {
+		CFrame = poseAt(startDeg + stepDeg),
+	}):Play()
+end
+
+-- Stands a cube on its corner EXACTLY. `CFrame.Angles(45, 35, 0)` gets close enough to look right
+-- and is not close enough to spin right: the 120-degree tween only lands on an identical pose if
+-- the cube's (1,1,1) diagonal is exactly vertical, and a degree of error shows up as a visible
+-- twitch once a second, forever. Rotating (1,1,1) onto +Y about their common perpendicular is the
+-- closed form, and `acos(1/sqrt(3))` is the angle between them.
+local CORNER_UP = CFrame.fromAxisAngle(Vector3.new(1, 0, -1).Unit, math.acos(1 / math.sqrt(3)))
+
+local GEM_SIZE = 5
+local STONE_COUNT = 8
+local STONE_RADIUS = 5.8
+
+-- `base` is the grotto's floor-level centre and `reward` is the secret's own `rewardName`, so the
+-- shrine is built from what the secret PAYS rather than from a second copy of that decision.
+local function buildRelic(folder, base, reward)
+	local built = 0
+	local centre = base + RELIC_OFFSET
+	local heart = centre + Vector3.new(0, RELIC_Y, 0)
+
+	local function newPart(props)
+		local part = Instance.new("Part")
+		part.Anchored = true
+		-- read the comment block over RELIC_GOLD before changing either of these two
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CastShadow = false
+		for k, v in pairs(props) do
+			part[k] = v
+		end
+		part.Parent = folder
+		built += 1
+		return part
+	end
+
+	-- THE GEM IS ONE SHAPE, AND THE FIRST CUT OF THIS SHRINE WAS FIVE. That version stacked a
+	-- 23-stud floor disc, a pedestal disc, a floor-to-roof shaft and a ball, all Neon and all
+	-- part-transparent, and photographed as a lime pancake under an olive pillar --
+	-- [[evolution-lab-chunky-look-rules]] rule 3 in both of its clauses at once: *a Cylinder is
+	-- solid, so a halo made from one is a dinner plate*, and *fewer, bigger shapes beats more
+	-- detail*. What is left is a single bright mass with dark trim at its extremities, which is
+	-- the vocabulary the village crates and lamps are already built in.
+	--
+	-- AND THE GOLD IS DEEPER THAN THE AURA'S. Neon is unlit, so a part painted the mutation's own
+	-- rgb(255, 240, 150) draws at very nearly full white and the relic photographs as a bare bulb.
+	-- The gem is the same hue two steps down in value; the aura around it, which IS drawn at the
+	-- mutation's colour, is what carries the exact promise.
+	local gem = newPart({
+		Name = "RelicGem",
+		Size = Vector3.new(GEM_SIZE, GEM_SIZE, GEM_SIZE),
+		Material = Enum.Material.Neon,
+		Color = Color3.fromRGB(255, 196, 64),
+	})
+	turnForever(gem, function(deg)
+		return CFrame.new(heart) * CFrame.Angles(0, math.rad(deg), 0) * CORNER_UP
+	end, 0, 120, 9)
+
+	-- Its own key light, and the ROOM's is not it -- see the note over RELIC_GOLD. Range 36 covers
+	-- the 44 x 40 floor and dies before the doorway, so the cave still goes dark towards the mouth
+	-- and the shrine is the bright end of it.
+	local key = Instance.new("PointLight")
+	key.Color = RELIC_GOLD
+	key.Brightness = 2.8
+	key.Range = 36
+	-- NO SHADOWS, and that is not a performance note. A point light two studs above a 12-stud
+	-- pedestal in a closed 44 x 40 room projects that pedestal onto the back wall at 2.5x, and it
+	-- photographs as a dark grey trapezoid hanging in the air behind the shrine -- read as a
+	-- floating slab in three captures before it was traced. Nothing in this room is lit well
+	-- enough for a cast shadow to add anything.
+	key.Shadows = false
+	key.Parent = gem
+
+	-- THE RING IS EIGHT BLOCKS, NOT A CYLINDER, for the reason in the memory named above: a ring
+	-- built from a Cylinder is a plate. They are dark on purpose -- an outline is a boundary
+	-- between two VALUES, and scenery cannot carry a `Highlight` (Roblox draws ~31 at once and
+	-- they are spent on characters and pets), so the dark trim at the extremities is how a prop
+	-- here gets an edge at all.
+	for i = 0, STONE_COUNT - 1 do
+		local stone = newPart({
+			Name = "RelicStone",
+			Size = Vector3.new(1.15, 1.7, 1.15),
+			Material = Enum.Material.Slate,
+			Color = Color3.fromRGB(58, 64, 70),
+		})
+		turnForever(stone, function(deg)
+			return CFrame.new(heart) * CFrame.Angles(0, math.rad(deg), 0) * CFrame.new(STONE_RADIUS, 0, 0)
+		end, i * (360 / STONE_COUNT), 360 / STONE_COUNT, 11)
+	end
+
+	-- ===== AND THE AURA IS THE REWARD ITSELF, NOT A COSTUME FOR IT =====
+	--
+	-- `EvolutionVisuals`' own `MUTATION_VFX` already says what Godly looks like -- `Big/Tornado-01` at
+	-- rate 30, span 11, tinted rgb(255, 240, 150) -- and it is the table that dresses the PLAYER
+	-- two seconds after they touch the trigger. Hanging the same aura on the relic means the cave
+	-- shows the prize and the body wears the prize from ONE definition; a hand-written emitter
+	-- here would be a second writer, and the day someone re-tunes Godly the shrine would quietly
+	-- start promising the wrong thing.
+	--
+	-- REQUIRED LAZILY, INSIDE THE BUILD. `EvolutionVisuals` pulls in `PlayerDataService` and the
+	-- sword models; a top-level require would put all of that behind a map-prop module that
+	-- `ForestMapService` loads while the world is still being laid out. This runs once, at the end
+	-- of the Forest map pass, long after those services are up.
+	--
+	-- AND IT HANGS ON ITS OWN ANCHOR, NOT ON THE GEM OR THE PLINTH. `Attachment.Position` is in
+	-- the PARENT's frame: the gem turns, and the plinth is a Cylinder rolled 90 degrees about Z so
+	-- its local Y points along world X -- an offset written there goes sideways
+	-- ([[evolution-lab-vfx-attach-rules]]). An unrotated 1-stud part costs nothing and cannot lie.
+	local anchor = newPart({
+		Name = "RelicAnchor",
+		Size = Vector3.new(1, 1, 1),
+		Transparency = 1,
+		-- AT THE STONE, NOT AT THE GEM. `Big/Tornado-01` throws its particles UPWARD from the
+		-- attachment over about eleven studs, so an anchor level with the gem puts the whole
+		-- vortex above it and the ribbons read as rings around the ceiling lamp -- photographed
+		-- exactly that way in Play before this line moved. Starting it at the plinth's face wraps
+		-- the gem instead, which is what a relic standing in a column of wind looks like.
+		Position = centre + Vector3.new(0, PLINTH_TOP + 0.2, 0),
+	})
+	local okAura, aura = pcall(function()
+		local EvolutionVisuals = require(script.Parent.Parent.Systems.EvolutionVisuals)
+		return EvolutionVisuals.AttachMutationAura(anchor, reward, 1)
+	end)
+	if not (okAura and aura) then
+		warn(("[MapWaterfall] the grotto relic has no aura -- %q is not a mutation this build draws")
+			:format(tostring(reward)))
+	end
+
+	return built
+end
+
 function MapWaterfall.Build(zoneKey, cx, map)
 	if not map then return 0, 0, 0 end
 
@@ -483,6 +662,64 @@ function MapWaterfall.Build(zoneKey, cx, map)
 		return n
 	end
 
+	-- ===== AND A SECOND CUT, BECAUSE `clearBox` ASKS THE WRONG QUESTION FOR THE ROOM =====
+	--
+	-- `clearBox` tests a prop's CENTRE. That is right for the ridge -- the plates are 174 studs
+	-- wide and a prop centred outside them is outside them -- and it is wrong for a 44 x 40 room
+	-- with 3-stud walls. Measured in Play, 2026-08-26: a `HuntForest.HuntTree` centred at
+	-- (272, -329) has a 43.6-stud canopy reaching z -308, i.e. **two studs through the back wall
+	-- and into the cave**, and its centre is five studs outside the cut box, so the cut left it
+	-- standing. From the doorway it photographed as a dark grey trapezoid hanging in the air --
+	-- traced through four captures before it was named, because it looks like a floating slab and
+	-- nothing like a tree. This is the same defect 33.18 fixed for the colliders, one layer out:
+	-- the colliders were the half you walk into, this is the half you look at.
+	--
+	-- THE SIZE GUARD IS NOT OPTIONAL. An extent test over this volume also matches the horizon
+	-- range -- `Horizon.HorizonHill`'s stock measures 449 x 307 x 578, and once rotated its
+	-- world AABB reaches this box from six hundred studs away -- so an unguarded version would
+	-- delete a mountain to tidy a cave. Anything wider than the room in either horizontal axis is
+	-- scenery the room stands INSIDE, not clutter standing in it. Trees here measure 24..57.
+	local ROOM_MAX_SPAN = 90
+	local function clearRoom(lo, hi)
+		local n = 0
+		-- Both getters are PIVOT-frame, so `size` is measured along the prop's OWN axes and has to
+		-- be projected onto the world's before it can be compared with a world-axis box --
+		-- [[roblox-model-box-getters-are-pivot-frame]]. A yawed prop whose size is used raw reads
+		-- as the wrong shape entirely, and for a 43-stud canopy that is the whole answer.
+		local function extentOf(c)
+			local ok, cf, size = pcall(function()
+				if c:IsA("Model") then return c:GetBoundingBox() end
+				return (c :: BasePart).CFrame, (c :: BasePart).Size
+			end)
+			if not (ok and cf and size) then return nil end
+			local e = Vector3.new(
+				math.abs(cf.RightVector.X) * size.X + math.abs(cf.UpVector.X) * size.Y + math.abs(cf.LookVector.X) * size.Z,
+				math.abs(cf.RightVector.Y) * size.X + math.abs(cf.UpVector.Y) * size.Y + math.abs(cf.LookVector.Y) * size.Z,
+				math.abs(cf.RightVector.Z) * size.X + math.abs(cf.UpVector.Z) * size.Y + math.abs(cf.LookVector.Z) * size.Z) / 2
+			return cf.Position, e
+		end
+		local function sweep(list)
+			for _, c in ipairs(list) do
+				if c ~= ridge and c.Name ~= "MainPart" and c.Name ~= "Terrain" and c.Name ~= FOLDER_NAME then
+					local pos, e = extentOf(c)
+					if pos and e and e.X * 2 <= ROOM_MAX_SPAN and e.Z * 2 <= ROOM_MAX_SPAN
+						and pos.X + e.X > lo.X and pos.X - e.X < hi.X
+						and pos.Y + e.Y > lo.Y and pos.Y - e.Y < hi.Y
+						and pos.Z + e.Z > lo.Z and pos.Z - e.Z < hi.Z then
+						c:Destroy()
+						n += 1
+					end
+				end
+			end
+		end
+		sweep(map:GetChildren())
+		for _, setName in ipairs(COLLIDER_SETS) do
+			local set = map:FindFirstChild(setName)
+			if set then sweep(set:GetChildren()) end
+		end
+		return n
+	end
+
 	for _, row in ipairs(RIDGE_ROWS) do
 		cut += clearBox(cx + row.x1 - 4, cx + row.x2 + 4,
 			row.z - row.d / 2 - 2, row.z + row.d / 2 + 2)
@@ -499,7 +736,13 @@ function MapWaterfall.Build(zoneKey, cx, map)
 	folder.Name = FOLDER_NAME
 	folder.Parent = map
 
-	local rock = Color3.fromRGB(120, 132, 140)
+	-- A NEUTRAL STONE, AND THE RELIC IS WHY IT CHANGED (33.19). It was rgb(120, 132, 140), a cool
+	-- blue-grey, and a room lit by exactly two coloured lights renders a cool grey as whichever
+	-- light is winning: under the blue brow the whole cave photographed BLUE, and the moment the
+	-- gold key went in the floor came out GREEN. That is not a paint fault, it is the same
+	-- diagnosis as [[evolution-lab-world-look-pass]] -- the light, not the paint -- and the fix is
+	-- a stone with no cast of its own, so the blue reads blue and the gold reads gold.
+	local rock = Color3.fromRGB(126, 122, 116)
 	local built = 0
 	for _, secret in ipairs(GameConfig.Secrets or {}) do
 		if secret.zoneKey == zoneKey and secret.offset then
@@ -512,6 +755,15 @@ function MapWaterfall.Build(zoneKey, cx, map)
 			-- is the corridor the player actually walks.
 			cut += clearBox(centre.X - GROTTO_CLEAR, centre.X + GROTTO_CLEAR,
 				centre.Z - GROTTO_CLEAR, SPLASH.Z + 40)
+
+			-- and then the room's own volume by EXTENT -- see the note over `clearRoom`. The box
+			-- is the walls plus two studs, which is what a prop has to reach to be seen from
+			-- inside, and it runs the full height so a canopy overhead is caught with a trunk.
+			local roomHalfX = GROTTO_HALF_X + GROTTO_T + 2
+			local roomHalfZ = GROTTO_HALF_Z + GROTTO_T + 2
+			cut += clearRoom(
+				Vector3.new(centre.X - roomHalfX, -2, centre.Z - roomHalfZ),
+				Vector3.new(centre.X + roomHalfX, GROTTO_H + GROTTO_T + 2, centre.Z + roomHalfZ))
 
 			-- THE ROOM IS BUILT OFF THE GROUND, NOT OFF THE TRIGGER. The secret's own offset carries
 			-- a Y because a 12-stud touch part centred on the floor is half buried in it; the walls
@@ -555,8 +807,16 @@ function MapWaterfall.Build(zoneKey, cx, map)
 			--     what turns a missing wall into a doorway,
 			--   * LIGHT inside, or the room is black from the one angle it can be seen from, and
 			--   * somewhere to put the thing she is going to put in it.
+			-- THE CAVE HAD A GRASS FLOOR, AND THE SLAB WAS ALWAYS THERE (33.19). Measured:
+			-- `WorldShell.Floor` is Grass with its top face at y = 0.00 and this slab was laid with
+			-- its own top face at y = 0.00 -- two coplanar surfaces, so which one draws is decided
+			-- by the camera angle. It photographed as a stone floor from one seat and as a green
+			-- meadow inside a rock cave from the next ([[roblox-coplanar-paint-zfights]] is the
+			-- standing note; the striped cliffs of 17.x were the same fault one scale up). 0.2
+			-- studs of daylight settles it and is far under a step height, so the walk in is
+			-- unchanged.
 			slab("GrottoFloor", Vector3.new(w, GROTTO_T, GROTTO_HALF_Z * 2 + GROTTO_T),
-				Vector3.new(0, -GROTTO_T / 2, 0))
+				Vector3.new(0, -GROTTO_T / 2 + 0.2, 0))
 
 			local jamb = (w - 22) / 2
 			for _, side in ipairs({ -1, 1 }) do
@@ -564,8 +824,9 @@ function MapWaterfall.Build(zoneKey, cx, map)
 					Vector3.new(side * (22 + jamb) / 2, (GROTTO_H - 3) / 2, GROTTO_HALF_Z + GROTTO_T / 2))
 			end
 
-			-- 👤 HERS TO DRESS. *"tu cemo ubaciti nesto"* -- the plinth is the spot, deliberately
-			-- bare: whatever goes on it is a decision about the game, not about the room.
+			-- THE PEDESTAL. It was left bare by 33.18 -- *"tu cemo ubaciti nesto"* -- and 33.19
+			-- filled it: see the comment block over `RELIC_GOLD` for what stands on it and why the
+			-- colour was read out of `GameConfig` rather than chosen.
 			local plinth = Instance.new("Part")
 			plinth.Name = "GrottoPlinth"
 			plinth.Anchored = true
@@ -573,6 +834,7 @@ function MapWaterfall.Build(zoneKey, cx, map)
 			plinth.Shape = Enum.PartType.Cylinder
 			plinth.Size = Vector3.new(3, 12, 12)
 			plinth.CFrame = CFrame.new(base + Vector3.new(0, 1.5, -4)) * CFrame.Angles(0, 0, math.pi / 2)
+			plinth.CastShadow = false   -- see the note on the relic's key light
 			plinth.Material = Enum.Material.Slate
 			plinth.Color = rock:Lerp(Color3.new(0, 0, 0), 0.2)
 			plinth.Parent = folder
@@ -593,10 +855,16 @@ function MapWaterfall.Build(zoneKey, cx, map)
 			glow.Parent = folder
 			local lamp = Instance.new("PointLight")
 			lamp.Color = Color3.fromRGB(150, 220, 255)
-			lamp.Brightness = 2.2
-			lamp.Range = 46
+			-- DIMMED FROM 2.2 / 46 BY 33.19, and the relic is the reason. This is the ROOM light --
+			-- its job is that the rock is not black -- and at its old strength it was also the
+			-- brightest thing in the room, which put a cold blue key on a gold relic and turned it
+			-- grey-green. Two sources, two jobs: blue fills, gold focuses.
+			lamp.Brightness = 1.5
+			lamp.Range = 40
 			lamp.Parent = glow
 			built += 1
+
+			built += buildRelic(folder, base, secret.rewardName)
 
 			-- the door: the last thirty studs of the fall, hanging in front of the mouth
 			built += buildCurtain(folder, cx, wf)

@@ -19,7 +19,8 @@ local PlayerDataService = require(script.Parent.PlayerDataService)
 -- Bump this when a secret's OFFSET changes: the holder is rebuilt from scratch on a mismatch, and
 -- a trigger that already exists is never repositioned, so without a bump an edited offset is a
 -- no-op on any world that has already booted once.
-local SECRETS_VERSION = 2
+--   3 -- 33.19: the touch point moved off `offset` onto its own `triggerOffset`
+local SECRETS_VERSION = 3
 
 local TRIGGER_SIZE = Vector3.new(12, 12, 12)
 
@@ -81,14 +82,21 @@ local BODY_BOX = Vector3.new(4, 6, 4)
 
 local function reportBlocked(secret, trigger)
 	local hits = workspace:GetPartBoundsInBox(trigger.CFrame, BODY_BOX)
-	local solid = 0
+	local solid, blame = 0, {}
 	for _, part in ipairs(hits) do
-		if part ~= trigger and part.CanCollide then solid += 1 end
+		if part ~= trigger and part.CanCollide then
+			solid += 1
+			if #blame < 5 then table.insert(blame, part:GetFullName()) end
+		end
 	end
 	if solid > 0 then
-		warn(("[SecretsService] %s IS UNREACHABLE: its trigger at %s overlaps %d solid part(s). "
-			.. "Nothing can touch it -- move the offset to a spot a player can stand in.")
-			:format(secret.id, tostring(trigger.Position), solid))
+		-- AND IT NAMES THEM. The first version of this warning reported only a count, and when it
+		-- fired for real (33.19) the count said nothing about which of two thousand nearby props
+		-- was in the way -- the answer, `GrottoPlinth`, was reached by replaying the box test by
+		-- hand. A guard that has to be re-derived to be acted on is half a guard.
+		warn(("[SecretsService] %s IS UNREACHABLE: its trigger at %s overlaps %d solid part(s) -- %s. "
+			.. "Nothing can touch it -- move triggerOffset to a spot a player can stand in.")
+			:format(secret.id, tostring(trigger.Position), solid, table.concat(blame, ", ")))
 	end
 	return solid
 end
@@ -121,13 +129,20 @@ function SecretsService.Init()
 
 		local centre = Vector3.new(zone.offset, 0, 0)
 
+		-- WHERE A PLAYER WALKS, NOT WHERE THE ROOM IS BUILT. `MapWaterfall` measures the whole
+		-- grotto -- walls, mouth, floor, plinth -- off `secret.offset`, so that number cannot be
+		-- moved to make the trigger reachable without moving the cave with it. `triggerOffset` is
+		-- the second decision, and it defaults to the first for any secret that has no scenery
+		-- built around it. See the block over `GameConfig.Secrets`.
+		local touchAt = secret.triggerOffset or secret.offset or Vector3.new(0, 0, 0)
+
 		local triggerName = "Secret_" .. secret.id
 		local trigger = holder:FindFirstChild(triggerName)
 		if not trigger then
 			trigger = Instance.new("Part")
 			trigger.Name = triggerName
 			trigger.Size = TRIGGER_SIZE
-			trigger.Position = centre + (secret.offset or Vector3.new(0, 0, 0))
+			trigger.Position = centre + touchAt
 			trigger.Anchored = true
 			trigger.CanCollide = false
 			-- Invisible on purpose -- the point is a hidden passage, not a marked one.
