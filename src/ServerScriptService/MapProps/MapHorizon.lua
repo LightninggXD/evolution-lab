@@ -248,6 +248,31 @@ local CAMP_CLEAR = 15
 -- both were reverted -- neither was measured, and 240 is 2.7x a reservation nobody re-derived.
 local LANE_PORTAL = 90
 
+-- ===== AND A LANE ON THE CENTRE IS NOT A LANE ON THE ROCK (32.19) =====
+-- `LANE_PORTAL` is spent above on the hill's CENTRE and on nothing else, so what the gate actually
+-- gets is decided afterwards by how big that hill came out: the rock reaches `bx` studs back toward
+-- the doorway, and `bx` carries `SIZE_JITTER` +-12% on top of the stock's own size. Measured on two
+-- builds of the same code: 2026-08-24 left the innermost collider edges at x -35 / +71 -- a 106-stud
+-- doorway -- and 2026-08-26 left them at x 15 / 15, i.e. **the two boxes touching and the gate
+-- sealed shut, floor to y 277**, with a body box inside rock for 16 of 20 samples up the walkway.
+-- Nothing was edited between them. That is a random roll deciding whether the zone's exit works.
+--
+-- The owner's call, 2026-08-26, after the two forks R19/R21 measured were both refused on the
+-- capture: **do not move these hills, SHRINK them.** Moving one far enough to clear the doorway is
+-- a 169-stud push, and the flat boundary wall comes out from behind it -- which is what she
+-- rejected. A hill shrunk in place keeps the run's rhythm and its own outer edge stays roughly
+-- where it was; the skyline over the gate is carried by the OUTER row, which already runs whole
+-- across it on purpose (see the note in `Build`).
+--
+-- `GATE_CLEAR` is `ZoneGate.PORTAL_CLEAR_HALF` restated, not required -- the header says why this
+-- file restates. It is the walkway reservation, i.e. how far anything stays off the centre line,
+-- and the gate's own stonework spans x -120..108 inside it.
+local GATE_CLEAR = 132       -- restated from ZoneGate.PORTAL_CLEAR_HALF
+-- Below this fraction of the size it asked for, a hill is not a hill: it is a boulder standing in a
+-- run of mountains, and it reads worse than the gap it leaves. Dropped, and COUNTED -- the boot line
+-- carries the number for the same reason `Colliders` counts a dropped box.
+local GATE_MIN_SCALE = 0.30
+
 -- ===== HOW FAR APART, AND WHY 0.62 OF A BOUNDING BOX IS NOT AN OVERLAP =====
 -- A hill stands this fraction of its own length from the next one. `buildRidge` used ~1.0 and the
 -- note it carried was right as far as it went: under 1.0 so they overlap into a continuous ridge
@@ -568,7 +593,9 @@ end
 -- and 150, and only falls away past 200.
 local ROCK_FOOT = 0.92
 
-local function hill(proto, parent, cx, x, z, yaw, scale)
+-- `riseTo`, when given, is a world Y the finished rock must reach: see the block over `GATE_CLEAR`
+-- and the stretch below.
+local function hill(proto, parent, cx, x, z, yaw, scale, riseTo)
 	local m = proto:Clone()
 	local _, raw = m:GetBoundingBox()
 	if raw.Y < 1 then m:Destroy() return nil end
@@ -593,6 +620,36 @@ local function hill(proto, parent, cx, x, z, yaw, scale)
 	-- ago -- `MapForest.plantOne` has the same rule for the same reason.
 	local rx, rz, top, wx, wz = worldBox(m)
 	if not rx then m:Destroy() return nil end
+
+	-- ===== A HILL SHRUNK OFF THE GATE LANE IS STRETCHED BACK UP, BECAUSE ITS JOB IS THE WALL =====
+	-- `ScaleTo` is uniform, so shrinking the innermost flank hill until its rock clears the doorway
+	-- also takes its height with it -- and the height is the entire reason the inner row exists.
+	-- Measured on the first build of the shrink, 2026-08-26: the two hills beside the north gate
+	-- came out 99 and 126 studs tall against a 180-stud wall, and a 40-ray fan from the player's
+	-- eye hit bare `Wall` on 21 of them. That is the same bare slate the two forks in R19/R21 were
+	-- both refused over -- reached by a different road.
+	--
+	-- So the shrink is horizontal only in effect: the rock is put back to the top the run asked for
+	-- by scaling the parts on Y alone. It is exact rather than approximate because every part of
+	-- this stock stands perfectly upright -- measured, `UpVector` is (0, 1, 0) on all of them, only
+	-- the yaw varies -- so a part's local Y IS world Y and the mesh cannot shear. The result is a
+	-- steeper peak, which is what a mountain beside a doorway looks like anyway.
+	--
+	-- It happens HERE, before `worldBox` is read for the collider and the wood's keep-out, so every
+	-- number downstream is the rock that is actually standing there. That is the same rule the
+	-- comment above `MapHorizon.LastHill` already states for the seating.
+	if riseTo and top < riseTo then
+		local base = -SINK
+		local k = (riseTo - base) / (top - base)
+		for _, d in ipairs(m:GetDescendants()) do
+			if d:IsA("BasePart") then
+				d.Size = Vector3.new(d.Size.X, d.Size.Y * k, d.Size.Z)
+				d.Position = Vector3.new(d.Position.X, base + (d.Position.Y - base) * k, d.Position.Z)
+			end
+		end
+		rx, rz, top, wx, wz = worldBox(m)
+	end
+
 	MapHorizon.LastHill = {
 		model = m, top = top, wx = wx, wz = wz,
 		rx = rx * ROCK_FOOT, rz = rz * ROCK_FOOT,
@@ -634,8 +691,39 @@ local function buildRun(proto, folder, cx, rng, spec, out)
 				z = spec.at + rng:NextNumber(-14, 14)
 				yaw = math.pi / 2
 			end
-			local sz = hill(proto, folder, cx, x, z, yaw + rng:NextNumber(-YAW_JITTER, YAW_JITTER),
-				spec.scale * rng:NextNumber(SIZE_JITTER[1], SIZE_JITTER[2]))
+			local yawAt = yaw + rng:NextNumber(-YAW_JITTER, YAW_JITTER)
+			local scale = spec.scale * rng:NextNumber(SIZE_JITTER[1], SIZE_JITTER[2])
+			local sz = hill(proto, folder, cx, x, z, yawAt, scale)
+
+			-- ===== THE GATE LANE IS ENFORCED ON THE ROCK, NOT ON THE CENTRE (32.19) =====
+			-- See the block over `GATE_CLEAR`. Re-seated rather than scaled in place because
+			-- `hill` measures its own box AFTER seating and stores it for the collider and for the
+			-- wood's keep-out -- shrinking the model behind its back would leave all three lying.
+			-- The loop runs at most three times: `hill` seats a PIVOT-frame box centre, so a yawed
+			-- model's world centre shifts a little each time it is re-stood, and one pass can land
+			-- a stud or two short.
+			local tries = 0
+			-- the skyline this hill was asked for, kept across every re-seat so the stretch above
+			-- always aims at the ORIGINAL top and not at the last shrunk one
+			local askedTop = sz and MapHorizon.LastHill.top or nil
+			while sz and spec.lane > 0 and tries < 3 do
+				local h = MapHorizon.LastHill
+				local off = spec.axis == "x" and math.abs(h.wx - cx) or math.abs(h.wz)
+				local half = spec.axis == "x" and h.bx or h.bz
+				if off - half >= GATE_CLEAR - 1 then break end
+				local f = (off - GATE_CLEAR) / half
+				h.model:Destroy()
+				if f < GATE_MIN_SCALE then
+					sz = nil
+					spec.gate.dropped += 1
+					break
+				end
+				scale = scale * f
+				sz = hill(proto, folder, cx, x, z, yawAt, scale, askedTop)
+				if tries == 0 then spec.gate.shrunk += 1 end
+				tries += 1
+			end
+
 			if sz and spec.solid then
 				-- The rock this hill really covers, world-axis, for `MapSolids` to box. Kept in a
 				-- second list rather than folded into `out`: `out` is the WOOD's keep-out and is
@@ -695,6 +783,8 @@ function MapHorizon.Build(zoneKey, cx, map)
 	local out = {}
 	local solid = {}
 	local runs, hills = 0, 0
+	-- what the gate lane took out of the runs that carry one -- see the block over `GATE_CLEAR`
+	local gate = { shrunk = 0, dropped = 0 }
 	-- where the inner row ended up standing, so the boot line can say whether 32.1b moved it
 	local innerAtX, innerAtZ = AT.innerX, AT.innerZ
 
@@ -800,6 +890,8 @@ function MapHorizon.Build(zoneKey, cx, map)
 			{ axis = "x", at = atN, span = spanX, lane = inner and LANE_PORTAL or 0 },
 		}) do
 			r.scale, r.acrossHalf, r.alongLen, r.spacing = scale, acrossHalf, alongLen, spacing
+			-- one tally for the whole build, so the boot line can say what the gate lane cost
+			r.gate = gate
 			r.solid = inner and solid or nil
 			hills += buildRun(proto, folder, cx, rng, r, out)
 			runs += 1
@@ -864,7 +956,8 @@ function MapHorizon.Build(zoneKey, cx, map)
 		.. "tops %.0f..%.0f against the wall's %d -- %s; outer peaks %.0f, needs %.0f to clear "
 		.. "the wall from mid-zone -- %s; inner row at %.0f/%.0f (pinned %d/%d)%s; "
 		.. "tightest rock-to-camp-floor gap %+.1f studs, %s -- %s; "
-		.. "%d collider box(es) offered, %d clipped off a camp floor, %d dropped%s")
+		.. "%d collider box(es) offered, %d clipped off a camp floor, %d dropped%s; "
+		.. "gate lane |x - cx| <= %d: %d hill(s) shrunk to clear it, %d dropped as too small%s")
 		:format(zoneKey, hills, runs, s.X, s.Y, s.Z, lowTop, highTop, WALL_H,
 			lowTop > WALL_H and "RIDGE BREAKS THE SKYLINE"
 				or ("WALL SHOWS BY %.0f"):format(WALL_H - lowTop),
@@ -899,7 +992,14 @@ function MapHorizon.Build(zoneKey, cx, map)
 			gap > 0 and "clear of every camp (FILL silhouette; the ground-line test is the grid)"
 				or "*** ROCK IS STANDING IN A CAMP ***",
 			#boxes, clipped, dropped,
-			dropped > 0 and "  *** A DROPPED BOX IS RANGE YOU CAN WALK THROUGH ***" or ""))
+			dropped > 0 and "  *** A DROPPED BOX IS RANGE YOU CAN WALK THROUGH ***" or "",
+			GATE_CLEAR, gate.shrunk, gate.dropped,
+			-- 32.19: zero shrunk on a build that HAS a lane means the enforcement never fired, and
+			-- the last two builds prove that is not a healthy silence -- it is a roll that happened
+			-- to land wide, or a run that lost its lane.
+			gate.shrunk == 0 and gate.dropped == 0
+				and "  *** NOTHING WAS TRIMMED OFF THE GATE LANE -- CHECK THE LANE IS STILL SET ***"
+				or ""))
 	return hills
 end
 
