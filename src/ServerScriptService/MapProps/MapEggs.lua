@@ -111,14 +111,47 @@ local function halfHeight(inst)
 	return 0
 end
 
+-- ===== THE EGG IS ITS SHELL, NOT ITS BOUNDING BOX (32.32) =====
+-- This measured `Model:GetBoundingBox()`, and the podium radius is derived from it. An `Egg` is an
+-- invisible `EggShell` -- the part that carries the prompt, the outline and the idle animation --
+-- plus mesh pieces placed beside it, and when a leaked placement frame put those two halves 575
+-- studs apart (see `ZoneKit.withFrame`) the bounding box came out 616 studs wide. The pedestal
+-- built from it was a 620-stud stone disc laid over the whole village, and nothing warned: every
+-- number in the line below was arithmetic on a box that was doing exactly what it is defined to do.
+--
+-- `PrimaryPart` is what the rest of the system already means by "the egg" -- `PetFollowClient`
+-- ranges the outline off it, `EggPlaza` writes `IdleAnchor` from it -- so it is what the stand is
+-- sized against here. It is also the authored size rather than a measured one, which is the point:
+-- a stand fits the egg it was designed for, not whatever ended up inside the model.
 local function eggSize(inst)
 	if inst:IsA("Model") then
+		local shell = inst.PrimaryPart
+		if shell then
+			return math.max(shell.Size.X, shell.Size.Z)
+		end
 		local _, size = inst:GetBoundingBox()
 		return math.max(size.X, size.Z)
 	elseif inst:IsA("BasePart") then
 		return math.max(inst.Size.X, inst.Size.Z)
 	end
 	return 0
+end
+
+-- How far the furthest piece of an egg stands from its own shell. Zero on a healthy egg -- the
+-- mesh pieces are placed ON the shell and carry a `PetOffset` of nothing. It is measured and
+-- reported rather than repaired: a split egg means something upstream built the two halves in
+-- different frames, and seating the halves on top of each other here would hide that and leave the
+-- world wrong in a way no line of output mentions.
+local function eggSplit(egg)
+	local shell = egg.PrimaryPart
+	if not shell then return 0 end
+	local worst = 0
+	for _, d in ipairs(egg:GetDescendants()) do
+		if d:IsA("BasePart") and d ~= shell then
+			worst = math.max(worst, (d.Position - shell.Position).Magnitude)
+		end
+	end
+	return worst
 end
 
 -- ===== SLEEK MODERN PODIUM =====
@@ -314,6 +347,14 @@ function MapEggs.Reseat(zoneKey, zoneModel)
 			end
 			local eggPos = egg and centreOf(egg)
 			if eggPos then
+				-- LOUD, and before anything is measured off it. See `eggSplit`.
+				local apart = eggSplit(egg)
+				if apart > 4 then
+					warn(("[MapEggs] %s: egg %d is in %d pieces standing up to %.0f studs from its own "
+						.. "shell -- it was built through a stale placement frame (ZoneKit.withFrame). "
+						.. "The pedestal is sized off the shell, so the row will look right and the "
+						.. "egg will still be in two places."):format(zoneKey, slotIndex + 1, #egg:GetChildren(), apart))
+				end
 				slotIndex += 1
 				local slot = EGG_SLOTS[slotIndex] or { x = (slotIndex - 2) * 24, z = 0 }
 				local wantX = fountain.pos.X + slot.x

@@ -348,11 +348,14 @@ end
 -- an egg and leaving by the next gate now happen along one straight line down the middle of the
 -- platform. On the X walls they sat at right angles to that line, so the shop and its walkway
 -- read as rotated ninety degrees from the way the player was actually facing.
+--
+-- THROUGH `withFrame`, NOT setFrame/restore (32.32). This function is where the frame leaked: the
+-- restore was the line after the call, `buildPortal` threw, and every zone built afterwards in that
+-- VM was laid out 575 studs away and turned ninety degrees -- see the note over `ZoneKit.withFrame`
+-- for what that did to the egg stall.
 local function buildPortalInZWall(model, cx, wallZ, target)
-	local previous = ZoneKit.getFrame()
-	ZoneKit.setFrame(CFrame.new(cx, 0, wallZ) * CFrame.Angles(0, math.rad(wallZ > 0 and 90 or -90), 0))
-	buildPortal(model, 0, target, 1)
-	ZoneKit.setFrame(previous)
+	ZoneKit.withFrame(CFrame.new(cx, 0, wallZ) * CFrame.Angles(0, math.rad(wallZ > 0 and 90 or -90), 0),
+		buildPortal, model, 0, target, 1)
 end
 
 return {

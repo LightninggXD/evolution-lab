@@ -228,6 +228,17 @@ local function buildEggMesh(shop, ex, tierSuffix, pivotY, style, zoneKey)
 	local center = Vector3.new(ex, pivotY or EGG_PIVOT_Y, 0)
 	local cf = clone:GetBoundingBox()
 	clone:TranslateBy(center - cf.Position)
+	-- ===== AND THEN THROUGH THE ACTIVE FRAME, BECAUSE A RAW CFrame IGNORES IT (32.32) =====
+	-- `newPart` places what it makes through `ZoneKit`'s ACTIVE_FRAME; a model moved by
+	-- `TranslateBy` does not, so with a frame set the shell went where the frame said and the mesh
+	-- stayed at the shop's own coordinates. That is not a hypothetical: a leaked frame (see
+	-- `ZoneKit.withFrame`) split every egg in the world into two halves 575 studs apart, with the
+	-- invisible shell carrying the prompt and the outline one way and the thing you can see the
+	-- other. The same rule `VillageKit` already follows for its meshes.
+	local frame = ZoneKit.getFrame()
+	if frame then
+		clone:PivotTo(frame * clone:GetPivot())
+	end
 
 	-- One invisible shell part carrying the name and the collision rules the rest of the system
 	-- expects, with the mesh pieces parented beside it. CanCollide false for the reason written on
@@ -577,8 +588,17 @@ local function buildEggFeaturePet(shop, egg, ex, y)
 	local def = pool[#pool]
 	local model, root, pieces = PetModel.Build(def, "Normal", { scale = 1.5, plateDistance = 110, outline = false })
 	model.Name = "FeaturePet"
-	PetModel.Place(root, pieces, CFrame.new(ex, y, 0))
-	model:SetAttribute("SpinAnchor", CFrame.new(ex, y, 0))
+	-- through the active frame, for the reason written over the mesh clone in `buildEggMesh`: this
+	-- is a raw CFrame and would otherwise stand the pet at the shop's own coordinates while the
+	-- podium under it went wherever the frame said. Measured on the built world before the fix --
+	-- four zones had their featured pet between 2,058 and 16,754 studs from their own stall, which
+	-- also inflated `shop:GetBoundingBox()` and with it ZoneBuilder's "nothing stands inside the
+	-- stall" sweep.
+	local frame = ZoneKit.getFrame()
+	local pose = CFrame.new(ex, y, 0)
+	if frame then pose = frame * pose end
+	PetModel.Place(root, pieces, pose)
+	model:SetAttribute("SpinAnchor", pose)
 	model:SetAttribute("SpinSpeed", 0.7)
 	model:SetAttribute("BobHeight", 0.45)
 	CollectionService:AddTag(model, "PetDisplay")
@@ -627,7 +647,11 @@ local function addEggShowcase(shop, ex, eggY, accent, style)
 	-- Three gems on one orbit -- a 120 degree step is one full symmetry of the set. Pale, and small:
 	-- at 3.6 studs in the zone accent they read as red stickers parked beside the shell rather than
 	-- as sparkle, and three of them at egg height competed with the spots for the same glance.
+	-- the orbit is written with a raw CFrame (`orbitForever` assigns `part.CFrame`), so the pivot
+	-- is put through the active frame here -- same rule as the mesh clone and the featured pet.
 	local pivot = CFrame.new(ex, eggY + 3, 0)
+	local gemFrame = ZoneKit.getFrame()
+	if gemFrame then pivot = gemFrame * pivot end
 	for i = 0, 2 do
 		local gem = newPart({ Name = "EggOrbGem", Shape = Enum.PartType.Ball, Size = Vector3.new(1.7, 1.7, 1.7), Color = i == 1 and Color3.fromRGB(255, 255, 255) or core, Material = Enum.Material.Neon, CanCollide = false, CastShadow = false, Parent = shop })
 		orbitForever(gem, pivot, 12.5, i * 120, 120, 6)

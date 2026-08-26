@@ -187,6 +187,25 @@ function PetModel.Build(def, tier, opts)
 			fx:Destroy()
 		end
 
+		-- ===== AND THE GENERATOR'S OWN LEFTOVERS, FOR THE SAME REASON THE Fx FOLDER GOES =====
+		-- Sixteen of the library's meshes ship with `EdgesSolid` / `WireframeTransparent` parts
+		-- parented INSIDE the mesh -- 1.5-stud cubes the mesh generator leaves behind. `Place`
+		-- moves the root and the registered pieces, and a loose child of the geom is neither, so
+		-- every one of them stayed at the coordinates it was authored at while its pet walked off
+		-- to a zone 34,000 studs away. Measured on the built world: four zones had a featured pet
+		-- whose furthest "piece" was 4,102 to 34,567 studs from its own body, which also inflated
+		-- `shop:GetBoundingBox()` -- and ZoneBuilder sizes its "nothing stands inside the stall"
+		-- sweep off that box, so a stall measuring 28,894 studs across deletes decoration by the
+		-- thousand and reports nothing.
+		--
+		-- Anything solid a pet is made of is built here, so a BasePart arriving inside the template
+		-- is by definition not part of the creature.
+		for _, junk in ipairs(geom:GetDescendants()) do
+			if junk:IsA("BasePart") then
+				junk:Destroy()
+			end
+		end
+
 		-- sat so the creature stands ON the rarity ring rather than hovering over it. The ring is
 		-- at -1.5 * scale and this offset is in world studs (addPiece does no scaling of its own --
 		-- only `block` does), so the scale has to be carried explicitly.

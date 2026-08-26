@@ -525,10 +525,10 @@ local function buildEventArena(parent)
 	-- yaw -90, not 180. buildPortal is written with local +X pointing at the interior, and a yaw of
 	-- 180 sends that to world -X -- the gate stood correctly in the rim but its steps, mat, runes
 	-- and guardians all faced sideways out of the arena instead of in across the sand.
-	local previous = ZoneKit.getFrame()
-	ZoneKit.setFrame(CFrame.new(centre + Vector3.new(0, 0, -(R + 8))) * CFrame.Angles(0, math.rad(-90), 0))
-	ZoneGate.buildPortal(model, 0, returnTarget, 1)
-	ZoneKit.setFrame(previous)
+	-- `withFrame` and not setFrame/restore, for the reason written over it: a builder that throws
+	-- between the two hand-written lines leaves the frame set and moves the rest of the world.
+	ZoneKit.withFrame(CFrame.new(centre + Vector3.new(0, 0, -(R + 8))) * CFrame.Angles(0, math.rad(-90), 0),
+		ZoneGate.buildPortal, model, 0, returnTarget, 1)
 
 	-- ---- WHAT IT STANDS ON. Seen from anywhere but directly overhead the whole Colosseum was a
 	-- coin on edge: an 8-stud disc with 600 studs of empty sky under it. Two stepped drums beneath

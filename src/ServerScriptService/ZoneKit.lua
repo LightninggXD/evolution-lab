@@ -690,6 +690,32 @@ local function getFrame()
 	return ACTIVE_FRAME
 end
 
+-- ===== A FRAME MUST BE PUT BACK EVEN WHEN THE BUILDER THROWS (32.32) =====
+-- `ZoneGate.buildPortalInZWall` set the frame, called `buildPortal`, and restored it on the line
+-- after. `buildPortal` threw -- a colour gradient built out of `NumberSequenceKeypoint`s, the 32.31
+-- row -- so the restore never ran and ACTIVE_FRAME stayed pointing at the portal's wall, 575 studs
+-- out and turned ninety degrees, for EVERYTHING built after it in that VM.
+--
+-- What that cost, and why it was invisible: the egg stall is built through `newPart`, so every
+-- plank, podium and shell landed at the wall, while the pieces placed by a RAW CFrame (the mesh
+-- shell's clone, the featured pet, the orbit gems) stayed at the shop. Each egg came apart into
+-- two halves 575 studs from each other; `MapEggs` then measured the model's bounding box to size
+-- its pedestal and laid a 620-stud stone disc over the village. Not one line of it warned.
+--
+-- So a frame is never set and put back by hand any more. `withFrame` restores on every exit path
+-- and re-raises what the caller would have seen, so a builder that throws is still loud and the
+-- world after it is still square. `setFrame` stays for the two inline blocks in `BiomeDecor` that
+-- are not a function call; `ZoneBuilder` re-checks the frame at the top of every zone.
+local function withFrame(cf, fn, ...)
+	local previous = ACTIVE_FRAME
+	ACTIVE_FRAME = cf
+	local ok, err = pcall(fn, ...)
+	ACTIVE_FRAME = previous
+	if not ok then
+		error(err, 0)
+	end
+end
+
 -- Cleared at the top of Build(). The note over Build() is why it matters that this is a call and
 -- not a `table.clear` from anywhere that fancies one: an audit is only worth reading for a pass
 -- that actually made something, and a second pass that made nothing once printed 52 false names.
@@ -714,6 +740,7 @@ return {
 
 	setFrame = setFrame,
 	getFrame = getFrame,
+	withFrame = withFrame,
 	auditSolidProps = auditSolidProps,
 	resetSolidSeen = resetSolidSeen,
 

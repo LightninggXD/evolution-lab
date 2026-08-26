@@ -88,7 +88,11 @@ local ZoneBuilder = {}
 -- Roblox's default grey -- in every village in the game since the palette was introduced. The
 -- declaration moved above `addZoneProps`; colour is baked into the part at build time, so the
 -- fix is invisible without this bump.
-local BUILD_VERSION = 137
+-- 138: the world built between 32.31 and this row was laid out through a LEAKED placement frame --
+-- every egg stall 575 studs from its own village and each egg split into two halves. The code is
+-- fixed (`ZoneKit.withFrame`), but a world already on disk carries the damage and the guard below
+-- only rebuilds when the stamp moves, so the stamp moves.
+local BUILD_VERSION = 138
 
 -- ================= the build vocabulary =================
 -- THE KIT LEFT THIS FILE (18.9). `newPart` -- with the shadow-by-size rule and the
@@ -2136,6 +2140,20 @@ function ZoneBuilder.Build()
 	zonesFolder:SetAttribute("BuildVersion", BUILD_VERSION)
 
 	for i, zone in ipairs(GameConfig.Zones) do
+		-- ===== A LEAKED PLACEMENT FRAME MUST NOT CROSS INTO THE NEXT ZONE (32.32) =====
+		-- `ZoneKit.withFrame` is what makes a builder that throws put the frame back, and it covers
+		-- the two portals. The two inline blocks in `BiomeDecor` (the Volcano cone, the Celestial
+		-- throne) still set and clear it by hand around forty lines of straight-line code, and this
+		-- is the backstop for them and for anything added later: a frame that is still set when the
+		-- next zone starts is a bug in the zone before it, and every part built through it lands
+		-- hundreds of studs from where it was authored. It is stated out loud rather than repaired
+		-- silently, because the zone that leaked it is also half-built.
+		if ZoneKit.getFrame() ~= nil then
+			warn(("[ZoneBuilder] %s: a placement frame was left set by the zone before it (%s) -- "
+				.. "clearing it. See the note over ZoneKit.withFrame."):format(zone.key, tostring(ZoneKit.getFrame())))
+			ZoneKit.setFrame(nil)
+		end
+
 		-- A HALF-BUILT ZONE IS NOT A BUILT ZONE. Studio drops the MCP connection fairly often in the
 		-- middle of a full 50k-part Build(), which leaves the zone it was working on truncated -- and
 		-- because the egg plaza is the LAST thing built per zone, what a truncated zone is missing is
