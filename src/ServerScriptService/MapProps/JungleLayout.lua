@@ -406,31 +406,43 @@ end
 --     it has moved from due east to genuinely south-east, which the paragraph above asks for.
 --
 -- The shrink itself is untouched -- furthest camp from the village is still 84.0 (SW2).
+--
+-- ===== THE `final r` COLUMN IS MEASURED, NOT AUTHORED (33.3) =====
+-- Every number in the comments below is the camp's FINAL village gap at the shipped dial
+-- (`HUNT_SHRINK` 0.20), computed by loading this very module and reading `Camps()` -- not by
+-- hand. Eight of the twenty hand-guessed values they replace were wrong, by up to 55 studs
+-- (SE2 guessed 84, measures 29.3; NE5 and SE5 guessed 56, measure exactly 28.0 because the
+-- village clamp walks them out to its own line and stops). Read them as the truth about where a
+-- camp STANDS, which is what `Describe` prints and what the mountains keep out of: the inner
+-- ring is real (10 camps at 28.0-29.3), the outer band is SMEARED across 56..84 -- that smear is
+-- row 33.3's remaining work, and re-solving it is an inverse problem against `pullCamp`, not a
+-- retype (the two retypes, r=250/420 and r=380/550, were reverted with 16 and 8 keep-out
+-- violations -- R15).
 local CAMPS_FOREST = {
 	-- ---- north-west quadrant, front (plaza end) to back
-	{ id = "NW1", kind = "swarm",     x =  -411, z =   179 }, -- final r=28
-	{ id = "NW2", kind = "swarm",     x =  -622, z =   460 }, -- final r=84
-	{ id = "NW3", kind = "brute",     x =  -241, z =   370 }, -- final r=28
-	{ id = "NW4", kind = "brute",     x =  -212, z =   650 }, -- final r=84
-	{ id = "NW5", kind = "elite",     x =  -551, z =   159 }, -- final r=56
+	{ id = "NW1", kind = "swarm",     x =  -411, z =   179 }, -- final r=28.1
+	{ id = "NW2", kind = "swarm",     x =  -622, z =   460 }, -- final r=73.7
+	{ id = "NW3", kind = "brute",     x =  -241, z =   370 }, -- final r=28.0
+	{ id = "NW4", kind = "brute",     x =  -212, z =   650 }, -- final r=84.0
+	{ id = "NW5", kind = "elite",     x =  -551, z =   159 }, -- final r=80.8  [separated]
 	-- ---- north-east quadrant, mirrored
-	{ id = "NE1", kind = "swarm",     x =   411, z =   209 }, -- final r=28
-	{ id = "NE2", kind = "swarm",     x =   283, z =   650 }, -- final r=84
-	{ id = "NE3", kind = "brute",     x =   411, z =    80 }, -- final r=28
-	{ id = "NE4", kind = "brute",     x =   564, z =   555 }, -- final r=84  [32.18: was 600/491]
-	{ id = "NE5", kind = "elite",     x =   410, z =   302 }, -- final r=56  [32.18: was 551/40]
+	{ id = "NE1", kind = "swarm",     x =   411, z =   209 }, -- final r=28.1
+	{ id = "NE2", kind = "swarm",     x =   283, z =   650 }, -- final r=84.0
+	{ id = "NE3", kind = "brute",     x =   411, z =    80 }, -- final r=28.1
+	{ id = "NE4", kind = "brute",     x =   564, z =   555 }, -- final r=71.3  [32.18: was 600/491]
+	{ id = "NE5", kind = "elite",     x =   410, z =   302 }, -- final r=28.0  [village-clamped] [32.18: was 551/40]
 	-- ---- south-west quadrant: everything gated, and the deep end of the walk
-	{ id = "SW1", kind = "brute",     x =   -84, z =  -370 }, -- final r=28
-	{ id = "SW2", kind = "raidBrute", x =  -174, z =  -650 }, -- final r=84
-	{ id = "SW3", kind = "raidElite", x =  -174, z =  -370 }, -- final r=28
-	{ id = "SW4", kind = "apex",      x =  -371, z =  -638 }, -- final r=84
-	{ id = "SW5", kind = "apex",      x =  -551, z =  -229 }, -- final r=56
+	{ id = "SW1", kind = "brute",     x =   -84, z =  -370 }, -- final r=28.0
+	{ id = "SW2", kind = "raidBrute", x =  -174, z =  -650 }, -- final r=84.0
+	{ id = "SW3", kind = "raidElite", x =  -174, z =  -370 }, -- final r=28.0
+	{ id = "SW4", kind = "apex",      x =  -371, z =  -638 }, -- final r=81.6
+	{ id = "SW5", kind = "apex",      x =  -551, z =  -229 }, -- final r=56.1
 	-- ---- south-east quadrant, mirrored
-	{ id = "SE1", kind = "brute",     x =   209, z =  -370 }, -- final r=28
-	{ id = "SE2", kind = "raidBrute", x =   417, z =  -278 }, -- final r=84  [32.18: was 691/-6]
-	{ id = "SE3", kind = "raidElite", x =   115, z =  -370 }, -- final r=28
-	{ id = "SE4", kind = "apex",      x =    33, z =  -650 }, -- final r=84
-	{ id = "SE5", kind = "apex",      x =   410, z =   -11 }, -- final r=56  [32.18: was 551/-34]
+	{ id = "SE1", kind = "brute",     x =   209, z =  -370 }, -- final r=28.0
+	{ id = "SE2", kind = "raidBrute", x =   417, z =  -278 }, -- final r=29.3  [village-clamped] [32.18: was 691/-6]
+	{ id = "SE3", kind = "raidElite", x =   115, z =  -370 }, -- final r=28.0
+	{ id = "SE4", kind = "apex",      x =    33, z =  -650 }, -- final r=84.0
+	{ id = "SE5", kind = "apex",      x =   410, z =   -11 }, -- final r=28.0  [village-clamped] [32.18: was 551/-34]
 }
 
 -- The table above stays readable AS AUTHORED and the shrink is applied over it here, rather than
