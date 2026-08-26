@@ -38,6 +38,17 @@ tools/manifest.json
 /temp.py
 /temp_*.txt
 /temp_*.json
+/refactor_*.py
+/check_*.py
+/inject_*.py
+/clear_*.py
+/solve_*.py
+/test_*.py
+/update_*.py
+/push_*.py
+
+# opencode's local MCP wiring -- per-machine, points at an absolute mcp.bat path
+/opencode.json
 
 # Scratch from the Studio<->disk reconciliation: manifests, pulled copies, receiver logs
 tools/_*
