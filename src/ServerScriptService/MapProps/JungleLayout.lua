@@ -436,12 +436,20 @@ local CAMPS_FOREST = {
 	{ id = "SW2", kind = "raidBrute", x =  -174, z =  -650 }, -- final r=84.0
 	{ id = "SW3", kind = "raidElite", x =  -174, z =  -370 }, -- final r=28.0
 	{ id = "SW4", kind = "apex",      x =  -371, z =  -638 }, -- final r=81.6
-	{ id = "SW5", kind = "apex",      x =  -551, z =  -229 }, -- final r=56.1
+	-- 33.5: was (-551, -229), and it was the SECOND camp under a trunk -- the W road runs at
+	-- z = -100 and SW5 landed at z = -135.8, needing 43 (half of 46, plus CAMP_RADIUS) and
+	-- having 35.8. It never showed in the boot log because `Describe` printed only the worse
+	-- of the two and SE4 was -32.1. Bearing and band both kept: village gap 56.1 -> 56.
+	{ id = "SW5", kind = "apex",      x =  -551, z =  -290 }, -- final r=56.1  [33.5: was -551/-229]
 	-- ---- south-east quadrant, mirrored
 	{ id = "SE1", kind = "brute",     x =   209, z =  -370 }, -- final r=28.0
 	{ id = "SE2", kind = "raidBrute", x =   417, z =  -278 }, -- final r=29.3  [village-clamped] [32.18: was 691/-6]
 	{ id = "SE3", kind = "raidElite", x =   115, z =  -370 }, -- final r=28.0
-	{ id = "SE4", kind = "apex",      x =    33, z =  -650 }, -- final r=84.0
+	-- 33.5: was (33, -650), which is the zone's CENTRE LINE, and the S trunk is the centre
+	-- line -- the shrink landed it 15.9 studs off a road 56 wide, so the paint lay 32.1 studs
+	-- inside the clearing. Moved along its own band rather than out of it: the village gap is
+	-- 84.0 -> 83.7 -- the same outer-band apex, standing 168 studs off the lane instead of 16.
+	{ id = "SE4", kind = "apex",      x =   300, z =  -560 }, -- final r=83.7  [33.5: was 33/-650, r=84.0]
 	{ id = "SE5", kind = "apex",      x =   410, z =   -11 }, -- final r=28.0  [village-clamped] [32.18: was 551/-34]
 }
 
@@ -824,8 +832,17 @@ function JungleLayout.Describe(zoneKey, expected)
 
 	-- ROADS ACROSS A FLOOR. Measured over `Segments`, so trunks, trails and any spur are all asked
 	-- the same question, and negative means paint is lying on a clearing that road does not serve.
+	--
+	-- ===== AND IT REPORTS EVERY OFFENDER, NOT THE WORST ONE (33.5) =====
+	-- This printed a single tightest pair for two phases, and that is precisely how the second
+	-- violation hid behind the first: `S vs SE4` at -32.1 was on the line and `W vs SW5` at -7.3
+	-- was not, because -32.1 is worse. A search over 585 positions for SE4 could therefore never
+	-- lift the metric above -7.3, and read as an over-constrained layout rather than as two
+	-- separate faults in two different quadrants. One number cannot report a set. The count and
+	-- the list are printed now; the headline pair stays, because it is the one to fix first.
 	local segs = JungleLayout.Segments(zoneKey) or {}
 	local worst, worstId = math.huge, "-"
+	local across = {}
 	for _, seg in ipairs(segs) do
 		for _, camp in ipairs(JungleLayout.Camps(zoneKey)) do
 			if not (seg.serves and seg.serves[camp.id]) then
@@ -839,6 +856,9 @@ function JungleLayout.Describe(zoneKey, expected)
 				local d = math.sqrt((camp.x - qx) ^ 2 + (camp.z - qz) ^ 2)
 					- seg.w / 2 - JungleLayout.CAMP_RADIUS
 				if d < worst then worst, worstId = d, seg.id .. " vs " .. camp.id end
+				if d < 0 then
+					across[#across + 1] = ("%s vs %s %+.1f"):format(seg.id, camp.id, d)
+				end
 			end
 		end
 	end
@@ -873,6 +893,7 @@ function JungleLayout.Describe(zoneKey, expected)
 		.. "\n         shrink %.2f: furthest camp from the village %s at %.0f studs, "
 		.. "closest %s at %.0f (floor is %d, must not go under)%s%s"
 		.. "\n         tightest gap between two camp floors: %s at %+.1f studs%s"
+		.. "\n         roads lying across a clearing they do not serve: %d%s"
 		.. "\n         tightest road across a floor it does not serve: %s at %+.1f studs%s")
 		:format(zoneKey, #camps, #spawns, table.concat(parts, ", "),
 			JungleTrails.Describe(segs),
@@ -884,6 +905,8 @@ function JungleLayout.Describe(zoneKey, expected)
 				and ("  [separated: " .. table.concat(JungleLayout.Separated, ", ") .. "]") or "",
 			tightId, tight,
 			tight < 0 and "  <-- TWO CAMP FLOORS OVERLAP" or "",
+			#across,
+			#across > 0 and ("  <-- " .. table.concat(across, " | ")) or "  [none]",
 			worstId, worst,
 			worst < 0 and "  <-- A ROAD IS LYING ACROSS A CLEARING" or "")
 end
