@@ -1177,3 +1177,29 @@ It is found by a `UIKitTextMirror` attribute now, set on the line that creates i
 Studio, 0 mismatches**; `ServerMain` byte-identical to `3dc45b7^`; all four compile in Studio;
 `luaremotes` **4 -> 3** unreachable remotes (the 3 left pre-date this batch); `luastruct` and
 `luascope` clean; 0 `SpeedTrack*` and 0 `Podium_*` parts in `workspace`.
+
+## S15 | NOTE | 2026-08-26 | dispatched, and it never got a turn
+
+Written and dispatched headless from the repo root
+(`gemini --approval-mode auto_edit --allowed-mcp-server-names __none__ -p "..."`). It died before
+writing a single byte:
+
+```
+code: 429
+Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests,
+limit: 20, model: gemini-3.5-flash
+```
+
+`git status` after the run: **no change to `src/`**. Nothing to review, nothing to revert.
+
+**This is the account, not the task, and it is the same wall as 2026-08-15.**
+`~/.gemini/settings.json` still reads `"selectedType": "gemini-api-key"` -- a FREE-TIER key capped
+at **20 `generate_content` requests per DAY**. One agent turn is one request, so that is not one
+task, it is a handful of turns. The CLI's message mentions "retry in 53s", which reads like a
+per-minute throttle and is not one; a sequential retry 429s too.
+
+**The fix is an auth switch and it is the owner's to make** (it opens a browser): `/auth` inside
+Gemini CLI -> *Login with Google* (`oauth-personal`), which carries a far larger daily allowance.
+`~/.gemini/google_accounts.json` already exists, so an account is likely present.
+
+S15 stays TODO and is ready to run unchanged the moment that is done.

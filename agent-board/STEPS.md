@@ -481,3 +481,72 @@ and 41% on the north**. Since then the OUTER row was deliberately made to run WH
 to fill exactly that hole -- read the note in `Build` that says so. If your capture shows bare slate
 above the gate, **report it and stop**; do not add a second mechanism to compensate. That is an
 owner call and she has already had one fork today.
+
+---
+
+## S15 | 33.12 -- 41 pet glyphs that may never be drawn, and the tripwire that would have caught them
+
+- **Owner:** Gemini
+- **Depends:** none
+- **Note:** DISK-ONLY row. You do not need Studio, and you must not use it.
+- **Check:** `src/ReplicatedStorage/Modules/GameConfig/Pets.lua` -- every `emoji =` field decodes to
+  a codepoint **>= 0x1F300**, the file carries a load-time tripwire in the shape of the one in
+  `Adventures.lua`, and `tools/luastruct.py` + a UTF-8 byte-for-byte re-read both pass.
+
+**THE FAULT, and it is photographed.** The away card for `Pebble` rendered as
+`Pebble  •  tier 1  •  luck x1.00` with **no rock in front of it**. `\u{1FAA8}` was laid out and
+drawn as nothing. It is invisible to every property probe -- `.Text`, `.TextColor3` and `.TextFits`
+all read correct -- which is why it took a screenshot to find and why a tripwire is half the row.
+
+**Two bands are exposed in `Pets.lua`, 41 pets in total:**
+
+* **10 pets at U+1FA70 or above** -- `Pebble`, `Cinder`, `Rustling` (U+1FAA8), `Scarab` (U+1FAB2),
+  `Orbiton` (U+1FA90), `Echo` / `Reflekt` / `Inversal` (U+1FA9E), `Gasbub` / `Fluffle` (U+1FAE7).
+  These are a LATER Unicode addition than U+1F300..1F9FF and the system emoji font here does not
+  have them.
+* **31 pets BELOW U+1F300** -- U+26A1, U+2728, U+2B50, U+2604, U+269B and friends. These are
+  **text-presentation by default**: the renderer falls back to the display font, which is 27.7's
+  exact fault. `Adventures.lua`'s own tripwire already warns about this band; `Pets.lua` asserts
+  nothing.
+
+**WHAT TO DO -- four things, and nothing else.**
+
+1. **Replace every out-of-band `emoji` with an in-band one that still reads as the same creature.**
+   The safe band is **U+1F300 .. U+1F9FF**. Keep the pet's identity: `Pebble` is a rock, so a rock
+   from the safe band (U+1F5FB is a mountain, U+1F30B a volcano -- pick what reads, not what is
+   nearest in code); `Sparky` at U+26A1 is lightning, U+1F329 is a cloud with lightning; `Scarab`
+   is a beetle, U+1F41E is a lady beetle. **Do not reuse a glyph another pet already has** -- the
+   icon layer is keyed BY EMOJI, so two pets on one glyph collapse to one icon.
+2. **Write the tripwire.** Copy the SHAPE of `Adventures.lua` lines 496-506: a loop at the bottom of
+   the file, `pcall(utf8.codepoint, pet.emoji, 1)`, `warn` naming the pet key and the codepoint when
+   it is missing, non-numeric, or `< 0x1F300`. Add the **upper** bound too -- `> 0x1F9FF` is the
+   band that caused half of this row and Adventures' check would not have caught it. One warn line,
+   the pet key in it, the codepoint printed as `U+%X`.
+3. **Add a comment block above the pet list** saying why the band is what it is. One paragraph. It
+   is the most expensive line in a config file to lose.
+4. **Change nothing else.** No renamed keys, no re-ordered tables, no colour edits, no reindenting
+   (this file is one of the sixteen `GameConfig` parts, moved byte for byte -- its header says so).
+
+**THE ENCODING RULE, AND IT IS THE ONE THAT CAN COST A DAY.** This file is UTF-8 and the icon layer
+is keyed by the literal emoji bytes. Something run against this repo once rewrote 52 files as
+mojibake (UTF-8 read as cp1252, written back) and **24 were not byte-reversible**. So:
+
+* Read and write this file as **UTF-8 explicitly**. Never let a tool guess the codepage.
+* After you write it, **re-read it and print the codepoint of all 149 `emoji` fields**. Paste that
+  list. If any line shows `Ã` or `â€` you have already destroyed it -- `git checkout -- src/` and
+  start again.
+* `board.py sync` refuses a commit that carries mojibake markers. Do not work around the guard.
+
+**WHAT YOU MUST REPORT, and every line of it is pasted output:**
+
+* the before/after table: pet key, old codepoint, new codepoint, for **every** pet you touched
+* the count of `emoji` fields in the file before and after (must both be **149**)
+* `C:/Python313/python.exe tools/luastruct.py` clean
+* the tripwire's output on a deliberately broken copy (set one pet to `"\u{26A1}"` in a scratch
+  copy, show the warn line, then throw the scratch copy away) -- a guard nobody has seen fire is
+  not a guard
+* **Not verified:** the capture. You cannot take it -- Studio is mine, exclusively. Say so in that
+  field and leave it to me; the row does not close without it.
+
+**Your ceiling on this row is `[~]`.** Do not write `[x]` in `ROADMAP.md`. Do not touch
+`ZoneBuilder`, `MainUI`, or anything in `ServerScriptService`.

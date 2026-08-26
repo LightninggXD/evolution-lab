@@ -189,6 +189,29 @@ local KEEP_X1, KEEP_X2 = TOWER_X1 - 14, TOWER_X2 + 14
 -- a corridor nobody walks.
 local KEEP_Z1, KEEP_Z2 = -320, -60
 
+-- ===== AND A SECOND CORRIDOR, WHICH THE GUARD ABOVE DROVE A MOUNTAIN INTO =====
+--
+-- THE KEEP-OUT ABOVE IS WHAT BURIED THE ARRIVAL GATE. Read it again: when a flank prop overlaps
+-- the tower's corridor it is pushed straight out along x, and for a WEST prop "out" means further
+-- west -- towards the zone's centre line, which is where the portal is. A range hill asked for
+-- x 130 measures ~330 across, so `spill` came out at ~113 studs, and the push put its box at
+-- x -208..117. The gate's stonework spans x -120..108. **Two of the four western mountains
+-- swallowed the door whole**, and a sight ray from the village eye hit `FlankHill` at 199 studs
+-- with the gate 195 studs further on. A backstop that knows one road pushes into the other one
+-- (32.4 is the same shape).
+--
+-- So the walking lane to the gate is stated here as well, and every prop this file raises is
+-- tested against BOTH. The number is not invented: `ZoneGate.PORTAL_CLEAR_HALF` is this
+-- codebase's own reservation -- "how far boulders stay off the centre line" -- and it is restated
+-- rather than required, for the reason the header gives for restating `WALL_X`.
+--
+-- The lane is measured from `cx`, not from world 0: `cx` IS the zone's centre, and the gate stands
+-- on it in every zone.
+local PORTAL_CLEAR_HALF = 132      -- restated from ZoneGate.PORTAL_CLEAR_HALF
+-- and it only matters where somebody walks or looks: from in front of the village down to the
+-- wall. A prop behind the wall cannot block a door on the near side of it.
+local PORTAL_Z1, PORTAL_Z2 = -600, -100
+
 -- ===== THE WATER HAD TO REACH THE GROUND =====
 -- The model's own falls are five Beams and four emitters on transparent `Plunge` pads, and the
 -- LOWEST pad sits at (291, 29, -260) -- i.e. the water stops **29 studs in the air**, over the very
@@ -197,13 +220,33 @@ local KEEP_Z1, KEEP_Z2 = -320, -60
 -- pad's own ParticleEmitter cloned onto the pool so the spray at the bottom is the same spray as
 -- the one at the top.
 local SPLASH = Vector3.new(291, 29, -260)
--- 40 and not 60, at 0.58 and not 0.42: the first sheet was as wide as the splash pad and half
--- opaque, which from two studs in front of it is a blue glass wall with a cave behind it rather
--- than water you walk through. It has to be narrower than the gap in the cliff and thin enough to
--- read the mouth through.
+-- 40 and not 60: the first sheet was as wide as the splash pad, which from two studs in front of
+-- it is a wall rather than water. It has to be narrower than the gap in the cliff.
 local CURTAIN_W = 40
-local CURTAIN_TRANSPARENCY = 0.58
-local WATER = Color3.fromRGB(198, 234, 255)
+
+-- ===== 0.20 AND NOT 0.58: A SECRET YOU CAN READ THROUGH IS NOT A SECRET =====
+-- 0.58 was chosen to "read the mouth through" -- and it did far more than that. From the approach
+-- the jambs, the brow, the plinth, the ring of stones and the relic itself were all legible
+-- through the water, so the room advertised its own contents to anyone walking past and the whole
+-- point of 33.18/33.19 (a passage you find) was gone. At 0.20 the interior is one dim silhouette
+-- and a gold glint, which is the hint, not the answer.
+--
+-- The colour stays near the model's own water (198, 234, 255) rather than deepening with the
+-- transparency: the model's upper falls are Beams at that tone, and a deeper sheet under them
+-- draws a visible seam across the fall at the exact height this part starts. Measured against the
+-- capture: a deep 96/176/224 sheet read as a blue slab hung under a white waterfall.
+local CURTAIN_TRANSPARENCY = 0.20
+local CURTAIN_REFLECTANCE = 0.06
+local WATER = Color3.fromRGB(186, 226, 250)
+
+-- ===== THE POOL IS NOT THE CURTAIN, AND SHARING ONE COLOUR IS WHY IT BLEW OUT =====
+-- The pool was `WATER` on Glass at 0.35 with Reflectance 0.2 -- i.e. a near-white 50-stud disc
+-- lying flat in front of a camera that stands at eye height, which filled the bottom third of
+-- every frame with a pale dome and washed the grass out of the shot entirely. A pool is looked
+-- INTO, not through: it wants a deeper colour, a matte material and no sky in it.
+local POOL_COLOR = Color3.fromRGB(58, 138, 190)
+local POOL_TRANSPARENCY = 0.25
+local POOL_W = CURTAIN_W - 6       -- inside the curtain's own span, so no rim shows past the water
 
 -- ===== MOVING 1,102 ANCHORED PARTS IS ONE CALL, AND IT MUST BE IDEMPOTENT =====
 -- `Init` runs once per server, but a hot reload or a future rebuild hook must not walk the tower
@@ -281,6 +324,9 @@ local function buildRidge(zoneKey, cx, map)
 	-- ([[roblox-model-facing-and-scaling]]), and that measure is what the keep-out is tested with.
 	local proto = MapHorizon.Stock(map)
 	local hills = 0
+	-- counted and PRINTED, because a silent drop is how this fault stayed invisible: the first
+	-- version of the flank ran, placed twenty props, said "20" and four of them were on the road.
+	local laneDrops = 0
 	local function seat(rng, name, x, z, hMin, hMax, side)
 		local m = proto:Clone()
 		local _, raw = m:GetBoundingBox()
@@ -308,6 +354,22 @@ local function buildRidge(zoneKey, cx, map)
 					local clear = nrx and ((side > 0 and (nwx - nrx) >= cx + KEEP_X2)
 						or (side < 0 and (nwx + nrx) <= cx + KEEP_X1))
 					if not clear then m:Destroy() return false end
+				end
+			end
+
+			-- THE GATE LANE. Re-measured after the push above, because that push is what put a
+			-- mountain in it. A prop whose box reaches west of `cx + PORTAL_CLEAR_HALF` while it
+			-- stands anywhere in the walk from the village to the door is DROPPED, not nudged:
+			-- the only direction left to nudge it is east, and east is the tower. One hill fewer
+			-- in the line is cheaper than a door nobody can find -- the same trade `seat` already
+			-- makes one branch up.
+			local frx, frz, _, fwx, fwz = MapHorizon.WorldBox(m)
+			if frx then
+				local inLane = (fwz - frz) < PORTAL_Z2 and (fwz + frz) > PORTAL_Z1
+				if inLane and (fwx - frx) < cx + PORTAL_CLEAR_HALF then
+					m:Destroy()
+					laneDrops += 1
+					return false
 				end
 			end
 		end
@@ -374,6 +436,23 @@ local function buildRidge(zoneKey, cx, map)
 				local cf, sz = c:GetBoundingBox()
 				c:PivotTo(c:GetPivot() + Vector3.new(x - cf.Position.X,
 					-(cf.Position.Y - sz.Y / 2) - 1, z - cf.Position.Z))
+
+				-- and out of the gate lane, off the PLACED box rather than off `x`: a canopy is
+				-- wider than the trunk it was aimed by, and eight of these were standing in the
+				-- road when the row was opened. Pushed east because west is the door; dropped if
+				-- that would put it in the tower.
+				local tcf, tsz = c:GetBoundingBox()
+				local short = (cx + PORTAL_CLEAR_HALF) - (tcf.Position.X - tsz.X / 2)
+				if short > 0 then
+					c:PivotTo(c:GetPivot() + Vector3.new(short, 0, 0))
+					tcf, tsz = c:GetBoundingBox()
+					if tcf.Position.X + tsz.X / 2 > cx + KEEP_X1 then
+						c:Destroy()
+						laneDrops += 1
+						continue
+					end
+				end
+
 				c.Name = "FlankTree"
 				c.Parent = folder
 				trees += 1
@@ -381,7 +460,7 @@ local function buildRidge(zoneKey, cx, map)
 		end
 	end
 
-	return plates, hills, trees
+	return plates, hills, trees, laneDrops
 end
 
 -- ===== THE LAST THIRTY STUDS OF THE FALL =====
@@ -399,7 +478,7 @@ local function buildCurtain(folder, cx, wf)
 	sheet.Material = Enum.Material.Glass
 	sheet.Color = WATER
 	sheet.Transparency = CURTAIN_TRANSPARENCY
-	sheet.Reflectance = 0.12
+	sheet.Reflectance = CURTAIN_REFLECTANCE
 	sheet.Size = Vector3.new(CURTAIN_W, SPLASH.Y + 1, 2.2)
 	sheet.Position = base + Vector3.new(0, (SPLASH.Y + 1) / 2, 0)
 	sheet.Parent = folder
@@ -411,11 +490,11 @@ local function buildCurtain(folder, cx, wf)
 	pool.CanQuery = false
 	pool.CastShadow = false
 	pool.Shape = Enum.PartType.Cylinder
-	pool.Material = Enum.Material.Glass
-	pool.Color = WATER
-	pool.Transparency = 0.35
-	pool.Reflectance = 0.2
-	pool.Size = Vector3.new(1.2, CURTAIN_W + 10, CURTAIN_W + 10)
+	pool.Material = Enum.Material.SmoothPlastic
+	pool.Color = POOL_COLOR
+	pool.Transparency = POOL_TRANSPARENCY
+	pool.Reflectance = 0
+	pool.Size = Vector3.new(1.2, POOL_W, POOL_W)
 	pool.CFrame = CFrame.new(base + Vector3.new(0, 0.6, 4)) * CFrame.Angles(0, 0, math.pi / 2)
 	pool.Parent = folder
 
@@ -431,6 +510,22 @@ local function buildCurtain(folder, cx, wf)
 	local emitter = lowest and lowest:FindFirstChildWhichIsA("ParticleEmitter")
 	if emitter then
 		local e = emitter:Clone()
+		-- THE CLONE HAS TO BE RE-SCALED, and taking it as-authored is why the foreground was fog.
+		-- That emitter was tuned for the TOP of a hundred-stud fall, where 284 particles a second
+		-- five studs across read as spray seen from far away. On a 34-stud pool at eye height it
+		-- is a smoke machine: it hid the pool, the grass and half the cliff. Same spray, an order
+		-- of magnitude less of it, and it dies inside two seconds instead of three.
+		e.Rate = 26
+		e.Lifetime = NumberRange.new(0.8, 1.6)
+		e.Speed = NumberRange.new(2, 6)
+		e.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1.5),
+			NumberSequenceKeypoint.new(1, 5),
+		})
+		e.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.55),
+			NumberSequenceKeypoint.new(1, 1),
+		})
 		e.Parent = pool
 	end
 	return 2
@@ -621,7 +716,7 @@ function MapWaterfall.Build(zoneKey, cx, map)
 	-- they land has to come out the same way it does inside the tower. The cut runs over the rows
 	-- rather than over one big rectangle -- the band between the flanks is meant to stay wooded,
 	-- and that is what hides the join.
-	local plates, hills, flankTrees = buildRidge(zoneKey, cx, map)
+	local plates, hills, flankTrees, laneDrops = buildRidge(zoneKey, cx, map)
 	local ridge = map:FindFirstChild(RIDGE_FOLDER)
 
 	-- ===== AND THE CUT HAS TO REACH THE INVISIBLE PARTS TOO =====
@@ -873,10 +968,11 @@ function MapWaterfall.Build(zoneKey, cx, map)
 
 	print(("[MapWaterfall] %s: tower seated at pivot (%.0f, %.0f, %.0f), cut %d props out of the cliff, "
 		.. "the ridge and the grotto, built %d grotto parts, %d ridge plates z %d -> %d (tops %d -> %d "
-		.. "against the wall's %d), %d flank hills and %d flank trees")
+		.. "against the wall's %d), %d flank hills and %d flank trees; %d prop(s) dropped for the "
+		.. "gate lane (|x - cx| <= %d)")
 		:format(zoneKey, ANCHOR_PIVOT.X + cx, ANCHOR_PIVOT.Y, ANCHOR_PIVOT.Z, cut, built,
 			plates, RIDGE_ROWS[1].z, RIDGE_ROWS[#RIDGE_ROWS].z, RIDGE_ROWS[1].top,
-			RIDGE_ROWS[#RIDGE_ROWS].top, WALL_TOP, hills, flankTrees))
+			RIDGE_ROWS[#RIDGE_ROWS].top, WALL_TOP, hills, flankTrees, laneDrops, PORTAL_CLEAR_HALF))
 	return 1, cut, built
 end
 
