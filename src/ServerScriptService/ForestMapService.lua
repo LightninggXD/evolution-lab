@@ -106,6 +106,7 @@ local MapGates = require(script.Parent.MapProps.MapGates)
 local MapRidge = require(script.Parent.MapProps.MapRidge)
 local MapHorizon = require(script.Parent.MapProps.MapHorizon)
 local MapWaterfall = require(script.Parent.MapProps.MapWaterfall)
+local MapSettle = require(script.Parent.MapProps.MapSettle)
 -- 32.28: the pass cut runs between Build and Plant below, and MapPortalArt disarms her inserted
 -- ad-portal template and seats its island at the same gate.
 local MapPass = require(script.Parent.MapProps.MapPass)
@@ -622,14 +623,30 @@ function ForestMapService.Init()
 				-- the hills have to be raised first, or the seat has nothing to be measured against.
 				-- `evolution-lab-placement-search-ordering`: a pass only knows the world that ran before it.
 				local _wf, wfCut, wfGrotto = MapWaterfall.Build(zoneKey, cx, map)
+
+				-- ===== AND LAST OF ALL, PUT BACK ANYTHING LEFT IN MID-AIR (32.21) =====
+				--
+				-- LAST, and the position is the whole design. Four passes above this one remove
+				-- ground from under props that were already planted -- `MapRidge.Clear` takes the
+				-- artist's mountains out, `MapPass` cuts hills out of the portal corridor,
+				-- `MapHorizon` shrinks them for the gate lane, and `MapWaterfall` cuts the wood out
+				-- of the cliff it just seated. Each one strands whatever was standing on top, and
+				-- fixing it inside each of them is four fixes and four copies of "where is the
+				-- ground here". This measures the FINISHED world instead.
+				--
+				-- The owner found it by looking: *"kad kazem na zemlji mislim bas na podu gde se
+				-- hoda"*, with a `HuntTree` selected whose foot was 7.4 studs over a floor at 0.
+				local settled, settleChecked = MapSettle.Forest(map.Parent or workspace.Zones)
 				print(("[ForestMapService] %s: dropped %d dressing, laid %d map parts at x%.2f, "
 					.. "cut %d props for the arrival and hunt bands, %d for the entrance road, "
 					.. "%d left floating by the mountain cut, "
 					.. "raised %d horizon hills, planted %d trees over the whole platform, "
 					.. "built %d jungle camps, paved %d road parts and %d gate parts, "
-					.. "cut %d props out of the waterfall cliff and built %d grotto parts")
+					.. "cut %d props out of the waterfall cliff and built %d grotto parts, "
+					.. "settled %d of %d props back onto the floor")
 					:format(zoneKey, dropped, #map:GetDescendants(), spec.scale, cleared, road,
-						floatingCut, hills, planted, camps, paved, gates, wfCut, wfGrotto))
+						floatingCut, hills, planted, camps, paved, gates, wfCut, wfGrotto,
+						settled, settleChecked))
 				print("[MapAnchors] " .. MapAnchors.Describe(zoneKey))
 			end
 		end
