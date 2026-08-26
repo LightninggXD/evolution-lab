@@ -966,7 +966,32 @@ function MapHorizon.Build(zoneKey, cx, map)
 			(function()
 				-- 32.18: a run is clamped at the wall, so "pushed" is no longer the whole story --
 				-- what matters is whether it got the room it asked for. `short` is the studs it did
-				-- not get, per side, and a non-zero one is rock still standing on a camp.
+				-- not get, per side.
+				--
+				-- ===== 33.4: WHY THIS IS AN ACCEPTANCE AND NOT AN ALARM =====
+				-- It printed as `*** CLAMPED AT THE WALL ***` for two phases and the row it opened
+				-- (33.4) offered two ways to close: extend the inner row, or document the acceptance.
+				-- **The first is arithmetically impossible and this file already says so** -- past
+				-- `WALL_X` a hill stands BEHIND the thing it exists to hide, which is why the clamp
+				-- exists at all. So the honest close is the second, and the argument is:
+				--
+				--  * `short` is a shortfall against the RESERVATION, not against any rock. The
+				--    reservation (287) is sized for the worst hill this file may ever stand up, so a
+				--    run that gets 46 studs less than it asked for has still not necessarily put a
+				--    single stone on a camp.
+				--  * Whether it did is a DIFFERENT number and it is already on this same line: the
+				--    `tightest rock-to-camp-floor gap`, measured on the FILL silhouette of the rock
+				--    that actually stood up. Live 2026-08-26, against `west -33 (NW5), north -46
+				--    (NW4), south -46 (SW2)`, that gap reads **+109.4 studs** -- the reservation is
+				--    conservative by more than twice the worst shortfall.
+				--  * And 32.1b's raycast grid over all twenty camp floors is the third instrument,
+				--    the one that answers at the GROUND line rather than on a silhouette: 0 of 20
+				--    camps, 0 of 660 cells.
+				--
+				-- Three instruments, none of them finding rock on a camp. So the line states the
+				-- acceptance and NAMES the gap that justifies it, rather than starring a number that
+				-- nobody may act on. It goes back to being an alarm the moment the gap turns
+				-- negative -- which is what the `-- %s` verdict beside it is for.
 				local sh = MapHorizon.LastShort
 				if not sh then return "" end
 				local bits = {}
@@ -980,7 +1005,8 @@ function MapHorizon.Build(zoneKey, cx, map)
 					return (innerAtX > AT.innerX or innerAtZ > AT.innerZ)
 						and "  [pushed off the camps, and every run got the room it asked for]" or ""
 				end
-				return ("  [ACCEPTED: CLAMPED AT THE WALL, SHORT OF THE CAMPS: %s (reservation %.0f)]")
+				return ("  [ACCEPTED (33.4): CLAMPED AT THE WALL, SHORT OF THE RESERVATION: %s "
+					.. "(reservation %.0f) -- judged by the rock-to-camp gap on this line, not by this]")
 					:format(table.concat(bits, ", "), sh.clear)
 			end)(),
 			gap, gapWhat,
