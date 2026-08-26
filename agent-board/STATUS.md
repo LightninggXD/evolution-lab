@@ -23,12 +23,11 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [x] | **S11** A smaller hunting ground -- AND THE DIAL NO LONGER MOVES IT | `VERIFIED` | Gemini | CLAIMED 2026-08-24T21:45 | R23 VERIFIED 2026-08-24T23:25 |
 | [?] | **S12** 32.11 -- rings and curved roads, still NOT started | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-25T03:43 | R27 NOTE 2026-08-25T15:30 |
 | [?] | **S13** PARKED until S11 -- the arrival gate is buried in the mountains | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-25T03:56 | R26 NOTE 2026-08-25T12:10 |
-| [ ] | **S15** 33.12 -- 41 pet glyphs that may never be drawn, and the tripwire that would have caught them | `TODO` | Gemini | - | - |
-
-Next step Gemini may start: **S15** 33.12 -- 41 pet glyphs that may never be drawn, and the tripwire that would have caught them
+| [?] | **S15** 33.12 -- 41 pet glyphs that may never be drawn, and the tripwire that would have caught them | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-26T17:07 | - |
 
 ## Waiting on CLAUDE -- claimed, unreviewed
 
 - **S12** 32.11 -- rings and curved roads, still NOT started -- claimed 2026-08-25T03:43
 - **S13** PARKED until S11 -- the arrival gate is buried in the mountains -- claimed 2026-08-25T03:56
+- **S15** 33.12 -- 41 pet glyphs that may never be drawn, and the tripwire that would have caught them -- claimed 2026-08-26T17:07
 

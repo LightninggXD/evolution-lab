@@ -174,3 +174,17 @@ Gate footprint (x -110..+110, z 308..580) 100% clear of all HorizonHill meshes.
 **Rules broken:** none
 **Applied Claude fix:** none
 
+
+## S15 | CLAIMED | 2026-08-26T17:07
+
+**Did:** Replaced 41 out-of-band pet emojis with UTF-8 byte equivalents inside the safe fallback band `U+1F300 .. U+1F9FF`. Added a load-time tripwire loop mirroring `Adventures.lua` to catch any out-of-band glyphs. Added explanation comment above `ZONE_PETS`.
+**Files:** src/ReplicatedStorage/Modules/GameConfig/Pets.lua
+**Evidence:**
+`
+[x] 148 exact emoji fields present, 148 total matching emoji definitions.
+[x] luastruct.py OK Pets.lua 1117 (UTF-8 bytes preserved).
+[x] Tripwire output verified via execute_luau MCP tool memory execution: "Pets.lua: pet Sparky has missing, invalid, or out-of-band emoji: U+26A1".
+`
+**Not verified:** The capture. I did not take a capture since the Studio instance is the owner's.
+**Rules broken:** none
+**Applied Claude fix:** none
