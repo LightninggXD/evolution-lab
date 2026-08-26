@@ -168,7 +168,18 @@ function GameConfig.GetBossDamageDivisor(data)
 	-- into a heal
 	return math.max(GameConfig.GetRebirthDamageMult(data)
 		* GameConfig.GetSwordDamageMult(data)
-		* GameConfig.GetLevelDamageMult(data), 1)
+		* GameConfig.GetLevelDamageMult(data)
+		-- FOURTH TERM (33.21), and it passes the same test the three above it pass: the training
+		-- ladder is always on, its ceiling is TIME rather than money, and every player who keeps
+		-- playing ends a run holding the whole of it. x1.00 untrained and x3.00 at the cap, so an
+		-- uncancelled one would cut the endgame boss fight this function exists to have fixed by
+		-- two thirds -- on top of the blade and the level.
+		--
+		-- It is also the line that lets 33.21 ship WITHOUT the mob rebalance its own row demanded.
+		-- Training is a uniform multiplier, so creatures keep their flat blows-to-fell across all
+		-- twenty zones and simply fall three times faster; cancelling it here means the boss curve
+		-- never moves, so `MobDepthGrowth` and `mobHealthMult` are untouched by the whole feature.
+		* GameConfig.GetTrainingDamageMult(data), 1)
 end
 
 -- Which rebirth tier (1-4) a given stage index has reached. Tier 0 = not eligible yet.

@@ -47,6 +47,7 @@ for _, part in ipairs({
 	-- time, and nothing above it reads `GameConfig.Minigames` at all. Appending is therefore the
 	-- only move that cannot produce the silent nil this list's header warns about.
 	"Minigames",
+	"Cosmetics",
 	-- AFTER `Minigames`, and this one is a hard dependency rather than a convention: its
 	-- load-time check reads `GameConfig.MinigameKindsByKey` to prove every expedition station
 	-- names a game that exists, and its reward functions quote `GetMinigameReward`.
@@ -72,6 +73,14 @@ for _, part in ipairs({
 	-- answers may load before it. Appending is the only move that cannot produce the silent nil
 	-- this list's header warns about.
 	"Levels",
+	-- LAST, and it is the same argument every part above it made in turn. `Training` reads NOTHING
+	-- off the table at load time -- every constant in it is literal and none of its six accessors is
+	-- called until a player lands a blow -- and nothing above it reads `GameConfig.TrainingRepCap`
+	-- at load time either. Its one outward quote goes BACKWARDS at CALL time: `Rebirth`'s boss
+	-- divisor reaches forward to `GetTrainingDamageMult` to cancel it, which is the identical shape
+	-- that already lets `Swords` and `Levels` load after the part that asks them. Appending is
+	-- therefore the only move that cannot produce the silent nil this list's header warns about.
+	"Training",
 }) do
 	require(script:WaitForChild(part))(GameConfig)
 end

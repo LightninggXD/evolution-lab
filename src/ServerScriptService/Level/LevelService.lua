@@ -40,6 +40,18 @@ function LevelService.Publish(player, data)
 	if not data then return end
 	player:SetAttribute("Level", GameConfig.GetLevel(data))
 	player:SetAttribute("LevelXp", GameConfig.GetLevelXp(data))
+	-- ===== AND THE TRAINING REPS, ON THIS SWEEP RATHER THAN A SECOND ONE (33.21) =====
+	--
+	-- The training bar has the identical requirement to the level bar above it -- it must move on
+	-- every blow -- so it takes the identical channel, for the reason this file's header states:
+	-- `PushToClient` sends the WHOLE save table and firing it three times a second would be the
+	-- most expensive thing on the wire.
+	--
+	-- It rides THIS sweep instead of publishing its own, and the sweep's own property is what makes
+	-- that free: writing an attribute that already holds its value does not fire `Changed`, so an
+	-- untrained or capped player costs exactly nothing here. `TrainingDummyService` therefore has no
+	-- publisher of its own and cannot drift from this one.
+	player:SetAttribute("TrainingReps", GameConfig.GetTrainingReps(data))
 end
 
 -- ===== THE AWARD =====

@@ -105,6 +105,15 @@ function RebirthService.HandleRebirth(player, tier)
 	-- DiamondUpgrades, MasteredStages, SwordLevel), everything climbed to is reset.
 	data.Level = 1
 	data.LevelXp = 0
+	-- AND THE TRAINING LADDER WITH IT (33.21). Same argument as the level above, one step further
+	-- on: the reps are a x3.00 damage multiplier climbed to inside a run, so a rebirth that kept
+	-- them would hand the next run a tripled bare player and the reset would cost nothing anybody
+	-- can feel -- which is exactly why `Characters` stopped surviving a rebirth below.
+	--
+	-- IT IS NOT A LOSS, IT IS A LOOP. `GetTrainingGainMult` pays +50% fill rate per rebirth, so the
+	-- ladder this line clears refills half again as fast every time it is cleared. The dummy in the
+	-- grotto is the point of the loop.
+	data.TrainingReps = 0
 	data.StageIndex = 1
 	for key in pairs(data.Upgrades) do
 		data.Upgrades[key] = 0

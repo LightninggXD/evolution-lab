@@ -1071,6 +1071,10 @@ local rewardButton = columnTile("R", 3, "\u{1F381}", "Daily", UITheme.Color.Peac
 -- the moment the day is claimed and shows it again when the next day unlocks.
 local rewardBadge = rewardButton:FindFirstChild("Badge")
 local robuxButton  = columnTile("R", 4, "\u{1F6CD}\u{FE0F}", "Robux", UITheme.Color.Mint)
+local achievementsButton = columnTile("R", 5, "\u{1F3C6}", "Goals", UITheme.Color.Gold)
+local cosmeticsButton = columnTile("R", 6, "\u{1F457}", "Vanity", UITheme.Color.Pink)
+
+
 
 -- The Mastery tile used to sit at order 2 here. Its badge -- shown while at least one Mastery was
 -- both reached and affordable -- went with it; `masteryBadge` stays declared and nil so the
@@ -1407,6 +1411,17 @@ require(RS.Modules:WaitForChild("HUD"):WaitForChild("SwordPanel"))(hudRefs)
 -- -- screenGui, getData -- is filled above this point. `showNotification` is the exception and is
 -- reached through `hud` on every call for exactly that reason (see the note in the module).
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("LevelBar"))(hudRefs)
+
+-- ===== The training bar (33.21) =====
+--
+-- The third and topmost of the stacked bars, six pixels above the level bar, and it costs this file
+-- the same as the two below it: ONE LINE AND ZERO TOP-LEVEL LOCALS. It builds its own ProgressBar on
+-- `screenGui` and listens to one player attribute plus `DataUpdate`.
+--
+-- AFTER `LevelBar`, and the order is real rather than tidy: that module's own comment measures its
+-- position off the evolve card, and this one measures its position off THAT bar. Reading this file
+-- top to bottom is the only way the three numbers can be checked against each other.
+require(RS.Modules:WaitForChild("HUD"):WaitForChild("TrainingBar"))(hudRefs)
 
 -- ===== Pets panel =====
 --

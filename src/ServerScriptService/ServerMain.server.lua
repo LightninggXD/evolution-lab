@@ -18,6 +18,7 @@ local BossService = require(ServerScriptService.BossService)
 local RebirthService = require(ServerScriptService.RebirthService)
 local RebirthShrine = require(ServerScriptService.RebirthShrine)
 local SecretsService = require(ServerScriptService.SecretsService)
+local TrainingDummyService = require(ServerScriptService.Training.TrainingDummyService)
 local SplicerService = require(ServerScriptService.SplicerService)
 local RewardService = require(ServerScriptService.RewardService)
 local PotionService = require(ServerScriptService.PotionService)
@@ -200,6 +201,17 @@ RebirthService.Init()
 -- ZoneBuilder.Build() above, which is what puts the Forest decor the plaza has to clear back
 RebirthShrine.Init()
 SecretsService.Init()
+-- AFTER SecretsService, and the order is load-bearing in one direction only: the dummy is seated by
+-- RAYCAST onto the grotto floor (`TrainingDummyModel.floorAt`), so the room has to be built before
+-- this runs or the cast finds the world floor 0.2 studs lower and the dummy sinks into the slab.
+-- `MapWaterfall` builds that room inside `ForestMapService.Init`, which ZoneBuilder.Build above has
+-- already run -- see `evolution-lab-placement-search-ordering`, which is this same rule stated once
+-- for the whole map.
+--
+-- It also has to be after `SecretsService` for a second, softer reason: that service prints the
+-- UNREACHABLE warning for a blocked secret, and if the dummy were ever mis-seated into the trigger
+-- the warning should name the state the world ends up in, not an intermediate one.
+TrainingDummyService.Init()
 -- The five counters the map's leaderboard boards read (31.5). ANYWHERE AFTER PlayerDataService:
 -- it connects PlayerAdded/PlayerRemoving and starts one 60-second banking loop, and reads no world
 -- furniture at all. It has to be before any player can join, which everything in this file is.
@@ -257,6 +269,9 @@ TradeService.Init()
 -- have to run in a fixed order against each other, while a terminal stands beside its own zone's
 -- arrival pad, where none of them ever goes. It reads no other service's state.
 MinigameService.Init()
+require(script.Parent.AchievementService).Init()
+require(script.Parent.CosmeticService).Init()
+require(script.Parent.CommunityGoalService).Init()
 -- STRICTLY AFTER IT (31.8), and that is the point: the mapped zone gets a row of the owner's own
 -- arcade cabinets in the village instead of a generated slab on the arrival plaza, and it works by
 -- REPARENTING the prompt MinigameService just built rather than by making a second one. Run it

@@ -403,8 +403,31 @@ GameConfig.Secrets = {
 	{
 		id = "ForestWaterfall",
 		zoneKey = "Forest",
-		rewardType = "mutation",
-		rewardName = "Godly",
+		-- ===== IT NO LONGER PAYS A MUTATION (33.21, 2026-08-27) =====
+		--
+		-- This was `rewardType = "mutation", rewardName = "Godly"` -- a free top-tier mutation for
+		-- walking into a cave. The owner cut it in one line while the training dummy was going into
+		-- that same room: *"bez godly mutacije tu"*. She is right, and the reason is worth keeping:
+		-- Godly is the last of seven mutations and the room is now a TRAINING room, so the secret
+		-- was handing over the game's rarest permanent multiplier as a door prize beside a stat you
+		-- are meant to grind for it.
+		--
+		-- It pays the room's own currency instead -- `GameConfig.SecretTrainingReps` reps, once --
+		-- so finding the grotto is a head start on the thing the grotto is FOR, and a rebirth takes
+		-- it back with the rest of the ladder. `SecretsService` has a branch per `rewardType` and
+		-- refuses (rather than silently skips) a type nothing pays, so this cannot rot.
+		rewardType = "training",
+		-- Display only, and it is the toast's noun. NOT a mutation name any more -- nothing looks it
+		-- up in `GameConfig.Mutations`.
+		rewardName = "Training Grounds",
+		-- ...EXCEPT THE RELIC ON THE PLINTH, WHICH IS SCENERY AND STAYS GOLD.
+		--
+		-- `MapWaterfall.buildRelic` hands this to `EvolutionVisuals.AttachMutationAura`, which only
+		-- knows mutation names -- so the field is separate from `rewardName` on purpose. The gem is
+		-- the room's centrepiece and its warm key light (see the RELIC_GOLD block in that file, and
+		-- the two lights it balances); pointing it at the reward would have made a cut payout delete
+		-- a light. Changing the payout must not change the art, and after this it cannot.
+		auraName = "Godly",
 		offset = Vector3.new(291, 6, -290),
 		triggerOffset = Vector3.new(291, 6, -281),
 	}

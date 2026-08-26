@@ -144,9 +144,26 @@ function DNAService.GetCombatDamage(data)
 	-- and every rebirth the player has ever done. This is what a rebirth buys -- see the note over
 	-- GameConfig.GetRebirthDamageMult for why it is damage and not income.
 	mult = mult * GameConfig.GetRebirthDamageMult(data)
-	
-	-- Task 33.21: Grotto Dummy session buff
-	mult = mult * (data.GrottoSessionDamage or 1)
+
+	-- THE TRAINING LADDER (33.21), and this is the only line in the game that reads it.
+	--
+	-- Reps punched into the grotto dummy and banked off creature kills: x1.00 untrained, x3.00 at
+	-- the cap. It sits HERE, in the climbed block beside the blade, the level and the rebirth count,
+	-- rather than below with the Robux passes, because that is what it is -- time spent, not money.
+	--
+	-- MULTIPLICATIVE ON PURPOSE, and it is the one property that let this ship without re-tuning
+	-- twenty zones of creature health. A flat additive stat swamps `GetRankDamage` at the bottom of
+	-- the strip and vanishes at the top; a uniform multiplier leaves blows-to-fell flat end to end,
+	-- which is the property the damage ladder and `mobHealthMult` were deliberately tuned to share.
+	--
+	-- **IT IS CANCELLED AGAINST BOSSES**, in GetBossDamageDivisor, exactly as the blade, the level
+	-- and the rebirth are. So the farm gets three times faster and no boss fight changes length.
+	--
+	-- This line replaced a `data.GrottoSessionDamage` read from an earlier, unshipped attempt at
+	-- this row: a session buff wiped on every load, written onto `data` where the autosave would
+	-- have persisted it anyway. Nothing ever called that service, so no save has ever held the
+	-- field.
+	mult = mult * GameConfig.GetTrainingDamageMult(data)
 
 	-- Robux game passes: 2x Damage and VIP. Note this raises damage DEALT only -- the incoming-damage
 	-- cap in CreatureService/BossService is a fraction of the player's own health and is untouched,

@@ -14,6 +14,7 @@ local BoardStats = require(script.Parent.MapProps.BoardStats)
 -- block where `MAP_GLADE` used to be, below, for why that is not how it used to work.
 local JungleLayout = require(script.Parent.MapProps.JungleLayout)
 local DNAService = require(script.Parent.DNAService)
+local TrainingDummyService = require(script.Parent.Training.TrainingDummyService)
 local SeasonPassService = require(script.Parent.SeasonPassService)
 -- 11.6: the terraces drop pets, so the kill path needs the one function that creates one. No cycle
 -- -- PetService requires PlayerDataService, SeasonPassService and AnnounceService, none of which
@@ -3795,6 +3796,19 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 			-- pushes and celebrates on its own; this does nothing at all when the bar is not full,
 			-- which is the overwhelmingly common case.
 			DNAService.AutoEvolveIfReady(player)
+			-- ===== THE TRAINING LADDER'S OTHER SOURCE (33.21) =====
+			--
+			-- Her spec is mobs AND the dummy -- *"damage dobijas kad tuces mobove i udaras ovaj
+			-- dummy"* -- so a kill banks reps here and the grotto dummy pays double for the same
+			-- work. It is called rather than written inline because `TrainingDummyService` owns the
+			-- clamp, the cap and the attribute publish, and a second writer is how two rules drift
+			-- apart.
+			--
+			-- ON THE KILL, NOT ON THE BLOW. A creature costs 2.4 to 14 blows to fell, so paying per
+			-- blow would make farming a Swarmer a strictly better trainer than the dummy that was
+			-- deliberately put behind a rebirth. Before the push below, so the save that goes over
+			-- the wire already carries the new count.
+			local trainingReps = TrainingDummyService.AwardKill(player, data)
 			PlayerDataService.UpdateLeaderstats(player)
 			PlayerDataService.PushToClient(player)
 			Remotes.Notify:FireClient(player, { kind = "creature", amount = math.floor(amount) })
@@ -3824,6 +3838,11 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 				-- corpse rather than in a banner in the corner. It is `nil` on an ordinary kill, so
 				-- the commonest packet in the game does not grow a field for everybody.
 				cr = wasCrit or nil,
+				-- ...and so does the training rep, on exactly the same terms as the shard and the
+				-- crit above it: a fact about THIS kill, drawn over the corpse rather than in a
+				-- banner, `nil` once the player is capped so the commonest packet in the game does
+				-- not grow a field for everybody.
+				tr = trainingReps > 0 and trainingReps or nil,
 			})
 
 			playDeath(model, rig, tier.size, knockDir, ringColor)

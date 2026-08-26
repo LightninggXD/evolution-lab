@@ -1313,7 +1313,11 @@ function MapWaterfall.Build(zoneKey, cx, map)
 			lamp.Parent = glow
 			built += 1
 
-			built += buildRelic(folder, base, secret.rewardName)
+			-- `auraName`, NOT `rewardName` (33.21). The relic is scenery and its aura is the room's
+			-- warm key light; the secret's payout moved off mutations on 2026-08-27 and the two must
+			-- not be one field -- see the block over `auraName` in `GameConfig.Secrets`. The fallback
+			-- keeps a row that predates the split building its gem instead of warning.
+			built += buildRelic(folder, base, secret.auraName or secret.rewardName)
 
 			-- the door: the last thirty studs of the fall, hanging in front of the mouth
 			built += buildCurtain(folder, cx, wf)

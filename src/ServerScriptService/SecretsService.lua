@@ -64,6 +64,34 @@ local function grantMutation(player, data, mutationName)
 	return true
 end
 
+-- ===== THE TRAINING HEAD START, WHICH REPLACED THE MUTATION (33.21, 2026-08-27) =====
+--
+-- `ForestWaterfall` paid a free Godly aura until the owner cut it in one line -- *"bez godly
+-- mutacije tu"* -- as the training dummy went into that same room. The room teaches a stat now, so
+-- the find pays that stat: `GameConfig.SecretTrainingReps` reps, once, banked exactly the way the
+-- dummy banks them.
+--
+-- IT GOES THROUGH THE SAME CLAMP EVERY OTHER WRITER USES rather than adding to the field raw. A
+-- capped save must not be pushed past the cap and then read back down -- that would leave a number
+-- in the DataStore that the HUD, the damage term and this function all disagree about, which is the
+-- fractional-bank problem `GetTrainingGain` was written to avoid, one scale up.
+local function grantTraining(player, data, reps)
+	reps = tonumber(reps) or 0
+	if reps <= 0 then
+		warn("[SecretsService] a training secret paying 0 reps -- nothing granted")
+		return false
+	end
+	local before = GameConfig.GetTrainingReps(data)
+	if before >= GameConfig.TrainingRepCap then
+		-- Already maxed. The find is still real and still recorded (the caller has written
+		-- `FoundSecrets` and must not un-write it) -- there is simply nothing to add.
+		return true
+	end
+	data.TrainingReps = math.min(before + reps, GameConfig.TrainingRepCap)
+	PlayerDataService.PushToClient(player)
+	return true
+end
+
 -- ===== A TRIGGER INSIDE THE ROCK IS AN INVISIBLE NO-OP, SO IT SAYS SO =====
 --
 -- The rescued `ForestWaterfall` offset was the waterfall model's BOUNDING-BOX CENTRE, measured to
@@ -170,6 +198,8 @@ function SecretsService.Init()
 			local paid = true
 			if secret.rewardType == "mutation" then
 				paid = grantMutation(player, data, secret.rewardName)
+			elseif secret.rewardType == "training" then
+				paid = grantTraining(player, data, GameConfig.SecretTrainingReps)
 			else
 				warn(("[SecretsService] %s has rewardType %q, which nothing pays"):format(secret.id, tostring(secret.rewardType)))
 				paid = false
@@ -190,7 +220,14 @@ function SecretsService.Init()
 			if Remotes and Remotes:FindFirstChild("Notify") then
 				Remotes.Notify:FireClient(player, {
 					kind = "reward",
-					message = ("\u{2728} SECRET FOUND! The %s aura is yours."):format(secret.rewardName),
+					-- The noun comes from the ROW, because the payout is no longer one thing.
+					-- `rewardName` used to name a mutation and this sentence hard-coded "aura"; a
+					-- training secret paying reps under that sentence would have told the player
+					-- they had been given an aura they do not own.
+					message = (secret.rewardType == "training")
+						and ("\u{2728} SECRET FOUND! +%d training reps at the %s.")
+							:format(GameConfig.SecretTrainingReps, secret.rewardName)
+						or ("\u{2728} SECRET FOUND! The %s aura is yours."):format(secret.rewardName),
 				})
 			end
 		end)

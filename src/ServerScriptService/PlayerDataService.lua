@@ -99,6 +99,14 @@ local function defaultData()
 		-- os.time() of the last free daily spin (5.6). Compared by UTC day number, the same boundary
 		-- LastRewardClaim uses, so the login reward and the free spin roll over together.
 		LastFreeSpin = 0,
+		-- ===== ACHIEVEMENTS (Phase 34) =====
+		Fuses = 0,
+		MinigamesPlayed = 0,
+		ZoneFloorsCleared = 0,
+		AchievementsClaimed = {},
+		WornTitle = nil,
+		CosmeticsOwned = {},
+		WornCosmetics = {},
 		-- ===== RELICS (2026-08-17) =====
 		-- `Relics` is relic KEY -> { copies, level }, string-keyed like `Potions` and for the same
 		-- reason: a table whose only keys are integers is a sparse array and Roblox silently drops
@@ -197,6 +205,24 @@ local function defaultData()
 		-- rebirth that kept it would unlock the following rung the moment it finished.
 		Level = 1,
 		LevelXp = 0,
+		-- ===== THE TRAINING LADDER (33.21) =====
+		--
+		-- Reps banked at the grotto dummy and off creature kills. ONE SCALAR, because the count IS
+		-- the position -- the same argument `SwordLevel` and `Rebirths` above make, and for the same
+		-- reason: a second field recording "how far in" could disagree with it.
+		--
+		-- DEFAULTS TO 0, so every save written before this feature gets exactly 0 from the top-level
+		-- nil-fill below and reads x1.00 damage -- identical to how it played yesterday. No
+		-- migration runs and none is needed, which is the third time this file has been able to say
+		-- that (see `SwordLevel` and `Level` directly above).
+		--
+		-- RESET BY A REBIRTH, beside `Level` rather than beside `SwordLevel`, and the rule is this
+		-- file's own: everything bought with Diamonds is kept, everything climbed to is reset. The
+		-- fill RATE is what a rebirth buys instead (`GetTrainingGainMult`).
+		--
+		-- CLAMPED ON READ, never on write -- `GameConfig.GetTrainingReps` is the only reader and it
+		-- handles nil, a string and a NaN alike, so nothing here has to guard it.
+		TrainingReps = 0,
 		UnlockedZones = { "Forest" },
 		CurrentZone = "Forest",
 		DefeatedBosses = {}, -- list of zone keys whose boss this player has personally defeated
@@ -692,11 +718,7 @@ function PlayerDataService.Load(player)
 		data.InGroup = false
 	end
 
-	
-	-- Wipe session buffs
-	data.GrottoSessionDamage = nil
-	data.GrottoHits = nil
-	
+
 	PlayerDataService.Cache[player.UserId] = data
 	return data
 end

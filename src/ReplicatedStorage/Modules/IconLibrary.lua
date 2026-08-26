@@ -234,6 +234,16 @@ local ID = {
 	tools        = "rbxassetid://86418694686311",
 	touch        = "rbxassetid://135788107581617",
 	trade        = "rbxassetid://140143138808728",  -- the Trade panels and the trade toast
+	-- THE TRAINING LADDER (33.21), AND IT IS HER OWN ART. She dropped a `biceps` Decal onto the
+	-- training-dummy model in Studio and asked for it as the icon that pops when the stat moves --
+	-- *"ovaj biceps znak kao da iskace i pise koliko damagea je player dobio"*.
+	--
+	-- MARKED `-- store` FOR THE REASON THE BLOCK AT THE TOP OF THIS FILE GIVES, and here that
+	-- warning is load-bearing rather than a formality: there is no `assets/icons/training.png`
+	-- behind this id and there must never be one. Drawing a house `training.png` and re-uploading
+	-- it would silently swap the popup off the picture she chose. Two callers: the world popup in
+	-- `CombatClient` and the HUD bar.
+	training     = "rbxassetid://94112060280361",   -- store (hers)
 	trophy       = "rbxassetid://82857133407630",
 }
 IconLibrary.Id = ID
@@ -273,6 +283,7 @@ local BY_EMOJI = {
 	["\u{2694}\u{FE0F}"] = "sword",   -- ⚔️
 	["\u{2694}"]  = "sword",          -- the same emoji written without its variation selector
 	["\u{1F4A5}"] = "boom",      -- 💥
+	["\u{1F4AA}"] = "training",  -- 💪  the training ladder (33.21)
 	["\u{2764}\u{FE0F}"] = "heart",   -- ❤️
 	["\u{1F49C}"] = "heart",     -- 💜
 

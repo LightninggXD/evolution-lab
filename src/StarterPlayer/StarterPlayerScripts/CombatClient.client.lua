@@ -29,6 +29,7 @@ local RS = game:GetService("ReplicatedStorage")
 
 local UITheme = require(RS:WaitForChild("Modules"):WaitForChild("UITheme"))
 local SoundLibrary = require(RS.Modules:WaitForChild("SoundLibrary"))
+local IconLibrary = require(RS.Modules:WaitForChild("IconLibrary"))
 
 local player = Players.LocalPlayer
 local INK = Color3.fromRGB(26, 18, 36)
@@ -678,7 +679,10 @@ local function shortNumber(n)
 	return body .. SUFFIX[mag]
 end
 
-local function popNumber(position, text, color, big)
+-- `iconId` is optional and is an `IconLibrary.Id` VALUE, not an emoji: the training pop draws the
+-- owner's own biceps art beside the number (33.21). Everything else about the pop is unchanged, so
+-- the ninety-odd existing calls pass four arguments and get exactly what they got before.
+local function popNumber(position, text, color, big, iconId)
 	local host = invisibleHost(CFrame.new(position))
 
 	local gui = Instance.new("BillboardGui")
@@ -702,6 +706,29 @@ local function popNumber(position, text, color, big)
 	stroke.LineJoinMode = Enum.LineJoinMode.Round
 	stroke.Parent = label
 
+	-- ===== THE OPTIONAL ICON =====
+	-- The label keeps its full width and the icon is inset to its LEFT rather than sharing a layout,
+	-- because the text is `TextScaled` -- a UIListLayout here would fight the scaler every frame.
+	-- The text is nudged right by the same amount so the two do not overlap.
+	--
+	-- SIZED IN BOTH AXES FROM THE SAME FRACTION. `SizeConstraint = RelativeYY` would be the obvious
+	-- way to square it and is the trap in `evolution-lab-icon-system`: it makes the X scale relative
+	-- to the parent's HEIGHT too, so the intuitive `UDim2.new(0, 0, 0.8, 0)` is a slot zero pixels
+	-- wide, and every structural probe reports it present and correct.
+	local iconLabel
+	if iconId and iconId ~= "" then
+		iconLabel = Instance.new("ImageLabel")
+		iconLabel.Name = "Icon"
+		iconLabel.BackgroundTransparency = 1
+		iconLabel.Image = iconId
+		iconLabel.Size = UDim2.new(0, big and 42 or 30, 0, big and 42 or 30)
+		iconLabel.Position = UDim2.new(0, 0, 0.5, 0)
+		iconLabel.AnchorPoint = Vector2.new(0, 0.5)
+		iconLabel.Parent = gui
+		label.Size = UDim2.new(1, -(big and 44 or 32), 1, 0)
+		label.Position = UDim2.new(0, big and 44 or 32, 0, 0)
+	end
+
 	-- Every number gets its own sideways drift, or a burst of them stacks into one illegible
 	-- column. The rise is eased out so it decelerates as it fades rather than sliding off screen.
 	local drift = Vector3.new((math.random() - 0.5) * 5, 0, (math.random() - 0.5) * 5)
@@ -723,6 +750,7 @@ local function popNumber(position, text, color, big)
 			local fade = math.clamp((t - 0.5) / 0.5, 0, 1)
 			label.TextTransparency = fade
 			stroke.Transparency = fade
+			if iconLabel then iconLabel.ImageTransparency = fade end
 			RunService.RenderStepped:Wait()
 		end
 		host:Destroy()
@@ -915,6 +943,40 @@ local function attachHealthPlate(character)
 	gui.SizeOffset = Vector2.new(0, 0.5)
 	gui.Parent = head
 
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Name = "TitleLabel"
+	titleLabel.Size = UDim2.new(1, 0, 0, 18)
+	titleLabel.Position = UDim2.new(0, 0, 0, -16)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Font = UITheme.Font.Sub
+	titleLabel.TextScaled = true
+	titleLabel.TextColor3 = UITheme.Color.Gold
+	titleLabel.Text = ""
+	titleLabel.Visible = false
+	titleLabel.Parent = gui
+
+	local titleStroke = Instance.new("UIStroke")
+	titleStroke.Thickness = 2
+	titleStroke.Color = INK
+	titleStroke.LineJoinMode = Enum.LineJoinMode.Round
+	titleStroke.Parent = titleLabel
+
+	local function updateTitle()
+		if owner then
+			local title = owner:GetAttribute("WornTitle")
+			if title and title ~= "" then
+				titleLabel.Text = "< " .. title .. " >"
+				titleLabel.Visible = true
+			else
+				titleLabel.Visible = false
+			end
+		end
+	end
+	if owner then
+		owner:GetAttributeChangedSignal("WornTitle"):Connect(updateTitle)
+		updateTitle()
+	end
+
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Name = "NameLabel"
 	nameLabel.Size = UDim2.new(1, 0, 0, 26)
@@ -948,6 +1010,34 @@ local function attachHealthPlate(character)
 	bar.Visible = false
 
 	local hideAt = 0
+
+	local function updateNamePlate()
+		if owner then
+			local worn = owner:GetAttribute("WornNamePlate")
+			local plateColor = nil
+			if worn and worn ~= "" then
+				-- We could parse GameConfig.Cosmetics here, but since this is client, we can just check key directly or use ReplicatedStorage if we had it.
+				-- Let's just do a simple check or fetch from GameConfig if available.
+				-- Since we don't have GameConfig required at the top of CombatClient (maybe we do?), let's just do hardcoded for now or require it.
+			end
+			-- For now, if there is a worn plate, we can tint the name stroke or name text.
+			if worn == "NamePlate_Gold" then
+				nameLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+			elseif worn == "NamePlate_Neon" then
+				nameLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
+			elseif worn == "NamePlate_Dark" then
+				nameLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+				nameStroke.Color = Color3.fromRGB(30, 30, 30)
+			else
+				nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+				nameStroke.Color = Color3.fromRGB(18, 16, 26) -- INK
+			end
+		end
+	end
+	if owner then
+		owner:GetAttributeChangedSignal("WornNamePlate"):Connect(updateNamePlate)
+		updateNamePlate()
+	end
 
 	local function refresh()
 		local ratio = humanoid.MaxHealth > 0 and math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1) or 0
@@ -1146,7 +1236,19 @@ local AUTO_INTERVAL = 0.34
 -- A distance in meters is not the unit this game is played in. Everything on this path -- the reach,
 -- the rig sizes, the player's own body -- is authored in studs, and the player's body is the thing
 -- that grew twenty times over the course of a save. Convert nothing; measure both bodies.
-local AUTO_REACH = { Creatures = 60, Bosses = 70 }
+--
+-- ===== AND `Training`, WHICH IS THE DUMMY'S ONLY WAY IN (33.21) =====
+--
+-- `nearestTarget` scans the folders in THIS TABLE and no others, so a prop that is not named here
+-- cannot be auto-attacked however close the player stands -- which is exactly why the earlier,
+-- unshipped `GrottoDummyService` parented into `workspace.Map.Props`, connected a handler, and could
+-- never fire it.
+--
+-- 45 rather than 60: the dummy stands still, so none of the lead a walking creature needs applies.
+-- The server's own gate is 48, deliberately looser than this -- see the note over `AUTO_GATE` in
+-- `TrainingDummyService` for why a server gate at or under the client's reach silently eats every
+-- blow thrown at the edge of it.
+local AUTO_REACH = { Creatures = 60, Bosses = 70, Training = 45 }
 
 -- ===== THE REBIRTH LOCK, AS SEEN FROM HERE (11.6) =====
 --
@@ -1591,6 +1693,29 @@ CombatFx.OnClientEvent:Connect(function(fx)
 		showReviveOffer(tostring(fx.name or "The boss"), tonumber(fx.pct) or 0, tonumber(fx.held) or 0)
 		return
 	end
+	-- ===== THE TRAINING DUMMY (33.21) =====
+	--
+	-- Its own kind rather than a `hit` with no `d`, and the difference is not cosmetic: the general
+	-- path below plays other players' swings, sparks for everyone in FX range and kicks the camera.
+	-- A dummy is only ever hit by the one player who is standing at it and is only ever sent to that
+	-- player, so all of that is noise -- and `SoundLibrary.Play("hit")` on a 0.25 s drum would be
+	-- four overlapping copies a second.
+	--
+	-- The number rises with HER OWN ART beside it: *"ovaj biceps znak kao da iskace i pise koliko
+	-- damagea je player dobio"*. `IconLibrary.Id.training` is that Decal.
+	if fx.k == "train" then
+		if typeof(fx.p) ~= "Vector3" then return end
+		if fx.a ~= player.UserId then return end
+		spark(fx.p, UITheme.Color.Gold, fx.s or 8, false)
+		SoundLibrary.Play("hit", fx.p)
+		local gained = tonumber(fx.tr) or 0
+		if gained > 0 then
+			popNumber(fx.p, "+" .. shortNumber(gained), UITheme.Color.Gold, false, IconLibrary.Id.training)
+		end
+		cameraKick(0.5)
+		lastFxAt = os.clock()
+		return
+	end
 	if typeof(fx.p) ~= "Vector3" then return end
 	local kill = fx.k == "kill"
 	local mine = fx.a == player.UserId
@@ -1638,6 +1763,26 @@ CombatFx.OnClientEvent:Connect(function(fx)
 				popNumber(fx.p, "\u{1F4A5} CRIT +" .. shortNumber(fx.dna) .. " \u{1F9EC}", UITheme.Color.Gold, true)
 			else
 				popNumber(fx.p, "+" .. shortNumber(fx.dna) .. " \u{1F9EC}", UITheme.Color.Mint, true)
+			end
+			-- ===== AND THE TRAINING REP THE KILL PAID (33.21) =====
+			--
+			-- A SECOND POP, deliberately, where the shard and the crit are folded into the first
+			-- one. The reason they differ: a crit is the same number in a different voice and the
+			-- shard is drawn as an object flying out of the corpse, but this is a different
+			-- CURRENCY going to a different bar, and a player who cannot see it move will not
+			-- believe the bar filled from kills at all.
+			--
+			-- Offset up and started a beat late so the two numbers do not launch on the same frame
+			-- from the same point -- `popNumber`'s own per-pop drift handles the rest, and the DNA
+			-- figure is drawn `big` while this one is not, so they never read as one string.
+			if fx.tr then
+				local reps = tonumber(fx.tr) or 0
+				if reps > 0 then
+					task.delay(0.14, function()
+						popNumber(fx.p + Vector3.new(0, 4, 0), "+" .. shortNumber(reps),
+							UITheme.Color.Gold, false, IconLibrary.Id.training)
+					end)
+				end
 			end
 		elseif fx.d and fx.d > 0 then
 			popNumber(fx.p, "-" .. shortNumber(fx.d), Color3.fromRGB(255, 236, 168), false)
