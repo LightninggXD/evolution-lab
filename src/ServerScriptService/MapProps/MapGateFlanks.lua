@@ -107,12 +107,28 @@ local RAMPART_Z_JITTER = 5
 -- own height) a 70..110 crag is 140..220 across, so three a side overlap into a ridge across the
 -- band the survey found bare instead of standing as separate lumps -- `MapHorizon.OVERLAP` is the
 -- same judgement one scale up.
--- 130..190 and not 70..110, and the first build is why. At 70..110 the knit equation solved to
--- tops of 259..326 on half-widths of 66..97 -- ten rocks TALLER than they were wide, and the
--- capture read them as a picket fence rather than as a range. The survey passed on that build
--- (0 of 840) and the picture refused it, which is this row's whole history in one pass. A wider
--- base buys the same cover at a lower top, because KNIT is solved and not chosen.
-local RAMPART_BASE_MIN, RAMPART_BASE_MAX = 130, 190
+-- ===== THE SIZE RAMP, AND THE GEOMETRY THAT FORCES IT =====
+-- These are the base heights at the two ENDS of the run: small against the gate, big out at
+-- `RAMPART_X_MAX`. It is not a taste decision, it is forced, and the proof is short:
+--
+--   **A cone's silhouette recedes from its base.** At height `h` a crag of base half-width `w`,
+--   peak `T` and sink `S` is only `w * (1 - (h + S) / (T + S))` wide, so its inner edge at the
+--   wall's top edge stands `w * (h + S) / (T + S)` studs FURTHER OUT than its base does. The base
+--   is pinned at the gate clearance and cannot move in. Therefore the strip of wall immediately
+--   outside the gate, at the top of the wall, is bare by exactly that recession -- and the
+--   recession is proportional to `w`.
+--
+-- The first build put a half-width of 137 nearest the gate and it receded **84 studs**, which is
+-- the 100-stud bare band the corrected survey found at |x| 60..160. A half-width of 45 in the same
+-- slot recedes **17**. So the crag against the gate must be the SMALL one and the big masses
+-- belong outside it -- which is also what a range approaching a pass actually looks like, scree to
+-- foothill to peak, and the opposite of the random draw the first two builds used.
+--
+-- What it cannot do is reach zero: the residual is bounded below by the recession of whatever rock
+-- stands closest, and only a rock with VERTICAL sides (`MapWaterfall`'s `RidgePlate` is the one
+-- example in this codebase) has none. That is named in the roadmap row rather than hidden here.
+local RAMPART_BASE_NEAR_MIN, RAMPART_BASE_NEAR_MAX = 40, 58
+local RAMPART_BASE_FAR_MIN, RAMPART_BASE_FAR_MAX = 150, 200
 -- Over the line of sight, so the peak stands ABOVE the wall's top edge rather than grazing it --
 -- MapPassDress's SHOULDER_RISE exists for the same reason and says so: bare clearance reads as
 -- nothing. 1.15 and not 1.35 because this rock is 30 studs from the camera's wall, not 200.
@@ -144,7 +160,14 @@ local RAMPART_X_MAX = 320          -- the band ends where the survey's bare run 
 -- rocks with inner edges at x -33 and +41 straight across an arch that spans -53..53: the gate
 -- vanished, which is the owner's 33.20 complaint reproduced by the file that exists to prevent it.
 -- Same measure-then-shift guarantee as `keepClearOfLane` below, and for the same reason.
-local RAMPART_GATE_MARGIN = 14
+--
+-- 2 and not 14, and the reason is what a rampart IS. `GATE_CLEAR` in `MapHorizon` is 132 because a
+-- range hill there carries a COLLIDER box across the doorway -- that is the whole of 32.15/32.19.
+-- These crags carry no collider and no query; they are skyline standing against a wall that is
+-- already impassable, so the only thing they may not do is stand in FRONT of the gate, and the
+-- gate's own measured stonework is exactly that line. Every stud of margin here is a stud of bare
+-- wall by the recession above, so it buys nothing and costs directly.
+local RAMPART_GATE_MARGIN = 2
 local RAMPART_SINK = 10
 
 -- ===== FLANKS =====
@@ -276,7 +299,12 @@ local function rampart(dress, proto, rng, zoneModel, sign)
 			local m = proto:Clone()
 			local _, raw = m:GetBoundingBox()
 			if raw.Y < 1 then m:Destroy() break end
-			m:ScaleTo(rng:NextNumber(RAMPART_BASE_MIN, RAMPART_BASE_MAX) / raw.Y)
+			-- Where along the run this crag stands, 0 at the gate and 1 at RAMPART_X_MAX, and the
+			-- base height ramped across it. See the size-ramp block above for why this is forced.
+			local along = math.clamp((edge - limit) / math.max(RAMPART_X_MAX - limit, 1), 0, 1)
+			local baseMin = RAMPART_BASE_NEAR_MIN + along * (RAMPART_BASE_FAR_MIN - RAMPART_BASE_NEAR_MIN)
+			local baseMax = RAMPART_BASE_NEAR_MAX + along * (RAMPART_BASE_FAR_MAX - RAMPART_BASE_NEAR_MAX)
+			m:ScaleTo(rng:NextNumber(baseMin, baseMax) / raw.Y)
 			-- Scale, turn, RE-MEASURE, move -- a rotated model is a different box.
 			m:PivotTo(CFrame.new(m:GetPivot().Position)
 				* CFrame.Angles(0, math.pi / 2 + rng:NextNumber(-0.25, 0.25), 0))
