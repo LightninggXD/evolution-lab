@@ -122,7 +122,7 @@ def changed_files():
     seen, files = set(), []
     for line in out.splitlines():
         line = line.strip().replace("\\", "/")
-        if line.startswith("src/") and line.endswith(".lua") and line not in seen:
+        if line.startswith("src/") and line.endswith(".lua") and line not in seen and os.path.exists(line):
             seen.add(line)
             files.append(line)
     return sorted(files)

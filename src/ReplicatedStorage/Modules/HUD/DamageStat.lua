@@ -1,37 +1,38 @@
--- DamageStat -- the one number the whole game is about, as a capsule in the wallet (33.26).
+-- DamageStat -- the one number the whole game is about (33.26), over the evolve bar (2026-08-28).
 --
--- A HUD MODULE, i.e. a FUNCTION and not a table (`docs/SPLIT.md` §2). It hangs one pill off the
--- existing `CurrencyStack` and listens to one player attribute plus `DataUpdate`, so **MainUI gains
--- exactly one line and zero top-level locals** ([[evolution-lab-mainui-register-limit]]).
+-- A HUD MODULE, i.e. a FUNCTION and not a table (`docs/SPLIT.md` section 2). It listens to one
+-- player attribute plus `DataUpdate`, so **MainUI gains exactly one line and zero top-level
+-- locals** ([[evolution-lab-mainui-register-limit]]).
 --
--- ===== IT REPLACES A PROGRESS BAR, AND THAT IS THE WHOLE POINT =====
+-- ===== IT REPLACES A PROGRESS BAR, AND THAT IS STILL THE POINT =====
 --
--- 33.21 drew the training ladder as a third stacked bar under the level bar -- `💪 0 / 1.00K •
--- ⚔️ x1.00 • x4.5 gain`. The owner refused it twice in one session, and the two sentences are the
--- spec for this file:
+-- 33.21 drew the training ladder as a third stacked bar under the level bar. The owner refused it
+-- twice in one session, and the two sentences remain the spec for this file:
 --
 --   *"a ovo zlatno mi ne treba tu"* -- the gold bar is not wanted on the screen at all, and
 --   *"dmg se ne skuplja ovako vec samo da pise damage: pa koliko imam i kako skupljam povecava se"*
 --   -- damage is not a thing you fill a bar with. It is a number you HAVE, it is written down, and
 --   it goes up as you collect.
 --
--- So there is no bar, no denominator, no cap and no multiplier printed anywhere on the main screen.
--- One figure, in the wallet, beside the three currencies -- because that column is already what
--- this HUD uses for "what you have", and it is the one place on the screen that is a readout rather
--- than a control.
+-- So there is no bar, no denominator, no cap and no multiplier bar anywhere on the main screen.
+-- ONE FIGURE, WRITTEN DOWN. **What changed on 2026-08-28 is only WHERE it is written**: it was a
+-- fourth pill in the wallet column and it is now a headline over the evolve bar, off a reference
+-- image the owner sent. The refusal above is about the SHAPE (a bar), not the position, so the
+-- restyle does not overturn it -- which is exactly why this paragraph is kept rather than deleted
+-- along with the code it described.
 --
--- The training ladder is NOT gone -- it is `TrainingReps` in the save, `TrainingDummyService` still
--- banks it, and it is one of the multipliers inside the number drawn here. What is gone is the
--- ladder's own widget. The cap is announced by the toast the dummy already fires, which is the only
--- moment the ANSWER changes rather than the number.
+-- The training ladder is NOT gone -- it is `TrainingReps` in the save, `TrainingDummyService`
+-- still banks it, and it is one of the multipliers inside the number drawn here. What is gone is
+-- the ladder's own widget. The cap is announced by the toast the dummy already fires, which is the
+-- only moment the ANSWER changes rather than the number.
 --
 -- ===== THE CHANNEL IS AN ATTRIBUTE, FOR `LevelBar`'s REASON =====
 --
 -- `LevelService.Publish` stamps `CombatDamage` on its existing 0.4 s sweep, beside `Level`,
 -- `LevelXp` and `TrainingReps`. It is NOT a second publisher and NOT `DataUpdate`: a push carries
 -- the whole save table, and this number moves on every evolve, every blade, every pet, every level
--- and every rep. `DataUpdate` is still listened to because the join payload is what draws the pill
--- the first time, before the first sweep has run.
+-- and every rep. `DataUpdate` is still listened to because the join payload is what draws the
+-- figure the first time, before the first sweep has run.
 --
 -- ===== WHY IT DOES NOT COMPUTE THE NUMBER ITSELF =====
 --
@@ -44,7 +45,6 @@
 local RS = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 
-local UITheme = require(RS.Modules.UITheme)
 local UIKit = require(RS.Modules:WaitForChild("UIKit"))
 
 local Remotes = RS.Remotes
@@ -52,37 +52,72 @@ local formatNumber = UIKit.formatNumber
 
 return function(hud)
 	local player = Players.LocalPlayer
-	local stack = hud.screenGui:FindFirstChild("CurrencyStack")
-	-- Found back by name rather than passed on `hud`: MainUI is at the register ceiling and the
-	-- frame is already named. If it is ever renamed this draws nothing rather than throwing into
-	-- the middle of the HUD build.
-	if not stack then
-		warn("[DamageStat] no CurrencyStack -- the damage readout is not drawn this session")
-		return
-	end
+	local screenGui = hud.screenGui
+	
+	-- We put the damage text above the EvolveFrame
+	local container = Instance.new("Frame")
+	container.Name = "DamageStatContainer"
+	container.Size = UDim2.new(0, 400, 0, 80)
+	-- Position above the EvolveFrame (-10 from bottom + 68 height + some padding)
+	container.Position = UDim2.new(0.5, 0, 1, -110)
+	container.AnchorPoint = Vector2.new(0.5, 1)
+	container.BackgroundTransparency = 1
+	-- Z 5, NOT 50. `ZIndexBehavior` is Sibling here, so a top-level frame at 50 draws over every
+	-- panel in the HUD -- and every panel is 20. Measured in the capture: `Damage: 5.18K`
+	-- punched straight through the open Goals board. 5 puts it in the wallet's band (the
+	-- CurrencyStack is 4, the evolve frame 1), which is what it is: chrome, not an overlay.
+	container.ZIndex = 5
+	container.Parent = screenGui
 
-	-- LayoutOrder 4, i.e. the BOTTOM of the stack (the layout is bottom-aligned and sorts by order),
-	-- so the three currencies keep the exact positions they have had since 18.2 and this arrives
-	-- under them rather than pushing them about.
-	--
-	-- ROSE-WHITE, and the choice is the same negative one the other three made: Mint is DNA, Aqua is
-	-- Diamonds, Lavender is Shards. 16% of Frost toward `Color.Red` -- the identical lerp and the
-	-- identical 16%, so this is a member of that wallet and not a new colour on the screen -- is the
-	-- fourth tint none of them can be confused with, and warm is the hue every damage figure in this
-	-- game is already drawn in.
-	local pill = UITheme.Pill(stack, {
-		name = "DamagePill", icon = "\u{2694}\u{FE0F}", text = "0", layoutOrder = 4,
-		size = UDim2.new(1, 0, 0, 40), maxTextSize = 30,
-		shellColor = UITheme.Color.Frost:Lerp(UITheme.Color.Red, 0.16), color = UITheme.Color.Ink,
-	})
+	local listLayout = Instance.new("UIListLayout")
+	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	listLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+	listLayout.Padding = UDim.new(0, -5)
+	listLayout.Parent = container
+
+	-- NO MULTIPLIER LINE. The restyle drew one off a `CombatDamageMult` attribute; grep `src/` for
+	-- that name and the only hits were the two lines that READ it. Nothing writes it, so the label
+	-- was permanently `x1` and its own `mult > 1` test kept it permanently invisible -- a counter
+	-- nobody increments, which looks exactly like a feature that works. The multipliers are already
+	-- INSIDE the figure below (that is what `GetCombatDamage` is), so a second line naming one of
+	-- them would be the stacked bar the owner refused, wearing a different hat.
+
+	local dmgOuter = Instance.new("TextLabel")
+	dmgOuter.Name = "DamageOuter"
+	dmgOuter.LayoutOrder = 2
+	dmgOuter.Size = UDim2.new(1, 0, 0, 45)
+	dmgOuter.BackgroundTransparency = 1
+	dmgOuter.Text = "Damage: 0"
+	dmgOuter.Font = Enum.Font.FredokaOne
+	dmgOuter.TextSize = 36
+	dmgOuter.TextColor3 = Color3.fromRGB(255, 180, 0)
+	dmgOuter.Parent = container
+	local dmgOuterStroke = Instance.new("UIStroke")
+	dmgOuterStroke.Color = Color3.fromRGB(0, 0, 0)
+	dmgOuterStroke.Thickness = 6
+	dmgOuterStroke.Parent = dmgOuter
+
+	local dmgInner = Instance.new("TextLabel")
+	dmgInner.Size = UDim2.new(1, 0, 1, 0)
+	dmgInner.BackgroundTransparency = 1
+	dmgInner.Text = "Damage: 0"
+	dmgInner.Font = Enum.Font.FredokaOne
+	dmgInner.TextSize = 36
+	dmgInner.TextColor3 = Color3.fromRGB(255, 140, 0)
+	dmgInner.ZIndex = dmgOuter.ZIndex + 2
+	dmgInner.Parent = dmgOuter
+	local dmgInnerStroke = Instance.new("UIStroke")
+	dmgInnerStroke.Color = Color3.fromRGB(255, 220, 0)
+	dmgInnerStroke.Thickness = 3
+	dmgInnerStroke.Parent = dmgInner
 
 	local function refresh()
-		-- THE ATTRIBUTE WINS AND THE SAVE IS THE FALLBACK, `LevelBar`'s order and its reason: the
-		-- attribute is up to 0.4 s fresher than the last push, so reading them the other way round
-		-- would make the number jump backwards every time a push landed mid-fight.
 		local dmg = tonumber(player:GetAttribute("CombatDamage"))
 		if not dmg then return end
-		pill.Value.Text = formatNumber(math.floor(dmg))
+		local dmgText = "Damage: " .. formatNumber(math.floor(dmg))
+		dmgOuter.Text = dmgText
+		dmgInner.Text = dmgText
 	end
 
 	player:GetAttributeChangedSignal("CombatDamage"):Connect(refresh)

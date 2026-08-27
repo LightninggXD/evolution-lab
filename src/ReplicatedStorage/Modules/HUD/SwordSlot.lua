@@ -17,7 +17,7 @@
 -- ===== WHY A SLOT AND NOT A FOURTH TILE =====
 --
 -- Every other door in this HUD is a tile in one of the two columns, and the sword already HAS one
--- (left column, order 5, built by `HUD/SwordPanel`). This is not a second door -- it is the
+-- (left column, order 5, built by `UIComponents/SwordPanel`). This is not a second door -- it is the
 -- equipped item, drawn the way a hotbar draws one: what is in your hand, what it is worth, and one
 -- click to change it. That is why it takes the band right under the evolve card rather than a slot
 -- in a column: it is a readout first and a button second.

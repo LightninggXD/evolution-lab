@@ -17,7 +17,16 @@
 return function(GameConfig)
 
 GameConfig.Cosmetics = {
-
+	-- Trails. `colors` rather than a `path`: the three rows authored for 34.2 pointed at
+	-- "Trails/Rainbow-01", an asset that exists nowhere in this repo, so the headline
+	-- 1,000-Diamond item bought nothing at all. A Trail is drawn from a ColorSequence and needs
+	-- no texture and no id -- `StarterPlayerScripts/CosmeticTrail.client.lua` is what reads these.
+	{ key = "Trail_Rainbow", type = "Trail", name = "Rainbow Trail", emoji = "\u{1F308}", priceDiamonds = 100, priceRobux = 49, productId = 0,
+		colors = { Color3.fromRGB(255, 76, 76), Color3.fromRGB(255, 176, 46), Color3.fromRGB(255, 232, 74), Color3.fromRGB(96, 220, 118), Color3.fromRGB(84, 168, 255), Color3.fromRGB(178, 118, 255) } },
+	{ key = "Trail_Fire", type = "Trail", name = "Fire Trail", emoji = "\u{1F525}", priceDiamonds = 300, priceRobux = 99, productId = 0,
+		colors = { Color3.fromRGB(255, 240, 160), Color3.fromRGB(255, 168, 46), Color3.fromRGB(226, 62, 32) } },
+	{ key = "Trail_Galaxy", type = "Trail", name = "Galaxy Trail", emoji = "\u{1F30C}", priceDiamonds = 1000, priceRobux = 199, productId = 0,
+		colors = { Color3.fromRGB(126, 84, 255), Color3.fromRGB(70, 132, 255), Color3.fromRGB(236, 108, 220) } },
 
 	-- Name Plates
 	{ key = "NamePlate_Gold", type = "NamePlate", name = "Golden Plate", emoji = "\u{1F7E8}", priceDiamonds = 50, priceRobux = 49, productId = 0, color = Color3.fromRGB(255, 215, 0) },

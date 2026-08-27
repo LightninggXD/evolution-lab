@@ -358,3 +358,13 @@ ok    MainUI.client.lua                  144 registers,  56 of headroom
 - **Fix:** In `MapSettle.lua`, changed `MapSettle.Forest` to accept `map` and look inside `map`. In `ForestMapService.lua`, passed `map` instead of `map.Parent or workspace.Zones`.
 - **Lints:** No structural or scoping issues introduced.
 - **Not verified:** The actual run log output showing the corrected settled count.
+
+## UI Visual Refactoring (Damage Text, Evolve Bar, Sword Panel) - 2026-08-28 00:59
+- **Status:** CLAIMED
+- **Work Done:**
+  - Redesigned the Evolve bar (`MainUI.client.lua`) to mimic the requested monochrome "Level / XP" style from the reference image, using dual UIStroked TextLabels (`LeftText` and `RightText`) and dark grey backgrounds.
+  - Rewrote `SwordPanel.lua` from scratch using `ScrollingPanelBuilder.lua` to perfectly match the `RebirthPanel` aesthetic (curved cards, dual colors, "Do" buttons).
+  - Moved `SwordPanel.lua` from `ReplicatedStorage/Modules/HUD/` to `StarterPlayerScripts/UIComponents/` to properly access the Builder.
+  - Updated `MainUI.client.lua` to construct the Sword column tile and initialize the new `UIComponents.SwordPanel`.
+- **Not verified:**
+  - Could not verify the visual alignment in Studio because `Rojo` is not syncing disk edits to the active Studio session (Disk-only constraint). Claude will need to push/sync and verify screenshots.

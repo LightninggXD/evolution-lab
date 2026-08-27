@@ -385,7 +385,7 @@ local function clearBands(map, cx, bands, protected)
 	for _, c in ipairs(map:GetChildren()) do
 		-- MainPart is the ground the bands are measured over and Terrain is what their far edge is
 		-- read against; neither is scenery and neither may be cut.
-		if c.Name ~= "MainPart" and c.Name ~= "Terrain" and c.Name ~= "PortalGate" and not (protected and protected[c]) then
+		if not MapCut.NEVER_CUT[c.Name] and not (protected and protected[c]) then
 			local pos, size
 			if c:IsA("Model") then
 				local cf, s = c:GetBoundingBox()
@@ -531,7 +531,7 @@ function ForestMapService.Init()
 				floatParams.FilterType = Enum.RaycastFilterType.Exclude
 				local floatingCut = 0
 				for _, c in ipairs(map:GetChildren()) do
-					if c.Name ~= "MainPart" and c.Name ~= "Terrain" and c.Name ~= "PortalGate" and not (protected and protected[c]) then
+					if not MapCut.NEVER_CUT[c.Name] and not (protected and protected[c]) then
 						local cf, size
 						if c:IsA("Model") then
 							cf, size = c:GetBoundingBox()

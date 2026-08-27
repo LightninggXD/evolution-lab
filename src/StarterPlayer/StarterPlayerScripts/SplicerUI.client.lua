@@ -648,7 +648,13 @@ Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 	refresh()
 end)
 
-Remotes.SpliceResult.OnClientEvent:Connect(function(payload)
+-- WAITED FOR, NOT INDEXED. `SpliceResult` is created inside `SplicerService.Init`, which runs late in
+-- ServerMain -- after the whole world is laid. A client that finished loading first indexes a
+-- remote that is not there yet and this line THROWS, taking the rest of this script with it.
+-- Measured on a cold Play 2026-08-27: `SpliceResult is not a valid member of Folder
+-- "ReplicatedStorage.Remotes"`. It wins the race on a warm server and loses it on a cold one,
+-- which is the worst shape a bug can have.
+Remotes:WaitForChild("SpliceResult").OnClientEvent:Connect(function(payload)
 	if type(payload) ~= "table" then return end
 	if payload.ok then
 		task.spawn(reveal, payload)

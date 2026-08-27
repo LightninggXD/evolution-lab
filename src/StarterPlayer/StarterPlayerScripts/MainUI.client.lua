@@ -194,18 +194,60 @@ local evolveStageLabel = UITheme.Label(evolveFrame, {
 	zIndex = 10,
 })
 
-local progressBarBg, progressBarFill, evolveProgressLabel = UITheme.ProgressBar(evolveFrame, {
-	name = "EvolveBar",
-	size = UDim2.new(1, 0, 0, 34),
-	position = UDim2.new(0.5, 0, 0, 34),
-	anchorPoint = Vector2.new(0.5, 0),
-	color = UITheme.Color.Green,
-	text = "LV 1  \u{2022}  0 / 50 XP",
-	-- 22 -> 20: this caption carries three clauses now (level, evolve XP, the rebirth door) where it
-	-- used to carry one, and `themeLabel` CLIPS rather than shrinking past its own 14 px floor.
-	maxTextSize = 20,
-	zIndex = 4,
-})
+local progressBarBg = Instance.new("Frame")
+progressBarBg.Name = "EvolveBar"
+progressBarBg.Size = UDim2.new(1, 0, 0, 34)
+progressBarBg.Position = UDim2.new(0.5, 0, 0, 34)
+progressBarBg.AnchorPoint = Vector2.new(0.5, 0)
+progressBarBg.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+progressBarBg.ZIndex = 4
+progressBarBg.Parent = evolveFrame
+local bgStroke = Instance.new("UIStroke")
+bgStroke.Color = Color3.fromRGB(0, 0, 0)
+bgStroke.Thickness = 3
+bgStroke.Parent = progressBarBg
+
+local progressBarFill = Instance.new("Frame")
+progressBarFill.Name = "Fill"
+progressBarFill.Size = UDim2.new(0, 0, 1, 0)
+progressBarFill.BackgroundColor3 = Color3.fromRGB(150, 150, 150)
+progressBarFill.ZIndex = 4
+progressBarFill.Parent = progressBarBg
+
+local leftText = Instance.new("TextLabel")
+leftText.Name = "LeftText"
+leftText.Size = UDim2.new(0.5, -10, 1, 0)
+leftText.Position = UDim2.new(0, 10, 0, 0)
+leftText.BackgroundTransparency = 1
+leftText.Text = "Level 1"
+leftText.Font = Enum.Font.FredokaOne
+leftText.TextSize = 24
+leftText.TextColor3 = Color3.fromRGB(255, 255, 255)
+leftText.TextXAlignment = Enum.TextXAlignment.Left
+leftText.ZIndex = 5
+leftText.Parent = progressBarBg
+local lStroke = Instance.new("UIStroke")
+lStroke.Color = Color3.fromRGB(0, 0, 0)
+lStroke.Thickness = 3
+lStroke.Parent = leftText
+
+local rightText = Instance.new("TextLabel")
+rightText.Name = "RightText"
+rightText.Size = UDim2.new(0.5, -10, 1, 0)
+rightText.Position = UDim2.new(0.5, 0, 0, 0)
+rightText.BackgroundTransparency = 1
+rightText.Text = "0 / 50 XP"
+rightText.Font = Enum.Font.FredokaOne
+rightText.TextSize = 24
+rightText.TextColor3 = Color3.fromRGB(255, 255, 255)
+rightText.TextXAlignment = Enum.TextXAlignment.Right
+rightText.ZIndex = 5
+rightText.Parent = progressBarBg
+local rStroke = Instance.new("UIStroke")
+rStroke.Color = Color3.fromRGB(0, 0, 0)
+rStroke.Thickness = 3
+rStroke.Parent = rightText
+
 
 local evolveButton = UITheme.Button(evolveFrame, {
 	name = "EvolveButton",
@@ -1467,7 +1509,14 @@ end
 -- at all. Everything the module reads off `hud` -- getData, screenGui, PANEL_ANCHOR, registerPanel,
 -- toggleOnly, columnTile, panelClose -- is filled above this point; nothing it uses is below it,
 -- which is the rule in `docs/SPLIT.md` §3.
-require(RS.Modules:WaitForChild("HUD"):WaitForChild("SwordPanel"))(hudRefs)
+
+local swordButton = columnTile("L", 5, "\u{2694}\u{FE0F}", "Sword", UITheme.Color.Gold, "BUY!", UITheme.Color.Green)
+swordButton.MouseButton1Click:Connect(function()
+	local SwordPanel = require(script.Parent.UIComponents.SwordPanel)
+	SwordPanel.Init(screenGui)
+	SwordPanel.Toggle()
+end)
+
 
 -- ===== The level bar (32.7) =====
 --
@@ -3875,7 +3924,8 @@ local function refreshUI()
 	if step.isMax then
 		evolveButton.Text = "MAX EVOLUTION REACHED"
 		progressBarFill.Size = UDim2.new(1, 0, 1, 0)
-		evolveProgressLabel.Text = ("LV %d  \u{2022}  MAX STAGE"):format(hudLevel)
+		leftText.Text = "Level " .. hudLevel
+		rightText.Text = "MAX STAGE"
 		setButtonColor(evolveButton, UITheme.Color.Locked)
 	else
 		-- ONE BAR, ONE CURRENCY. This used to draw `math.min(dnaPct, xpPct)` and then had to work out
@@ -3885,8 +3935,15 @@ local function refreshUI()
 		-- the label can finally be the same fact.
 		local xpPct = step.xpCost > 0 and math.clamp((data.XP or 0) / step.xpCost, 0, 1) or 1
 		progressBarFill.Size = UDim2.new(xpPct, 0, 1, 0)
-		evolveProgressLabel.Text = ("LV %d  \u{2022}  %s / %s XP"):format(
-			hudLevel, formatNumber(data.XP or 0), formatNumber(step.xpCost))
+		leftText.Text = "Level " .. hudLevel
+		-- `step.xpCost`, NOT `xpRequired`. The 2026-08-28 restyle typed a name that exists nowhere
+		-- in this file, and `UIKit.formatNumber` opens with `math.floor(n)` -- so this line THREW on
+		-- every refresh for every player below max stage, i.e. all of them, and took the remaining
+		-- ~80 lines of `refreshUI` with it: the evolve button's own caption and colour (below), the
+		-- upgrade rows, the shop prices. The HUD stopped updating and nothing named the cause.
+		-- ...and the UNIT is kept. The restyle dropped it, and a bare "0 / 50" beside a "Level 1"
+		-- reads as a second level counter; XP is the only gate on this bar (see DNAService).
+		rightText.Text = formatNumber(data.XP or 0) .. " / " .. formatNumber(step.xpCost) .. " XP"
 
 		-- WHAT THE PRESS BUYS, WHICH IS NOT ALWAYS A STAGE. Four presses in five hand over the next
 		-- skin and leave the body where it is; the fifth is the stage. Naming the stage on all five
@@ -4707,12 +4764,12 @@ require(RS.Modules:WaitForChild("HUD"):WaitForChild("ScrollAffordance"))(hudRefs
 -- ===== AND `SwordSlot` HAS GONE THE SAME WAY `QuickBuyRow` DID, FOR HER SAME REASON (33.26) =====
 --
 -- *"a sword se otvara npr sa 2 mesta"* -- the blade panel opened from two controls: the Sword tile
--- in the left column (built by `HUD/SwordPanel`) and this 470 x 62 card welded to the bottom edge.
+-- in the left column (built by `UIComponents/SwordPanel`) and this 470 x 62 card welded to the bottom edge.
 -- Two doors onto one panel is the exact objection that removed `QuickBuyRow` above, and this time
 -- the card was also the bottom quarter of the *"pola ekrana"* the centre column was eating.
 --
 -- WHAT IS GIVEN UP, STATED RATHER THAN LEFT TO BE FOUND: the always-on-screen readout of which
--- blade is equipped and what the next one costs. Nothing else changes -- `HUD/SwordPanel` still
+-- blade is equipped and what the next one costs. Nothing else changes -- `UIComponents/SwordPanel` still
 -- builds the tile, still owns `hud.showSwordPanel`, and still shows the whole ladder with its
 -- prices. `SwordSlot.lua` is left on disk and is now required by NOTHING, which is the same
 -- deliberate orphan `QuickBuyRow` has been since 32.7.

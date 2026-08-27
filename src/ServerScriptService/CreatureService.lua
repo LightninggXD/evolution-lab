@@ -4038,6 +4038,34 @@ function CreatureService.Init()
 	-- or somebody's pet as a rock to walk out of
 	refreshSceneryFilter()
 	ensureOutlinePool()
+
+	-- ===== IT HAS TO YIELD, AND UNTIL 2026-08-27 IT NEVER DID (34.13) =====
+	--
+	-- Measured on a fresh Play of the BETA place: this loop ran 434 creatures and then
+	--
+	--     ServerScriptService.CreatureService:2346: Script timeout: exhausted allowed execution time
+	--     ... meshRig -> buildRig -> spawnCreature -> Init -> ServerMain:191
+	--
+	-- The watchdog kills the THREAD, and the thread is ServerMain -- so every line of ServerMain
+	-- after 191 never ran. `workspace.Bosses` came up with 0 children and `Remotes` was 53 entries
+	-- short of the full set: no BossService, no RebirthService, no MinigameService, no
+	-- SplicerService, no AchievementService, no CosmeticService, no CommunityGoalService. Half the
+	-- game was silently absent and the only visible symptom was two client errors about remotes
+	-- that "are not a valid member of Remotes" -- i.e. the fault reads as a UI bug, ten screens away
+	-- from the loop that actually died.
+	--
+	-- ONE FRAME EVERY 25 RIGS is the whole fix. The watchdog measures unyielded execution, not wall
+	-- clock, so a `task.wait()` resets it; 1,550-odd creatures cost about 60 frames, i.e. a second
+	-- of a boot that already takes a minute to lay the world. Paced rather than per-zone because
+	-- one MAPPED zone alone spawns a camp roster large enough to blow the budget on its own.
+	local sinceYield = 0
+	local function pace()
+		sinceYield += 1
+		if sinceYield >= 25 then
+			sinceYield = 0
+			task.wait()
+		end
+	end
 	-- Fixed order rather than pairs(): a Lua table's iteration order is not stable, and the spawn
 	-- order decides which rigs land in the Creatures folder first -- worth keeping deterministic
 	-- so two servers of the same place look the same.
@@ -4067,6 +4095,7 @@ function CreatureService.Init()
 					spawnCreature(
 						Vector3.new(zone.offset + spawn.x, tier.size * 0.56, spawn.z),
 						spawn.tier, zone, spawn.layer)
+					pace()
 				end
 			end
 			continue
@@ -4079,6 +4108,7 @@ function CreatureService.Init()
 				-- its size below the body centre, which is where the 0.56 comes from.
 				local pos = Vector3.new(zone.offset + rel.X, TIERS[tierName].size * 0.56, rel.Z)
 				spawnCreature(pos, tierName, zone)
+				pace()
 			end
 		end
 
@@ -4107,6 +4137,7 @@ function CreatureService.Init()
 				spawnCreature(
 					Vector3.new(zone.offset + spot.rel, spot.y + TIERS[tierName].size * 0.56, spot.z),
 					tierName, zone, band.layer)
+				pace()
 			end
 		end
 	end

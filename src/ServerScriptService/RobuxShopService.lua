@@ -233,24 +233,6 @@ local function processReceipt(receiptInfo)
 
 	local product = getProductByPurchaseId(receiptInfo.ProductId)
 	if not product then
-		local cosmetic = nil
-		for _, c in ipairs(GameConfig.Cosmetics) do
-			if c.productId and c.productId > 0 and c.productId == receiptInfo.ProductId then
-				cosmetic = c
-				break
-			end
-		end
-		
-		if cosmetic then
-			data.CosmeticsOwned = data.CosmeticsOwned or {}
-			if data.CosmeticsOwned[cosmetic.key] then
-				return Enum.ProductPurchaseDecision.PurchaseGranted
-			end
-			data.CosmeticsOwned[cosmetic.key] = true
-			PlayerDataService.PushToClient(player)
-			return Enum.ProductPurchaseDecision.PurchaseGranted
-		end
-
 		-- NOT granted. This used to acknowledge the receipt so Roblox would stop retrying, which
 		-- means a product that exists on the Roblox dashboard but is missing or mistyped in
 		-- GameConfig.RobuxProducts took the player's Robux and handed back nothing, permanently and
@@ -316,6 +298,12 @@ local function processReceipt(receiptInfo)
 		data.TierUpTokens = (data.TierUpTokens or 0) + product.grantTierUps
 	end
 
+	-- THE VANITY ROWS, and this branch is the reason a second one must never be written above.
+	-- `getProductByPurchaseId` searches `GameConfig.Cosmetics` as well as `RobuxProducts`, so a
+	-- cosmetic receipt arrives here with `product` set and never reaches the `not product` path --
+	-- a grant written up there is unreachable, and would also skip the save-before-acknowledge and
+	-- the Notify below. Granting by KEY into a boolean set is idempotent, which is what a retried
+	-- receipt needs.
 	if product.type and (product.type == "Trail" or product.type == "NamePlate" or product.type == "Emote") then
 		data.CosmeticsOwned = data.CosmeticsOwned or {}
 		data.CosmeticsOwned[product.key] = true

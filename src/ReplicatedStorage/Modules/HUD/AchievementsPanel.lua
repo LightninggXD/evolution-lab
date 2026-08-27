@@ -35,7 +35,11 @@ return function(hud)
 	scroll.Size = UDim2.new(1, -24, 1, -24)
 	scroll.Position = UDim2.new(0, 12, 0, 12)
 	scroll.BackgroundTransparency = 1
-		scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	-- Left at 6 and NOT coloured here: `HUD/ScrollAffordance` polishes every ScrollingFrame
+	-- under the HUD's ScreenGui, including one built lazily on first open (it listens to
+	-- DescendantAdded), and it is what gives this bar its Outline colour and the fade.
+	scroll.ScrollBarThickness = 6
+	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 	scroll.Parent = panel
 	
 	local listLayout = Instance.new("UIListLayout")
@@ -48,7 +52,11 @@ return function(hud)
 	for i, ach in ipairs(Achievements) do
 		local row = Instance.new("Frame")
 		row.Name = ach.key
-		row.Size = UDim2.new(1, -12, 0, 60)
+		-- 76, NOT 60. The reward line below needs a line of its own: at 60 it was parented to the
+		-- 80-wide Claim button and hung 4 px off the bottom of the card, so `Title: "Slayer"`
+		-- rendered as `Title:` -- the title's NAME is the entire reward, and it was the half that
+		-- got cut. The canvas step below moves with this number.
+		row.Size = UDim2.new(1, -12, 0, 76)
 		row.LayoutOrder = i
 		row.Parent = scroll
 		styleCard(row, Color3.fromRGB(240, 244, 250), UDim.new(0, 8), 2)
@@ -73,7 +81,9 @@ return function(hud)
 		
 		local progBg = Instance.new("Frame")
 		progBg.Size = UDim2.new(0.2, 0, 0, 12)
-		progBg.Position = UDim2.new(0.65, 0, 0.5, -6)
+		-- 0.5 was the middle of a 60-tall row; the row is 76 now and carries the reward line
+		-- at the bottom, so the bar and the button hold the middle of the TOP 56.
+		progBg.Position = UDim2.new(0.65, 0, 0, 28)
 		progBg.Parent = row
 		styleCard(progBg, Color3.fromRGB(220, 224, 230), UDim.new(0, 6), 0)
 		
@@ -97,7 +107,7 @@ return function(hud)
 		
 		local btn = Instance.new("TextButton")
 		btn.Size = UDim2.new(0, 80, 0, 36)
-		btn.Position = UDim2.new(1, -92, 0.5, -18)
+		btn.Position = UDim2.new(1, -92, 0, 16)
 		btn.Parent = row
 		styleButton(btn, UITheme.Color.Blue, "Claim")
 		
@@ -106,13 +116,18 @@ return function(hud)
 		elseif ach.reward.diamonds then rewardTxt = "+" .. formatNumber(ach.reward.diamonds) .. " Diamonds"
 		elseif ach.reward.title then rewardTxt = 'Title: "' .. ach.reward.title .. '"' end
 		
+		-- ON THE ROW, not on the button. As a child of an 80-wide button it was 80 px wide and
+		-- clipped every reward longer than "+50 Diamonds"; `TextBounds` would have reported it as
+		-- fitting, because bounds measure the truncation ([[roblox-textbounds-reports-the-truncation]]).
+		-- Right-aligned so it lines up under the Claim button, which is the thing it describes.
 		local rewLbl = Instance.new("TextLabel")
-		rewLbl.Size = UDim2.new(1, 0, 0, 14)
-		rewLbl.Position = UDim2.new(0, 0, 1, 2)
+		rewLbl.Size = UDim2.new(1, -24, 0, 16)
+		rewLbl.Position = UDim2.new(0, 12, 1, -20)
 		rewLbl.BackgroundTransparency = 1
+		rewLbl.TextXAlignment = Enum.TextXAlignment.Right
 		rewLbl.Text = rewardTxt
-		rewLbl.Parent = btn
-		themeLabel(rewLbl, 12, Color3.fromRGB(120, 130, 150))
+		rewLbl.Parent = row
+		themeLabel(rewLbl, 13, Color3.fromRGB(120, 130, 150))
 		
 		btn.MouseButton1Click:Connect(function()
 			local data = hud.getData and hud.getData()
@@ -189,7 +204,7 @@ return function(hud)
 			end
 		end
 		
-		scroll.CanvasSize = UDim2.new(0, 0, 0, count * 68 + 8)
+		scroll.CanvasSize = UDim2.new(0, 0, 0, count * 84 + 8)
 	end
 	
 	Remotes.DataUpdate.OnClientEvent:Connect(function()

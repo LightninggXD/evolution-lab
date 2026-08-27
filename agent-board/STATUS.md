@@ -4,7 +4,7 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 `CLAUDE-REVIEW.md`. Any hand edit here is overwritten on the next render.
 
 ```
-[####################--------] 70%   14 of 20 steps verified
+[##################----------] 64%   14 of 22 steps verified
 ```
 
 | | Step | State | Owner | Last claim | Last review |
@@ -29,6 +29,8 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [?] | **S18** 34.2 -- the vanity layer sells three trails that nothing draws, and its equip lets a client name the attribute | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T22:18 | - |
 | [?] | **S19** 34.4 -- the community counter is a complete cross-server system that nothing has ever incremented | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T22:18 | - |
 | [?] | **S20** 34.5-34.8: four features were written to disk and NOBODY has ever read them back | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T22:18 | - |
+| [?] | **S21** 34.11 (Missing Forest PortalGate) | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T23:05 | - |
+| [?] | **S22** 34.12 (ForestMapService Floating Props) | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T23:05 | - |
 
 ## Waiting on CLAUDE -- claimed, unreviewed
 
@@ -37,4 +39,6 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 - **S18** 34.2 -- the vanity layer sells three trails that nothing draws, and its equip lets a client name the attribute -- claimed 2026-08-27T22:18
 - **S19** 34.4 -- the community counter is a complete cross-server system that nothing has ever incremented -- claimed 2026-08-27T22:18
 - **S20** 34.5-34.8: four features were written to disk and NOBODY has ever read them back -- claimed 2026-08-27T22:18
+- **S21** 34.11 (Missing Forest PortalGate) -- claimed 2026-08-27T23:05
+- **S22** 34.12 (ForestMapService Floating Props) -- claimed 2026-08-27T23:05
 

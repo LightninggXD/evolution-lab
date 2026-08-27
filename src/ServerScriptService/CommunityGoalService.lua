@@ -165,8 +165,13 @@ function CommunityGoalService.Init()
 				data.GlobalGoalsClaimed[windowKey] = true
 				if reward.diamonds then
 					data.Diamonds = (data.Diamonds or 0) + reward.diamonds
+					-- TimedReward, NOT `Tx.EventReward` -- there is no such field. `Telemetry.Tx` carries
+					-- the five members of Enum.AnalyticsEconomyTransactionType and none of them is named
+					-- that, so this passed nil into the `table.concat` inside Telemetry.Economy and THREW --
+					-- unprotected, so in PayoutAll it aborted the loop after the first player. Harmless
+					-- while AddProgress had no callers; 34.4 has just given it three.
 					Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, reward.diamonds,
-						data.Diamonds, Telemetry.Tx.EventReward, "GlobalGoal")
+						data.Diamonds, Telemetry.Tx.TimedReward, "GlobalGoal")
 				end
 				PlayerDataService.PushToClient(player)
 			end
@@ -202,7 +207,7 @@ function CommunityGoalService.PayoutAll()
 				if reward.diamonds then
 					data.Diamonds = (data.Diamonds or 0) + reward.diamonds
 					Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, reward.diamonds,
-						data.Diamonds, Telemetry.Tx.EventReward, "GlobalGoal")
+						data.Diamonds, Telemetry.Tx.TimedReward, "GlobalGoal")
 				end
 				PlayerDataService.PushToClient(player)
 			end

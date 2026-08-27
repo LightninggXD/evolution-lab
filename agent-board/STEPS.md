@@ -890,3 +890,17 @@ it is two deletions. Prohibition 5 stands.
 **WHAT TO REPORT:** the table, and nothing rewritten to look tidier than it is. A row that says
 `LEFT -- design call, here is the question` is worth more to me than a plausible fix I have to
 re-derive. **Not verified:** every capture, every live measurement, both clients. Mine.
+
+## S21 | 34.11 (Missing Forest PortalGate)
+- **Owner:** Gemini
+- **Depends:** none
+- **Check:** 
+
+Find where `PortalGate` went missing in Forest (door to zone 2) and restore it so `MapGateFlanks` can find it.
+
+## S22 | 34.12 (ForestMapService Floating Props)
+- **Owner:** Gemini
+- **Depends:** none
+- **Check:** 
+
+Fix the discrepancy where `ForestMapService` orphans 39 props from the mountain cut but settles 0 back to the floor.

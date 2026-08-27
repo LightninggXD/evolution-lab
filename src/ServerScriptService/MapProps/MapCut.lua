@@ -28,6 +28,22 @@
 
 local MapCut = {}
 
+-- ===== THE NAMES NO CUT MAY EVER TAKE (34.11) =====
+--
+-- Forest came back from its map pass with **zero** `PortalGate` parts while every one of the other
+-- twenty zones still had two -- i.e. the door out of the starting zone had been demolished by the
+-- passes that dress it. Both loops here and both loops in `ForestMapService` were each carrying
+-- their own two-name test (`MainPart`, `Terrain`) and none of them knew about the door.
+--
+-- So the exception list is ONE list, here, and every cutting loop reads it. The four extra names
+-- are `ForestMapService.NEVER_DROP`'s, for its reason, which is worth repeating where the cutting
+-- actually happens: getting any of them wrong is a zone with no floor or a portal that leads
+-- nowhere. A gate is furniture that a road may be re-routed around; it is never scenery.
+MapCut.NEVER_CUT = {
+	MainPart = true, Terrain = true,
+	PortalGate = true, Floor = true, ZonePad = true, SpawnLocation = true,
+}
+
 -- Foliage, as opposed to the village. The source names its greenery two ways: by name
 -- (`Pine Tree 02`, `Bush2`, `Rock 01`, `Trunk 01`) and by shape -- 60 of the trees in the northern
 -- wood are called nothing but `Model`, and what identifies them is that every part they own is
@@ -92,7 +108,7 @@ function MapCut.Lane(map, cx, lane, protected)
 	if len2 <= 0 then return 0, stay end
 
 	for _, c in ipairs(map:GetChildren()) do
-		if c.Name ~= "MainPart" and c.Name ~= "Terrain" then
+		if not MapCut.NEVER_CUT[c.Name] then
 			-- Initialised, not forward-declared. A bare `local a, b` is the exact shape
 			-- `tools/luanames.py` documents nine false positives of, and `JungleLayout` carries
 			-- the same note for the same reason: one more line a future reader has to decide is
@@ -181,7 +197,7 @@ function MapCut.LaneFootprint(map, cx, lane, clearHalf, protected, minHeight)
 	local nx, nz = math.abs(-dz / len), math.abs(dx / len)
 
 	for _, c in ipairs(map:GetChildren()) do
-		if c.Name ~= "MainPart" and c.Name ~= "Terrain" and not (protected and protected[c])
+		if not MapCut.NEVER_CUT[c.Name] and not (protected and protected[c])
 			and MapCut.IsFoliage(c) then
 			local pos, size = nil, nil
 			if c:IsA("Model") then

@@ -183,7 +183,11 @@ return function(hud)
 		for key, refs in pairs(rows) do
 			if owned[key] then
 				refs.btnDiamonds.Visible = false
-				refs.btnRobux.Visible = false
+				-- NIL WHENEVER THE ROW HAS NO REAL PRODUCT. 34.2 stopped drawing the Robux button
+				-- while `productId == 0` (which is every row today) and left this line reading
+				-- `.Visible` off the nil it now holds -- an error on every refresh, i.e. on every
+				-- DataUpdate and every open, which took the whole panel down.
+				if refs.btnRobux then refs.btnRobux.Visible = false end
 				refs.btnEquip.Visible = true
 				
 				if worn[refs.c.type] == key then
@@ -195,7 +199,7 @@ return function(hud)
 				end
 			else
 				refs.btnDiamonds.Visible = true
-				refs.btnRobux.Visible = true
+				if refs.btnRobux then refs.btnRobux.Visible = true end
 				refs.btnEquip.Visible = false
 				
 				if (data.Diamonds or 0) >= refs.c.priceDiamonds then

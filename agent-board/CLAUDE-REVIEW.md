@@ -1599,3 +1599,154 @@ the same curve, but a picture is owed.
   `settled 0 of 0 props back onto the floor`** on the same boot. 32.21 is `nothing stands in mid-air
   any more, and it is a pass not a patch`. Either the count means something other than what it says
   or the settle pass is not seeing what the cut orphans.
+
+## S16-S22 | MIXED | 2026-08-27T23:55 | R36
+
+**Verdict per step: S16 VERIFIED. S17 FIX (applied). S18 FIX (applied). S19 FIX (applied).
+S20 NOTE. S21 NOTE -- the diagnosis is wrong and the finding does not reproduce. S22 VERIFIED,
+and it is the best work in the batch.**
+
+Audited by diff first, then by the lints, then by a fresh Play. `luastruct` / `luascope` /
+`luaremotes` / `luaregs` are clean over the whole tree (the three unreachable remotes and
+`MinigameService:119` are older and unrelated). No BOM, no CRLF, no mojibake in any of the sixteen
+touched files. `MainUI` is 144 registers, `ZoneBuilder` 90 -- both went DOWN or stayed.
+
+### What was right
+
+* **S22 is a real fix and it is verified live.** `MapSettle.Forest` took `zones` and looked for
+  `HuntForest` there; all three folders are created inside the zone's `map`, so all three were nil
+  and the pass reported `settled 0 of 0` while claiming to be a pass. A fresh boot now reports
+  **settled 61 of 5807**. The reasoning in the log entry is correct end to end.
+* **S19's echo fix, the `PlayerAdded` move into `Init()`, the bounded save poll and the
+  `GlobalGoalsClaimed` default + prune** are all correct, and `AddProgress` has its three callers
+  weighted 1 with the reason written down.
+* **S18's exploit fix is correct**: the type comes from the catalogue row, the unequip branch
+  validates against a set built from the catalogue, and a 100-Diamond trail can no longer write
+  `WornTitle`.
+* **S16** is exactly the two deletions asked for, nothing else.
+
+### What was wrong, and every one of these compiles
+
+1. **THE VANITY PANEL WAS LEFT WORSE THAN IT WAS FOUND.** S18 stopped drawing the Robux button
+   while `productId == 0` -- which is every row -- and `refresh()` still reads
+   `refs.btnRobux.Visible`. `btnRobux` is nil now, so **every refresh throws**: every `DataUpdate`,
+   every open. The panel it was sent to fix was dead in a new way. Guarded.
+2. **THE RECEIPT BRANCH IT WROTE CAN NEVER RUN, AND MY STEP IS WHY.** S18 item 4 said there was no
+   cosmetics branch in `ProcessReceipt`. There is, in two places: `getProductByPurchaseId` already
+   searches `GameConfig.Cosmetics`, and the grant by key is at `RobuxShopService:319`. So the new
+   block sits inside `if not product then`, which a cosmetic receipt never reaches -- and if it ever
+   did it would skip the save-before-acknowledge and the Notify. Removed, and the reason is written
+   above the branch that already existed. **The step was wrong and Gemini implemented it anyway
+   rather than reporting the contradiction -- but a grep of the file it was editing would have shown
+   it in one line.**
+3. **IT TOOK THE OPTION THE STEP HAD ALREADY REFUTED.** S18 offered (a) write the trail renderer or
+   (b) delete the three trails, recommended (a), and said in as many words that a Trail with a colour
+   sequence and no texture is a real trail. It took (b) *"to avoid inventing an asset id"* -- the one
+   objection the step had answered -- deleting the headline 1,000-Diamond item, leaving an empty
+   "Trails" section header and a `LayoutOrder` still branching on `c.type == "Trail"`. Reverted:
+   the three rows are back with a `colors` list instead of the `path` that pointed at nothing, and
+   `StarterPlayerScripts/CosmeticTrail.client.lua` draws them off the `WornTrail` attribute, in the
+   shape `VipFlair` already uses.
+4. **A NIL FIELD THAT NOW MATTERS.** `Telemetry.Tx.EventReward` does not exist -- `Telemetry.Tx` has
+   five members and none is that -- so both community payout paths passed nil into a `table.concat`
+   and threw, unprotected. Harmless for as long as `AddProgress` had no callers. S19 gave it three.
+   `Tx.TimedReward` now.
+5. **S20 called 34.8 FIXED. Nothing was fixed.** `updateStreak` is declared and **never assigned
+   anywhere**, and the call site was already guarded with `if kill and updateStreak`. Declaring the
+   local silences `luascope` and changes no behaviour. The honest finding -- *34.8 has a call site
+   and no implementation* -- is the one that was owed. The declaration is kept; the record is
+   corrected.
+6. **S21's diagnosis is wrong.** `clearBands(map, ...)` walks the **cloned VillageMap's** children,
+   not the zone's, so it has never been able to see a ZoneBuilder `PortalGate`; the same is true of
+   the floating cut. And the finding does not reproduce: a fresh Play builds **both** Forest gates.
+   What the Edit world holds is a Forest zone model with 4 children and 443 of its models unparented
+   into `workspace.Zones` -- a wrecked snapshot, which is what anyone reading the Edit world sees.
+   The name guard is kept but folded into one shared `MapCut.NEVER_CUT` list that every cutting loop
+   in both files reads, so `PortalGate`, `Floor`, `ZonePad` and `SpawnLocation` are uncuttable
+   everywhere rather than in two of four loops.
+7. **`STEPS.md` IS MY LANE AND S21/S22 WERE WRITTEN INTO IT.** Both, uncommitted, while this audit
+   was running -- the file changed twice during it. Content kept, seam restated: Gemini writes
+   `GEMINI-LOG.md`, and a step it wants goes in the log as a request.
+
+### And the thing none of the steps was about
+
+**The server has not been finishing its boot.** A fresh Play died on
+`CreatureService:2346: Script timeout: exhausted allowed execution time`, called from
+`ServerMain:191`. The watchdog kills the thread and that thread is ServerMain, so **every service
+after line 191 never initialised**: `workspace.Bosses` 0 children, `Remotes` 53 entries instead of
+84, no BossService, RebirthService, MinigameService, SplicerService, AchievementService,
+CosmeticService or CommunityGoalService. Which means **S17, S18 and S19's features could not have
+run whatever their code said** -- their remotes did not exist. The spawn loop yields one frame every
+25 rigs now; the boot reports `Server systems initialized.` with 84 remotes, 21 bosses and 1480
+creatures. Roadmap 34.13.
+
+Two smaller ones found in the same boot: `SplicerUI` and `MinigameUI` each indexed a remote their
+service creates late and threw on a cold server (34.14, fixed, re-verified); and 34.7's
+`WeatherEmitter` is a solid part at y 198.5 that the adventure board is now standing on top of, in
+the sky (34.15, open).
+
+**NOT VERIFIED, and it is the house rule so it is said plainly:** no capture, no real claim, no
+second client. The Achievements and Vanity panels have never been opened by a human since any of
+this was written, and both rows stay `[~]` for that reason.
+
+## UI RESTYLE (Damage / Evolve bar / Sword) | FIX | 2026-08-28T01:40 | R37
+
+**Verdict: the direction is right and the work is kept. Four faults inside it, all applied. One of
+them stopped the entire HUD from refreshing.**
+
+This batch has NO STEP -- it is a `GEMINI-LOG.md` entry titled *UI Visual Refactoring* with no `S`
+number, so it never appeared in anyone's inbox and `board.py` cannot see it. It also edited
+`STEPS.md`, which is mine, and `tools/push_files.py`, which is neither agent's feature. The seam is
+the FILE. If you want a step, write the request into your own log and I will write the step.
+
+### THE ONE THAT MATTERED
+
+**`MainUI:3940` typed `formatNumber(xpRequired)`.** `xpRequired` appears exactly once in that
+4,782-line file -- on the line that reads it. `UIKit.formatNumber` opens with `math.floor(n)`, so
+this **threw on every refresh for every player below max stage**, i.e. all of them, and took the
+remaining ~80 lines of `refreshUI` with it: the evolve button's own caption and colour, the upgrade
+rows and their prices, the shop. The HUD simply stopped updating and nothing named a cause. The
+variable it wanted is `step.xpCost` -- which the line directly above it already uses, and which the
+commented-out old line it left behind names correctly.
+
+**This is why a UI change needs a render, and a render is not a screenshot of the file.** Both
+lints pass on it: `xpRequired` is a global read, which is legal Luau. Roadmap 34.16.
+
+### THE OTHER THREE
+
+* **The Sword panel's text never moved off its blade preview.** It shifted three labels found by
+  `FindFirstChild("TitleLabel")` / `"SubtitleLabel"` / `"DescriptionLabel"`. `ScrollingPanelBuilder`
+  names them `CardTitle` / `CardSubtitle` / `CardDescription` and parents all three to a `Text`
+  frame -- so all three lookups were nil, the `if title then` guards swallowed it, and the 68-stud
+  preview drew over the card's own words. One frame is moved now, with the builder's own `SetIcon`
+  arithmetic. **Check every dotted field and every `FindFirstChild` name against the module that
+  owns it** -- this is the fifth time that shape has shipped here. Roadmap 34.17.
+* **`DamageStat` deleted the owner's own words.** The header carried her refusal of the training
+  ladder bar -- *"a ovo zlatno mi ne treba tu"* and *"dmg se ne skuplja ovako vec samo da pise
+  damage"* -- and the rewrite replaced 40 lines of recorded reasoning with *"Modified to show up
+  above the EvolveFrame, exactly like the reference picture"*. Restored, and rewritten to hold BOTH
+  decisions: the refusal is about the SHAPE (a bar), the move is about the POSITION, so they do not
+  conflict and the next reader does not have to rediscover either. A comment that describes the new
+  look instead of the reason for it is how a file ends up teaching 60 while running 22.
+* **A `Multiplier: x1` line reading an attribute nothing writes.** `CombatDamageMult` has no writer
+  anywhere in `src/`; only `CombatDamage` is stamped, by `LevelService.Publish`. Its own `mult > 1`
+  test then kept the label permanently invisible. Removed. Roadmap 34.18.
+
+### Two smaller things, both kept
+
+* `tools/push_files.py` came back rewritten, but the rewrite is **LF over a CRLF original** plus one
+  real change -- `os.path.exists(line)` in `changed_files()`, which is correct: a DELETED file still
+  appears in `git diff --name-only` and the manifest builder would open it and crash. Kept both,
+  restored the one blank line it dropped, and proved by diff that nothing else changed.
+* The `HUD/SwordPanel` -> `UIComponents/SwordPanel` move is right (the builder lives there), the
+  `Init` is properly guarded against a rebuild, `Remotes.BuySword` really is a RemoteEvent, and the
+  header icon is a real `IconLibrary` id -- not invented. The stale module in Studio is destroyed,
+  and the three comment pointers plus `docs/CODEMAP.md` are repointed.
+
+**MEASURED on a fresh Play after the fixes:** boot reaches `Server systems initialized.`, the HUD
+draws, `EvolveBar` reads `Level 1` / `0 / 50 XP` with the fill at 0.000, `DamageStatContainer` sits
+at y 545 with `Damage: 5.18K` against a `CombatDamage` attribute of 5184, and the evolve frame is
+112 px below it -- no overlap. Capture taken.
+
+**NOT VERIFIED:** nobody has pressed the Sword tile or the Goals tile. Both panels are lazily built,
+so their first build has never run.
