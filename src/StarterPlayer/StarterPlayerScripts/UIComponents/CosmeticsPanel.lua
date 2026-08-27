@@ -118,7 +118,17 @@ return function(hud)
 		btnDiamonds.Size = UDim2.new(0, 110, 0, 40)
 		btnDiamonds.Position = UDim2.new(1, -240, 0.5, -20)
 		btnDiamonds.Parent = row
-		styleButton(btnDiamonds, UITheme.Color.Aqua, c.priceDiamonds .. " Gems")
+		-- ===== `styleButton`'s THIRD ARGUMENT IS A RADIUS, NOT A CAPTION =====
+		--
+		-- `UIKit.styleButton(btn, baseColor, radius, thickness)`. All three buttons on this row were
+		-- authored as `styleButton(btn, colour, "100 Gems")`, so the price was handed to `UDim.new`
+		-- as a corner radius -- which Luau ACCEPTS silently, measured in Studio -- and the caption was
+		-- never set at all. Every buy button in the vanity shop read `Button`, Roblox's default
+		-- TextButton text, so the whole shop showed no prices. Only Equip/Unequip looked right, and
+		-- only because `refresh` writes their `.Text` directly a few lines down.
+
+		styleButton(btnDiamonds, UITheme.Color.Aqua, UDim.new(0, 10))
+		btnDiamonds.Text = "\u{1F48E} " .. formatNumber(c.priceDiamonds)
 		
 		local btnRobux = nil
 		if c.productId and c.productId > 0 then
@@ -126,7 +136,8 @@ return function(hud)
 			btnRobux.Size = UDim2.new(0, 110, 0, 40)
 			btnRobux.Position = UDim2.new(1, -120, 0.5, -20)
 			btnRobux.Parent = row
-			styleButton(btnRobux, UITheme.Color.Mint, "R$ " .. c.priceRobux)
+			styleButton(btnRobux, UITheme.Color.Mint, UDim.new(0, 10))
+			btnRobux.Text = "R$ " .. c.priceRobux
 		else
 			btnDiamonds.Position = UDim2.new(1, -120, 0.5, -20)
 		end
@@ -136,7 +147,8 @@ return function(hud)
 		btnEquip.Position = UDim2.new(1, -170, 0.5, -20)
 		btnEquip.Visible = false
 		btnEquip.Parent = row
-		styleButton(btnEquip, UITheme.Color.Purple, "Equip")
+		styleButton(btnEquip, UITheme.Color.Purple, UDim.new(0, 10))
+		btnEquip.Text = "Equip"
 		
 		btnDiamonds.MouseButton1Click:Connect(function()
 			local rf = Remotes:WaitForChild("CosmeticPurchase", 10)

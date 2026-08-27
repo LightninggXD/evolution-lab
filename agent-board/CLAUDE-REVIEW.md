@@ -1750,3 +1750,42 @@ at y 545 with `Damage: 5.18K` against a `CombatDamage` attribute of 5184, and th
 
 **NOT VERIFIED:** nobody has pressed the Sword tile or the Goals tile. Both panels are lazily built,
 so their first build has never run.
+
+## THE PANELS, OPENED | NOTE | 2026-08-28T02:20 | R38
+
+**R36 and R37 both closed with "nobody has pressed the tile". I pressed them. Three more faults,
+none of which any lint or any amount of reading finds, and one of them made the whole vanity shop
+unsellable.**
+
+* **EVERY BUY BUTTON IN THE VANITY SHOP READ `Button`.** `UIKit.styleButton(btn, baseColor,
+  radius, thickness)` -- the third argument is a **radius**. All three buttons on a cosmetic row
+  were authored `styleButton(btn, colour, "100 Gems")`, so the price string went to `UDim.new` as a
+  corner radius and the caption was never set at all. **`UDim.new(0, "100 Gems")` does not throw --
+  measured live, Luau accepts it silently** -- which is why nothing anywhere reported this. Only
+  Equip/Unequip looked right, and only because `refresh` writes their `.Text` on every repaint. The
+  same call shape sat at `AchievementsPanel:112`. Roadmap 34.22, both fixed, and the rows now read
+  `💎 300`, `💎 1.00K`, `💎 250`, `💎 800` with the unaffordable ones dimmed against 208 diamonds.
+* **The Achievements reward line was clipped to nothing on the rows where it WAS the reward.** A
+  child of the 80-wide Claim button, hanging 4 px past the bottom of a 60-tall card: `Title:
+  "Slayer"` rendered as `Title:`. Row 76, canvas step 84, right-aligned line of its own. Roadmap
+  34.19.
+* **The damage readout drew over every open panel.** `ZIndexBehavior` is `Sibling`, the container
+  was authored at Z 50, every panel in this HUD is 20. Z 5 now -- the wallet's band. Roadmap 34.21.
+* And the Sword board drew its crossed blades twice, `HeaderIcon` plus the same glyph typed into
+  `Title`. Roadmap 34.20.
+
+**WHAT ALL FOUR HAVE IN COMMON: they are only visible in a render, and three of them were in code
+that had already been reviewed twice.** `GEMINI.md` prohibition 8 says never report a UI change
+without a screen capture. It is not enough -- a capture of a panel nobody opened shows a tile. The
+rule that would have caught all four is **press the button**.
+
+**MEASURED, live, after the fixes:** boot reaches `Server systems initialized.`; the Goals board
+paints 47 rows with `Title: "Slayer"` / `"Apex"` / `"Destroyer"` and `+1.00K DNA` / `+50 Diamonds`
+in full; the Sword board builds nine cards with the text clear of the blade previews; the Vanity
+board shows all three sections with real prices; and **the Rainbow Trail is on the body** -- a real
+`Trail` between `CosmeticTrailTop` and `CosmeticTrailBase`, 3.20 studs apart at BodyScale 1, six
+colour keypoints from (255,76,76) to (178,118,255), off a `WornTrail` attribute of `Trail_Rainbow`.
+Four captures.
+
+**STILL NOT VERIFIED:** no second client has seen the trail or a title, no claim has been pressed,
+no cross-server tick. 34.1, 34.2 and 34.4 stay `[~]` for those three reasons and no others.
