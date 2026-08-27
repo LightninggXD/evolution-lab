@@ -80,23 +80,33 @@ return function(hud)
 		-- time a push arrived mid-fight.
 		local reps = tonumber(player:GetAttribute("TrainingReps"))
 		if not reps then reps = GameConfig.GetTrainingReps(data) end
+		-- 33.32: the ladder no longer ends, so the denominator moves. `GetTrainingBand` hands back
+		-- the band this rep count is in -- `reps / 1000` below the knee, and the progress to the
+		-- NEXT doubling above it -- which is the only fraction that stays honest when a bar has no
+		-- last rung. Clamping to the old cap here would have frozen this bar full at 1,000.
+		reps = math.clamp(math.floor(reps), 0, GameConfig.TrainingRepMax)
+		local frac, bandLow, bandHigh = GameConfig.GetTrainingBand({ TrainingReps = reps })
 		local cap = GameConfig.TrainingRepCap
-		reps = math.clamp(math.floor(reps), 0, cap)
 
 		-- `{ TrainingReps = reps }` rather than `data`, the same trick the level bar uses on its own
 		-- multiplier: the number drawn must be the multiplier FOR THE REPS DRAWN, and `data` can be
 		-- a push behind the attribute.
 		local mult = GameConfig.GetTrainingDamageMult({ TrainingReps = reps })
 
-		fill.Size = UDim2.new(math.clamp(reps / cap, 0, 1), 0, 1, 0)
+		fill.Size = UDim2.new(math.clamp(frac, 0, 1), 0, 1, 0)
 
 		if reps >= cap then
 			-- AT THE CAP THE DENOMINATOR IS DROPPED, not printed as "1000 / 1000". Same call the
 			-- rebirth panel makes past its own ladder's end: a fraction whose halves are equal reads
 			-- as a bar that has stopped working rather than one that is finished. It says what to do
 			-- next instead, because a rebirth is the only thing that reopens this.
-			label.Text = ("\u{1F4AA} TRAINED  \u{2022}  \u{2694}\u{FE0F} x%.2f  \u{2022}  \u{267B}\u{FE0F} to train again")
-				:format(mult)
+			-- PAST THE KNEE THE DENOMINATOR IS THE NEXT DOUBLING, not the knee and not a dropped
+			-- fraction: the ladder is finished only in the sense that its first shape is, and a bar
+			-- that says TRAINED while the number behind it is still climbing is the same lie the
+			-- old "1000 / 1000" was. The rebirth is still named, because it is still what refills
+			-- the fast part of the curve.
+			label.Text = ("\u{1F4AA} %s / %s  \u{2022}  \u{2694}\u{FE0F} x%.2f  \u{2022}  \u{267B}\u{FE0F} refills the climb")
+				:format(formatNumber(reps), formatNumber(bandHigh), mult)
 			return
 		end
 
