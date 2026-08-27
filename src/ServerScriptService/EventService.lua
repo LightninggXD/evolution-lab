@@ -551,10 +551,22 @@ function EventService.DrawBoard()
 		for i = 2, #active do
 			table.insert(also, ("%s %s"):format(active[i].event.emoji, active[i].event.name))
 		end
+		local blurbText = live.event.blurb
+		if live.event.key == "GlobalGoal" then
+			local progressVal = RS:FindFirstChild("GlobalKillsProgress")
+			if progressVal then
+				local current = progressVal.Value
+				local targetGoal = live.event.target or 5000000
+				local formattedCurrent = GameConfig.FormatNumber and GameConfig.FormatNumber(current) or tostring(current)
+				local formattedTarget = GameConfig.FormatNumber and GameConfig.FormatNumber(targetGoal) or tostring(targetGoal)
+				blurbText = ("%s\n\n\u{1F3AF} Community Progress: %s / %s"):format(blurbText, formattedCurrent, formattedTarget)
+			end
+		end
+
 		if #also > 0 then
-			board.blurb.Text = ("%s\n\u{2795} also live: %s"):format(live.event.blurb, table.concat(also, ", "))
+			board.blurb.Text = ("%s\n\u{2795} also live: %s"):format(blurbText, table.concat(also, ", "))
 		else
-			board.blurb.Text = live.event.blurb
+			board.blurb.Text = blurbText
 		end
 		return "live:" .. live.event.key
 	end

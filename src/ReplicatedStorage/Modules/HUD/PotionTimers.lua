@@ -391,7 +391,25 @@ return function(hud)
 	themeLabel(eventName, 12)
 	eventName.TextWrapped = false
 
-	local eventClock = Instance.new("TextLabel")
+	local eventProgressBg = Instance.new("Frame")
+eventProgressBg.Name = "ProgressBg"
+eventProgressBg.Size = UDim2.new(1, 0, 0, 2)
+eventProgressBg.Position = UDim2.new(0, 0, 1, -2)
+eventProgressBg.BackgroundColor3 = Color3.fromRGB(20, 24, 38)
+eventProgressBg.BorderSizePixel = 0
+eventProgressBg.ZIndex = eventCard.ZIndex + 1
+eventProgressBg.Visible = false
+eventProgressBg.Parent = eventCard
+
+local eventProgressFill = Instance.new("Frame")
+eventProgressFill.Name = "ProgressFill"
+eventProgressFill.Size = UDim2.new(0, 0, 1, 0)
+eventProgressFill.BackgroundColor3 = UITheme.Color.Gold
+eventProgressFill.BorderSizePixel = 0
+eventProgressFill.ZIndex = eventProgressBg.ZIndex + 1
+eventProgressFill.Parent = eventProgressBg
+
+local eventClock = Instance.new("TextLabel")
 	eventClock.Name = "Clock"
 	eventClock.Size = UDim2.new(0, 46, 0, 20)
 	eventClock.Position = UDim2.new(1, -50, 0.5, -10)

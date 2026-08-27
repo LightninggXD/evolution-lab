@@ -13,6 +13,9 @@
 local RS = game:GetService("ReplicatedStorage")
 
 local GameConfig = require(RS.Modules.GameConfig)
+-- The blade art on each row (33.26). See that module's header for why it does not use the real
+-- `SwordModel` and why the two mesh rungs are drawn as boxes like the other eight.
+local SwordPreview = require(RS.Modules:WaitForChild("HUD"):WaitForChild("SwordPreview"))
 local UITheme = require(RS.Modules.UITheme)
 local UIKit = require(RS.Modules:WaitForChild("UIKit"))
 
@@ -22,7 +25,13 @@ local formatNumber, themeLabel = UIKit.formatNumber, UIKit.themeLabel
 local styleCard, styleButton, setButtonColor = UIKit.styleCard, UIKit.styleButton, UIKit.setButtonColor
 local OUTLINE_COLOR, PANEL_SHELL, READY_RIM = UIKit.OUTLINE_COLOR, UIKit.PANEL_SHELL, UIKit.READY_RIM
 
-local ROW_H, ROW_GAP = 70, 6
+-- 70 -> 84 (33.26). The row grew for the blade disc and for one reason only: at 70 the tallest
+-- disc that clears its own 3 px rim is 56, and a 56 px circle beside a 46 px button reads as a
+-- bullet point rather than as the emblem the rebirth ladder's rungs carry. 84 seats a 68.
+local ROW_H, ROW_GAP = 84, 6
+-- The disc, and the left margin the two captions start after it.
+local DISC = 68
+local TEXT_X = 12 + DISC + 12
 
 return function(hud)
 	local screenGui = hud.screenGui
@@ -125,10 +134,30 @@ return function(hud)
 		row.Parent = scroll
 		local rowStroke = styleCard(row, tier.color, UDim.new(0, 14), 4)
 
+		-- ===== THE BLADE ITSELF, WHICH IS WHAT SHE ASKED THIS ROW FOR =====
+		--
+		-- *"ovde treba biti slika maca koji equipas, nesto kao s petovima i da panel izgleda kao
+		-- rebirth panel"*. A round disc in the blade's own colour with a live `ViewportFrame` over
+		-- it -- the pet grid's construction exactly -- and it is also what makes this ladder read
+		-- like the rebirth ladder, whose every rung is a big round emblem beside two lines.
+		--
+		-- IT IS BUILT ONCE AND NEVER REPAINTED. `refresh` below repaints the ROW three different
+		-- ways per state; the disc always states the BLADE's colour, so a forged rung, the equipped
+		-- one and a locked one all show the same steel and only the sheet behind them changes.
+		SwordPreview.Attach(row, tier, {
+			size = DISC,
+			position = UDim2.new(0, 12, 0.5, 0),
+			anchorPoint = Vector2.new(0, 0.5),
+			zIndex = row.ZIndex + UITheme.Z.Content,
+		})
+
 		local nameLabel = Instance.new("TextLabel")
 		nameLabel.Name = "NameLabel"
-		nameLabel.Size = UDim2.new(0.64, 0, 0, 28)
-		nameLabel.Position = UDim2.new(0, 12, 0, 6)
+		-- Offsets, not the old `0.64` scale: the row now has a fixed-width disc on the left and a
+		-- fixed-width button on the right, so the caption is what is LEFT OVER between them -- a
+		-- scale width would have overlapped one end or the other on every viewport but one.
+		nameLabel.Size = UDim2.new(1, -(TEXT_X + 132), 0, 28)
+		nameLabel.Position = UDim2.new(0, TEXT_X, 0, 12)
 		nameLabel.BackgroundTransparency = 1
 		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
 		nameLabel.Text = i .. ". " .. tier.displayName
@@ -137,8 +166,8 @@ return function(hud)
 
 		local statusLabel = Instance.new("TextLabel")
 		statusLabel.Name = "StatusLabel"
-		statusLabel.Size = UDim2.new(0.64, 0, 0, 24)
-		statusLabel.Position = UDim2.new(0, 12, 1, -30)
+		statusLabel.Size = UDim2.new(1, -(TEXT_X + 132), 0, 24)
+		statusLabel.Position = UDim2.new(0, TEXT_X, 1, -34)
 		statusLabel.BackgroundTransparency = 1
 		statusLabel.TextXAlignment = Enum.TextXAlignment.Left
 		statusLabel.Text = ""

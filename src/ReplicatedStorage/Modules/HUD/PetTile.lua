@@ -241,7 +241,38 @@ function PetTile.Build(parent, opts)
 	-- somebody, so it keeps its loud badge. On the old card it lived in the art's top-left; here
 	-- that is the equipped tick's corner. It goes across the FOOT of the disc instead, which is the
 	-- one edge nothing else uses and is still the widest run of pixels on the tile.
-	if info.secret then
+	-- ===== AND `AWAY`, WHICH IS WHY "EQUIP BEST" LOOKED BROKEN (33.26) =====
+	--
+	-- Her report: *"ne equipa best pets ovde"*, with a capture of the grid -- the third-strongest pet
+	-- (+118%) had no tick on it after pressing the button. Measured live on that same save through
+	-- the real modules: `HandleEquipBest` chose the top 8 by `SortedPetsByPower` and every one of
+	-- them was ALREADY equipped, so the call was correct and changed nothing. **THREE OF HER
+	-- HUNDRED PETS WERE AWAY ON AN ADVENTURE**, and 30.5 filters those out BEFORE the ranking on
+	-- purpose (see the note over `PetService.HandleEquipBest`) -- a sent pet cannot be worn.
+	--
+	-- So the button was right and the GRID was lying: a pet that is not eligible looked exactly like
+	-- a pet that had been passed over. Nothing else on the tile said otherwise, because `IsPetAway`
+	-- had never been asked on the client at all -- all eleven of its callers were server-side.
+	--
+	-- The badge takes the same foot-of-the-disc slot as SECRET and cannot collide with it: a pet
+	-- sent on an adventure is by definition owned and standing in this bag, and if it is BOTH, being
+	-- told where it is beats being told how rare it is -- so this one wins the slot and SECRET is
+	-- skipped for as long as it is out.
+	if opts.away then
+		local badge = Instance.new("TextLabel")
+		badge.Name = "AwayBadge"
+		badge.Size = UDim2.new(0, 62, 0, 18)
+		badge.Position = UDim2.new(0.5, 0, 0, 72)
+		badge.AnchorPoint = Vector2.new(0.5, 0)
+		badge.ZIndex = preview.ZIndex + 3
+		badge.Text = "AWAY"
+		badge.Parent = tile
+		styleCard(badge, UITheme.Color.SkyBlue, UDim.new(0, 6), 2)
+		themeLabel(badge, 13, Color3.fromRGB(255, 255, 255))
+		-- Faded as well as labelled, the rule the whole kit follows for "not available": a word is
+		-- read second and a tone is read first, and this grid is skimmed rather than read.
+		preview.ImageTransparency = 0.55
+	elseif info.secret then
 		local badge = Instance.new("TextLabel")
 		badge.Name = "SecretBadge"
 		badge.Size = UDim2.new(0, 62, 0, 18)

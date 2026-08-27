@@ -145,7 +145,15 @@ end)
 -- ===== Bottom-centre: star + stage name, evolve progress bar, evolve button =====
 local evolveFrame = Instance.new("Frame")
 evolveFrame.Name = "EvolveFrame"
-evolveFrame.Size = UDim2.new(0, 470, 0, 136)
+-- 136 -> 120 -> 68 (33.26, in two passes in one session as she looked at each).
+--
+-- 68 IS A STAGE LINE (30) AND ONE BAR (34), AND NOTHING ELSE. The EVOLVE button that used to close
+-- this card is hidden -- see the note over `evolveButton` -- because she is right that it was a
+-- second copy of the bar above it: *"ni ovo ispod mi ne treba, evoluiram svakako kad se napuni bar,
+-- znaci imam xp bar 2 puta"*. The bar said `602 / 942 XP` and the button said `Ascendant (5/5) --
+-- needs 340 more XP`, which is the same sentence twice, and 10.10's `DNAService.AutoEvolveIfReady`
+-- has fired on every kill since long before either of them was drawn.
+evolveFrame.Size = UDim2.new(0, 470, 0, 68)
 -- -36, up from -22 (16.2): the world-event bar is pinned to the bottom edge at -5 and is 26 tall,
 -- so its top edge sits at -31. Leaving this at -22 would have put the evolve card's own stroke
 -- through the boss pill. Five pixels of daylight between the two.
@@ -156,7 +164,22 @@ evolveFrame.Size = UDim2.new(0, 470, 0, 136)
 -- at -10, i.e. its top edge is at -72. This card's bottom sits at -84, so
 -- there are 12 px between them, and the world-event bar moved to the TOP centre (see the note in
 -- `Modules.HUD.PotionTimers`) rather than being squeezed into a band that now has two tenants.
-evolveFrame.Position = UDim2.new(0.5, 0, 1, -84)
+--
+-- -10 NOW (33.26), i.e. THIS CARD IS THE BOTTOM EDGE. Her complaint, with a capture: *"vidis da
+-- zauzme pola ekrana ... i xp i damage i evolucija ne moze tako"* -- and it did. Bottom-centre held
+-- FOUR stacked widgets, 254 px of them: the gold training bar (264), the level bar (226), this card
+-- (84) and `HUD/SwordSlot` (10). Two of the four are gone rather than shuffled, which is the only
+-- thing that actually gives the screen back:
+--
+--   * the GOLD TRAINING BAR -- *"a ovo zlatno mi ne treba tu"*. Its number is now one capsule in the
+--     wallet (`HUD/DamageStat`), because *"dmg se ne skuplja ovako vec samo da pise damage"*.
+--   * the SWORD SLOT -- *"a sword se otvara npr sa 2 mesta"*. The blade already has a tile in the
+--     left column; this was the second door onto one panel. See the require site at the bottom.
+--
+-- What is left is ONE bar, because she then merged the last two as well (*"mergaj nekako sa onim
+-- gore nek pise na jednom i lvl"*): this card's own bar carries the level and the rebirth door in
+-- its caption now, and `HUD/LevelBar` no longer draws anything. 10..78 instead of 10..264.
+evolveFrame.Position = UDim2.new(0.5, 0, 1, -10)
 evolveFrame.AnchorPoint = Vector2.new(0.5, 1)
 evolveFrame.BackgroundTransparency = 1
 evolveFrame.Parent = screenGui
@@ -177,8 +200,10 @@ local progressBarBg, progressBarFill, evolveProgressLabel = UITheme.ProgressBar(
 	position = UDim2.new(0.5, 0, 0, 34),
 	anchorPoint = Vector2.new(0.5, 0),
 	color = UITheme.Color.Green,
-	text = "0 / 50 DNA",
-	maxTextSize = 22,
+	text = "LV 1  \u{2022}  0 / 50 XP",
+	-- 22 -> 20: this caption carries three clauses now (level, evolve XP, the rebirth door) where it
+	-- used to carry one, and `themeLabel` CLIPS rather than shrinking past its own 14 px floor.
+	maxTextSize = 20,
 	zIndex = 4,
 })
 
@@ -186,8 +211,11 @@ local evolveButton = UITheme.Button(evolveFrame, {
 	name = "EvolveButton",
 	text = "EVOLVE",
 	color = UITheme.Color.Purple,
+	-- 50 TALL STILL, and only its Y ORIGIN moved, 82 -> 70 (33.26). The bar above ends at 68, so this
+	-- closes a 14 px gap to 2 and takes nothing off the button itself -- a shorter button would clip
+	-- its own wrapped text at `themeLabel`'s 14 px floor and report nothing wrong.
 	size = UDim2.new(1, -70, 0, 50),
-	position = UDim2.new(0.5, 0, 0, 82),
+	position = UDim2.new(0.5, 0, 0, 70),
 	anchorPoint = Vector2.new(0.5, 0),
 	radius = UDim.new(1, 0),
 	maxTextSize = 26,
@@ -200,6 +228,22 @@ evolveButton:GetPropertyChangedSignal("Text"):Connect(function()
 	evolveButtonLabel.Text = evolveButton.Text
 end)
 evolveButton.Text = "EVOLVE (0 / 50 DNA)"
+
+-- ===== AND IT IS NOT DRAWN ANY MORE (33.26) =====
+--
+-- *"ni ovo ispod mi ne treba -- evoluiram svakako kad se napuni bar, znaci imam xp bar 2 puta"*.
+-- She is describing `DNAService.AutoEvolveIfReady`, which 10.10 wired into every kill and every
+-- boss XP award: XP enters a save in exactly two places and both call it, so by the time a player
+-- could read "needs 340 more XP" and press anything, the evolve has already happened. The button
+-- was a control for a verb the game performs by itself, sitting under a bar that says the same
+-- number.
+--
+-- HIDDEN RATHER THAN DELETED, and that is deliberate rather than lazy. `refreshUI` writes its text
+-- and its colour from six places and its click handler is 600 lines further down; deleting the
+-- object means eight edits inside a 330 KB file at Luau's register ceiling, to remove writes that
+-- now cost one property assignment to an invisible frame. The manual path also stays intact and
+-- one line from being brought back if auto-evolve is ever gated.
+evolveButton.Visible = false
 
 -- ===== Bottom-left: currency stack =====
 -- THE THREE NUMBERS THE PLAYER LOOKS AT MOST WERE THE ONLY UNSTYLED THING ON THE SCREEN (16.x).
@@ -222,7 +266,12 @@ currencyStack.Name = "CurrencyStack"
 -- 160, not 140: the gap below went 2 -> 10 (a 5px stroke is drawn OUTSIDE each capsule, so at 2
 -- the three would have overlapped rims and read as one welded bar) and 46+40+40+2*10 = 146 plus
 -- the strokes needs the room, or the top capsule lays out above its own frame.
-currencyStack.Size = UDim2.new(0, 250, 0, 160)
+--
+-- 210 NOW (33.26). `HUD/DamageStat` hangs a FOURTH capsule here -- the damage readout that replaced
+-- 33.21's gold progress bar -- and the arithmetic above is the whole reason this line had to move
+-- with it: 46+40+40+40 + 3*10 = 196, and a stack whose frame is shorter than its own contents lays
+-- the top capsule out ABOVE the frame, i.e. into the tile column. Same +50 the fourth pill costs.
+currencyStack.Size = UDim2.new(0, 250, 0, 210)
 currencyStack.Position = UDim2.new(0, 20, 1, -22)
 currencyStack.AnchorPoint = Vector2.new(0, 1)
 currencyStack.BackgroundTransparency = 1
@@ -1073,6 +1122,23 @@ local rewardBadge = rewardButton:FindFirstChild("Badge")
 local robuxButton  = columnTile("R", 4, "\u{1F6CD}\u{FE0F}", "Robux", UITheme.Color.Mint)
 local achievementsButton = columnTile("R", 5, "\u{1F3C6}", "Goals", UITheme.Color.Gold)
 local cosmeticsButton = columnTile("R", 6, "\u{1F457}", "Vanity", UITheme.Color.Pink)
+-- ===== AND IT OPENS SOMETHING NOW (33.26) =====
+--
+-- *"ovde imamo i nesto novo vidi sta je i uvezi da radi"*. This tile was drawn by 34.2 and its local
+-- was never read again -- the panel behind it (`UIComponents.CosmeticsPanel`) and the whole server
+-- for it (`CosmeticService`, already wired in `ServerMain`) were complete and unreachable. The
+-- panel's own three contract faults are written up in its header; this is the missing door.
+--
+-- BUILT LAZILY AND ONCE, the shape `ZonePanel` and `RebirthPanel` above already use: the module is
+-- required on the first press rather than at startup, so a HUD that never opens Vanity never pays
+-- for 9 rows of catalogue, and `hud.cosmeticsPanel` is the built-flag as well as the handle.
+cosmeticsButton.MouseButton1Click:Connect(function()
+	if not hudRefs.cosmeticsPanel then
+		require(script.Parent.UIComponents.CosmeticsPanel)(hudRefs)
+	end
+	if hudRefs.refreshCosmeticsPanel then hudRefs.refreshCosmeticsPanel() end
+	toggleOnly(hudRefs.cosmeticsPanel)
+end)
 
 
 
@@ -1412,16 +1478,21 @@ require(RS.Modules:WaitForChild("HUD"):WaitForChild("SwordPanel"))(hudRefs)
 -- reached through `hud` on every call for exactly that reason (see the note in the module).
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("LevelBar"))(hudRefs)
 
--- ===== The training bar (33.21) =====
+-- ===== The damage readout, WHICH REPLACED THE TRAINING BAR (33.26) =====
 --
--- The third and topmost of the stacked bars, six pixels above the level bar, and it costs this file
--- the same as the two below it: ONE LINE AND ZERO TOP-LEVEL LOCALS. It builds its own ProgressBar on
--- `screenGui` and listens to one player attribute plus `DataUpdate`.
+-- `HUD/TrainingBar` used to be this line: 33.21's third stacked bar, gold, six pixels above the
+-- level bar, reading `0 / 1.00K - x1.00 - x4.5 gain`. The owner refused it twice in one session --
+-- *"a ovo zlatno mi ne treba tu"*, and *"dmg se ne skuplja ovako vec samo da pise damage: pa koliko
+-- imam i kako skupljam povecava se"*.
 --
--- AFTER `LevelBar`, and the order is real rather than tidy: that module's own comment measures its
--- position off the evolve card, and this one measures its position off THAT bar. Reading this file
--- top to bottom is the only way the three numbers can be checked against each other.
-require(RS.Modules:WaitForChild("HUD"):WaitForChild("TrainingBar"))(hudRefs)
+-- `HUD/DamageStat` is what she asked for instead: no bar, no denominator, no multiplier, one figure
+-- in the wallet that goes up. The training LADDER is untouched -- `TrainingReps` is still banked by
+-- the grotto dummy and by kills, and it is still one of the multipliers inside the number this
+-- draws. What went is the ladder's widget, not the ladder.
+--
+-- AFTER `LevelBar` still, and the order is still real rather than tidy: this module reaches into
+-- `CurrencyStack` by name, and that frame is built far above.
+require(RS.Modules:WaitForChild("HUD"):WaitForChild("DamageStat"))(hudRefs)
 
 -- ===== Pets panel =====
 --
@@ -3278,8 +3349,40 @@ local NOTIF_MAX = 4
 --   6. THE STACK IS RANKED. See UITheme.NotifyRank for why: the cap made the eviction victim the
 --      OLDEST, and during a fight the four newest are all combat chatter, so the one-in-an-hour
 --      message was the one reliably destroyed. Rank decides both who dies and who sits on top.
-local function showNotification(text, color, rank)
+local function showNotification(text, color, rank, groupId)
 	rank = rank or 1
+	
+	-- Toast Grouping (34.8)
+	if groupId then
+		local existing = nil
+		for _, c in ipairs(notifFrame:GetChildren()) do
+			if c:IsA("Frame") and c:GetAttribute("GroupId") == groupId then
+				existing = c
+				break
+			end
+		end
+		
+		if existing then
+			local mult = (existing:GetAttribute("Multiplier") or 1) + 1
+			existing:SetAttribute("Multiplier", mult)
+			
+			local label = existing:FindFirstChild("Body")
+			if label then
+				label.Text = tostring(mult) .. "x " .. text
+			end
+			
+			-- Pop animation to show it updated
+			local pop = TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+			TweenService:Create(existing, pop, { Size = UDim2.new(1, -40, 0, 50) }):Play()
+			task.delay(0.15, function()
+				if existing and existing.Parent then
+					TweenService:Create(existing, pop, { Size = UDim2.new(1, -40, 0, 46) }):Play()
+				end
+			end)
+			return
+		end
+	end
+
 	-- Monotonic, and parked on the frame rather than in a top-level local -- this file is at Luau's
 	-- 200-register cap. It doubles as the tie-break inside a rank (older sits higher) and as the
 	-- unique part of each toast's Name, which UIListLayout needs: with every child called "Notif"
@@ -3736,10 +3839,36 @@ local function refreshUI()
 		if hint and hint.Visible then hint.Visible = false end
 	end
 
+	-- ===== THE ONE BAR CARRIES THE LEVEL TOO NOW (33.26) =====
+	--
+	-- *"mergaj nekako sa onim gore nek pise na jednom i lvl jer se levelupam kad se 1 napuni"*. The
+	-- screen used to hold two 470 x 32 bars stacked, and both of them are bars you never press: the
+	-- evolve XP fills and the game evolves you, the level XP fills and the game levels you. One bar,
+	-- one caption, three clauses.
+	--
+	-- THE FILL IS THE EVOLVE BAR'S, NOT THE LEVEL'S, and that is the choice: the fill has to be the
+	-- ladder the player is watching the stage name change on. The level is a NUMBER on the same
+	-- line, which is what she asked for, and it is exact rather than approximate -- `LevelService`
+	-- fires `PushToClient` on a level-up (and only on a level-up), so this handler runs at every
+	-- moment the number changes and at no moment it does not.
+	--
+	-- ===== AND THE REBIRTH DOOR IS *NOT* ON THIS LINE, WHICH IS A REVERSAL WITHIN ONE SESSION =====
+	--
+	-- `HUD/LevelBar` used to print `\u{267B}\u{FE0F} 8 at LV 41` in its own caption, and the merge
+	-- above carried that clause here with it, on that module's argument that the gate is a level so
+	-- the level's line should name it. She looked at the result with the Rebirth panel open beside
+	-- it: *"u rebirth pise koji lvl treba dalje pa ne mora i u progres baru"*.
+	--
+	-- She is right and the argument was the weaker one: `UIComponents.RebirthPanel` draws every rung
+	-- with its own requirement AND the distance to it (`Reach Level 41 / Level 30 - 11 to go`), which
+	-- is strictly more than the tail said, in the place a player goes to act on it. The tail was a
+	-- third of a two-clause caption spent repeating a panel.
+	local hudLevel = math.clamp(math.floor(GameConfig.GetLevel(data)), 1, GameConfig.MaxLevel)
+
 	if step.isMax then
 		evolveButton.Text = "MAX EVOLUTION REACHED"
 		progressBarFill.Size = UDim2.new(1, 0, 1, 0)
-		evolveProgressLabel.Text = "MAX STAGE"
+		evolveProgressLabel.Text = ("LV %d  \u{2022}  MAX STAGE"):format(hudLevel)
 		setButtonColor(evolveButton, UITheme.Color.Locked)
 	else
 		-- ONE BAR, ONE CURRENCY. This used to draw `math.min(dnaPct, xpPct)` and then had to work out
@@ -3749,7 +3878,8 @@ local function refreshUI()
 		-- the label can finally be the same fact.
 		local xpPct = step.xpCost > 0 and math.clamp((data.XP or 0) / step.xpCost, 0, 1) or 1
 		progressBarFill.Size = UDim2.new(xpPct, 0, 1, 0)
-		evolveProgressLabel.Text = formatNumber(data.XP or 0) .. " / " .. formatNumber(step.xpCost) .. " XP"
+		evolveProgressLabel.Text = ("LV %d  \u{2022}  %s / %s XP"):format(
+			hudLevel, formatNumber(data.XP or 0), formatNumber(step.xpCost))
 
 		-- WHAT THE PRESS BUYS, WHICH IS NOT ALWAYS A STAGE. Four presses in five hand over the next
 		-- skin and leave the body where it is; the fifth is the stage. Naming the stage on all five
@@ -4006,6 +4136,24 @@ do
 	end
 end
 
+
+local gestureEvent = Remotes:FindFirstChild("ClientGesture")
+if not gestureEvent then
+	gestureEvent = Instance.new("BindableEvent")
+	gestureEvent.Name = "ClientGesture"
+	gestureEvent.Parent = Remotes
+end
+
+gestureEvent.Event:Connect(function(dir)
+	if dir == "Down" then
+		if hudRefs and hudRefs.closeAllPanels then
+			hudRefs.closeAllPanels()
+		end
+	elseif dir == "Left" or dir == "Right" then
+		-- TODO: Panel cycling logic if requested
+	end
+end)
+
 Remotes.Notify.OnClientEvent:Connect(function(payload)
 	-- ONE line, not twenty. Which sound a notification makes is decided by SoundLibrary.NOTIFY_SOUND,
 	-- a row per kind, so the branches below stay about wording and a new kind is a row rather than an
@@ -4034,7 +4182,7 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		-- the notification with it
 		if hudRefs.punchUpgrade then hudRefs.punchUpgrade(payload.upgrade) end
 	elseif payload.kind == "diamond" then
-		showNotification("\u{1F48E} Diamond found!  +" .. (payload.amount or 1), Color3.fromRGB(130, 225, 255), notifRank)
+		showNotification("\u{1F48E} Diamond found!  +" .. (payload.amount or 1), Color3.fromRGB(130, 225, 255), notifRank, "diamond")
 	elseif payload.kind == "evolve" then
 		-- TWO DIFFERENT EVENTS SHARE THIS PAYLOAD. Four presses in five hand over the next skin and
 		-- leave the stage where it is, so announcing "EVOLVED into Worm" on all of them would be
@@ -4549,11 +4697,22 @@ require(RS.Modules:WaitForChild("HUD"):WaitForChild("ScrollAffordance"))(hudRefs
 -- three products are still sold by `HUD/ProductTiles` inside the Robux panel along with the other
 -- two. What was given up is the always-on-screen shortcut to three of the five.
 --
+-- ===== AND `SwordSlot` HAS GONE THE SAME WAY `QuickBuyRow` DID, FOR HER SAME REASON (33.26) =====
+--
+-- *"a sword se otvara npr sa 2 mesta"* -- the blade panel opened from two controls: the Sword tile
+-- in the left column (built by `HUD/SwordPanel`) and this 470 x 62 card welded to the bottom edge.
+-- Two doors onto one panel is the exact objection that removed `QuickBuyRow` above, and this time
+-- the card was also the bottom quarter of the *"pola ekrana"* the centre column was eating.
+--
+-- WHAT IS GIVEN UP, STATED RATHER THAN LEFT TO BE FOUND: the always-on-screen readout of which
+-- blade is equipped and what the next one costs. Nothing else changes -- `HUD/SwordPanel` still
+-- builds the tile, still owns `hud.showSwordPanel`, and still shows the whole ladder with its
+-- prices. `SwordSlot.lua` is left on disk and is now required by NOTHING, which is the same
+-- deliberate orphan `QuickBuyRow` has been since 32.7.
+--
 -- REQUIRED HERE, LAST, AND WITH NO TOP-LEVEL LOCAL. Both reasons are the same one that has deleted
 -- this whole HUD twice: the file is at Luau's 200-register ceiling. Last, because `OfferRail` parks
 -- itself against the right-hand tile cluster and `TileColumnFit` two lines up is what lays that
 -- cluster out -- a rail that measured it first would measure the authored position, not the fitted
--- one. `SwordSlot` goes with it because it reads `hud.showSwordPanel`, which `HUD/SwordPanel`
--- publishes far above -- and because it takes the exact band `QuickBuyRow` is vacating.
-require(RS.Modules:WaitForChild("HUD"):WaitForChild("SwordSlot"))(hudRefs)
+-- one.
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("OfferRail"))(hudRefs)

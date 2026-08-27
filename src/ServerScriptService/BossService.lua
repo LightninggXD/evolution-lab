@@ -22,6 +22,7 @@ local AnnounceService = require(script.Parent.AnnounceService)
 -- 32.7's level bar. Module scope is safe: LevelService requires GameConfig and PlayerDataService
 -- and nothing else, so it cannot come back around into this file.
 local LevelService = require(script.Parent.Level.LevelService)
+local CommunityGoalService = require(script.Parent.CommunityGoalService)
 
 local BossService = {}
 

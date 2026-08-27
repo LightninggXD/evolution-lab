@@ -153,7 +153,21 @@ local swingTracks = setmetatable({}, { __mode = "k" })
 local function swingTrack(character, humanoid)
 	local cached = swingTracks[character]
 	if cached == false then return nil end
-	if cached and cached.Animator and cached.Animator.Parent then return cached end
+	-- ===== NEVER TOUCH `track.Animator` -- IT IS NOT A PROPERTY, AND THE READ THROWS =====
+	--
+	-- This line used to read `cached.Animator and cached.Animator.Parent` as a liveness test, and
+	-- `AnimationTrack` has no `Animator` member: the read is a hard error, not a nil. Measured live
+	-- 2026-08-27 -- `Animator is not a valid member of AnimationTrack "Animation"` thrown from here
+	-- through `playSwing` -- and the cost was not the swing. **It killed AUTO-ATTACK for the whole
+	-- session**, because the auto loop calls `playSwing` OUTSIDE its own pcall, so the throw ended
+	-- that `task.spawn`ed thread and the toggle then did nothing for the rest of the session while
+	-- still reading ON. The clicked path re-threw once per click and survived only because each
+	-- click is its own thread.
+	--
+	-- No liveness test is needed in its place: `swingTracks` is WEAK-KEYED BY CHARACTER, so a
+	-- respawn is a different key and gets a fresh track, which is the only way the old body's
+	-- animator could ever have gone away.
+	if cached then return cached end
 
 	local animator = humanoid:FindFirstChildOfClass("Animator")
 	if not animator then
@@ -948,7 +962,11 @@ local function attachHealthPlate(character)
 	titleLabel.Size = UDim2.new(1, 0, 0, 18)
 	titleLabel.Position = UDim2.new(0, 0, 0, -16)
 	titleLabel.BackgroundTransparency = 1
-	titleLabel.Font = UITheme.Font.Sub
+	-- `UITheme.Font` holds Body and Display and has never held `Sub` -- this assigned nil and
+	-- printed `Unable to assign property Font` on EVERY character spawn (33.25 reported it and left
+	-- the choice here). Body is the answer: this is an 18 px subtitle under a name plate, which is
+	-- what Body is for; Display is the plate's own name line directly above it.
+	titleLabel.Font = UITheme.Font.Body
 	titleLabel.TextScaled = true
 	titleLabel.TextColor3 = UITheme.Color.Gold
 	titleLabel.Text = ""
@@ -1376,8 +1394,17 @@ task.spawn(function()
 			elseif target then
 				autoRemote:FireServer(target)
 				-- fired locally for the same reason a clicked swing is: the animation has to start on
-				-- this frame, and a round trip is a third of the swing
-				playSwing(player.Character)
+				-- this frame, and a round trip is a third of the swing.
+				--
+				-- PCALL'D FOR THE SAME REASON THE SCAN ABOVE IS, and it is not belt-and-braces: this
+				-- call sat bare outside the pcall until 2026-08-27, and one throw inside `playSwing`
+				-- (`AnimationTrack.Animator`, fixed above) ended this thread permanently. An
+				-- unattended loop with no second chance may not hold a bare call -- the player's
+				-- only symptom is a toggle that reads ON and does nothing, for the session.
+				local swung = pcall(playSwing, player.Character)
+				if not swung then
+					warn("[CombatClient] auto-attack swing animation failed -- the blow was still sent")
+				end
 			end
 		end
 	end
@@ -1747,6 +1774,9 @@ CombatFx.OnClientEvent:Connect(function(fx)
 	end
 
 	if mine then
+		if kill and updateStreak then
+			updateStreak()
+		end
 		-- before the DNA pop, so the two numbers do not start on the same frame in the same place:
 		-- the crystal spends its first four tenths of a second climbing out of the corpse while the
 		-- DNA figure rises off it, and its own "+1" is drawn a second later at the player

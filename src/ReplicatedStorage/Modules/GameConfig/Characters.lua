@@ -496,6 +496,11 @@ GameConfig.VipCharacters = {
 		vipDamageMult = 9.00, vipIncomeMult = 1.30, bundleId = 577, robuxPrice = 299,
 	},
 	{
+		key = "vip_dragon_pet", name = "Dragon Pet Companion", emoji = "\u{1F409}", rarity = "Legendary",
+		color = Color3.fromRGB(255, 100, 100), vip = true, offLadder = true,
+		vipDamageMult = 15.00, vipIncomeMult = 2.00, accessory = "Dragon Pet", robuxPrice = 799,
+	},
+	{
 		key = "vip_overseer", name = "Overseer Overlord", emoji = "\u{1F441}\u{FE0F}", rarity = "Legendary",
 		color = Color3.fromRGB(96, 226, 120), vip = true, offLadder = true,
 		vipDamageMult = 10.50, vipIncomeMult = 1.35, bundleId = 385, robuxPrice = 349,

@@ -92,7 +92,7 @@ local ZoneBuilder = {}
 -- every egg stall 575 studs from its own village and each egg split into two halves. The code is
 -- fixed (`ZoneKit.withFrame`), but a world already on disk carries the damage and the guard below
 -- only rebuilds when the stamp moves, so the stamp moves.
-local BUILD_VERSION = 138
+local BUILD_VERSION = 139
 
 -- ================= the build vocabulary =================
 -- THE KIT LEFT THIS FILE (18.9). `newPart` -- with the shadow-by-size rule and the
@@ -1862,6 +1862,86 @@ end
 -- the end of Build(), so the Forest floor it stands on already exists. Any extra SpawnLocations
 -- are removed -- Roblox picks between them at random, so a stray one left in the Forest monument
 -- footprint would still strand a share of players inside the shop.
+local function buildWeather(model, zone, cx)
+	local particleTexture = nil
+	local color = ColorSequence.new(Color3.new(1,1,1))
+	local size = NumberSequence.new(1)
+	local speed = NumberRange.new(50, 60)
+	local transparency = NumberSequence.new(0)
+	local lifetime = NumberRange.new(4, 5)
+	local rate = 100
+	local accel = Vector3.new(0, -10, 0)
+	local emitDir = Enum.NormalId.Bottom
+
+	if zone.key == "Forest" then
+		particleTexture = "rbxassetid://6327318357"
+		color = ColorSequence.new(Color3.fromRGB(150, 180, 255))
+		size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0.4)})
+		speed = NumberRange.new(80, 100)
+		transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.1, 0.6),
+			NumberSequenceKeypoint.new(0.9, 0.6),
+			NumberSequenceKeypoint.new(1, 1)
+		})
+		lifetime = NumberRange.new(2, 3)
+		rate = 400
+		accel = Vector3.new(0, -50, 0)
+	elseif zone.key == "Volcano" then
+		particleTexture = "rbxassetid://243082902"
+		color = ColorSequence.new(Color3.fromRGB(255, 120, 60))
+		size = NumberSequence.new(0.8, 1.5)
+		speed = NumberRange.new(5, 15)
+		transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.2, 0.3),
+			NumberSequenceKeypoint.new(0.8, 0.3),
+			NumberSequenceKeypoint.new(1, 1)
+		})
+		lifetime = NumberRange.new(8, 12)
+		rate = 150
+		accel = Vector3.new(0, -2, 0)
+	elseif zone.key == "CelestialThrone" then
+		particleTexture = "rbxassetid://243082902"
+		color = ColorSequence.new(Color3.fromRGB(255, 240, 180))
+		size = NumberSequence.new(0.4, 0.8)
+		speed = NumberRange.new(1, 3)
+		transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.5, 0.2),
+			NumberSequenceKeypoint.new(1, 1)
+		})
+		lifetime = NumberRange.new(10, 15)
+		rate = 100
+		accel = Vector3.new(0, -0.5, 0)
+	end
+
+	if not particleTexture then return end
+
+	local emitterPart = Instance.new("Part")
+	emitterPart.Name = "WeatherEmitter"
+	emitterPart.Size = Vector3.new(1500, 1, TERRAIN_OUTER * 2)
+	local crestY = ZoneTerrain.crestY(zone.key) or 50
+	emitterPart.Position = Vector3.new(cx, crestY + 120, 0)
+	emitterPart.Anchored = true
+	emitterPart.CanCollide = false
+	emitterPart.Transparency = 1
+	emitterPart.CastShadow = false
+	emitterPart.Parent = model
+
+	local pe = Instance.new("ParticleEmitter")
+	pe.Texture = particleTexture
+	pe.Color = color
+	pe.Size = size
+	pe.Speed = speed
+	pe.Transparency = transparency
+	pe.Lifetime = lifetime
+	pe.Rate = rate
+	pe.Acceleration = accel
+	pe.EmissionDirection = emitDir
+	pe.Parent = emitterPart
+end
+
 function ZoneBuilder.EnsureSpawn()
 	local spawn
 	for _, d in ipairs(workspace:GetDescendants()) do
@@ -1968,6 +2048,7 @@ local WORLD_OUTDOOR_AMBIENT = Color3.fromRGB(112, 122, 144)
 local WORLD_CLOCK = 15.8
 local WORLD_HAZE = 0.55
 local WORLD_DENSITY = 0.18
+local WORLD_DENSITY = 0.18
 
 -- ===== THE SKY, WHICH DID NOT EXIST =====
 --
@@ -2036,6 +2117,7 @@ local function applyDistanceFog()
 	Lighting.GlobalShadows = true
 	if atmosphere then
 		atmosphere.Haze = WORLD_HAZE
+	atmosphere.Density = WORLD_DENSITY
 		atmosphere.Density = WORLD_DENSITY
 	end
 	-- The grade is created if it is missing, so a place that lost it still comes up looking right.
@@ -2312,6 +2394,7 @@ function ZoneBuilder.Build()
 			-- pass something none of them otherwise needs. Here the zone is already in hand, it is one
 			-- line, and every zone gets terrain by construction instead of by remembering to opt in.
 			ZoneTerrain.buildTerrain(model, zone, cx, GROUND_MATERIAL[zone.key])
+		buildWeather(model, zone, cx)
 
 			-- WHICH ZONE'S MESH PROPS TO CLONE. buildBiomeBase is handed a config table and not the
 			-- zone -- twenty biome builders call it and not one of them passes anything else -- so the

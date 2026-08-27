@@ -829,6 +829,19 @@ end
 
 local function regalia(ctx, entry)
 	if not (entry and entry.offLadder) then return end
+
+	if entry.accessory then
+		local ServerStorage = game:GetService("ServerStorage")
+		local accessories = ServerStorage:FindFirstChild("Accessories")
+		local proto = accessories and accessories:FindFirstChild(entry.accessory)
+		if proto and proto:IsA("Accessory") then
+			local acc = proto:Clone()
+			-- Store in the costume folder so it gets cleaned up by StageCostume.Clear
+			acc.Parent = ctx.folder
+			ctx.character.Humanoid:AddAccessory(acc)
+		end
+	end
+
 	local metal = entry.regaliaColor or REGALIA_GOLD
 	headPiece(ctx, entry.regalia, metal)
 

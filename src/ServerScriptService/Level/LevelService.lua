@@ -15,6 +15,9 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.Parent.PlayerDataService)
+-- Module scope, and the direction is the load-bearing half -- see the note in `Publish` over the
+-- `CombatDamage` attribute. Nothing DNAService requires requires this file back.
+local DNAService = require(script.Parent.Parent.DNAService)
 
 local LevelService = {}
 
@@ -52,6 +55,28 @@ function LevelService.Publish(player, data)
 	-- untrained or capped player costs exactly nothing here. `TrainingDummyService` therefore has no
 	-- publisher of its own and cannot drift from this one.
 	player:SetAttribute("TrainingReps", GameConfig.GetTrainingReps(data))
+
+	-- ===== AND THE DAMAGE ITSELF, ON THE SAME SWEEP AGAIN (33.26) =====
+	--
+	-- Her call, refusing 33.21's gold training bar: *"dmg se ne skuplja ovako vec samo da pise
+	-- damage: pa koliko imam i kako skupljam povecava se"*. `HUD/DamageStat` draws that figure in
+	-- the wallet, and this is the only channel it has.
+	--
+	-- IT RIDES THIS SWEEP FOR THE THIRD TIME AND FOR THE THIRD TIME THAT IS THE CHEAP CHOICE: the
+	-- number moves on an evolve, a level, a blade, a pet, a mastery rung and a training rep -- six
+	-- writers -- so a dirty flag would need six call sites and would still miss the seventh. The
+	-- sweep costs nothing for an idle player because writing an attribute that already holds its
+	-- value fires no `Changed`, and it cannot drift from the save by construction.
+	--
+	-- `DNAService` is required at MODULE SCOPE and that is safe in this direction only: DNAService
+	-- requires GameConfig, PlayerDataService, Telemetry and PetService, and none of those four
+	-- requires this file. `CreatureService` and `BossService` DO require this file, which is exactly
+	-- why the arrow may not be turned round.
+	--
+	-- `GetCombatDamage` stays the ONE PLACE DAMAGE IS DECIDED. Nothing is recomputed here and
+	-- nothing is recomputed on the client -- a second formula for this number is the whole shape of
+	-- the "evolving changes nothing" bug the damage ladder was unwound to fix.
+	player:SetAttribute("CombatDamage", DNAService.GetCombatDamage(data))
 end
 
 -- ===== THE AWARD =====

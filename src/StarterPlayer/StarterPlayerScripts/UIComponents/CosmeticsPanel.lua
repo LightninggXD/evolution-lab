@@ -1,3 +1,31 @@
+-- CosmeticsPanel -- the Vanity board: trails, name plates and emotes (34.2, wired 33.26).
+--
+-- ===== IT WAS BUILT AND NEVER CONNECTED TO ANYTHING =====
+--
+-- Her words, with a capture of the tile: *"ovde imamo i nesto novo vidi sta je i uvezi da radi"*.
+-- What was here was a complete panel and a complete server (`CosmeticService`, wired in
+-- `ServerMain:273`, two RemoteFunctions, purchase and equip both authoritative) with **no line
+-- anywhere that built the panel or opened it** -- `MainUI` declared `cosmeticsButton` at its tile
+-- row and the local was never read again.
+--
+-- THREE CONTRACT FAULTS WENT WITH IT, and all three are silent rather than loud, which is why a
+-- reader would have called this file finished:
+--
+--   1. it read `hud.currentData`. There is no such field -- MainUI keeps the save in a FILE-LOCAL
+--      `currentData` that is REBOUND on every push, and publishes it as the accessor `hud.getData`
+--      for exactly that reason (see the note at the top of MainUI). `hud.currentData` is nil
+--      forever, so `refresh` returned on its first line and every row would have stayed on its
+--      first-frame paint.
+--   2. it wrote `hud.hudRefs.cosmeticsPanel`. `hud` IS hudRefs; `hud.hudRefs` is nil, so those two
+--      lines were a hard error at build time -- the panel would not have finished being built even
+--      if something had required it.
+--   3. it had no `DataUpdate` listener at all, so a purchase's own push could not repaint the row
+--      that made it. Every other panel in this HUD refreshes on that remote.
+--
+-- The remotes are `WaitForChild`ed rather than indexed, because `CosmeticService.Init` creates them
+-- at server boot and this file is built during the client's -- indexing wins that race on a warm
+-- server and loses it on a cold one, which is the worst kind of bug to ship.
+
 local RS = game:GetService("ReplicatedStorage")
 local GameConfig = require(RS.Modules.GameConfig)
 local UITheme = require(RS.Modules.UITheme)
@@ -106,7 +134,8 @@ return function(hud)
 		styleButton(btnEquip, UITheme.Color.Purple, "Equip")
 		
 		btnDiamonds.MouseButton1Click:Connect(function()
-			Remotes.CosmeticPurchase:InvokeServer(c.key)
+			local rf = Remotes:WaitForChild("CosmeticPurchase", 10)
+			if rf then rf:InvokeServer(c.key) end
 		end)
 		
 		btnRobux.MouseButton1Click:Connect(function()
@@ -116,13 +145,15 @@ return function(hud)
 		end)
 		
 		btnEquip.MouseButton1Click:Connect(function()
-			local data = hud.currentData
+			local data = hud.getData and hud.getData()
 			if not data then return end
 			local worn = data.WornCosmetics or {}
+			local rf = Remotes:WaitForChild("CosmeticEquip", 10)
+			if not rf then return end
 			if worn[c.type] == c.key then
-				Remotes.CosmeticEquip:InvokeServer(c.type, "")
+				rf:InvokeServer(c.type, "")
 			else
-				Remotes.CosmeticEquip:InvokeServer(c.type, c.key)
+				rf:InvokeServer(c.type, c.key)
 			end
 		end)
 		
@@ -136,7 +167,7 @@ return function(hud)
 	end
 	
 	local function refresh()
-		local data = hud.currentData
+		local data = hud.getData and hud.getData()
 		if not data then return end
 		
 		local owned = data.CosmeticsOwned or {}
@@ -174,8 +205,15 @@ return function(hud)
 	hud.registerPanel(panel)
 	hud.panelClose(panel)
 	
-	hud.hudRefs.cosmeticsPanel = panel
-	hud.hudRefs.refreshCosmeticsPanel = refresh
+	-- ONTO `hud` ITSELF. `hud` is MainUI's `hudRefs` table -- there is no `hud.hudRefs` -- and
+	-- these two lines used to reach for one and throw.
+	hud.cosmeticsPanel = panel
+	hud.refreshCosmeticsPanel = refresh
+
+	-- THE CHANNEL EVERY OTHER PANEL USES. Both remotes here answer with a `PushToClient`, so this is
+	-- what repaints the row that was just bought or worn; without it the board only ever showed the
+	-- state it was built in.
+	Remotes.DataUpdate.OnClientEvent:Connect(refresh)
 	
 	return panel
 end

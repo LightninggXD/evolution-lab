@@ -231,11 +231,32 @@ return function(hud)
 			local bonus = GameConfig.GetPetBonus(pet.tier, info.rarity, pet.key, data, pet.enchant)
 			local damageText = ("+%d%%"):format(math.floor((bonus.damageMult - 1) * 100 + 0.5))
 
-			local _, setTicked, rigEntry, setShown = PetTile.Build(petsScroll, {
+			-- ===== FORWARD-DECLARED, AND THE ONE LINE THAT USED TO BE HERE WAS THE WHOLE BUG =====
+			--
+			-- This read `local _, setTicked, rigEntry, setShown = PetTile.Build(petsScroll, { ... })`
+			-- with `onPrimary` written INSIDE that table constructor -- and in Luau a local is not in
+			-- scope inside its own initialiser. So the `setShown` and `setTicked` the closure closed
+			-- over were NOT these four; they were whatever those names meant in the enclosing scope,
+			-- which is nothing.
+			--
+			-- Measured live 2026-08-27 off her *"kad se klikne na peta ne moze se selectovati pet"*:
+			-- `PetsGrid:264: attempt to call a nil value` on EVERY tap of a pet, so the detail board
+			-- never opened and the panel read as dead. `setTicked` had the identical fault and was
+			-- silent instead, because it is nil-guarded -- select mode ticked nothing and reported
+			-- no error at all.
+			--
+			-- Declared first, assigned second. Fresh bindings per iteration, so each tile's closure
+			-- still captures its own pair.
+			local tileFrame, setTicked, rigEntry, setShown
+			tileFrame, setTicked, rigEntry, setShown = PetTile.Build(petsScroll, {
 				pet = pet,
 				info = info,
 				rarity = rarity,
 				isEquipped = isEquipped,
+				-- 33.26: the one fact that made "Equip Best" look broken. `GameConfig.IsPetAway`
+				-- lives in `GameConfig/Adventures` -- ReplicatedStorage -- and had never once been
+				-- called from the client; see the badge's note in `PetTile`.
+				away = GameConfig.IsPetAway(data, pet.id),
 				damageText = damageText,
 				order = i,
 				selecting = selecting,
