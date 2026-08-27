@@ -63,6 +63,22 @@ local QUADS = 10
 -- publishes its lanes: the alternative is a second copy of these coordinates somewhere else.
 MapRoad.LANE = { x1 = FROM.X, z1 = FROM.Y, x2 = TO.X, z2 = TO.Y, w = math.max(W_PLAZA, W_VILLAGE) }
 
+-- ===== AND THE CURVE ITSELF, BECAUSE THE ROAD STOPPED BEING THE CHORD (33.35) =====
+-- 32.11b bent this road and left `LANE` describing the straight line it used to be. Measured: the
+-- painted ribbon wanders **15.4 studs** off `LANE`, while `MapSquare` -- the pass whose whole job is
+-- moving buildings out of roads -- keeps them clear of `LANE` at a half-width of 29. So a building
+-- 30 studs off the chord is "clear of the road" and standing on the paint. One geometry, published
+-- here, and `LANE` is kept only as the coarse chord for anything that wants a bounding line.
+--
+-- COMPUTED AT MODULE LOAD, not inside `Build`. Every input is a constant on this page and the seed
+-- is fixed, so the route is a pure function of the file -- which means `MapSquare` can read it
+-- without caring whether `MapRoad.Build` has run yet. A published geometry that only exists after
+-- some other pass has run is the shape of `evolution-lab-placement-search-ordering`.
+local ROUTE_SEED = 42
+MapRoad.PATH = PathSplines.Route(
+	Vector3.new(FROM.X, 0, FROM.Y), Vector3.new(TO.X, 0, TO.Y),
+	Random.new(ROUTE_SEED), { maxJitter = 18 })
+
 -- The top face, and every number here is against a floor measured on the live build. HubPlaza draws
 -- on four planes -- kerb 0.66, deck 1.04, inlay 1.14, cross band 1.18 -- and its own `GROUND_CLEAR`
 -- is 1.40: anything topping out below that it treats as floor rather than as an obstruction. So the
@@ -114,19 +130,23 @@ function MapRoad.Build(zoneKey, cx, map)
 	local dirt = MapPaint.DirtColour(map)
 	local edge = MapPaint.Shade(dirt, EDGE_SHADE)
 	
-	-- We want a curved, scribbled, realistic path instead of a straight taper
-	local rng = Random.new(42) -- fixed seed so it doesn't change every boot
-	local pts = PathSplines.Route(Vector3.new(FROM.X, 0, FROM.Y), Vector3.new(TO.X, 0, TO.Y), rng, { maxJitter = 18 })
-	
+	-- A curved, scribbled path rather than a straight taper -- and the SAME curve everything else
+	-- was told about, read off `MapRoad.PATH` instead of drawn again here. Two calls to `Route`
+	-- would be two roads the moment either seed or option drifted.
+	local pts = MapRoad.PATH
+
 	local made = 0
 	if #pts >= 2 then
 		for i = 1, #pts - 1 do
 			local p1 = pts[i]
 			local p2 = pts[i+1]
-			
-			local t1 = (i - 1) / (#pts - 1)
-			local t2 = i / (#pts - 1)
-			
+
+			-- ARC LENGTH, not point index. The polyline is decimated by curvature, so its points
+			-- are deliberately unevenly spaced: `(i - 1) / (#pts - 1)` would put the widening and
+			-- the descent wherever the bends happen to be rather than where the road is.
+			local t1 = p1.t
+			local t2 = p2.t
+
 			local w1 = W_PLAZA + (W_VILLAGE - W_PLAZA) * t1
 			local w2 = W_PLAZA + (W_VILLAGE - W_PLAZA) * t2
 			local wMid = (w1 + w2) / 2

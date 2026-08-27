@@ -185,6 +185,9 @@ function JungleTrails.Build(camps, cross, opts)
 
 	local cost, connected, out = {}, {}, {}
 	local left = #camps
+	-- Reset per build, like `Unreachable`. A list that accumulates across calls reports the last
+	-- five boots at once, which is how a fixed fault goes on being printed.
+	JungleTrails.Crossing = {}
 
 	while left > 0 do
 		local best = nil
@@ -250,8 +253,23 @@ function JungleTrails.Build(camps, cross, opts)
 		table.insert(obs, { type="rect", x = 0, z = 0, hx = o.villageHalfX + 15, hz = o.villageHalfZ + 15 })
 		
 		local rng = opts.rng or Random.new(math.floor(math.abs(best.sx + best.sz)))
-		local pts = PathSplines.Route(startPos, endPos, rng, { maxJitter = 15 }, obs)
-		
+		local pts, info = PathSplines.Route(startPos, endPos, rng, { maxJitter = 15 }, obs)
+
+		-- ===== A TRAIL THAT COULD NOT GET ROUND A CAMP IS NAMED, NOT SHIPPED QUIETLY =====
+		-- Same rule as the unreachable camp above, and it is new with 33.35 for a reason: until the
+		-- route was re-tested after bending, "avoided" was an assumption. Now the search either
+		-- finds a curve that clears every other camp's floor and the village, or it says so.
+		if info and info.blocked then
+			JungleTrails.Crossing[#JungleTrails.Crossing + 1] = best.camp.id
+		end
+
+		-- ===== ONE CHAIN OF LEGS IS ONE TRAIL, AND ONLY THE HEAD CARRIES THE WALK =====
+		-- The `head` flag is written rather than inferred. `Describe` used to count segments with
+		-- `tier == "trail"`, which was the same thing as counting trails right up until 32.11b split
+		-- each one into legs -- and then the boot log read "259 trails, walk to a camp: mean 10
+		-- studs" for a twenty-camp zone whose real mean is ~146. It was averaging one real distance
+		-- against 239 zeroes. A count that only happens to be right is a count that will go wrong
+		-- silently.
 		if #pts >= 2 then
 			for i = 1, #pts - 1 do
 				out[#out + 1] = {
@@ -259,6 +277,7 @@ function JungleTrails.Build(camps, cross, opts)
 					x1 = pts[i].x, z1 = pts[i].z, x2 = pts[i+1].x, z2 = pts[i+1].z,
 					w = o.width,
 					tier = "trail",
+					head = (i == 1),
 					caps = (i == 1) and "both" or "b",
 					serves = { [best.camp.id] = true, [best.from and best.from.id or ""] = true },
 					parent = best.from and best.from.id or nil,
@@ -271,6 +290,7 @@ function JungleTrails.Build(camps, cross, opts)
 				x1 = best.sx, z1 = best.sz, x2 = best.ex, z2 = best.ez,
 				w = o.width,
 				tier = "trail",
+				head = true,
 				serves = { [best.camp.id] = true, [best.from and best.from.id or ""] = true },
 				parent = best.from and best.from.id or nil,
 				walk = best.total,
@@ -286,17 +306,34 @@ end
 -- One line for the boot log. The MEAN and WORST walk are the row's complaint in two numbers -- a
 -- ratio is not enough on its own, because the camps with the worst ratios (`SW3` at 4.2x) are the
 -- ones standing 45 studs from the village wall, where a short road still looks like a long detour.
+-- ===== COUNT TRAILS, NOT PAINT (33.35) =====
+-- A trail is one chain of legs from an anchor to a camp mouth, and exactly one leg per chain -- the
+-- HEAD -- carries the walk distance. This counted `tier == "trail"` segments, which was the same
+-- number until 32.11b started splitting each trail into legs, and then the line read
+-- `259 trails, walk to a camp: mean 10 studs` for twenty camps whose real mean is 146: one true
+-- distance averaged against 239 zeroes. Both halves of that line were wrong and neither was
+-- obviously wrong, which is the whole problem with a metric that is right by coincidence.
+--
+-- `legs` is printed beside it because it is the number that decides the part count -- four parts a
+-- leg, once for the rim and once for the dirt -- and it is the first thing to look at if the zone
+-- ever gets heavy again.
 function JungleTrails.Describe(segments)
-	local n, total, worst, worstId = 0, 0, 0, "-"
+	local n, legs, total, worst, worstId = 0, 0, 0, 0, "-"
 	for _, s in ipairs(segments) do
 		if s.tier == "trail" then
-			n += 1
-			total += s.walk
-			if s.walk > worst then worst, worstId = s.walk, s.id end
+			legs += 1
+			if s.head then
+				n += 1
+				total += s.walk
+				if s.walk > worst then worst, worstId = s.walk, s.id end
+			end
 		end
 	end
-	return ("%d trails, walk to a camp: mean %.0f studs, worst %s at %.0f%s")
-		:format(n, n > 0 and total / n or 0, worstId, worst,
+	local crossing = JungleTrails.Crossing or {}
+	return ("%d trails (%d legs), walk to a camp: mean %.0f studs, worst %s at %.0f%s%s")
+		:format(n, legs, n > 0 and total / n or 0, worstId, worst,
+			#crossing > 0
+				and ("  <-- COULD NOT BEND CLEAR: " .. table.concat(crossing, ", ")) or "",
 			#JungleTrails.Unreachable > 0
 				and ("  <-- NO ROAD REACHES " .. table.concat(JungleTrails.Unreachable, ", ")) or "")
 end

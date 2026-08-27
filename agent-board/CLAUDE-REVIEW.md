@@ -1544,3 +1544,58 @@ Tested against a planted file: both fire.
    fight, and R32's defects 2-6 (the `Map.Secrets` parent that `SecretsService` destroys, the
    top-level `OnServerEvent` connect, the two `ensureRemote` calls, the hard-coded position) are
    **not addressed in this pass** -- I re-read all four files after normalising.
+
+
+## S12 | VERIFIED | 2026-08-27T00:00 | R35
+
+**S12's outstanding half is closed. The splines stay; the three things R24 left open are fixed, and
+a fourth was found that nobody had spotted -- the boot line for the trail network was a lie.**
+
+Opened by the owner: *"radimo prvo samo forrest, vidi sta je gemini uradio i popravi sta ne valja"*.
+Audited against a live rebuild rather than against the log entry. Roadmap row **33.35** carries the
+full account and every number; this is the lane's copy.
+
+**WHAT WAS STILL WRONG, ALL OF IT ONE MISTAKE IN FOUR COSTUMES: THE CURVE WAS NEVER THE THING THAT
+GOT CHECKED.**
+
+1. **`259 trails, walk to a camp: mean 10 studs`, for a zone with twenty camps.** `Describe` counted
+   trail SEGMENTS, which was the same number as trails until 32.11b split each trail into legs, and
+   only the head leg carries a walk -- so one real distance was averaged against 239 zeroes. This is
+   the worst class of fault this project has: an instrument that reads plausibly and cannot catch
+   the thing it exists to catch. A `head` flag is written now, not inferred. Reads
+   `20 trails (130 legs), walk to a camp: mean 132 studs`.
+2. **The cut and the paint were two different roads.** `MapGates` cut, ran the driving-line pass and
+   relocated buildings along the straight chord, then re-routed a curve in pass 3 and painted THAT.
+   Measured wander: South 9.7, West 8.2, East 7.6. `MapRoad` 15.4 studs off the `MapRoad.LANE` that
+   `MapSquare` keeps every building clear of. One geometry now, routed once at module load and
+   published; `MapCut` runs leg by leg along it, untouched.
+3. **Avoidance was one shot on the straight line**, pushed a fixed 30 studs, and the bent curve was
+   never re-tested -- and the rect test was an AABB overlap, so roads were bent away from ground
+   they never crossed. Now the sampled polyline is what gets tested, leg by leg, and the search runs
+   side then magnitude until one passes. A trail that cannot bend clear is named in the boot line.
+4. **R24's part count, which nobody ever paid.** A point every 8 studs, four parts a point.
+   Decimated by flatness now: **the curve is unchanged** -- the wander is still 9.7 / 8.2 / 7.6 /
+   15.7 -- and it is drawn with a quarter of the pieces.
+
+**MEASURED, before -> after, on a live rebuild:** path parts 1094 -> 578, gate paint 410 -> 86,
+approach road 58 -> 30, zone map parts 42597 -> 39968. Gate paint slabs sit 0.00 studs off their own
+published lane; West and East driving bands hold 0 non-foliage props; all four roads end exactly on
+their endpoint; the avoidance clears a planted r=25 circle at 26.1 and no longer bends for a rect
+off to the side. Five files pushed, hash-verified byte-identical.
+
+**WHAT IS NOT VERIFIED, AND IT IS THE HOUSE RULE SO IT IS SAID PLAINLY:** no capture.
+`screen_capture` times out on every call in this session, with and without a camera pose, while
+`execute_luau`, `get_console_output` and the push all answer normally -- the same failure R33
+recorded and could not explain. The row closes on measurement because the drawn curve is provably
+the same curve, but a picture is owed.
+
+**AND TWO THINGS FOUND BESIDE IT, NOT FIXED, NOT MINE TO CLOSE QUIETLY:**
+
+* **`[MapGateArch] Forest: no PortalGate part in the zone -- vanilla gate stays`**, and
+  `MapGateFlanks` prints `at z no arch ... (no gate parts)` with it. Forest has no `PortalGate`
+  while every other zone has two. 33.1's evidence has one at `(0, 59.3, -575)`, so this is a
+  regression somewhere after that, and it is the door to zone 2. Needs its own row.
+* **`ForestMapService` reports `39 left floating by the mountain cut` and
+  `settled 0 of 0 props back onto the floor`** on the same boot. 32.21 is `nothing stands in mid-air
+  any more, and it is a pass not a patch`. Either the count means something other than what it says
+  or the settle pass is not seeing what the cut orphans.

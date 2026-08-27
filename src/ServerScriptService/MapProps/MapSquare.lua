@@ -42,6 +42,7 @@ local MapGates = require(script.Parent.MapGates)
 local MapRoad = require(script.Parent.MapRoad)
 local MapCut = require(script.Parent.MapCut)
 local MapPaint = require(script.Parent.MapPaint)
+local PathSplines = require(script.Parent.PathSplines)
 
 local MapSquare = {}
 
@@ -96,7 +97,18 @@ local BLOCKER_MIN_H = 5
 local DIRT_TOLERANCE = 0.12
 
 -- Perpendicular distance from a point to a lane's centre line, clamped to the segment.
+--
+-- ===== A LANE'S CENTRE LINE IS A CURVE NOW (33.35) =====
+-- 32.11b bent the roads and this file went on measuring their chords. The numbers: the approach
+-- road's paint wanders **15.4 studs** off `MapRoad.LANE`, the south village lane **9.7** off its
+-- own -- so a building placed exactly at the `ROAD_VERGE` limit from the chord could be standing in
+-- the paint, which is the owner's *"ovaj shop je usao u put"* complaint arriving by a new route.
+-- When the owning module publishes a `path`, that is the road; the chord is only a fallback for a
+-- lane that was never routed.
 local function distToLane(x, z, lane)
+	if lane.path and #lane.path >= 2 then
+		return (PathSplines.Clearance(lane.path, x, z))
+	end
 	local dx, dz = lane.x2 - lane.x1, lane.z2 - lane.z1
 	local len2 = dx * dx + dz * dz
 	local t = 0
@@ -115,6 +127,7 @@ local function villageLanes()
 	for _, lane in ipairs(MapGates.LANES or {}) do
 		lanes[#lanes + 1] = {
 			x1 = lane.x1, z1 = lane.z1, x2 = lane.x2, z2 = lane.z2,
+			path = lane.path,
 			half = math.max(lane.wA or 0, lane.wB or 0) / 2,
 		}
 	end
@@ -122,6 +135,7 @@ local function villageLanes()
 	if approach then
 		lanes[#lanes + 1] = {
 			x1 = approach.x1, z1 = approach.z1, x2 = approach.x2, z2 = approach.z2,
+			path = MapRoad.PATH,
 			half = approach.w / 2,
 		}
 	end

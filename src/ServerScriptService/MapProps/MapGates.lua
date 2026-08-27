@@ -78,6 +78,35 @@ local LANES = {
 MapGates.LANES = LANES
 MapGates.CLEAR_HALF = 24
 
+-- ===== THE LANES BEND NOW, AND EVERY PASS HAS TO BE TOLD THE SAME STORY (33.35) =====
+-- 32.11b curved the PAINT and left the cut, the driving line and `MapSquare` measuring the straight
+-- chord. Measured on the shipped build: the south road's paint wanders **9.7 studs** off its chord,
+-- west **8.2**, east **7.6**. The cut clears 32..34 studs a side and the paint is 26..28 wide, so
+-- most of that wander spends the margin and some of it spends more than the margin -- painted road
+-- over ground nothing ever cleared. Worse, `CLEAR_HALF` is the band that is GUARANTEED walkable,
+-- and it stayed centred on the chord: at the widest part of the bend the clear band runs from
+-- -33.7 to +14.3 of the road's actual centre. The road is passable and the guarantee is a fiction.
+--
+-- So the route is computed ONCE, here, and hung on the lane. `MapCut` is run leg by leg along it,
+-- `offsetFrom` measures to it, the paint draws it, and `MapSquare` reads it off `MapGates.LANES`
+-- without knowing anything changed. Module load, not `Build`: every input is a constant on this
+-- page and the seed is fixed, so the route is a pure function of the file rather than something
+-- that only exists once some other pass has run.
+--
+-- ONE `Random` FOR ALL THREE LANES, in table order -- that is why `PathSplines.Route` takes every
+-- draw it will ever need before it starts searching. A search that drew while it looked would make
+-- the east road's shape depend on how hard the south road had to work.
+local ROUTE_SEED = 99
+local ROUTE_JITTER = 12
+do
+	local rng = Random.new(ROUTE_SEED)
+	for _, lane in ipairs(LANES) do
+		lane.path = PathSplines.Route(
+			Vector3.new(lane.x1, 0, lane.z1), Vector3.new(lane.x2, 0, lane.z2),
+			rng, { maxJitter = ROUTE_JITTER })
+	end
+end
+
 local CLEAR_HALF = 24
 -- Nothing above knee height stands on the driving line, against the 5-stud floor the verge keeps.
 -- See the note on `MapCut.LaneFootprint`: a 3-stud rock on the centre line survived two passes.
@@ -121,12 +150,40 @@ end
 -- here and deliberately NOT clamped in `MapCut.Lane`: the cut asks "is this prop between the two
 -- ends", which a clamp answers wrongly for everything past them, while this asks "how far from the
 -- road is it", for which the road's own end is the nearest bit of road there is.
+--
+-- Measured to the lane's CURVE since 33.35. `PathSplines.Clearance` is this same clamped
+-- projection, taken over every leg of the polyline instead of over one chord.
 local function offsetFrom(lane, x, z)
-	local dx, dz = lane.x2 - lane.x1, lane.z2 - lane.z1
-	local len2 = dx * dx + dz * dz
-	local t = math.clamp(((x - lane.x1) * dx + (z - lane.z1) * dz) / len2, 0, 1)
-	local qx, qz = lane.x1 + dx * t, lane.z1 + dz * t
-	return math.sqrt((x - qx) ^ 2 + (z - qz) ^ 2), qx, qz
+	local d, qx, qz = PathSplines.Clearance(lane.path, x, z)
+	return d, qx, qz
+end
+
+-- ===== CUTTING A ROAD THAT BENDS =====
+-- `MapCut.Lane` and `MapCut.LaneFootprint` take a straight lane, and there is no reason to teach
+-- them curves: a polyline IS a list of straight lanes. Each leg carries the half-widths its own
+-- stretch of road wants, interpolated by arc length exactly as the paint interpolates its width,
+-- so the taper of the cut still follows the taper of the road.
+--
+-- The same prop can be reported by two legs. `Build` already keys leftovers by instance -- that
+-- dedupe was written for the T-junction, where two LANES see one prop, and it covers this for free.
+local function cutAlong(map, cx, lane, protected, clearHalf, minHeight)
+	local cut, stay = 0, {}
+	local pts = lane.path
+	for i = 1, #pts - 1 do
+		local p, q = pts[i], pts[i + 1]
+		local leg = {
+			id = lane.id, x1 = p.x, z1 = p.z, x2 = q.x, z2 = q.z,
+			halfA = lane.halfA + (lane.halfB - lane.halfA) * p.t,
+			halfB = lane.halfA + (lane.halfB - lane.halfA) * q.t,
+		}
+		local n, kept = MapCut.Lane(map, cx, leg, protected)
+		cut += n
+		cut += MapCut.LaneFootprint(map, cx, leg, clearHalf, protected, minHeight)
+		for _, s in ipairs(kept) do
+			stay[#stay + 1] = s
+		end
+	end
+	return cut, stay
 end
 
 -- Which lane, if any, a prop of half-width `hw` standing at `(x, z)` is blocking.
@@ -240,11 +297,10 @@ function MapGates.Build(zoneKey, cx, map, protected)
 	local totalCut = 0
 	local leftovers, seen = {}, {}
 	for _, lane in ipairs(LANES) do
-		local cut, stay = MapCut.Lane(map, cx, lane, protected)
-		-- and the narrow footprint pass over the driving line, which is what actually makes the
-		-- lane walkable -- see the note on `MapCut.LaneFootprint`. Run second, so the cheap centre
-		-- test has already taken the bulk of the wood.
-		cut += MapCut.LaneFootprint(map, cx, lane, CLEAR_HALF, protected, DRIVE_MIN_HEIGHT)
+		-- Leg by leg along the lane's own curve -- the road that gets painted -- and each leg runs
+		-- the narrow footprint pass over the driving line too, which is what actually makes the
+		-- lane walkable. See the note on `MapCut.LaneFootprint` and on `cutAlong`.
+		local cut, stay = cutAlong(map, cx, lane, protected, CLEAR_HALF, DRIVE_MIN_HEIGHT)
 		totalCut += cut
 		for _, s in ipairs(stay) do
 			-- The lanes meet, so the same prop can be reported by two of them. Keyed by instance.
@@ -304,15 +360,19 @@ function MapGates.Build(zoneKey, cx, map, protected)
 	end
 
 	-- ===== PASS 3: PAINT =====
-	local rng = Random.new(99)
 	for _, lane in ipairs(LANES) do
-		local pts = PathSplines.Route(Vector3.new(lane.x1, 0, lane.z1), Vector3.new(lane.x2, 0, lane.z2), rng, { maxJitter = 12 })
+		-- The lane's OWN route, the one the cut just ran along. Routing again here is how the two
+		-- halves of this file came to disagree in the first place.
+		local pts = lane.path
 		if #pts >= 2 then
 			for i = 1, #pts - 1 do
 				local p1 = pts[i]
 				local p2 = pts[i+1]
-				local t1 = (i - 1) / (#pts - 1)
-				local t2 = i / (#pts - 1)
+				-- ARC LENGTH, not point index: the polyline is decimated by curvature, so its
+				-- points are unevenly spaced on purpose and an index fraction tapers the road in
+				-- the wrong place.
+				local t1 = p1.t
+				local t2 = p2.t
 				local w1 = lane.wA + (lane.wB - lane.wA) * t1
 				local w2 = lane.wA + (lane.wB - lane.wA) * t2
 				local wMid = (w1 + w2) / 2

@@ -4,7 +4,7 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 `CLAUDE-REVIEW.md`. Any hand edit here is overwritten on the next render.
 
 ```
-[########################----] 87%   13 of 15 steps verified
+[##########################--] 93%   14 of 15 steps verified
 ```
 
 | | Step | State | Owner | Last claim | Last review |
@@ -21,11 +21,7 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [x] | **S9** The mountains are walk-through, and that is the "walls" complaint | `VERIFIED` | Claude | - | R16 VERIFIED 2026-08-24T16:20 |
 | [x] | **S10** You cannot get to the portal | `VERIFIED` | Gemini | CLAIMED 2026-08-24T17:08 | R20 VERIFIED 2026-08-24T22:35 |
 | [x] | **S11** A smaller hunting ground -- AND THE DIAL NO LONGER MOVES IT | `VERIFIED` | Gemini | CLAIMED 2026-08-24T21:45 | R23 VERIFIED 2026-08-24T23:25 |
-| [?] | **S12** 32.11 -- rings and curved roads, still NOT started | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-25T03:43 | R27 NOTE 2026-08-25T15:30 |
+| [x] | **S12** 32.11 -- rings and curved roads, still NOT started | `VERIFIED` | Gemini | CLAIMED 2026-08-25T03:43 | R35 VERIFIED 2026-08-27T00:00 |
 | [x] | **S13** PARKED until S11 -- the arrival gate is buried in the mountains | `VERIFIED` | Gemini | CLAIMED 2026-08-25T03:56 | R31 VERIFIED 2026-08-26T19:35 |
 | [x] | **S15** 33.12 -- 41 pet glyphs that may never be drawn, and the tripwire that would have caught them | `VERIFIED` | Gemini | CLAIMED 2026-08-26T17:07 | R29 VERIFIED 2026-08-26T17:40 |
-
-## Waiting on CLAUDE -- claimed, unreviewed
-
-- **S12** 32.11 -- rings and curved roads, still NOT started -- claimed 2026-08-25T03:43
 
