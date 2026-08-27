@@ -359,6 +359,45 @@ function GameConfig.GetZoneReferenceDamage(zoneIndex)
 	return GameConfig.GetRankDamage((i - 1) * 5 + 1)
 end
 
+-- ===== WHAT THE ZONE EXPECTS YOU TO BE CARRYING (33.33) =====
+--
+-- `GetZoneReferenceDamage` above is the BARE player, and for a long time it was the only reference
+-- state the config had. That is the hole every "the boss died in two blows" measurement falls into:
+-- boss health is priced off a player with no pets, no upgrades and no mastery, and the real player
+-- who reaches that boss is carrying all three.
+--
+-- MEASURED, not invented. The three terms are read off the same tables the game charges for:
+--
+--   income    `Upgrades.Income` caps at 5 levels a zone at +1% each -> `1 + 0.05 * z`
+--   mastery   one Stage Mastery rung a stage at +12% each          -> `1 + 0.12 * z`
+--   pets      six slots (3 free + 3 diamond), climbing in rarity and tier with depth
+--
+-- The pet term is the only one that is not a config identity, because what a player has EQUIPPED
+-- is a behaviour rather than a rule. It is a smoothed geometric fit through a measured ladder --
+-- x1.96 with six Uncommon Normals in Forest, x21.16 with six Legendary Celestials on the Absolute
+-- Plane -- and it is deliberately a SMOOTH curve rather than a twenty-row table: the mid-strip
+-- reads about a third under the measured stack (x6.1 against x8.0 at Nebula), which errs toward
+-- treating a player as UNDER-geared, and every consumer of this number must be safe in that
+-- direction. It is an expectation. It is never a description of a particular save.
+--
+-- WHAT IT IS FOR: content priced against this number keeps its length for the player it was built
+-- for, gets slower for one who arrives under-geared, and faster for one who arrives over-geared --
+-- which is the shape the whole `+1` genre gates on, and the shape the owner asked for in 33.34.
+-- `GetBossBlowDivisor` is the first caller.
+GameConfig.ExpectedPetMultBase = 1.96
+GameConfig.ExpectedPetMultGrowth = 1.133
+
+function GameConfig.GetZoneExpectedGear(zoneIndex)
+	-- `Zones` is composed into GameConfig by a later file, so the count is read defensively: this
+	-- function is safe to call at module load the way `GetRankDamage` above it is.
+	local last = GameConfig.Zones and #GameConfig.Zones or 20
+	local z = math.clamp(math.floor(tonumber(zoneIndex) or 1), 1, last)
+	local income = 1 + 0.05 * z
+	local mastery = 1 + 0.12 * z
+	local pets = GameConfig.ExpectedPetMultBase * GameConfig.ExpectedPetMultGrowth ^ (z - 1)
+	return income * mastery * pets
+end
+
 -- ===== MUTATIONS ARE ROLLED AT THE DNA SPLICER (Phase 12) =====
 -- They used to roll THEMSELVES: a server loop fired every ~10 seconds for as long as a player
 -- was online, nothing was ever removed, and the ladder topped at x30 income -- a hidden faucet

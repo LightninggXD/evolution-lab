@@ -6,7 +6,9 @@ local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
 
 local GameConfig = require(RS.Modules.GameConfig)
-local PetService = require(script.Parent.PetService)
+-- 33.33 removed the last read of `PetService` from this file: the two inline gear stacks it fed
+-- are now one call to `GameConfig.GetBossBlowDivisor`. The require is gone with them -- a
+-- require kept for nothing is a load-order edge waiting to be tripped over.
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
@@ -2284,14 +2286,12 @@ local function spawnBoss(zone)
 					and (hrp.Position - body.Position).Magnitude <= auraRange then
 					-- the same fight length the retaliation is held to, computed off the same two
 					-- numbers, so the aura and the blows cannot disagree about how long this is
-										local baseDivisor = GameConfig.GetBossDamageDivisor(plrData)
-					local incomeMult = 1 + (plrData.Upgrades.Income or 0) * 0.01
-					local petMult = PetService.GetEquippedBonus(plrData).damageMult
-					local masteryMult = GameConfig.GetStageMasteryBonus(plrData).damageMult
-					local gearedMult = incomeMult * petMult * masteryMult
-					local squash = math.max(gearedMult ^ 0.45, 1)
-					local finalDivisor = baseDivisor * squash
-					local plrDamage = DNAService.GetCombatDamage(plrData) / finalDivisor
+										-- ONE function for both damage sites since 33.33, and the aura MUST use the same
+					-- one the blows do: these two were separate inline copies of the same six lines
+					-- and the whole point of `blowsToFell` is that the aura and the hits agree about
+					-- how long this fight is.
+					local plrDamage = DNAService.GetCombatDamage(plrData)
+						/ GameConfig.GetBossBlowDivisor(plrData, zoneIndex)
 					hurtPlayer(plr, math.random(boss.auraDamage[1], boss.auraDamage[2]),
 						blowsToFell(boss.health, plrDamage))
 				end
@@ -2350,14 +2350,12 @@ local function spawnBoss(zone)
 		-- floored, and floored at 1: the divisor keeps the health attribute an integer the way every
 		-- other write to it is, and a rebirth deep enough to round a blow to zero would be a boss
 		-- that cannot be hurt at all
-				local baseDivisor = GameConfig.GetBossDamageDivisor(data)
-		local incomeMult = 1 + (data.Upgrades.Income or 0) * 0.01
-		local petMult = PetService.GetEquippedBonus(data).damageMult
-		local masteryMult = GameConfig.GetStageMasteryBonus(data).damageMult
-		local gearedMult = incomeMult * petMult * masteryMult
-		local squash = math.max(gearedMult ^ 0.45, 1)
-		local finalDivisor = baseDivisor * squash
-		local playerDamage = math.max(math.floor(DNAService.GetCombatDamage(data) / finalDivisor), 1)
+		-- 33.33: the squash is no longer a flat power of the whole geared stack. It is split at
+		-- what the ZONE expects -- see `GameConfig.GetBossBlowDivisor`, where the measurement that
+		-- forced that split is written out. The player this zone was built for fights the same
+		-- fight as before; a player revisiting it eight rebirths deep no longer deletes it.
+		local playerDamage = math.max(math.floor(
+			DNAService.GetCombatDamage(data) / GameConfig.GetBossBlowDivisor(data, zoneIndex)), 1)
 		local before = model:GetAttribute("Health") or boss.health
 		local health = math.max(before - playerDamage, 0)
 		model:SetAttribute("Health", health)

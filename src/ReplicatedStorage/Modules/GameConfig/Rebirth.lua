@@ -182,6 +182,68 @@ function GameConfig.GetBossDamageDivisor(data)
 		* GameConfig.GetTrainingDamageMult(data), 1)
 end
 
+-- ===== AND THE HALF THE DIVISOR ABOVE DOES NOT COVER (33.33) =====
+--
+-- The four terms above are the ones every player who keeps playing ends up holding in full. The
+-- three it leaves out -- `Upgrades.Income`, the equipped pets and Stage Mastery -- are the ones a
+-- player CHOOSES how much of to bring, and they were left uncancelled on purpose: a boss that
+-- cancels your pets is a boss there is no reason to bring pets to.
+--
+-- That was right and it was not enough. 32.12 measured a boss dying in two blows; 33.16 answered
+-- it with `gearedMult ^ 0.45` folded in at the two damage sites in `BossService`, which took the
+-- worst off but left a residual of `gearedMult ^ 0.55` -- x6.1 at Nebula, x15.4 on the Absolute
+-- Plane for a normally geared player, and far more for one revisiting an early zone.
+--
+-- **AND REVISITING AN EARLY ZONE IS THE CASE THAT ACTUALLY BROKE, WHICH IS WHY THE EXPONENT WAS
+-- NEVER THE FIX.** Measured live on the owner's own save on 2026-08-27, one rebirth into a fresh
+-- run: stage 1, level 1, eight rebirths of pets -- `gearedMult = 25.58` against a Forest that
+-- expects x2.30. Her Forest boss was 8.4 blows. A player who has just ARRIVED in Forest, with the
+-- gear Forest expects, was 89. Same boss, same code, an order of magnitude apart -- and lowering
+-- the exponent to close her end lengthens theirs, which is the wrong fight to make longer.
+--
+-- So the split is by WHAT THE ZONE EXPECTS, not by a flat power:
+--
+--   * up to `GetZoneExpectedGear(z)`, nothing changes -- the old `^0.45` squash, so the player the
+--     zone was built for fights exactly the fight they fight today, and pets still shorten it,
+--   * ABOVE it, the EXCESS is cancelled at `^0.85`, so out-levelling a zone stops paying almost
+--     all of what it used to.
+--
+-- 0.85 rather than a full 1.0 is the owner's number, not a rounding: 33.8 fixed the target at
+-- "~20 swings for the max free-play stack", and 0.85 puts her measured save at 20.8 blows where a
+-- full cancel would put it at 29.6. It also leaves a visible reward for over-gearing, which is the
+-- objection that killed the "add pets to the divisor" option in the first place.
+--
+-- IT IS A DIVISOR AND NOT A HEALTH MULTIPLIER, for the reason written out above: boss health is
+-- shared by everyone standing in the arena, and a divisor is per-player. Two players of different
+-- strength must be able to fight the same boss.
+GameConfig.BossGearSquash = 0.45
+GameConfig.BossExcessCancel = 0.85
+
+-- The gear a save is actually carrying, in the same three terms `GetZoneExpectedGear` predicts.
+-- Kept here rather than inline at the two `BossService` sites that used to compute it twice: they
+-- had drifted apart once already, and this is the number the whole row turns on.
+function GameConfig.GetGearedDamageMult(data)
+	local income = 1 + ((data and data.Upgrades and data.Upgrades.Income) or 0) * 0.01
+	local pets = GameConfig.GetEquippedBonus(data).damageMult
+	local mastery = GameConfig.GetStageMasteryBonus(data).damageMult
+	return income * pets * mastery
+end
+
+-- The whole divisor a boss blow is measured against: the four cancelled terms, times the squash.
+-- ONE function, called by the hit path and by the aura path, so those two can never disagree about
+-- how long a fight is -- which is the bug `blowsToFell` exists to avoid and which the duplicated
+-- inline copies made possible again.
+function GameConfig.GetBossBlowDivisor(data, zoneIndex)
+	local base = GameConfig.GetBossDamageDivisor(data)
+	local geared = GameConfig.GetGearedDamageMult(data)
+	local expected = GameConfig.GetZoneExpectedGear(zoneIndex)
+	-- the part of the stack the zone expected, squashed as before
+	local within = math.max(math.min(geared, expected), 1) ^ GameConfig.BossGearSquash
+	-- and the part it did not, cancelled nearly whole
+	local excess = math.max(geared / expected, 1) ^ GameConfig.BossExcessCancel
+	return math.max(base * within * excess, 1)
+end
+
 -- Which rebirth tier (1-4) a given stage index has reached. Tier 0 = not eligible yet.
 function GameConfig.GetRebirthTier(stageIndex)
 	return math.floor((stageIndex or 0) / GameConfig.RebirthTierSize)
