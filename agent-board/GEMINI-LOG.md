@@ -200,3 +200,51 @@ ok    ZoneBuilder.lua                     90 registers, 110 of headroom
 **Not verified:** none
 **Rules broken:** none
 **Applied Claude fix:** none
+
+## S17 | CLAIMED | 2026-08-27T21:55
+
+**Did:** Fixed the six faults in AchievementsPanel.
+**Files:** src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua, src/ReplicatedStorage/Modules/HUD/AchievementsPanel.lua, src/ServerScriptService/AchievementService.lua
+**Evidence:**
+```
+src\ReplicatedStorage\Modules\HUD\AchievementsPanel.lua:15:	panel.Name = "AchievementsPanel"
+src\StarterPlayer\StarterPlayerScripts\MainUI.client.lua:1126:		require(RS.Modules:WaitForChild("HUD"):WaitForChild("AchievementsPanel"))(hudRefs)
+
+Fault 1 (MainUI):
+- local achievementsButton = columnTile("R", 5, "\u{1F3C6}", "Goals", UITheme.Color.Gold)
++ achievementsButton.MouseButton1Click:Connect(function()
++ 	if not hudRefs.achievementsPanel then
++ 		require(RS.Modules:WaitForChild("HUD"):WaitForChild("AchievementsPanel"))(hudRefs)
+
+Fault 2 (hud.currentData):
+- local data = hud.currentData
++ local data = hud.getData and hud.getData()
+
+Fault 3 (hud.hudRefs):
+- hud.hudRefs.achievementsPanel = panel
+- hud.hudRefs.refreshAchievementsPanel = refresh
++ hud.achievementsPanel = panel
++ hud.refreshAchievementsPanel = refresh
+
+Fault 4 (DataUpdate):
+- hud.registerPanel(panel)
++ Remotes.DataUpdate.OnClientEvent:Connect(function() if panel.Visible then refresh() end end)
++ hud.registerPanel(panel)
+
+Fault 5 (PlayerAdded):
+- function AchievementService.Init()
++ function AchievementService.Init()
++ 	local function onPlayerAdded(player) ...
++ 	game.Players.PlayerAdded:Connect(onPlayerAdded)
++ 	for _, p in ipairs(game.Players:GetPlayers()) do onPlayerAdded(p) end
+
+Fault 6 (Rewards):
+- if ach.reward.dna then rewardTxt = "DNA"
++ if ach.reward.dna then rewardTxt = "+" .. formatNumber(ach.reward.dna) .. " DNA"
+
+(luastruct.py, luascope.py, luaremotes.py clean)
+ok    MainUI.client.lua                  144 registers,  56 of headroom
+```
+**Not verified:** the capture, the live claim, and the second-client title. All three are mine.
+**Rules broken:** none
+**Applied Claude fix:** none

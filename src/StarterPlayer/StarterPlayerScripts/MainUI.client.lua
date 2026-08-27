@@ -1121,6 +1121,13 @@ local rewardButton = columnTile("R", 3, "\u{1F381}", "Daily", UITheme.Color.Peac
 local rewardBadge = rewardButton:FindFirstChild("Badge")
 local robuxButton  = columnTile("R", 4, "\u{1F6CD}\u{FE0F}", "Robux", UITheme.Color.Mint)
 local achievementsButton = columnTile("R", 5, "\u{1F3C6}", "Goals", UITheme.Color.Gold)
+achievementsButton.MouseButton1Click:Connect(function()
+	if not hudRefs.achievementsPanel then
+		require(RS.Modules:WaitForChild("HUD"):WaitForChild("AchievementsPanel"))(hudRefs)
+	end
+	if hudRefs.refreshAchievementsPanel then hudRefs.refreshAchievementsPanel() end
+	toggleOnly(hudRefs.achievementsPanel)
+end)
 local cosmeticsButton = columnTile("R", 6, "\u{1F457}", "Vanity", UITheme.Color.Pink)
 -- ===== AND IT OPENS SOMETHING NOW (33.26) =====
 --

@@ -35,8 +35,7 @@ return function(hud)
 	scroll.Size = UDim2.new(1, -24, 1, -24)
 	scroll.Position = UDim2.new(0, 12, 0, 12)
 	scroll.BackgroundTransparency = 1
-	scroll.ScrollBarThickness = 6
-	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+		scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 	scroll.Parent = panel
 	
 	local listLayout = Instance.new("UIListLayout")
@@ -88,7 +87,11 @@ return function(hud)
 		progTxt.Size = UDim2.new(1, 0, 1, 16)
 		progTxt.Position = UDim2.new(0, 0, 0, -8)
 		progTxt.BackgroundTransparency = 1
-		progTxt.Text = "0 / " .. formatNumber(ach.goal)
+		if string.sub(ach.key, 1, 5) == "Time_" then
+			progTxt.Text = "0h / " .. formatNumber(math.floor(ach.goal / 3600)) .. "h"
+		else
+			progTxt.Text = "0 / " .. formatNumber(ach.goal)
+		end
 		progTxt.Parent = progBg
 		themeLabel(progTxt, 14, Color3.fromRGB(46, 54, 74))
 		
@@ -99,9 +102,9 @@ return function(hud)
 		styleButton(btn, UITheme.Color.Blue, "Claim")
 		
 		local rewardTxt = ""
-		if ach.reward.dna then rewardTxt = "DNA"
-		elseif ach.reward.diamonds then rewardTxt = "Gems"
-		elseif ach.reward.title then rewardTxt = "Title" end
+		if ach.reward.dna then rewardTxt = "+" .. formatNumber(ach.reward.dna) .. " DNA"
+		elseif ach.reward.diamonds then rewardTxt = "+" .. formatNumber(ach.reward.diamonds) .. " Diamonds"
+		elseif ach.reward.title then rewardTxt = 'Title: "' .. ach.reward.title .. '"' end
 		
 		local rewLbl = Instance.new("TextLabel")
 		rewLbl.Size = UDim2.new(1, 0, 0, 14)
@@ -112,7 +115,7 @@ return function(hud)
 		themeLabel(rewLbl, 12, Color3.fromRGB(120, 130, 150))
 		
 		btn.MouseButton1Click:Connect(function()
-			local data = hud.currentData
+			local data = hud.getData and hud.getData()
 			if not data then return end
 			
 			local claimed = data.AchievementsClaimed or {}
@@ -144,7 +147,7 @@ return function(hud)
 	end
 	
 	local function refresh()
-		local data = hud.currentData
+		local data = hud.getData and hud.getData()
 		if not data then return end
 		
 		local claimed = data.AchievementsClaimed or {}
@@ -156,7 +159,11 @@ return function(hud)
 			local val = data[refs.ach.counter] or 0
 			local ratio = math.clamp(val / refs.ach.goal, 0, 1)
 			refs.progFill.Size = UDim2.new(ratio, 0, 1, 0)
-			refs.progTxt.Text = formatNumber(val) .. " / " .. formatNumber(refs.ach.goal)
+			if string.sub(key, 1, 5) == "Time_" then
+				refs.progTxt.Text = formatNumber(math.floor(val / 3600)) .. "h / " .. formatNumber(math.floor(refs.ach.goal / 3600)) .. "h"
+			else
+				refs.progTxt.Text = formatNumber(val) .. " / " .. formatNumber(refs.ach.goal)
+			end
 			
 			if claimed[key] then
 				if refs.ach.reward.title then
@@ -185,11 +192,14 @@ return function(hud)
 		scroll.CanvasSize = UDim2.new(0, 0, 0, count * 68 + 8)
 	end
 	
+	Remotes.DataUpdate.OnClientEvent:Connect(function()
+		if panel.Visible then refresh() end
+	end)
 	hud.registerPanel(panel)
 	hud.panelClose(panel)
 	
-	hud.hudRefs.achievementsPanel = panel
-	hud.hudRefs.refreshAchievementsPanel = refresh
+	hud.achievementsPanel = panel
+	hud.refreshAchievementsPanel = refresh
 	
 	return panel
 end

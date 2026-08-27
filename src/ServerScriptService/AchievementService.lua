@@ -3,6 +3,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local Achievements = require(ReplicatedStorage.Modules.GameConfig.Achievements)
+local Telemetry = require(ServerScriptService.Telemetry)
 local PlayerDataService = require(ServerScriptService.PlayerDataService)
 local Remotes = ReplicatedStorage.Remotes
 
@@ -37,9 +38,11 @@ function AchievementService.HandleClaim(player, achievementKey)
 	-- Give reward
 	if config.reward.dna then
 		data.DNA = (data.DNA or 0) + config.reward.dna
+		Telemetry.Economy(player, "Source", Telemetry.Currency.DNA, config.reward.dna, data.DNA, Telemetry.Tx.Gameplay, "Achievement")
 	end
 	if config.reward.diamonds then
 		data.Diamonds = (data.Diamonds or 0) + config.reward.diamonds
+		Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, config.reward.diamonds, data.Diamonds, Telemetry.Tx.Gameplay, "Achievement")
 	end
 	
 	-- Note: Titles are not "given" to an inventory, they are simply unlocked by the claim
@@ -78,6 +81,27 @@ function AchievementService.HandleEquipTitle(player, titleKey)
 end
 
 function AchievementService.Init()
+	local function onPlayerAdded(player)
+		task.spawn(function()
+			local data = nil
+			local tries = 0
+			repeat
+				task.wait(0.5)
+				tries = tries + 1
+				if not player.Parent or tries > 10 then return end
+				data = PlayerDataService.Get(player)
+			until data
+			
+			if data.WornTitle then
+				player:SetAttribute("WornTitle", data.WornTitle)
+			end
+		end)
+	end
+	game.Players.PlayerAdded:Connect(onPlayerAdded)
+	for _, p in ipairs(game.Players:GetPlayers()) do
+		onPlayerAdded(p)
+	end
+
 	if not Remotes:FindFirstChild("AchievementClaim") then
 		local ev = Instance.new("RemoteFunction")
 		ev.Name = "AchievementClaim"
