@@ -142,12 +142,12 @@ end
 -- stand on the ground is this file. `Jungle` is included even though it measured 0 floating: it costs
 -- one raycast per camp prop and it is the folder most likely to gain a floating prop the next time
 -- the camps move.
-function MapSettle.Forest(zones)
+function MapSettle.Forest(map)
 	return MapSettle.Run({
-		{ folder = zones:FindFirstChild("HuntForest"), names = { HuntTree = true } },
-		{ folder = zones:FindFirstChild("WaterfallRidge"),
+		{ folder = map:FindFirstChild("HuntForest"), names = { HuntTree = true } },
+		{ folder = map:FindFirstChild("WaterfallRidge"),
 			names = { SkirtTree = true, SkirtRock = true, FlankTree = true, SkirtPlate = true } },
-		{ folder = zones:FindFirstChild("Jungle"), names = nil },
+		{ folder = map:FindFirstChild("Jungle"), names = nil },
 	})
 end
 

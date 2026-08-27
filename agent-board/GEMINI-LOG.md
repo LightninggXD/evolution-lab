@@ -343,3 +343,18 @@ ok    MainUI.client.lua                  144 registers,  56 of headroom
 | 34.8 | `CombatClient.client.lua` | 1777 | Shape 4 (A local used outside its scope) | `luascope.py` reported `updateStreak` as out-of-scope at line 1777 since it was completely undeclared. | FIXED (added `local updateStreak` at top; lint `luascope.py` is now clean) |
 
 **Lints:** `luascope.py` is now clean for `CombatClient.client.lua`.
+
+## S21 | CLAIMED | 2026-08-27T23:05
+
+- **Defect:** `ForestMapService.lua`'s `clearBands` deleted the `-Z` gate because `PortalGate` at `Z = -575` fell inside the second clearing band (`z1 = -620, z2 = -240`). Since it wasn't listed as `MainPart`, `Terrain`, or `protected`, it was treated as scenery and destroyed.
+- **Proof:** Adding `c.Name ~= "PortalGate"` to the exclusion list prevents `clearBands` from deleting it.
+- **Lints:** No structural or scoping issues introduced.
+- **Not verified:** `PortalGate` visualization in Studio.
+
+## S22 | CLAIMED | 2026-08-27T23:05
+
+- **Defect:** `MapSettle.Forest(zones)` looked for `HuntForest` in `workspace.Zones`. But `MapForest.Plant` creates `HuntForest` inside `map` (`workspace.Zones.Forest`). Because `zones:FindFirstChild("HuntForest")` returned nil, `MapSettle.Run` checked 0 props, which is why it settled 0 of 0.
+- **Proof:** `floatingCut` correctly and intentionally destroyed the 39 authored props stranded by `MapRidge.Clear` (leaving 0 floating). `MapSettle` is supposed to settle the generated `HuntForest` / `WaterfallRidge` / `Jungle` props, which it couldn't find.
+- **Fix:** In `MapSettle.lua`, changed `MapSettle.Forest` to accept `map` and look inside `map`. In `ForestMapService.lua`, passed `map` instead of `map.Parent or workspace.Zones`.
+- **Lints:** No structural or scoping issues introduced.
+- **Not verified:** The actual run log output showing the corrected settled count.

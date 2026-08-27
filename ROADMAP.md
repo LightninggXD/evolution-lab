@@ -5719,3 +5719,5 @@ codebase and adding it is an infrastructure layer, not a feature.
   `productId = 0`; `RobuxShopService` grants fixed DNA in an exponential economy; the game has no
   audio; no `OrderedDataStore`, no `MessagingService`, no codes, no offline earnings, no trading.
   Nothing implemented yet.
+| 34.11 | `[ ]` | **Forest has no PortalGate.** `MapGateFlanks` prints `no arch ... (no gate parts)`. Forest is missing its `PortalGate` entirely, meaning the vanilla gate stays. This is the door to zone 2 and is a regression since 33.1. | restored to the live zone |
+| 34.12 | `[ ]` | **ForestMapService leaves 39 props floating.** It reports `39 left floating by the mountain cut` but `settled 0 of 0 props back onto the floor`. The settle pass is either missing the orphaned props or the count is misaligned with the cut. | 0 props left floating after cut |

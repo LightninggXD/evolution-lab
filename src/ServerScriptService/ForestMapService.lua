@@ -385,7 +385,7 @@ local function clearBands(map, cx, bands, protected)
 	for _, c in ipairs(map:GetChildren()) do
 		-- MainPart is the ground the bands are measured over and Terrain is what their far edge is
 		-- read against; neither is scenery and neither may be cut.
-		if c.Name ~= "MainPart" and c.Name ~= "Terrain" and not (protected and protected[c]) then
+		if c.Name ~= "MainPart" and c.Name ~= "Terrain" and c.Name ~= "PortalGate" and not (protected and protected[c]) then
 			local pos, size
 			if c:IsA("Model") then
 				local cf, s = c:GetBoundingBox()
@@ -531,7 +531,7 @@ function ForestMapService.Init()
 				floatParams.FilterType = Enum.RaycastFilterType.Exclude
 				local floatingCut = 0
 				for _, c in ipairs(map:GetChildren()) do
-					if c.Name ~= "MainPart" and c.Name ~= "Terrain" and not (protected and protected[c]) then
+					if c.Name ~= "MainPart" and c.Name ~= "Terrain" and c.Name ~= "PortalGate" and not (protected and protected[c]) then
 						local cf, size
 						if c:IsA("Model") then
 							cf, size = c:GetBoundingBox()
@@ -636,7 +636,7 @@ function ForestMapService.Init()
 				--
 				-- The owner found it by looking: *"kad kazem na zemlji mislim bas na podu gde se
 				-- hoda"*, with a `HuntTree` selected whose foot was 7.4 studs over a floor at 0.
-				local settled, settleChecked = MapSettle.Forest(map.Parent or workspace.Zones)
+				local settled, settleChecked = MapSettle.Forest(map)
 				print(("[ForestMapService] %s: dropped %d dressing, laid %d map parts at x%.2f, "
 					.. "cut %d props for the arrival and hunt bands, %d for the entrance road, "
 					.. "%d left floating by the mountain cut, "
