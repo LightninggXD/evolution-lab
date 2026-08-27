@@ -130,14 +130,64 @@ GameConfig.TrainingDummyMinRebirths = 1
 -- pays the same currency the room teaches, once, and a rebirth takes it back with the rest.
 GameConfig.SecretTrainingReps = 50
 
+-- ===== THE LADDER BELONGS TO THE ZONE, NOT TO THE PLAYER (33.34) =====
+--
+-- The owner's plan is a hidden dummy in EVERY stage -- *"cemo dodati posle tek na svakom stage
+-- skrivenog dummy za udaranje"* -- and the arithmetic on that killed the shape this file shipped
+-- with. A permanent x3.00 taken twenty times is `3^20 = 3.5e9` against a whole-game creature-health
+-- growth of about 1.5e9: **twenty of these dummies is bigger than the entire game.** The measured
+-- budget for a PERMANENT per-zone multiplier is about x1.12 each, which is a number nobody would
+-- walk behind a waterfall to find.
+--
+-- So the multiplier belongs to the PLACE. This is the genre's own answer and it is near-universal
+-- -- Anime Fighting Simulator's training zones, Super Power Training Simulator's pools, Elemental
+-- Power Simulator's 27 hidden areas and Muscle Legends' one rock per region all work this way; the
+-- evidence is collected in `guidelines/plus-one-progression-2026.md`. Twenty ladders that never
+-- stack, each one still worth the whole x3.00 in the zone it belongs to.
+--
+-- **AND THE BANK FILLS FROM KILLS IN THAT ZONE TOO**, which is what makes this work in the
+-- nineteen zones that have no dummy yet: every zone accumulates its own ladder from ordinary
+-- farming, and the dummy -- when it is built -- fills that zone's bank at double rate. Her spec
+-- was *"damage dobijas kad tuces mobove i udaras ovaj dummy"* from the start; this only says which
+-- ladder a blow pays into.
+--
+-- THE SAVE. `data.TrainingZoneReps` is a table keyed by zone key. `data.TrainingReps` is the old
+-- single number and is still read: a save written before this row has its whole ladder credited to
+-- Forest, which is where the only dummy in the game stands, and the legacy field is left in place
+-- rather than deleted so that a rollback cannot strand it. One migration, no loop over saves.
+local FOREST = "Forest"
+
+-- Which zone a call is about. The default is the zone the player is STANDING IN, so no existing
+-- call site had to change: `DNAService.GetCombatDamage`, the boss divisor and the HUD all pass a
+-- save and get the ladder for where that save currently is.
+local function zoneOf(data, zoneKey)
+	if zoneKey and zoneKey ~= "" then return zoneKey end
+	return (data and data.CurrentZone) or FOREST
+end
+
+-- The bank, read-only, with the legacy number folded in. Never writes: a getter that migrates a
+-- save on read is a getter that can be called from the client and change what the server thinks.
+local function bankOf(data, zoneKey)
+	local key = zoneOf(data, zoneKey)
+	local byZone = data and data.TrainingZoneReps
+	if type(byZone) == "table" and byZone[key] ~= nil then
+		return tonumber(byZone[key]) or 0
+	end
+	-- the legacy single-number ladder counts as Forest's, and as nothing anywhere else
+	if key == FOREST then
+		return tonumber(data and data.TrainingReps) or 0
+	end
+	return 0
+end
+
 -- ===== THE ACCESSORS =====
 
 -- Clamped on the way OUT, not on the way in, and that is deliberate: it means a save that predates
 -- this feature (nil), a save a probe wrote by hand, a string, and a number past the cap all answer
 -- the same safe thing, and no migration has to run over any of them. `tonumber` first is the house
 -- pattern against a string or a NaN in a save -- see `GetRebirthXpMult`.
-function GameConfig.GetTrainingReps(data)
-	local reps = tonumber(data and data.TrainingReps) or 0
+function GameConfig.GetTrainingReps(data, zoneKey)
+	local reps = bankOf(data, zoneKey)
 	-- a NaN fails every comparison, so `math.clamp` would hand it straight back
 	if reps ~= reps then return 0 end
 	-- 33.32: the clamp is `TrainingRepMax`, not `TrainingRepCap`. The cap is a knee in the curve
@@ -145,12 +195,31 @@ function GameConfig.GetTrainingReps(data)
 	return math.clamp(math.floor(reps), 0, GameConfig.TrainingRepMax)
 end
 
+-- THE ONE WRITER. Every path that pays reps -- the dummy, a creature kill, the grotto's one-time
+-- find -- goes through this, so the migration, the clamp and the zone key exist in exactly one
+-- place. Returns what was actually banked, which is what the popup over the target draws.
+function GameConfig.AddTrainingReps(data, zoneKey, gain)
+	if not data then return 0 end
+	local key = zoneOf(data, zoneKey)
+	local before = GameConfig.GetTrainingReps(data, key)
+	local after = math.clamp(before + (tonumber(gain) or 0), 0, GameConfig.TrainingRepMax)
+	if type(data.TrainingZoneReps) ~= "table" then
+		data.TrainingZoneReps = {}
+	end
+	data.TrainingZoneReps[key] = after
+	-- kept in step for Forest so a rollback, or any reader still on the old field, sees the truth
+	if key == FOREST then
+		data.TrainingReps = after
+	end
+	return after - before
+end
+
 -- x1.00 at nothing, x3.00 at the knee, and +0.55 a doubling for ever after (33.32). THE ONLY
 -- READERS ARE `DNAService.GetCombatDamage` and the boss divisor that cancels it -- the same
 -- one-caller rule the blade and the level follow, and it is what keeps a boss fight the length it
 -- was no matter how far this tail is climbed.
-function GameConfig.GetTrainingDamageMult(data)
-	local reps = GameConfig.GetTrainingReps(data)
+function GameConfig.GetTrainingDamageMult(data, zoneKey)
+	local reps = GameConfig.GetTrainingReps(data, zoneKey)
 	local knee = GameConfig.TrainingRepCap
 	local kneeMult = 1 + knee * GameConfig.TrainingRepPct / 100
 	if reps <= knee then
@@ -164,8 +233,8 @@ end
 -- end. Below the knee that is the old `reps / cap`; above it, it is the progress to the NEXT
 -- doubling, which is the only fraction that stays honest when the denominator keeps moving.
 -- Returned with the band's two edges so a caption can print them without recomputing the split.
-function GameConfig.GetTrainingBand(data)
-	local reps = GameConfig.GetTrainingReps(data)
+function GameConfig.GetTrainingBand(data, zoneKey)
+	local reps = GameConfig.GetTrainingReps(data, zoneKey)
 	local knee = GameConfig.TrainingRepCap
 	if reps < knee then
 		return reps / knee, 0, knee
@@ -207,15 +276,15 @@ end
 -- -- a blow that produces no feedback at all reads as a broken dummy -- it just pays nothing and
 -- says so once. KEPT rather than deleted because three call sites ask the question, and a feature
 -- with no terminal state is exactly where an unbounded number gets into a save.
-function GameConfig.IsTrainingCapped(data)
-	return GameConfig.GetTrainingReps(data) >= GameConfig.TrainingRepMax
+function GameConfig.IsTrainingCapped(data, zoneKey)
+	return GameConfig.GetTrainingReps(data, zoneKey) >= GameConfig.TrainingRepMax
 end
 
 -- The knee is still a MOMENT even though it is no longer a wall: it is where the ladder visibly
 -- changes gear, and it is the last point the HUD can print a finish line at. `TrainingDummyService`
 -- pushes the save and says so once when a blow crosses it, the same way it used to at the cap.
-function GameConfig.IsTrainingSoftCapped(data)
-	return GameConfig.GetTrainingReps(data) >= GameConfig.TrainingRepCap
+function GameConfig.IsTrainingSoftCapped(data, zoneKey)
+	return GameConfig.GetTrainingReps(data, zoneKey) >= GameConfig.TrainingRepCap
 end
 
 -- Whether this save may use the dummy at all. Split out rather than inlined at the call site for

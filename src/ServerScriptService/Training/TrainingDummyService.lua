@@ -149,13 +149,15 @@ local function onHit(player, viaAuto)
 	if not capped then
 		gain = GameConfig.GetTrainingGain(data, GameConfig.TrainingDummyReps)
 		local before = GameConfig.GetTrainingReps(data)
-		-- 33.32: the clamp is the save ceiling, not the knee -- reps run past 1,000 now and the
-		-- curve, not this line, is what stops the damage running away with them.
-		data.TrainingReps = math.min(before + gain, GameConfig.TrainingRepMax)
-		-- The gain that is DRAWN is the gain that was BANKED, even at the last rep before the cap,
-		-- where the clamp above may have taken part of it. Anything else prints a number the HUD
-		-- immediately contradicts.
-		gain = GameConfig.GetTrainingReps(data) - before
+		-- 33.34: banked into THIS ZONE's ladder, which `AddTrainingReps` takes from the save's
+		-- `CurrentZone` -- a player at the grotto is in Forest, and the day zone 5 has a dummy of
+		-- its own the same line credits zone 5 without being touched. The clamp is the save ceiling,
+		-- not the knee: reps run past 1,000 since 33.32 and the curve, not a clamp, is what stops
+		-- the damage running away with them.
+		--
+		-- The gain that is DRAWN is the gain that was BANKED -- `AddTrainingReps` returns the
+		-- difference, so a blow clipped by the ceiling prints what it actually paid.
+		gain = GameConfig.AddTrainingReps(data, nil, gain)
 
 		-- Straight onto the attribute, so the HUD bar moves on the swing rather than up to 0.4 s
 		-- later. `LevelService.Publish` owns this attribute and keeps sweeping it -- writing it here
@@ -275,8 +277,10 @@ function TrainingDummyService.AwardKill(player, data)
 	if GameConfig.IsTrainingCapped(data) then return 0 end
 	local gain = GameConfig.GetTrainingGain(data, GameConfig.TrainingMobReps)
 	local before = GameConfig.GetTrainingReps(data)
-	data.TrainingReps = math.min(before + gain, GameConfig.TrainingRepMax)
-	local banked = GameConfig.GetTrainingReps(data) - before
+	-- 33.34: into the ladder of the zone the kill happened in. This is what makes the system work
+	-- in the nineteen zones that have no dummy yet -- every zone fills its own bank from ordinary
+	-- farming, and a dummy, when it is built, fills that same bank at double rate.
+	local banked = GameConfig.AddTrainingReps(data, nil, gain)
 	if banked > 0 then
 		player:SetAttribute("TrainingReps", GameConfig.GetTrainingReps(data))
 	end

@@ -114,6 +114,9 @@ function RebirthService.HandleRebirth(player, tier)
 	-- ladder this line clears refills half again as fast every time it is cleared. The dummy in the
 	-- grotto is the point of the loop.
 	data.TrainingReps = 0
+	-- ...and every zone's ladder with it (33.34). One line rather than a loop over the table so a
+	-- zone added later cannot be missed here.
+	data.TrainingZoneReps = {}
 	data.StageIndex = 1
 	for key in pairs(data.Upgrades) do
 		data.Upgrades[key] = 0

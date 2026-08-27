@@ -223,6 +223,11 @@ local function defaultData()
 		-- CLAMPED ON READ, never on write -- `GameConfig.GetTrainingReps` is the only reader and it
 		-- handles nil, a string and a NaN alike, so nothing here has to guard it.
 		TrainingReps = 0,
+		-- 33.34: the ladder is PER ZONE now, keyed by zone key. `TrainingReps` above is the legacy
+		-- single number and is still honoured -- a save written before that row has its whole ladder
+		-- read as Forest's, which is where the only dummy in the game stands -- so again no migration
+		-- pass runs over anybody's save. `GameConfig.AddTrainingReps` is the only writer of either.
+		TrainingZoneReps = {},
 		UnlockedZones = { "Forest" },
 		CurrentZone = "Forest",
 		DefeatedBosses = {}, -- list of zone keys whose boss this player has personally defeated

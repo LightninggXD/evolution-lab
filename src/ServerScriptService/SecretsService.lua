@@ -81,13 +81,11 @@ local function grantTraining(player, data, reps)
 		warn("[SecretsService] a training secret paying 0 reps -- nothing granted")
 		return false
 	end
-	local before = GameConfig.GetTrainingReps(data)
-	if before >= GameConfig.TrainingRepCap then
-		-- Already maxed. The find is still real and still recorded (the caller has written
-		-- `FoundSecrets` and must not un-write it) -- there is simply nothing to add.
-		return true
-	end
-	data.TrainingReps = math.min(before + reps, GameConfig.TrainingRepCap)
+	-- 33.34: paid into the ladder of the zone the secret is in, which `AddTrainingReps` reads off
+	-- the save's `CurrentZone` -- a player standing in the grotto is in Forest. 33.32 removed the
+	-- early return that used to sit here: the knee is not a wall any more, so a maxed player still
+	-- has something to be paid, and the find is never a no-op.
+	GameConfig.AddTrainingReps(data, nil, reps)
 	PlayerDataService.PushToClient(player)
 	return true
 end
