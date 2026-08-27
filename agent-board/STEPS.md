@@ -3,7 +3,12 @@
 Format is parsed by `tools/board.py`. Do not rename the fields.
 Gemini: never edit this file. If a step is wrong, append `BLOCKED` to `GEMINI-LOG.md` and say why.
 
-Current work: **Phase 32, the owner's three asks.** S10 = roadmap row **32.16** (the portal),
+Current work: **Phase 34's four in-flight features, none of which can run.** S16 = row **33.9**'s
+botched double patch, S17 = row **34.1** (achievements + titles), S18 = row **34.2** (the vanity
+layer), S19 = row **34.4** (the community goal), S20 = the unreviewed **34.5-34.8** code on disk.
+All five are DISK-ONLY: Studio, the push and every capture stay with Claude.
+
+Earlier: **Phase 32, the owner's three asks.** S10 = roadmap row **32.16** (the portal),
 S11 = row **32.17** (a smaller map), S12 = rows **32.11a / 32.11b** (rings and curved roads).
 32.10 is closed; its review is `task-32.10-REVIEW-and-redo.md`.
 
@@ -550,3 +555,338 @@ mojibake (UTF-8 read as cp1252, written back) and **24 were not byte-reversible*
 
 **Your ceiling on this row is `[~]`.** Do not write `[x]` in `ROADMAP.md`. Do not touch
 `ZoneBuilder`, `MainUI`, or anything in `ServerScriptService`.
+
+---
+
+## S16 | 33.9 was applied TWICE, and it left a duplicate top-level local in the one file with no registers to spare
+
+- **Owner:** Gemini
+- **Depends:** none
+- **Note:** DISK-ONLY. Two line deletions and nothing else. Do not open Studio.
+- **Check:** `ZoneBuilder.lua` contains exactly ONE `local WORLD_DENSITY` and exactly ONE
+  `atmosphere.Density = WORLD_DENSITY`, `tools/luastruct.py` is clean, and `tools/luaregs.py`
+  reports the same or a LOWER top-level local count for that file than before your edit.
+
+**THE FAULT.** Roadmap row 33.9 (Atmosphere Density -> 0.18) has already been applied to
+`src/ServerScriptService/ZoneBuilder.lua` -- and applied a second time on top of itself, so the file
+now carries both lines twice:
+
+```
+2050  local WORLD_DENSITY = 0.18
+2051  local WORLD_DENSITY = 0.18          <-- delete this one
+...
+2120      atmosphere.Density = WORLD_DENSITY
+2121          atmosphere.Density = WORLD_DENSITY   <-- delete this one (note the wrong indent)
+```
+
+**WHY IT IS NOT COSMETIC.** `ZoneBuilder.lua` is 573 KB and is documented as sitting a couple of
+registers away from not compiling at all (`GEMINI.md` section 7, prohibition 5). A duplicate
+top-level `local` spends one of those registers to say a thing that was already said. The second
+`atmosphere.Density` write is harmless at runtime and is the fingerprint of the botched patch: it is
+how you know the edit ran twice, which is the thing worth recording.
+
+**WHAT TO DO -- exactly this and nothing else.**
+
+1. Delete line 2051 (the second `local WORLD_DENSITY = 0.18`).
+2. Delete line 2121 (the mis-indented duplicate `atmosphere.Density = WORLD_DENSITY`).
+3. **Do not change the value.** 0.18 is the number row 33.9 asked for; the row is not open on the
+   value, it is open on the capture, which is mine to take.
+4. Do not touch any other line of `ZoneBuilder.lua`. This step is the ONLY ZoneBuilder edit you are
+   authorised to make in this batch.
+
+**WHAT TO REPORT:** the two deleted lines quoted, `luastruct.py` clean, and `luaregs.py` for
+`ZoneBuilder.lua` before and after. **Not verified:** the side-by-side fog capture at 620 studs --
+Studio is mine, say so and leave it.
+
+---
+
+## S17 | 34.1 -- the Achievements panel is dead code written against a contract that does not exist, and a claimed title vanishes on rejoin
+
+- **Owner:** Gemini
+- **Depends:** none
+- **Note:** DISK-ONLY. `MainUI` is at the 200-local cap -- prohibition 6 applies to every line you
+  write in it.
+- **Check:** `grep -rn "AchievementsPanel" src/` shows a `require` from `MainUI`; the panel reads
+  `hud.getData()` and never `hud.currentData`; `hud.hudRefs` appears nowhere in it; it listens to
+  `DataUpdate`; `AchievementService` re-applies the `WornTitle` attribute on join; `luastruct.py`,
+  `luascope.py` and `luaremotes.py` all clean.
+
+**THE STATE OF THE ROW.** 34.1 is `[ ]` in `ROADMAP.md` and the feature is ~90% written on disk and
+committed: `GameConfig/Achievements.lua` (47 rows), `ServerScriptService/AchievementService.lua`,
+`ReplicatedStorage/Modules/HUD/AchievementsPanel.lua`, `ServerMain:272` wires the service, and
+`CombatClient:960-995` already draws a title over the head off the `WornTitle` attribute. **None of
+it can run.** Six faults, every one verified on disk, in the order that matters.
+
+**1. NOTHING REQUIRES THE PANEL.** Every HUD panel is built by a line in `MainUI` of the shape
+`require(RS.Modules:WaitForChild("HUD"):WaitForChild("X"))(hudRefs)` -- there are ~20 of them
+(`SwordPanel` 1463, `PetsGrid` 1639, `RelicsPanel` 2813, `SeasonPass` 3278, `EggShop` 4571 ...).
+There is no such line for `AchievementsPanel`. And `MainUI:1123` says
+
+```lua
+local achievementsButton = columnTile("R", 5, "\u{1F3C6}", "Goals", UITheme.Color.Gold)
+```
+
+-- a tile that is declared and **never read again**. That is character-for-character the fault row
+33.30 found on the Vanity tile: a button in the HUD that opens nothing.
+
+**THE FIX, and copy it rather than inventing one.** `MainUI:1128-1140` is the cosmetics wiring that
+33.26/33.30 wrote for exactly this problem: a lazy build inside an immediately-called function, the
+built-panel handle doubling as the built-flag, then `toggleOnly`. Use the same shape for
+`achievementsButton`, requiring `RS.Modules:WaitForChild("HUD"):WaitForChild("AchievementsPanel")`.
+**Zero new top-level locals in MainUI** -- everything inside the IIFE, handles on `hudRefs`.
+
+**2. IT READS A FIELD THAT DOES NOT EXIST.** `AchievementsPanel.lua:114` and `:147` read
+`hud.currentData`. There is no such field. `MainUI:14` keeps the save in a **file-local**
+`currentData` that is REBOUND on every push, and publishes the accessor `hud.getData` at `MainUI:41`
+precisely because a value copy goes stale. `hud.currentData` is nil forever, so `refresh` returns on
+its first line and every row would sit on its first-frame paint. Use `local data = hud.getData and
+hud.getData()`, which is what `RelicsPanel:579` and every other live panel does.
+
+**3. IT WRITES THROUGH A NIL.** `AchievementsPanel.lua:191-192` write
+`hud.hudRefs.achievementsPanel` and `hud.hudRefs.refreshAchievementsPanel`. **`hud` IS `hudRefs`**;
+`hud.hudRefs` is nil, so those two lines are a hard error *at build time* -- the panel would not
+finish being built even once something required it. Write `hud.achievementsPanel` and
+`hud.refreshAchievementsPanel`. The header comment of
+`StarterPlayer/StarterPlayerScripts/UIComponents/CosmeticsPanel.lua` documents faults 2 and 3 as the
+same pair found in that file; read it before you start, it will save you the reasoning.
+
+**4. NO `DataUpdate` LISTENER.** The panel registers `refresh` and nothing ever calls it after the
+first open, so a claim's own push cannot repaint the row that made it. Every other panel in this HUD
+refreshes on that remote -- add the listener the same way `CosmeticsPanel` does.
+
+**5. A CLAIMED TITLE DISAPPEARS ON REJOIN.** `AchievementService:74` sets the `WornTitle` attribute
+inside `HandleEquipTitle` and **nowhere else**. `CombatClient:984` draws the plate off that
+attribute. So the save keeps `data.WornTitle` correctly and the head is blank until the player
+re-equips -- which is the row's own live check ("survives rejoin") failing before anyone tests it.
+`CosmeticService:78-93` already has the restore shape (a `PlayerAdded` handler that waits for the
+save, then re-applies the attributes). Copy the shape, **and do not copy its two bugs**: it also
+misses any player who is already in the game when the handler connects (iterate
+`Players:GetPlayers()` as well), and it hardcodes three attribute names where a loop belongs.
+
+**6. THE PANEL DOES NOT SAY WHAT IT PAYS.** `AchievementsPanel:100-104` reduces every reward to the
+word `"DNA"`, `"Gems"` or `"Title"`. A card must say what it actually pays (`GEMINI.md` UI rule 4,
+and the Daily-board row it was written for): print `+1,000 DNA`, `+50 Diamonds`, or the title in
+quotes -- `Title: "Slayer"` -- because the title's NAME is the entire reward and the panel currently
+never shows it anywhere.
+
+**THREE SMALLER ONES, in the same pass:**
+
+* **Time rows are unreadable.** `TimePlayed` is lifetime **seconds** (`PlayerDataService:95` says
+  so), so the four `Time_*` rows render `0 / 3.6K` and `0 / 360K`. Format a time counter as
+  `1h` / `10h` / `50h` / `100h` and the progress as hours; leave every other counter on
+  `formatNumber`.
+* **The scrollbar is white on white.** `scroll.ScrollBarThickness = 6` with no
+  `ScrollBarImageColor3` on a `PanelWhite` shell is an invisible bar. `Modules/HUD/ScrollAffordance`
+  exists for this and was written by the sweep that found nine of these; use it.
+* **The claim pays currency with no telemetry.** `AchievementService.HandleClaim` adds DNA and
+  Diamonds and tells `Telemetry` nothing, while `CommunityGoalService:159-161` shows the exact call
+  shape (`Telemetry.Economy(player, "Source", Telemetry.Currency.X, amount, newBalance,
+  Telemetry.Tx.Y, tag)`). Phase 20's rule is that ONE wrapper is the only caller of AnalyticsService
+  -- so route it through `Telemetry`, never through `AnalyticsService` directly, and pick an
+  existing `Telemetry.Tx.*` key rather than inventing one; if none fits, say so and leave the call
+  out rather than making a key up.
+
+**WHAT YOU MUST NOT DO.** Do not add a top-level `local` to `MainUI`. Do not re-order or re-word the
+47 rows in `Achievements.lua` -- the counters they name (`Kills`, `Rebirths`, `EggsOpened`,
+`SecretsHatched`, `Fuses`, `MinigamesPlayed`, `ZoneFloorsCleared`, `TotalClicks`, `TimePlayed`) were
+each checked against a live writer and all nine are real. Do not touch `ZoneBuilder`.
+
+**WHAT TO REPORT:** the grep proving the panel is now required; the before/after of each of the six
+faults as a two-line quote; `luastruct.py`, `luascope.py`, `luaremotes.py` clean; the top-level
+local count of `MainUI` before and after (`tools/luaregs.py`) -- it must be **identical**.
+**Not verified:** the capture, the live claim, and the second-client title. All three are mine.
+
+---
+
+## S18 | 34.2 -- the vanity layer sells three trails that nothing draws, and its equip lets a client name the attribute
+
+- **Owner:** Gemini
+- **Depends:** S17 (same HUD contract; do not fight yourself over `MainUI`)
+- **Note:** DISK-ONLY. One of these is a security fault, so it is first.
+- **Check:** `CosmeticService.HandleEquip` derives the type from the catalogue and never from its
+  own argument; no `priceRobux` button is drawn while `productId == 0`; every `emoji` in
+  `Cosmetics.lua` decodes inside U+1F300..U+1F9FF; `luastruct.py` + `luascope.py` clean.
+
+**1. AN EQUIP CAN WRITE ANY ATTRIBUTE, INCLUDING ONE FROM ANOTHER FEATURE.**
+`CosmeticService.HandleEquip(player, cosmeticType, cosmeticKey)` takes `cosmeticType` **from the
+client** and concatenates it: `player:SetAttribute("Worn" .. cosmeticType, cosmeticKey)` (line 52).
+Nothing checks it against the catalogue's own `type` field. So
+`Remotes.CosmeticEquip:InvokeServer("Title", "Trail_Rainbow")` sets the attribute **`WornTitle`** --
+which `CombatClient:984` draws over the head as a title -- from a 100-Diamond trail, and an arbitrary
+string reaches `SetAttribute`'s name rules. **Fix:** look `cosmeticKey` up in
+`GameConfig.Cosmetics`, use `config.type`, and never the argument. For the unequip branch (empty
+key) accept only a type from a fixed allow-list built from the catalogue itself. The rule this
+breaks is the one every service here already follows: the client names *what*, the server decides
+*what that means*.
+
+**2. THE HEADLINE ITEM IS INVISIBLE.** Grep for `WornTrail` across `src/`: the only hits are
+`CosmeticService` writing it. `CombatClient` reads `WornNamePlate`, `EmoteClient` reads `WornEmote`
+-- **nothing reads `WornTrail`**, and `Cosmetics.lua`'s `path = "Trails/Rainbow-01"` names an asset
+that exists nowhere in the repo. So the 1,000-Diamond Galaxy Trail is a purchase that changes
+nothing on screen. Two honest options, and you must pick one and say why in your log:
+
+* **(a)** write the renderer: two `Attachment`s on the character plus a `Trail`, driven off the
+  attribute the same way the name plate is, colours read from the catalogue row (add a
+  `color`/`gradient` field -- a `path` string that points at no asset must not survive this step);
+  or
+* **(b)** delete the three Trail rows and say the vanity layer ships with plates and emotes only.
+
+**(a) is the recommendation** -- trails are the cheapest visible cosmetic in the genre -- but **do
+not invent an asset id for a trail texture** (prohibition 2). A `Trail` with a colour sequence and
+no texture is a real trail.
+
+**3. A GLYPH OUTSIDE THE SAFE BAND, in a file written after the row that established the band.**
+`NamePlate_Dark` uses `\u{26AB}` -- U+26AB, **below U+1F300**, which is the exact class of glyph
+that S15 / row 33.12 replaced across `Pets.lua` because the system font here renders it as
+text-presentation instead of an emoji. Replace it from the U+1F300..U+1F9FF band with something that
+still reads as a dark plate, and **add the same load-time tripwire** `Pets.lua` now carries (warn on
+missing / non-numeric / below 0x1F300 / above 0x1F9FF, naming the key and printing `U+%X`). Read and
+write this file as **UTF-8 explicitly** -- the mojibake rule from S15 is unchanged, and `board.py
+sync` refuses a commit that carries the markers.
+
+**4. A ROBUX BUTTON THAT CANNOT EVER TAKE A PAYMENT.** Every catalogue row carries `priceRobux`
+with `productId = 0`. `CosmeticsPanel:127` draws `"R$ " .. c.priceRobux` and `:142` then refuses to
+act unless `productId > 0` -- so the button is drawn and does nothing, on every row, forever. Worse:
+even with a real id there is **no branch in `RobuxShopService.ProcessReceipt` that knows about the
+cosmetics table**, so a paid purchase would charge and grant nothing. Until the owner creates the
+products (that is a 👤 OWNER item, it is not yours -- prohibition 2):
+
+* do not draw the Robux button at all when `productId == 0`; the Diamond button stays;
+* write the `ProcessReceipt` branch behind the same `productId > 0` check so the wiring is ready,
+  and grant by **key** with the already-owned test that `HandlePurchase` uses -- a receipt is
+  retried and can land on another server (that is why every consumable in this game is a counted
+  charge, not a moment);
+* add a row to the 👤 Owner action checklist in `ROADMAP.md` naming the products that need
+  creating. Append, never rewrite.
+
+**5. TWO SMALLER ONES.** `HandlePurchase` spends Diamonds with no `Telemetry.Economy` call (same
+shape as S17's telemetry item, `Sink` this time, not `Source`). And `CosmeticService.Init`'s restore
+misses players already in the game and hardcodes three types -- fix it with the same loop S17 fault 5
+asks for, in the same pass, since it is the same six lines.
+
+**6. THE THREE EMOTE ANIMATION IDS ARE NOT VERIFIED AND YOU CANNOT VERIFY THEM.**
+`507770239` / `507771019` / `507770677` are commented in the file as "placeholder catalog animation
+ids". An animation only loads in this place if **Roblox** owns it, and that is a live test, in
+Studio, which is mine. **Do not change them, do not add more.** List all three under *Not verified*
+in your log and I will load-test them.
+
+**WHAT TO REPORT:** the exploit fix quoted before/after; which option you took for the trails and
+why; the before/after codepoint table for `Cosmetics.lua`'s nine emoji; the tripwire firing once on
+a deliberately broken scratch copy; the lints. **Not verified:** the capture, the second-client
+visibility, the three animation ids.
+
+---
+
+## S19 | 34.4 -- the community counter is a complete cross-server system that nothing has ever incremented
+
+- **Owner:** Gemini
+- **Depends:** none
+- **Note:** DISK-ONLY, server-side. `CreatureService` and `BossService` are large; make the smallest
+  possible edit in each.
+- **Check:** `grep -rn "AddProgress" src/` shows at least two call sites outside the service; the
+  service ignores its own `MessagingService` echo; `PlayerAdded` is armed inside `Init()`;
+  `luastruct.py` + `luascope.py` clean.
+
+**THE HEADLINE.** `CommunityGoalService.AddProgress(amount)` (line 140) has **zero callers**.
+`CreatureService:27` and `BossService:27` both `require` the module and neither ever calls it. So the
+counter is permanently 0, `PayoutAll` can never fire, and every other part of the feature --
+`UpdateAsync`, the `MessagingService` topic, the window handling, the `GlobalKillsProgress`
+NumberValue that `EventService:556` already reads -- is correct code wired to a dead input. This is
+the shape to remember: **a counter nobody increments looks exactly like a feature that works.**
+
+**WHAT TO DO.**
+
+1. **Call it where the kill is already counted**, so the two numbers can never disagree:
+   `CreatureService:3815` (`data.Kills = (data.Kills or 0) + 1`), `BossService:2493` and
+   `BossService:2817`. One line each, immediately after the existing bump.
+2. **Decide the boss weight and write the reason in a comment.** A boss already counts as one in
+   `data.Kills`; if you weight it higher in the community counter the two boards stop agreeing.
+   Default to **1** unless you can state why not.
+3. **The publisher hears its own echo.** `MessagingService:SubscribeAsync` delivers a topic to the
+   server that published it. The sync loop already folds the authoritative `UpdateAsync` return into
+   `globalTotal` (line ~120) and then `onGlobalUpdate` adds the same delta *again* when the message
+   comes back -- the total inflates by exactly this server's own contribution, which is worst on a
+   single-server test, i.e. exactly how it will first be measured. Stamp the payload with
+   `game.JobId` and drop your own; keep the `window` check as it is. Also type-check `data.delta`
+   before adding it.
+4. **`Players.PlayerAdded:Connect` is at module scope** (line ~170), outside `Init()`. It arms on the
+   first `require`, which is `BossService:27` -- before `ServerMain:274` wires anything. Move it
+   inside `Init()`, where every other service in this game arms its handlers.
+5. **The join payout loses a slow save.** It does `task.wait(5)`, calls `PlayerDataService.Get` once
+   and returns if nil -- so a player whose DataStore load is slower than five seconds silently never
+   gets paid. Use the bounded `repeat ... until data` shape (`CosmeticService:80-87`), with a cap on
+   the tries and a `warn` if it gives up.
+6. **`GlobalGoalsClaimed` grows for the life of the save** -- one key per weekly window, never
+   pruned, and it is not in `PlayerDataService`'s default table either. Add the default (`{}`, next
+   to `AchievementsClaimed` at line 106) and prune to the newest 8 windows.
+   `PlayerDataService.TrimCollection` (line 381) is the house shape for this: **read it before you
+   use it**, it takes a label and it logs.
+7. **Do not change `target = 5000000`.** Print the arithmetic instead: kills per player per hour
+   times a plausible concurrent population times the 48-hour window, from numbers already in
+   `GameConfig`. If it says the goal is unreachable, that is a finding for the owner, not a constant
+   for you to move.
+
+**WHAT TO REPORT:** the grep proving `AddProgress` now has callers, quoted with their line numbers;
+the echo fix; the arithmetic from item 7 as actual numbers; the lints. **Not verified:** the
+cross-server tick and the payout -- `MessagingService` cannot be exercised from Studio at all, which
+is why the published test place exists, and that is mine to run.
+
+---
+
+## S20 | 34.5-34.8: four features were written to disk and NOBODY has ever read them back
+
+- **Owner:** Gemini
+- **Depends:** S17, S18, S19 (do those first -- they are the same defect shapes, and you will
+  recognise them faster afterwards)
+- **Note:** REPORT-FIRST. Fix only the mechanical class listed below; anything that changes
+  behaviour is written up and left for me.
+- **Check:** one table in `GEMINI-LOG.md` with a row per defect: file, line, defect, the one-line
+  proof, and `FIXED` or `LEFT`. Every `FIXED` row must also show the lint that covers it.
+
+**WHY THIS STEP EXISTS.** `ROADMAP.md` has 34.5, 34.6, 34.7 and 34.8 all at `[ ]` -- not started --
+and all four already have code on disk:
+
+| Row | What is on disk |
+|---|---|
+| 34.5 enchant transfer | `StarterPlayer/StarterPlayerScripts/UIComponents/EnchantTransferPicker.lua` + a transfer path in `PetService.lua` |
+| 34.6 mobile gestures | `StarterPlayer/StarterPlayerScripts/MobileGestures.client.lua` |
+| 34.7 weather | `ZoneBuilder.lua:1865 buildWeather(model, zone, cx)` + the `WeatherEmitter` part at `:1922`, called at `:2397` |
+| 34.8 kill streak | `CombatClient.client.lua:1777 updateStreak()` |
+
+Unreviewed code that a roadmap calls "not started" is the most expensive kind in this repo: nothing
+will ever look at it again, because the row says there is nothing to look at.
+
+**THE NINE SHAPES TO CHECK EACH FILE AGAINST.** These are the defects this project has actually
+shipped, in the order they are cheapest to detect:
+
+1. **Nothing requires it.** Grep the module name across `src/`. `HUD/PassShop` was unrequired for
+   fifteen phases and 191 lines were rewritten inside it.
+2. **The wrong HUD contract.** `hud.currentData` (does not exist -- it is `hud.getData()`) and
+   `hud.hudRefs.x` (does not exist -- `hud` IS `hudRefs`). Both are silent.
+3. **A remote created on one side only.** Run `tools/luaremotes.py`; it is the only lint that reads
+   two files at once.
+4. **A local used outside its scope, or above its own declaration.** Run `tools/luascope.py`. Two of
+   the worst runtime bugs in this repo's history were exactly this and both compiled.
+5. **A name that exists, just not here** -- `UITheme.Font.Sub` printed on every character spawn for
+   a week and `UITheme.Font` has only `Body` and `Display`. Check every dotted field you did not
+   write against the module that owns it.
+6. **An invented id** -- asset, product, pass, animation. If you cannot show where it came from, it
+   is invented; report it, never "fix" it by picking another.
+7. **A counter nothing increments** (S19's headline) and its mirror, **a save field written but
+   missing from `PlayerDataService`'s default table** (lines 79-107).
+8. **A client string used as authority** (S18's headline).
+9. **A guard nobody has seen fire.** If a file has a cap, a cooldown or a rate limit, show it firing
+   once on a scratch copy, or say plainly that it is unproven.
+
+**THE ONLY THINGS YOU MAY FIX IN THIS STEP:** shapes 2, 3, 4, 5 and 7 -- they are mechanical, they
+have a lint or a grep behind them, and each fix is a line or two. **Shapes 1, 6, 8, 9 you REPORT**:
+whether a dead file should be wired or deleted is a design call, an invented id is the owner's, and
+an authority hole may need a remote's shape changed.
+
+**AND `ZoneBuilder` IS OFF LIMITS IN THIS STEP** -- 34.7's `buildWeather` is read, measured and
+written up, and **not edited**. S16 is the only ZoneBuilder change you are authorised to make, and
+it is two deletions. Prohibition 5 stands.
+
+**WHAT TO REPORT:** the table, and nothing rewritten to look tidier than it is. A row that says
+`LEFT -- design call, here is the question` is worth more to me than a plausible fix I have to
+re-derive. **Not verified:** every capture, every live measurement, both clients. Mine.
