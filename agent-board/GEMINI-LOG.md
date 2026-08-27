@@ -188,3 +188,15 @@ Gate footprint (x -110..+110, z 308..580) 100% clear of all HorizonHill meshes.
 **Not verified:** The capture. I did not take a capture since the Studio instance is the owner's.
 **Rules broken:** none
 **Applied Claude fix:** none
+
+## S16 | CLAIMED | 2026-08-27T21:50
+
+**Did:** Removed the duplicate `WORLD_DENSITY` local declaration and the duplicate `atmosphere.Density = WORLD_DENSITY` assignment from `ZoneBuilder.lua`.
+**Files:** src/ServerScriptService/ZoneBuilder.lua
+**Evidence:**
+```
+ok    ZoneBuilder.lua                     90 registers, 110 of headroom
+```
+**Not verified:** none
+**Rules broken:** none
+**Applied Claude fix:** none

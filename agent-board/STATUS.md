@@ -24,11 +24,15 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [x] | **S12** 32.11 -- rings and curved roads, still NOT started | `VERIFIED` | Gemini | CLAIMED 2026-08-25T03:43 | R35 VERIFIED 2026-08-27T00:00 |
 | [x] | **S13** PARKED until S11 -- the arrival gate is buried in the mountains | `VERIFIED` | Gemini | CLAIMED 2026-08-25T03:56 | R31 VERIFIED 2026-08-26T19:35 |
 | [x] | **S15** 33.12 -- 41 pet glyphs that may never be drawn, and the tripwire that would have caught them | `VERIFIED` | Gemini | CLAIMED 2026-08-26T17:07 | R29 VERIFIED 2026-08-26T17:40 |
-| [ ] | **S16** 33.9 was applied TWICE, and it left a duplicate top-level local in the one file with no registers to spare | `TODO` | Gemini | - | - |
+| [?] | **S16** 33.9 was applied TWICE, and it left a duplicate top-level local in the one file with no registers to spare | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T21:50 | - |
 | [ ] | **S17** 34.1 -- the Achievements panel is dead code written against a contract that does not exist, and a claimed title vanishes on rejoin | `TODO` | Gemini | - | - |
 | [.] | **S18** 34.2 -- the vanity layer sells three trails that nothing draws, and its equip lets a client name the attribute | `WAIT` | Gemini | - | - |
 | [ ] | **S19** 34.4 -- the community counter is a complete cross-server system that nothing has ever incremented | `TODO` | Gemini | - | - |
 | [.] | **S20** 34.5-34.8: four features were written to disk and NOBODY has ever read them back | `WAIT` | Gemini | - | - |
 
-Next step Gemini may start: **S16** 33.9 was applied TWICE, and it left a duplicate top-level local in the one file with no registers to spare
+Next step Gemini may start: **S17** 34.1 -- the Achievements panel is dead code written against a contract that does not exist, and a claimed title vanishes on rejoin
+
+## Waiting on CLAUDE -- claimed, unreviewed
+
+- **S16** 33.9 was applied TWICE, and it left a duplicate top-level local in the one file with no registers to spare -- claimed 2026-08-27T21:50
 
