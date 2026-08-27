@@ -12,7 +12,8 @@
 -- does it cost? A one-time reward in a one-time secret that scales every later fight is not a
 -- training dummy, it is a free rebirth. She answered it on 2026-08-27, and this file is that answer:
 --
---   1. a MULTIPLIER on the player's rank, capped at x3.00,
+--   1. a MULTIPLIER on the player's rank, x3.00 at 1,000 reps -- and since 33.32 that number is
+--      a KNEE rather than a cap: the ladder keeps climbing past it, +0.55 a doubling, for ever,
 --   2. RESET by a rebirth, with the fill rate climbing +50% per rebirth,
 --   3. and the dummy itself gated behind 1 rebirth, paying double what a creature pays.
 --
@@ -57,6 +58,48 @@ return function(GameConfig)
 GameConfig.TrainingRepPct = 0.2
 GameConfig.TrainingRepCap = 1000
 
+-- ===== 33.32 -- THE CAP BECAME A KNEE, AND WHY THAT IS NOT A NUDGE =====
+--
+-- The owner hit the ceiling above and refused it in the same sentence she refused the gold bar:
+-- *"dmg konstanto treba rrasti, sto znaci da ostali leveli traju biti dosta dosta tezi"*. A ladder
+-- that answers "nothing left to earn" is the one thing this feature may not say.
+--
+-- **THE CAP WAS 33.21's WHOLE SAFETY ARGUMENT, so removing it outright was refused.** Everything
+-- written above still holds: `MobDepthGrowth` (1.076^5 = 1.4425 a zone) and `mobHealthMult`
+-- (1050^(1/19) = 1.442 a zone) were tuned to cancel, blows-to-fell is flat across all twenty zones
+-- by construction, and an UNBOUNDED multiplier against that bounded pair ends with every mob in the
+-- game dying in one blow -- see [[evolution-lab-mob-depth-curve]].
+--
+-- So the ladder is LINEAR to the knee and LOGARITHMIC after it. `TrainingRepCap` is no longer a
+-- ceiling; it is the point the shape changes at, and the number it produces there -- x3.00 -- is
+-- unchanged, so no save that reached it loses anything and the boss divisor keeps cancelling the
+-- same term it always did.
+--
+-- Each DOUBLING of the reps past the knee adds `TrainingSoftStep`:
+--
+--     1,000 reps  x3.00        16,000 reps  x5.20
+--     2,000 reps  x3.55        64,000 reps  x6.30
+--     4,000 reps  x4.10       262,144 reps  x7.40
+--     8,000 reps  x4.65     6,656,000 reps  x10.00
+--
+-- The number therefore ALWAYS moves -- which is what she asked for, literally -- and the mob curves
+-- are still not touched, which is what 33.21 promised. Doubling is the right unit because the reps
+-- themselves arrive linearly (1 a kill, 2 a blow on the dummy, times the rebirth rate), so a
+-- doubling costs as much again as everything banked so far: the tail is unreachable in a lifetime
+-- of play rather than forbidden by a clamp, and that is the difference between (c) and (a) on the
+-- fork she picked.
+--
+-- 0.55 is a quarter of the linear rate measured across the first doubling past the knee (linear
+-- would pay +2.00 over 1,000 -> 2,000). It was picked against the SAME bound x3.00 was: the pass
+-- stack. A free player who grinds four doublings stands at x4.65, still inside the x3.00 pass
+-- ceiling times the 1.55 a single zone of depth pays, so the passes are not devalued by a grind.
+GameConfig.TrainingSoftStep = 0.55
+
+-- The only true ceiling left, and it exists for the save rather than for the design: a corrupt or
+-- hand-written `TrainingReps` must not be able to produce an infinity that reaches the damage
+-- formula. At 1 rep a kill it is roughly six million kills away, which is to say it is never met.
+GameConfig.TrainingRepMax = 10000000
+
 -- ===== THE FILL RATE, AND WHY THE RESET IS NOT A PUNISHMENT =====
 --
 -- A rebirth wipes the reps (see `RebirthService`, beside `data.Level`), under this repo's standing
@@ -97,13 +140,41 @@ function GameConfig.GetTrainingReps(data)
 	local reps = tonumber(data and data.TrainingReps) or 0
 	-- a NaN fails every comparison, so `math.clamp` would hand it straight back
 	if reps ~= reps then return 0 end
-	return math.clamp(math.floor(reps), 0, GameConfig.TrainingRepCap)
+	-- 33.32: the clamp is `TrainingRepMax`, not `TrainingRepCap`. The cap is a knee in the curve
+	-- now and reps run past it; the only thing still clamped here is a save that cannot be trusted.
+	return math.clamp(math.floor(reps), 0, GameConfig.TrainingRepMax)
 end
 
--- x1.00 at nothing, x3.00 at the cap. THE ONLY READERS ARE `DNAService.GetCombatDamage` and the
--- boss divisor that cancels it -- the same one-caller rule the blade and the level follow.
+-- x1.00 at nothing, x3.00 at the knee, and +0.55 a doubling for ever after (33.32). THE ONLY
+-- READERS ARE `DNAService.GetCombatDamage` and the boss divisor that cancels it -- the same
+-- one-caller rule the blade and the level follow, and it is what keeps a boss fight the length it
+-- was no matter how far this tail is climbed.
 function GameConfig.GetTrainingDamageMult(data)
-	return 1 + GameConfig.GetTrainingReps(data) * GameConfig.TrainingRepPct / 100
+	local reps = GameConfig.GetTrainingReps(data)
+	local knee = GameConfig.TrainingRepCap
+	local kneeMult = 1 + knee * GameConfig.TrainingRepPct / 100
+	if reps <= knee then
+		return 1 + reps * GameConfig.TrainingRepPct / 100
+	end
+	-- `math.log(x, 2)` rather than `math.log2`: the latter does not exist in Luau.
+	return kneeMult + GameConfig.TrainingSoftStep * math.log(reps / knee, 2)
+end
+
+-- How far this save is through the band it is in -- 0..1 -- so a bar can draw a ladder that has no
+-- end. Below the knee that is the old `reps / cap`; above it, it is the progress to the NEXT
+-- doubling, which is the only fraction that stays honest when the denominator keeps moving.
+-- Returned with the band's two edges so a caption can print them without recomputing the split.
+function GameConfig.GetTrainingBand(data)
+	local reps = GameConfig.GetTrainingReps(data)
+	local knee = GameConfig.TrainingRepCap
+	if reps < knee then
+		return reps / knee, 0, knee
+	end
+	-- the band [knee*2^n, knee*2^(n+1)) this rep count falls in
+	local n = math.floor(math.log(reps / knee, 2))
+	local low = knee * 2 ^ n
+	local high = low * 2
+	return (reps - low) / (high - low), low, high
 end
 
 -- How fast this save fills. Linear in the rebirth count, exactly as `GetRebirthIncomeMult` and
@@ -131,9 +202,19 @@ function GameConfig.GetTrainingGain(data, baseReps)
 	return math.max(1, math.floor(gain + 0.5))
 end
 
--- Nothing left to earn. The dummy still sparks when a capped player hits it -- a blow that produces
--- no feedback at all reads as a broken dummy -- it just pays nothing and says so once.
+-- Nothing left to earn -- which, since 33.32, is a state no player reaches by playing: it is the
+-- save-integrity ceiling, six million kills up. The dummy still sparks when a capped player hits it
+-- -- a blow that produces no feedback at all reads as a broken dummy -- it just pays nothing and
+-- says so once. KEPT rather than deleted because three call sites ask the question, and a feature
+-- with no terminal state is exactly where an unbounded number gets into a save.
 function GameConfig.IsTrainingCapped(data)
+	return GameConfig.GetTrainingReps(data) >= GameConfig.TrainingRepMax
+end
+
+-- The knee is still a MOMENT even though it is no longer a wall: it is where the ladder visibly
+-- changes gear, and it is the last point the HUD can print a finish line at. `TrainingDummyService`
+-- pushes the save and says so once when a blow crosses it, the same way it used to at the cap.
+function GameConfig.IsTrainingSoftCapped(data)
 	return GameConfig.GetTrainingReps(data) >= GameConfig.TrainingRepCap
 end
 

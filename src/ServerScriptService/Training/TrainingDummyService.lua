@@ -149,7 +149,9 @@ local function onHit(player, viaAuto)
 	if not capped then
 		gain = GameConfig.GetTrainingGain(data, GameConfig.TrainingDummyReps)
 		local before = GameConfig.GetTrainingReps(data)
-		data.TrainingReps = math.min(before + gain, GameConfig.TrainingRepCap)
+		-- 33.32: the clamp is the save ceiling, not the knee -- reps run past 1,000 now and the
+		-- curve, not this line, is what stops the damage running away with them.
+		data.TrainingReps = math.min(before + gain, GameConfig.TrainingRepMax)
 		-- The gain that is DRAWN is the gain that was BANKED, even at the last rep before the cap,
 		-- where the clamp above may have taken part of it. Anything else prints a number the HUD
 		-- immediately contradicts.
@@ -161,12 +163,18 @@ local function onHit(player, viaAuto)
 		-- it already holds fires no Changed), so the two can never fight.
 		player:SetAttribute("TrainingReps", GameConfig.GetTrainingReps(data))
 
-		if GameConfig.IsTrainingCapped(data) then
-			-- The one moment the ANSWER changes rather than the number: the rebirth panel and the
-			-- HUD read the cap, so this is where the whole save is pushed. Same rule
-			-- `LevelService` follows for a level-up, and the reason it does not push per blow.
+		-- THE KNEE IS THE MOMENT, and it is announced ONCE -- on the blow that crosses it, never on
+		-- the ones after. `before` is what makes that a crossing rather than a state: at the old cap
+		-- this same push fired on every blow a full player threw, which is the shape of a toast that
+		-- teaches a player to ignore toasts.
+		if before < GameConfig.TrainingRepCap and GameConfig.IsTrainingSoftCapped(data) then
+			-- The rebirth panel and the HUD read this ladder, so this is where the whole save is
+			-- pushed. Same rule `LevelService` follows for a level-up, and the reason it does not
+			-- push per blow.
 			PlayerDataService.PushToClient(player)
-			notify(player, "reward", "\u{1F4AA} Training complete -- x3.00 damage. Rebirth to train again.")
+			notify(player, "reward",
+				("\u{1F4AA} Fully trained -- x%.2f damage, and it keeps climbing: +%.2f every time you double it.")
+					:format(GameConfig.GetTrainingDamageMult(data), GameConfig.TrainingSoftStep))
 		end
 	else
 		notify(player, "error", "\u{1F4AA} Fully trained -- a rebirth resets the ladder, and it fills faster.")
@@ -244,12 +252,13 @@ function TrainingDummyService.Init()
 	end
 
 	print(("[TrainingDummyService] dummy seated at (%.0f, %.1f, %.0f), %.1f x %.1f x %.1f at x%.1f, "
-		.. "gate %d rebirth, +%d reps a blow, cap %d (x%.2f)")
+		.. "gate %d rebirth, +%d reps a blow, knee %d (x%.2f) then +%.2f a doubling")
 		:format(seated.seat.X, seated.seat.Y, seated.seat.Z,
 			seated.size.X, seated.size.Y, seated.size.Z, seated.scale,
 			GameConfig.TrainingDummyMinRebirths, GameConfig.TrainingDummyReps,
 			GameConfig.TrainingRepCap,
-			GameConfig.GetTrainingDamageMult({ TrainingReps = GameConfig.TrainingRepCap })))
+			GameConfig.GetTrainingDamageMult({ TrainingReps = GameConfig.TrainingRepCap }),
+			GameConfig.TrainingSoftStep))
 end
 
 -- ===== THE OTHER SOURCE =====
@@ -266,12 +275,14 @@ function TrainingDummyService.AwardKill(player, data)
 	if GameConfig.IsTrainingCapped(data) then return 0 end
 	local gain = GameConfig.GetTrainingGain(data, GameConfig.TrainingMobReps)
 	local before = GameConfig.GetTrainingReps(data)
-	data.TrainingReps = math.min(before + gain, GameConfig.TrainingRepCap)
+	data.TrainingReps = math.min(before + gain, GameConfig.TrainingRepMax)
 	local banked = GameConfig.GetTrainingReps(data) - before
 	if banked > 0 then
 		player:SetAttribute("TrainingReps", GameConfig.GetTrainingReps(data))
 	end
-	if GameConfig.IsTrainingCapped(data) then
+	-- 33.32: pushed on the KILL THAT CROSSES the knee, for the reason the dummy's own branch states
+	-- -- the panels read this ladder, and a state that is now never terminal cannot be the trigger.
+	if before < GameConfig.TrainingRepCap and GameConfig.IsTrainingSoftCapped(data) then
 		PlayerDataService.PushToClient(player)
 	end
 	return banked
