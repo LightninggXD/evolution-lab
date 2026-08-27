@@ -3116,15 +3116,38 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 		-- caps a retaliation at `MaxHealth / (requiredHits * 2)`, so the exchange still costs at most
 		-- half a health bar and simply lasts longer.
 		--
-		-- THE BOSS CURVE CARRIES THE SAME FACTOR, applied to both terms of its `math.max` in `Zones`.
-		-- These two lines are one decision and must move together: the Elite floor exists to keep a
-		-- boss above a farmed creep of its own zone, and scaling the creature without the boss is
-		-- exactly the inversion 11.9 was written about.
+		-- THE BOSS CURVE CARRIES THE SAME DEPTH FACTOR, applied to both terms of its `math.max` in
+		-- `Zones`. Those two lines are one decision and must move together: the Elite floor exists
+		-- to keep a boss above a farmed creep of its own zone, and scaling the creature without the
+		-- boss is exactly the inversion 11.9 was written about.
+		--
+		-- **THE 33.34 FACTOR BELOW IS THE ONE EXCEPTION, AND IT IS DELIBERATE.** It does NOT go to
+		-- the boss, because since 33.33 a boss already divides the player's blow by what the zone
+		-- expects (`GetBossBlowDivisor`) -- putting the same expectation on its health as well would
+		-- count it twice and turn every boss into a wall. The 11.9 guarantee is unharmed, because
+		-- what that inversion was about is FIGHT LENGTH and not raw health: measured after this
+		-- change, a zone-20 Elite is ~6 blows and its boss is ~30, which is the ordering the floor
+		-- exists to protect. Raw health stops being comparable between the two the moment one of
+		-- them has a divisor and the other does not.
+		--
+		-- ...and by what the ZONE EXPECTS THE PLAYER TO BE CARRYING since 33.34
+		-- (`GetZoneMobScale`, x1.00 in Forest by construction and about x1,350 on the Absolute
+		-- Plane). That factor is not a difficulty knob -- it is the correction that makes the two
+		-- authored curves above mean the same thing at both ends of the strip. Measured before it
+		-- existed: a normally geared player one-shot a Critter from zone 2 and a farmed Elite from
+		-- zone 6, because health climbs x1.53 a zone and the player's damage climbs x2.08. The
+		-- whole argument, and the genre evidence for not steepening `mobHealthMult` instead, is
+		-- over `GameConfig.GetZoneExpectedStack`.
 		health = math.max(1, math.floor(base.health * zone.mobHealthMult
-			* GameConfig.GetZoneDepthMult(zoneIndex) * generationHealthMult(generation))),
+			* GameConfig.GetZoneDepthMult(zoneIndex) * GameConfig.GetZoneMobScale(zoneIndex)
+			* generationHealthMult(generation))),
 		hitCooldown = base.hitCooldown,
 		respawnDelay = base.respawnDelay,
-		dnaMult = base.dnaMult * zone.mobDnaMult,
+		-- ...times what 33.34's longer fight costs in TIME, so the farm rate is exactly where it
+		-- was. The factor is x1.00 in Forest and x5.82 on the Absolute Plane -- NOT the health
+		-- scale, which would inflate the economy two hundredfold. The derivation is over
+		-- `GameConfig.GetZoneMobDnaScale`, and `xp` one line below is deliberately left alone.
+		dnaMult = base.dnaMult * zone.mobDnaMult * GameConfig.GetZoneMobDnaScale(zoneIndex),
 		-- floored to a whole number, and never below 1: XP is a counter a player reads off a bar, and
 		-- a kill that adds 0.7 of a point reads as a kill that paid nothing
 		xp = math.max(1, math.floor(base.xp * zone.mobXpMult)),

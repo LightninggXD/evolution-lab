@@ -398,6 +398,110 @@ function GameConfig.GetZoneExpectedGear(zoneIndex)
 	return income * mastery * pets
 end
 
+-- ===== AND THE WHOLE STACK THAT ZONE EXPECTS, WHICH IS WHAT A CREATURE IS PRICED AGAINST (33.34) =====
+--
+-- `GetZoneExpectedGear` above is the part a BOSS cares about, because the boss divisor already
+-- cancels the blade, the level and the rebirth. A CREATURE cancels nothing: every multiplier the
+-- player owns lands on it in full. So a creature has to be priced against the whole expected stack,
+-- and that is the difference between the two functions.
+--
+-- **THE MEASUREMENT THIS EXISTS TO FIX (2026-08-27).** Creature health climbs x1.53 a zone
+-- (`mobHealthMult` 1.442 x `MobDepthGrowth` 1.06) and the geared player's damage climbs **x2.08** a
+-- zone. The player outgrows the content every zone, twenty times over, and the result was measured:
+-- a normally geared player ONE-SHOTS a Critter from zone 2 and a farmed Elite from zone 6. The
+-- damage ladder had stopped meaning anything long before the Absolute Plane.
+--
+-- **AND A STEEPER HEALTH CURVE CANNOT FIX IT** -- that was measured too. A curve making zone-20
+-- mobs 14.5x heavier still leaves the geared player at 0.02 blows; restoring a six-blow Critter
+-- would take x288 on today's health. `guidelines/plus-one-progression-2026.md` has the genre
+-- evidence for why steepening is the wrong lever anyway: every successful game in the sample holds
+-- its per-area ratio FLAT, and the two that steepen it are the two with famous endgame walls.
+--
+-- So the health curve is not steepened. It is priced against the player the zone expects, which
+-- holds blows-to-fell FLAT -- the genre's actual target -- and produces the owner's `+1` loop for
+-- free: arrive under-geared and the same creature takes many times longer, upgrade and it comes
+-- back down. Her words: *"mogu i sa manje ali dugo traje pa je poenta da se upgradea"*.
+--
+-- ===== WHAT IS IN THE EXPECTATION, AND WHAT IS DELIBERATELY LEFT OUT =====
+--
+-- IN, because a normal player holds all of it by the time they stand there: the gear above
+-- (income, pets, mastery), the blade, the level ladder and the rebirth count.
+--
+-- OUT, on purpose, and this is the whole reward structure: **training, potions, passes, relics and
+-- the VIP wardrobe are NOT expected.** Everything left out is a multiplier that makes the player
+-- FASTER THAN THE ZONE EXPECTS -- which is exactly what a x3.00 trained ladder or a bought pass
+-- should buy. If they were folded in here, the content would rise to meet them and the purchase
+-- would buy nothing, which is the mistake that made this row necessary in the first place.
+--
+-- The blade, the level and the rebirth are read from the same tables the game charges for; only
+-- WHICH rung a player is expected to be on is authored, and it is authored as a straight line
+-- through the ladder (one blade every other zone, level 8 -> 38, a rebirth every fifth zone).
+function GameConfig.GetZoneExpectedStack(zoneIndex)
+	local last = GameConfig.Zones and #GameConfig.Zones or 20
+	local z = math.clamp(math.floor(tonumber(zoneIndex) or 1), 1, last)
+	local gear = GameConfig.GetZoneExpectedGear(z)
+	-- ten blades over twenty zones
+	local swordLevel = math.clamp(math.floor((z + 1) / 2), 1, GameConfig.MaxSwordLevel or 10)
+	local sword = (GameConfig.Swords and GameConfig.Swords[swordLevel]
+		and GameConfig.Swords[swordLevel].damageMult) or 1
+	-- the rebirth gates sit at levels 20/23/26/29, so the expected level runs 8 at the first zone
+	-- to 38 at the last
+	local level = 8 + 30 * (z - 1) / (last - 1)
+	local levelMult = 1 + (level - 1) * (GameConfig.LevelDamagePct or 5) / 100
+	-- four milestones, at stages 5/10/15/20
+	local rebirthMult = GameConfig.GetRebirthDamageMult({ Rebirths = math.clamp(math.floor(z / 5), 0, 4) })
+	return gear * sword * levelMult * rebirthMult
+end
+
+-- The factor a creature's health is multiplied by, NORMALISED TO ZONE 1 -- so Forest is untouched
+-- to the studs and the first ten minutes of the game are exactly what they were. Everything after
+-- Forest rises to meet the player the zone expects.
+--
+-- It is a MULTIPLIER ON TOP of `mobHealthMult` and `GetZoneDepthMult` rather than a replacement for
+-- either: those two are the authored shape of the strip (which zones feel like a step up) and this
+-- is the correction that makes the shape mean the same thing at both ends of it.
+function GameConfig.GetZoneMobScale(zoneIndex)
+	return GameConfig.GetZoneExpectedStack(zoneIndex) / GameConfig.GetZoneExpectedStack(1)
+end
+
+-- ===== AND WHAT THE LONGER FIGHT COSTS THE FARM, PAID BACK EXACTLY (33.34) =====
+--
+-- The scale above makes a creature take more blows, and blows are TIME. Left alone, that is a
+-- silent nerf to every DNA price in the game: a player who used to fell a Nebula Critter in one
+-- blow now needs four, so DNA an hour falls by four and every evolve, egg and upgrade priced
+-- against the old rate quietly costs four times as long.
+--
+-- The owner's call, taken with the fork: *"DNA po killu raste istim faktorom"* -- the farm rate is
+-- held where it is. This is the factor that does it, and it is deliberately NOT `GetZoneMobScale`:
+-- paying x1,348 at the Absolute Plane would inflate the economy by two hundred times. What is owed
+-- is the ratio of the fight that WAS to the fight that IS -- and the fight that was is one blow,
+-- because that is the floor: you cannot fell a creature in less than a single swing, and that floor
+-- is the whole reason a x1,348 health scale does not cost x1,348 of time.
+--
+--     zone  1  x1.00  (Forest never changed -- the scale is normalised there)
+--     zone  5  x2.92
+--     zone 10  x4.10
+--     zone 20  x5.82
+--
+-- XP IS DELIBERATELY NOT COMPENSATED. A level is meant to get harder -- *"ostali leveli tj zone
+-- moraju biti tezi"* and, in 33.32, *"dosta dosta tezi"* -- and a longer fight for the same XP is
+-- precisely that, arrived at without touching the XP curve. This is the one place the two rows
+-- pull in the same direction and it is worth being explicit that it is on purpose.
+function GameConfig.GetZoneMobDnaScale(zoneIndex)
+	local last = GameConfig.Zones and #GameConfig.Zones or 20
+	local z = math.clamp(math.floor(tonumber(zoneIndex) or 1), 1, last)
+	if z == 1 then return 1 end
+	-- blows-to-fell for the player the zone expects, which is the bare curve divided by the stack
+	-- the first zone already expects -- see the derivation over `GetZoneMobScale`
+	local zone = GameConfig.Zones[z]
+	if not zone then return 1 end
+	local bare = 30 * zone.mobHealthMult * GameConfig.GetZoneDepthMult(z)
+		/ GameConfig.GetZoneReferenceDamage(z)
+	local now = bare * GameConfig.GetZoneMobScale(z) / GameConfig.GetZoneExpectedStack(z)
+	local before = math.max(bare / GameConfig.GetZoneExpectedStack(z), 1)
+	return math.max(now / before, 1)
+end
+
 -- ===== MUTATIONS ARE ROLLED AT THE DNA SPLICER (Phase 12) =====
 -- They used to roll THEMSELVES: a server loop fired every ~10 seconds for as long as a player
 -- was online, nothing was ever removed, and the ladder topped at x30 income -- a hidden faucet
