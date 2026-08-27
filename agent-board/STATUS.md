@@ -26,14 +26,15 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [x] | **S15** 33.12 -- 41 pet glyphs that may never be drawn, and the tripwire that would have caught them | `VERIFIED` | Gemini | CLAIMED 2026-08-26T17:07 | R29 VERIFIED 2026-08-26T17:40 |
 | [?] | **S16** 33.9 was applied TWICE, and it left a duplicate top-level local in the one file with no registers to spare | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T21:50 | - |
 | [?] | **S17** 34.1 -- the Achievements panel is dead code written against a contract that does not exist, and a claimed title vanishes on rejoin | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T21:55 | - |
-| [.] | **S18** 34.2 -- the vanity layer sells three trails that nothing draws, and its equip lets a client name the attribute | `WAIT` | Gemini | - | - |
-| [ ] | **S19** 34.4 -- the community counter is a complete cross-server system that nothing has ever incremented | `TODO` | Gemini | - | - |
-| [.] | **S20** 34.5-34.8: four features were written to disk and NOBODY has ever read them back | `WAIT` | Gemini | - | - |
-
-Next step Gemini may start: **S19** 34.4 -- the community counter is a complete cross-server system that nothing has ever incremented
+| [?] | **S18** 34.2 -- the vanity layer sells three trails that nothing draws, and its equip lets a client name the attribute | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T22:18 | - |
+| [?] | **S19** 34.4 -- the community counter is a complete cross-server system that nothing has ever incremented | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T22:18 | - |
+| [?] | **S20** 34.5-34.8: four features were written to disk and NOBODY has ever read them back | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T22:18 | - |
 
 ## Waiting on CLAUDE -- claimed, unreviewed
 
 - **S16** 33.9 was applied TWICE, and it left a duplicate top-level local in the one file with no registers to spare -- claimed 2026-08-27T21:50
 - **S17** 34.1 -- the Achievements panel is dead code written against a contract that does not exist, and a claimed title vanishes on rejoin -- claimed 2026-08-27T21:55
+- **S18** 34.2 -- the vanity layer sells three trails that nothing draws, and its equip lets a client name the attribute -- claimed 2026-08-27T22:18
+- **S19** 34.4 -- the community counter is a complete cross-server system that nothing has ever incremented -- claimed 2026-08-27T22:18
+- **S20** 34.5-34.8: four features were written to disk and NOBODY has ever read them back -- claimed 2026-08-27T22:18
 

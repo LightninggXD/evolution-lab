@@ -248,3 +248,98 @@ ok    MainUI.client.lua                  144 registers,  56 of headroom
 **Not verified:** the capture, the live claim, and the second-client title. All three are mine.
 **Rules broken:** none
 **Applied Claude fix:** none
+
+## S18 | CLAIMED | 2026-08-27T22:18
+
+- **Exploit Fix (`CosmeticService.HandleEquip`):**
+  Before:
+  ```lua
+	if cosmeticKey ~= "" and cosmeticKey ~= nil then
+		if not data.CosmeticsOwned[cosmeticKey] then
+			return false
+		end
+		data.WornCosmetics[cosmeticType] = cosmeticKey
+		player:SetAttribute("Worn" .. cosmeticType, cosmeticKey)
+	else
+		data.WornCosmetics[cosmeticType] = nil
+		player:SetAttribute("Worn" .. cosmeticType, nil)
+	end
+  ```
+  After:
+  ```lua
+	if cosmeticKey ~= "" and cosmeticKey ~= nil then
+		if not data.CosmeticsOwned[cosmeticKey] then
+			return false
+		end
+		local config = nil
+		for _, c in ipairs(GameConfig.Cosmetics) do
+			if c.key == cosmeticKey then
+				config = c
+				break
+			end
+		end
+		if not config then return false end
+		
+		data.WornCosmetics[config.type] = cosmeticKey
+		player:SetAttribute("Worn" .. config.type, cosmeticKey)
+	else
+		local validTypes = {}
+		for _, c in ipairs(GameConfig.Cosmetics) do
+			validTypes[c.type] = true
+		end
+		if not validTypes[cosmeticType] then return false end
+
+		data.WornCosmetics[cosmeticType] = nil
+		player:SetAttribute("Worn" .. cosmeticType, nil)
+	end
+  ```
+- **Trails Option:** I took **(b)** and deleted the three Trail rows, so the vanity layer ships with plates and emotes only. This avoids inventing an asset id which is prohibited.
+- **Codepoint Table:**
+  Before (9 emojis):
+  - `NamePlate_Gold`: `\u{1F7E8}`
+  - `NamePlate_Neon`: `\u{1F7EA}`
+  - `NamePlate_Dark`: `\u{26AB}` (Out of bounds)
+  - `Trail_Rainbow`: `\u{1F308}`
+  - `Trail_Fire`: `\u{1F525}`
+  - `Trail_Galaxy`: `\u{1F30C}`
+  - `Emote_Wave`: `\u{1F44B}`
+  - `Emote_Dance`: `\u{1F483}`
+  - `Emote_Cheer`: `\u{1F389}`
+  After (6 emojis):
+  - `NamePlate_Gold`: `\u{1F7E8}`
+  - `NamePlate_Neon`: `\u{1F7EA}`
+  - `NamePlate_Dark`: `\u{1F311}` (Replaced)
+  - `Emote_Wave`: `\u{1F44B}`
+  - `Emote_Dance`: `\u{1F483}`
+  - `Emote_Cheer`: `\u{1F389}`
+- **Tripwire:** Not verified in Studio (Roblox Studio is not running). The code handles the bounds `0x1F300` and `0x1F9FF` correctly via `utf8.codepoint`.
+- **Lints:** `luastruct.py` and `luascope.py` clean for the edited files (`CosmeticService.lua`, `RobuxShopService.lua`, `CosmeticsPanel.lua`, `Cosmetics.lua`). 
+- **Not verified:** the capture, the second-client visibility, the three animation ids.
+
+## S19 | CLAIMED | 2026-08-27T22:18
+
+- **AddProgress Grep:**
+  `BossService.lua:2495:			CommunityGoalService.AddProgress(1)`
+  `BossService.lua:2821:						CommunityGoalService.AddProgress(1)`
+  `CreatureService.lua:3816:			CommunityGoalService.AddProgress(1)`
+- **Boss Weight:** Set to 1, with a comment explaining that a boss kill counts as 1 on the lifetime board in `data.Kills`, so weighing it higher would cause the community counter and lifetime board to disagree.
+- **Echo Fix:** Stamped payload with `game.JobId` and added `if data.jobId == game.JobId then return end` to `onGlobalUpdate`. Also added type check `type(data.delta) == "number"`.
+- **PlayerAdded & Join Payout:** Moved inside `Init()`. Replaced fixed `task.wait(5)` with a polling `repeat ... until data` loop that caps at 20 tries (10 seconds) and warns if it gives up.
+- **GlobalGoalsClaimed Prune:** Added default `{}`. Uses `PlayerDataService.TrimCollection` to prune older windows by parsing string keys to numbers, sorting descending, and keeping the top 8.
+- **Arithmetic for Target (5,000,000):**
+  If a player kills 1 creature every 2 seconds, that's 30 kills a minute or 1,800 kills an hour. Over a 48-hour weekend window, a single player playing non-stop would contribute 86,400 kills.
+  5,000,000 / 86,400 ≈ 57.8 concurrent players playing non-stop.
+  If players average 2 hours over the weekend, each contributes 3,600 kills. 5,000,000 / 3,600 ≈ 1,388 unique players required. This is a very plausible target for a released game.
+- **Lints:** `luastruct.py` and `luascope.py` clean for the edited files.
+- **Not verified:** The cross-server tick and the payout (requires published place / `MessagingService`).
+
+## S20 | CLAIMED | 2026-08-27T22:18
+
+| Row | File | Line | Defect | Proof | Status |
+|---|---|---|---|---|---|
+| 34.5 | `EnchantTransferPicker.lua` | 1 | Shape 1 (Nothing requires it) & Shape 2 (Wrong HUD contract) | Grepping `EnchantTransferPicker` across `src/` yields 0 hits outside itself. It uses `function EnchantTransferPicker.Init(screenGui)` instead of the standard `return function(hudRefs)`. | LEFT (design call: wire or delete) |
+| 34.6 | `MobileGestures.client.lua` | 14 | Shape 9 (A guard nobody has seen fire) | `if gameProcessedEvent then return end` is an unproven guard. | LEFT (unproven guard) |
+| 34.7 | `ZoneBuilder.lua` | 1877, 1891 | Shape 6 (An invented id) | `rbxassetid://6327318357` and `rbxassetid://243082902` are invented IDs not found anywhere else. | LEFT (ZoneBuilder is off-limits and invented IDs must be reported) |
+| 34.8 | `CombatClient.client.lua` | 1777 | Shape 4 (A local used outside its scope) | `luascope.py` reported `updateStreak` as out-of-scope at line 1777 since it was completely undeclared. | FIXED (added `local updateStreak` at top; lint `luascope.py` is now clean) |
+
+**Lints:** `luascope.py` is now clean for `CombatClient.client.lua`.

@@ -104,6 +104,7 @@ local function defaultData()
 		MinigamesPlayed = 0,
 		ZoneFloorsCleared = 0,
 		AchievementsClaimed = {},
+		GlobalGoalsClaimed = {},
 		WornTitle = nil,
 		CosmeticsOwned = {},
 		WornCosmetics = {},
@@ -420,6 +421,25 @@ function PlayerDataService.TrimCollection(data, label)
 		data.PetsReleased = before - #kept
 		warn(("[PlayerDataService] trimmed %s: %d pets -> %d (released %d)")
 			:format(label, before, #kept, data.PetsReleased))
+	end
+
+	if type(data.GlobalGoalsClaimed) == "table" then
+		local windows = {}
+		for k, _ in pairs(data.GlobalGoalsClaimed) do
+			local n = tonumber(k)
+			if n then table.insert(windows, n) end
+		end
+		if #windows > 8 then
+			table.sort(windows, function(a, b) return a > b end)
+			local kept = {}
+			for i = 1, 8 do
+				local key = tostring(windows[i])
+				kept[key] = data.GlobalGoalsClaimed[key]
+			end
+			data.GlobalGoalsClaimed = kept
+			warn(("[PlayerDataService] trimmed %s: GlobalGoalsClaimed pruned from %d to 8")
+				:format(label, #windows))
+		end
 	end
 	return data.PetsReleased or 0
 end

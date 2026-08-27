@@ -40,7 +40,8 @@ end
 
 local function onGlobalUpdate(message)
 	local data = message.Data
-	if data.window == currentWindowStart then
+	if data.jobId == game.JobId then return end
+	if data.window == currentWindowStart and type(data.delta) == "number" then
 		globalTotal = globalTotal + data.delta
 		progressValue.Value = globalTotal
 		
@@ -115,7 +116,8 @@ function CommunityGoalService.Init()
 					pcall(function()
 						MessagingService:PublishAsync(TOPIC, {
 							window = currentWindowStart,
-							delta = deltaToSync
+							delta = deltaToSync,
+							jobId = game.JobId
 						})
 					end)
 					-- Update local approximation with authoritative total
@@ -135,6 +137,45 @@ function CommunityGoalService.Init()
 			end
 		end
 	end)
+	-- When a player joins, pay them if the goal is already met and they haven't claimed it yet
+	local function onPlayerAdded(player)
+		task.spawn(function()
+			local data = nil
+			local tries = 0
+			repeat
+				task.wait(0.5)
+				tries = tries + 1
+				if not player.Parent then return end
+				data = PlayerDataService.Get(player)
+			until data or tries > 20
+			
+			if not data then
+				warn(("[CommunityGoalService] join payout gave up waiting for data for %s"):format(player.Name))
+				return
+			end
+			
+			if not isPaidOutThisWindow then return end
+			local live = getLiveGoal()
+			if not live then return end
+			
+			data.GlobalGoalsClaimed = data.GlobalGoalsClaimed or {}
+			local windowKey = tostring(currentWindowStart)
+			if not data.GlobalGoalsClaimed[windowKey] then
+				local reward = live.event.reward
+				data.GlobalGoalsClaimed[windowKey] = true
+				if reward.diamonds then
+					data.Diamonds = (data.Diamonds or 0) + reward.diamonds
+					Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, reward.diamonds,
+						data.Diamonds, Telemetry.Tx.EventReward, "GlobalGoal")
+				end
+				PlayerDataService.PushToClient(player)
+			end
+		end)
+	end
+	Players.PlayerAdded:Connect(onPlayerAdded)
+	for _, p in ipairs(Players:GetPlayers()) do
+		onPlayerAdded(p)
+	end
 end
 
 function CommunityGoalService.AddProgress(amount)
@@ -169,28 +210,6 @@ function CommunityGoalService.PayoutAll()
 	end
 end
 
--- When a player joins, pay them if the goal is already met and they haven't claimed it yet
-Players.PlayerAdded:Connect(function(player)
-	task.wait(5)
-	if not isPaidOutThisWindow then return end
-	local live = getLiveGoal()
-	if not live then return end
-	
-	local data = PlayerDataService.Get(player)
-	if not data then return end
-	
-	data.GlobalGoalsClaimed = data.GlobalGoalsClaimed or {}
-	local windowKey = tostring(currentWindowStart)
-	if not data.GlobalGoalsClaimed[windowKey] then
-		local reward = live.event.reward
-		data.GlobalGoalsClaimed[windowKey] = true
-		if reward.diamonds then
-			data.Diamonds = (data.Diamonds or 0) + reward.diamonds
-			Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, reward.diamonds,
-				data.Diamonds, Telemetry.Tx.EventReward, "GlobalGoal")
-		end
-		PlayerDataService.PushToClient(player)
-	end
-end)
+
 
 return CommunityGoalService

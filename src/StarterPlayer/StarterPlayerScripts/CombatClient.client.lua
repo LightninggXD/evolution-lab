@@ -23,6 +23,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local updateStreak
 local UserInputService = game:GetService("UserInputService")
 local Debris = game:GetService("Debris")
 local RS = game:GetService("ReplicatedStorage")

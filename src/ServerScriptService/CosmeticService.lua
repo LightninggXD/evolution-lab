@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local Telemetry = require(ServerScriptService.Telemetry)
 local PlayerDataService = require(ServerScriptService.PlayerDataService)
 local Remotes = ReplicatedStorage.Remotes
 
@@ -32,6 +33,7 @@ function CosmeticService.HandlePurchase(player, cosmeticKey)
 
 	data.Diamonds = data.Diamonds - cost
 	data.CosmeticsOwned[cosmeticKey] = true
+	Telemetry.Economy(player, "Sink", Telemetry.Currency.Diamonds, cost, data.Diamonds, Telemetry.Tx.Shop, "Cosmetic")
 	
 	PlayerDataService.PushToClient(player)
 	return true
@@ -48,9 +50,24 @@ function CosmeticService.HandleEquip(player, cosmeticType, cosmeticKey)
 		if not data.CosmeticsOwned[cosmeticKey] then
 			return false
 		end
-		data.WornCosmetics[cosmeticType] = cosmeticKey
-		player:SetAttribute("Worn" .. cosmeticType, cosmeticKey)
+		local config = nil
+		for _, c in ipairs(GameConfig.Cosmetics) do
+			if c.key == cosmeticKey then
+				config = c
+				break
+			end
+		end
+		if not config then return false end
+		
+		data.WornCosmetics[config.type] = cosmeticKey
+		player:SetAttribute("Worn" .. config.type, cosmeticKey)
 	else
+		local validTypes = {}
+		for _, c in ipairs(GameConfig.Cosmetics) do
+			validTypes[c.type] = true
+		end
+		if not validTypes[cosmeticType] then return false end
+
 		data.WornCosmetics[cosmeticType] = nil
 		player:SetAttribute("Worn" .. cosmeticType, nil)
 	end
@@ -75,23 +92,28 @@ function CosmeticService.Init()
 	Remotes.CosmeticEquip.OnServerInvoke = CosmeticService.HandleEquip
 	
 	-- Restore attributes on join
-	game.Players.PlayerAdded:Connect(function(player)
-		-- Wait for data to load
+	local function onPlayerAdded(player)
 		task.spawn(function()
 			local data = nil
+			local tries = 0
 			repeat
 				task.wait(0.5)
-				if not player.Parent then return end
+				tries = tries + 1
+				if not player.Parent or tries > 20 then return end
 				data = PlayerDataService.Get(player)
 			until data
 			
 			if data.WornCosmetics then
-				if data.WornCosmetics["Trail"] then player:SetAttribute("WornTrail", data.WornCosmetics["Trail"]) end
-				if data.WornCosmetics["NamePlate"] then player:SetAttribute("WornNamePlate", data.WornCosmetics["NamePlate"]) end
-				if data.WornCosmetics["Emote"] then player:SetAttribute("WornEmote", data.WornCosmetics["Emote"]) end
+				for cType, cKey in pairs(data.WornCosmetics) do
+					player:SetAttribute("Worn" .. cType, cKey)
+				end
 			end
 		end)
-	end)
+	end
+	game.Players.PlayerAdded:Connect(onPlayerAdded)
+	for _, p in ipairs(game.Players:GetPlayers()) do
+		onPlayerAdded(p)
+	end
 end
 
 return CosmeticService

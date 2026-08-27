@@ -3813,6 +3813,7 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 			-- Deliberately NOT reset by a rebirth -- a lifetime board that a rebirth zeroed would rank
 			-- players by how recently they reset rather than by how much they have played.
 			data.Kills = (data.Kills or 0) + 1
+			CommunityGoalService.AddProgress(1)
 			-- ...and if that XP filled the bar, evolve NOW rather than waiting for a button press
 			-- (10.10). Placed before the push below so the payload the client receives already carries
 			-- the new rung -- otherwise the HUD would draw the old one for a frame and then correct

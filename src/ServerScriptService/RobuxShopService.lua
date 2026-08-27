@@ -233,6 +233,24 @@ local function processReceipt(receiptInfo)
 
 	local product = getProductByPurchaseId(receiptInfo.ProductId)
 	if not product then
+		local cosmetic = nil
+		for _, c in ipairs(GameConfig.Cosmetics) do
+			if c.productId and c.productId > 0 and c.productId == receiptInfo.ProductId then
+				cosmetic = c
+				break
+			end
+		end
+		
+		if cosmetic then
+			data.CosmeticsOwned = data.CosmeticsOwned or {}
+			if data.CosmeticsOwned[cosmetic.key] then
+				return Enum.ProductPurchaseDecision.PurchaseGranted
+			end
+			data.CosmeticsOwned[cosmetic.key] = true
+			PlayerDataService.PushToClient(player)
+			return Enum.ProductPurchaseDecision.PurchaseGranted
+		end
+
 		-- NOT granted. This used to acknowledge the receipt so Roblox would stop retrying, which
 		-- means a product that exists on the Roblox dashboard but is missing or mistyped in
 		-- GameConfig.RobuxProducts took the player's Robux and handed back nothing, permanently and

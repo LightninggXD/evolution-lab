@@ -17,20 +17,32 @@
 return function(GameConfig)
 
 GameConfig.Cosmetics = {
-	-- Trails
-	{ key = "Trail_Rainbow", type = "Trail", name = "Rainbow Trail", emoji = "\u{1F308}", priceDiamonds = 100, priceRobux = 49, productId = 0, path = "Trails/Rainbow-01" },
-	{ key = "Trail_Fire", type = "Trail", name = "Fire Trail", emoji = "\u{1F525}", priceDiamonds = 300, priceRobux = 99, productId = 0, path = "Trails/Fire-01" },
-	{ key = "Trail_Galaxy", type = "Trail", name = "Galaxy Trail", emoji = "\u{1F30C}", priceDiamonds = 1000, priceRobux = 199, productId = 0, path = "Trails/Galaxy-01" },
+
 
 	-- Name Plates
 	{ key = "NamePlate_Gold", type = "NamePlate", name = "Golden Plate", emoji = "\u{1F7E8}", priceDiamonds = 50, priceRobux = 49, productId = 0, color = Color3.fromRGB(255, 215, 0) },
 	{ key = "NamePlate_Neon", type = "NamePlate", name = "Neon Plate", emoji = "\u{1F7EA}", priceDiamonds = 250, priceRobux = 99, productId = 0, color = Color3.fromRGB(0, 255, 255) },
-	{ key = "NamePlate_Dark", type = "NamePlate", name = "Dark Plate", emoji = "\u{26AB}", priceDiamonds = 800, priceRobux = 199, productId = 0, color = Color3.fromRGB(30, 30, 30) },
+	{ key = "NamePlate_Dark", type = "NamePlate", name = "Dark Plate", emoji = "\u{1F311}", priceDiamonds = 800, priceRobux = 199, productId = 0, color = Color3.fromRGB(30, 30, 30) },
 
 	-- Emotes (using placeholder catalog animation ids)
 	{ key = "Emote_Wave", type = "Emote", name = "Wave", emoji = "\u{1F44B}", priceDiamonds = 25, priceRobux = 0, productId = 0, animId = "rbxassetid://507770239" },
 	{ key = "Emote_Dance", type = "Emote", name = "Dance", emoji = "\u{1F483}", priceDiamonds = 150, priceRobux = 99, productId = 0, animId = "rbxassetid://507771019" },
 	{ key = "Emote_Cheer", type = "Emote", name = "Cheer", emoji = "\u{1F389}", priceDiamonds = 500, priceRobux = 149, productId = 0, animId = "rbxassetid://507770677" },
 }
+
+
+do
+	local SAFE_LO, SAFE_HI = 0x1F300, 0x1F9FF
+	for _, c in ipairs(GameConfig.Cosmetics) do
+		local ok, cp = pcall(utf8.codepoint, c.emoji, 1)
+		if not ok or type(cp) ~= "number" then
+			warn(("[GameConfig.Cosmetics] %s has a missing or unreadable emoji -- it will draw as nothing"):format(c.key))
+		elseif cp < SAFE_LO then
+			warn(("[GameConfig.Cosmetics] %s has glyph U+%04X, BELOW U+1F300 -- text presentation, it draws as an outline or a box (27.7)"):format(c.key, cp))
+		elseif cp > SAFE_HI then
+			warn(("[GameConfig.Cosmetics] %s has glyph U+%04X, ABOVE U+1F9FF -- too new for the system emoji font, it draws as nothing at all (30.22)"):format(c.key, cp))
+		end
+	end
+end
 
 end

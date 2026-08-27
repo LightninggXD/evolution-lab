@@ -120,11 +120,16 @@ return function(hud)
 		btnDiamonds.Parent = row
 		styleButton(btnDiamonds, UITheme.Color.Aqua, c.priceDiamonds .. " Gems")
 		
-		local btnRobux = Instance.new("TextButton")
-		btnRobux.Size = UDim2.new(0, 110, 0, 40)
-		btnRobux.Position = UDim2.new(1, -120, 0.5, -20)
-		btnRobux.Parent = row
-		styleButton(btnRobux, UITheme.Color.Mint, "R$ " .. c.priceRobux)
+		local btnRobux = nil
+		if c.productId and c.productId > 0 then
+			btnRobux = Instance.new("TextButton")
+			btnRobux.Size = UDim2.new(0, 110, 0, 40)
+			btnRobux.Position = UDim2.new(1, -120, 0.5, -20)
+			btnRobux.Parent = row
+			styleButton(btnRobux, UITheme.Color.Mint, "R$ " .. c.priceRobux)
+		else
+			btnDiamonds.Position = UDim2.new(1, -120, 0.5, -20)
+		end
 		
 		local btnEquip = Instance.new("TextButton")
 		btnEquip.Size = UDim2.new(0, 160, 0, 40)
@@ -138,11 +143,13 @@ return function(hud)
 			if rf then rf:InvokeServer(c.key) end
 		end)
 		
-		btnRobux.MouseButton1Click:Connect(function()
-			if c.productId and c.productId > 0 then
-				game:GetService("MarketplaceService"):PromptProductPurchase(game.Players.LocalPlayer, c.productId)
-			end
-		end)
+		if btnRobux then
+			btnRobux.MouseButton1Click:Connect(function()
+				if c.productId and c.productId > 0 then
+					game:GetService("MarketplaceService"):PromptProductPurchase(game.Players.LocalPlayer, c.productId)
+				end
+			end)
+		end
 		
 		btnEquip.MouseButton1Click:Connect(function()
 			local data = hud.getData and hud.getData()

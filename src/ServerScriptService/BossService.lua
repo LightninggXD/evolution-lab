@@ -2491,6 +2491,8 @@ local function spawnBoss(zone)
 			SeasonPassService.Track(player, "bosses", 1)
 			-- a boss is a kill too, and counts on the same lifetime board (5.3)
 			data.Kills = (data.Kills or 0) + 1
+			-- Boss is weighted as 1 to keep the community counter and the lifetime board agreeing
+			CommunityGoalService.AddProgress(1)
 			-- The other of the two places XP enters a save, so the other half of 10.10's auto-evolve.
 			-- It matters most here: a boss pays 25+ XP against a creature's 1, so a boss kill is the
 			-- likeliest single event to fill the bar -- and it is the one a player is most obviously
@@ -2815,6 +2817,8 @@ local function spawnEventBoss()
 						Telemetry.Custom(plr, "WorldBossContribution", gems)
 						SeasonPassService.Track(plr, "bosses", 1)
 						d.Kills = (d.Kills or 0) + 1
+						-- Boss is weighted as 1 to keep the community counter and the lifetime board agreeing
+						CommunityGoalService.AddProgress(1)
 						PlayerDataService.UpdateLeaderstats(plr)
 						PlayerDataService.PushToClient(plr)
 						-- the card quotes what was actually paid, doubled included, rather than the

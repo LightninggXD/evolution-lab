@@ -1352,6 +1352,7 @@ Collect these once; each one blocks agents until it exists.
 | `[ ]` | **Save the place and republish — and this one now carries six new assets, not only hygiene.** 16.9's six generated skin meshes (`SkinMesh_vip_gold` and the five event skins) are **instances in the unsaved Studio session**. They are not files, so no commit and nothing in `src/` carries them: a Studio restart before a save loses all six and they have to be regenerated. Save first, then publish | 16.9 |
 | `[ ]` | **Save the place and republish, to make the `LightConfig` deletion real.** The backdoor was destroyed in the Edit session on 2026-08-15 but an MCP edit lives only in an unsaved session ([[evolution-lab-studio-work-is-volatile]]). The published copy still holds it until then — inert (a `Disabled` Script in `ServerStorage`), so this is hygiene rather than an emergency, but it should not survive the next publish | 15.10 |
 | `[x]` | Prism Festival dates in `GameConfig.Events` — a design decision, not an id, so edit freely | 7.4 — decided 2026-08-10: 4–7 September 2026, the authored window, unchanged |
+| `[ ]` | **Create 5 cosmetic developer products** and paste their ids (Golden Plate, Neon Plate, Dark Plate, Dance emote, Cheer emote) | 34.2 |
 
 ---
 
@@ -5718,4 +5719,3 @@ codebase and adding it is an infrastructure layer, not a feature.
   `productId = 0`; `RobuxShopService` grants fixed DNA in an exponential economy; the game has no
   audio; no `OrderedDataStore`, no `MessagingService`, no codes, no offline earnings, no trading.
   Nothing implemented yet.
-
