@@ -19,6 +19,7 @@ local BossService = require(ServerScriptService.BossService)
 local RebirthService = require(ServerScriptService.RebirthService)
 local RebirthShrine = require(ServerScriptService.RebirthShrine)
 local SecretsService = require(ServerScriptService.SecretsService)
+local InviteRewardService = require(ServerScriptService.InviteRewardService)
 local TrainingDummyService = require(ServerScriptService.Training.TrainingDummyService)
 local SplicerService = require(ServerScriptService.SplicerService)
 local RewardService = require(ServerScriptService.RewardService)
@@ -203,6 +204,7 @@ RebirthService.Init()
 -- ZoneBuilder.Build() above, which is what puts the Forest decor the plaza has to clear back
 RebirthShrine.Init()
 SecretsService.Init()
+	InviteRewardService.Init()
 -- AFTER SecretsService, and the order is load-bearing in one direction only: the dummy is seated by
 -- RAYCAST onto the grotto floor (`TrainingDummyModel.floorAt`), so the room has to be built before
 -- this runs or the cast finds the world floor 0.2 studs lower and the dummy sinks into the slab.

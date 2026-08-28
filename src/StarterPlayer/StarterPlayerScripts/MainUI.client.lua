@@ -212,7 +212,7 @@ evolveFrame.Parent = screenGui
 
 local evolveStageLabel = UITheme.Label(evolveFrame, {
 	name = "StageProgressLabel",
-	text = "⭐ Cell",
+	text = "â­ Cell",
 	size = UDim2.new(1, 0, 0, 30),
 	position = UDim2.new(0.5, 0, 0, 0),
 	anchorPoint = Vector2.new(0.5, 0),
@@ -1129,7 +1129,7 @@ local shopToggleButton = columnTile("L", 1, "🛒", "Shop", UITheme.Color.Sunny)
 -- rather than a simplification. Instead of putting a fourth tile back, the two panels that already
 -- existed became the two TABS of this one: it opens Pets, and Potions is one click away.
 local inventoryButton  = columnTile("L", 2, "\u{1F392}", "Inventory", UITheme.Color.Bubblegum)
-local rebirthButton    = columnTile("L", 3, "♻️", "Rebirth", UITheme.Color.Lavender)
+local rebirthButton    = columnTile("L", 3, "â™»ï¸", "Rebirth", UITheme.Color.Lavender)
 hudRefs.rebirthButton = rebirthButton
 -- THE TRADE TILE IS GONE (16.2), and the feature is not.
 --
@@ -1242,7 +1242,7 @@ local masteryBadge = nil
 -- top-level local silently deletes the whole HUD. `PlaytimeGiftsPanel` finds it back through
 -- `screenGui.GiftsButton.Badge` -- the name `columnTile` stamps -- and owns lighting it, since it
 -- is already the only reader of the remote that says what is claimable.
-local playtimeButton = columnTile("R", 7, "⏰", "Gifts", UITheme.Color.Peach, "CLAIM!", UITheme.Color.Green)
+local playtimeButton = columnTile("R", 7, "â°", "Gifts", UITheme.Color.Peach, "CLAIM!", UITheme.Color.Green)
 
 -- AUTO-ATTACK toggle. The state itself lives on the player as an attribute, not in either script:
 -- CombatClient does the fighting and also toggles it off the T key, this tile draws it, and the
@@ -1356,7 +1356,7 @@ panelClose(masteryPanel)
 -- The subtitle says what the panel is FOR, which the twenty rows below never do: they are priced in
 -- Diamonds and gated on a stage, and both facts used to have to be inferred from a locked row.
 UITheme.PanelHeader(masteryPanel, {
-	title = "⭐ Stage Mastery",
+	title = "â­ Stage Mastery",
 	-- Kept short deliberately: this is the narrowest of the four headers (460 wide against the
 	-- Upgrades panel's 900), and the first draft clipped at the minimum text size.
 	subtitle = "One permanent buy per stage -- rebirth never takes it",
@@ -1462,7 +1462,7 @@ local function refreshMasteryPanel()
 	local bonus = GameConfig.GetStageMasteryBonus(data)
 	local diamonds = data.Diamonds or 0
 	local reached = data.StageIndex or 1
-	local effect = string.format("+%d%% Power · +%.1f Speed · +%d%% HP", cfg.damagePct, cfg.walkSpeed, cfg.healthPct)
+	local effect = string.format("+%d%% Power Â· +%.1f Speed Â· +%d%% HP", cfg.damagePct, cfg.walkSpeed, cfg.healthPct)
 
 	masterySummaryLabel.Text = string.format("%d/%d mastered — +%d%% Power, +%.1f Speed, +%d%% HP",
 		bonus.owned, #GameConfig.Stages,
@@ -1481,8 +1481,8 @@ local function refreshMasteryPanel()
 			local cost = GameConfig.GetStageMasteryCost(i)
 
 			if owned then
-				refs.statusLabel.Text = "✓ Mastered"
-				refs.buyButton.Text = "✓"
+				refs.statusLabel.Text = "âœ“ Mastered"
+				refs.buyButton.Text = "âœ“"
 				setButtonColor(refs.buyButton, UITheme.Color.Green)
 				refs.stroke.Color = OUTLINE_COLOR
 				-- A MASTERED STAGE IS A RECEIPT (18.6). This row and the "Reach X to unlock" row
@@ -1573,6 +1573,13 @@ require(RS.Modules:WaitForChild("HUD"):WaitForChild("LevelBar"))(hudRefs)
 -- AFTER `LevelBar` still, and the order is still real rather than tidy: this module reaches into
 -- `CurrencyStack` by name, and that frame is built far above.
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("DamageStat"))(hudRefs)
+
+-- The wallet column is as wide as the numbers in it. The three capsules were 250 px fixed with the
+-- number left-aligned, so `130` and `46` each left ~110-160 px of empty pale capsule -- which is
+-- what the owner photographed and called *"ovo belo iza"*. Same placement rule as the line above:
+-- it reaches `CurrencyStack` by name and that frame is built far above. See the file's own header
+-- for why one shared width rather than three ragged ones.
+require(RS.Modules:WaitForChild("HUD"):WaitForChild("WalletFit"))(hudRefs)
 
 -- ===== Pets panel =====
 --
@@ -1699,7 +1706,7 @@ local function petDisplayInfo(petKey)
 	for _, p in ipairs(GameConfig.Pets) do
 		if p.key == petKey then return p end
 	end
-	return { name = petKey, emoji = "❓", rarity = "Common" }
+	return { name = petKey, emoji = "â“", rarity = "Common" }
 end
 hudRefs.petDisplayInfo = petDisplayInfo
 
@@ -1851,7 +1858,7 @@ local function claimTick(card, diameter, maxText)
 	tick.Position = UDim2.new(0.5, 0, 0.5, -3)
 	tick.AnchorPoint = Vector2.new(0.5, 0.5)
 	tick.BackgroundTransparency = 1
-	tick.Text = "✓"
+	tick.Text = "âœ“"
 	tick.Parent = coin
 	themeLabel(tick, maxText or 22)
 
@@ -4336,7 +4343,7 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 	-- both are inert for a kind that no longer arrives, and both are one row rather than a branch.
 	if payload.kind == "upgrade" then
 		local def = GameConfig.Upgrades[payload.upgrade]
-		showNotification("⬆️ " .. def.displayName .. " upgraded to Lv." .. payload.level, Color3.fromRGB(90, 200, 255), notifRank, payload.kind)
+		showNotification("â¬†ï¸ " .. def.displayName .. " upgraded to Lv." .. payload.level, Color3.fromRGB(90, 200, 255), notifRank, payload.kind)
 		-- nil-guarded like every other hudRefs consumer: a panel that failed to build must not take
 		-- the notification with it
 		if hudRefs.punchUpgrade then hudRefs.punchUpgrade(payload.upgrade) end
@@ -4408,7 +4415,7 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		-- thing the player PAID for, so the one moment it could look like it was destroyed is the
 		-- moment it has to be said out loud.
 		worldPopup(payload.emoji .. " " .. payload.name,
-			"FUSED → " .. payload.tier .. (payload.enchantName and ("  \u{2728} " .. payload.enchantName) or ""),
+			"FUSED â†’ " .. payload.tier .. (payload.enchantName and ("  \u{2728} " .. payload.enchantName) or ""),
 			rarity.color)
 	elseif payload.kind == "enchant" then
 		-- Drawn on the player like a fuse, and in the enchant's OWN colour -- the same rule the pet
@@ -4418,7 +4425,7 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		local def = GameConfig.GetEnchantDef(payload.rolled)
 		if payload.upgraded then
 			worldPopup(payload.emoji .. " " .. payload.name,
-				"ENCHANTED → " .. (payload.rolledName or ""), def and def.color or UITheme.Color.White)
+				"ENCHANTED â†’ " .. (payload.rolledName or ""), def and def.color or UITheme.Color.White)
 		else
 			worldPopup((payload.rolledName or "?") .. " rolled",
 				"KEPT " .. (payload.wornName or "NONE"), def and def.color or UITheme.Color.White)
@@ -4473,7 +4480,7 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		end
 		showNotification(text, Color3.fromRGB(255, 180, 60), notifRank, payload.kind)
 	elseif payload.kind == "stageMastery" then
-		showNotification("⭐ " .. payload.emoji .. " " .. payload.stage .. " MASTERED! (" .. payload.owned .. "/" .. #GameConfig.Stages .. ")", Color3.fromRGB(255, 215, 70), notifRank, payload.kind)
+		showNotification("â­ " .. payload.emoji .. " " .. payload.stage .. " MASTERED! (" .. payload.owned .. "/" .. #GameConfig.Stages .. ")", Color3.fromRGB(255, 215, 70), notifRank, payload.kind)
 	elseif payload.kind == "sword" then
 		showNotification(payload.emoji .. " " .. payload.name .. " forged!  (x" ..
 			string.format("%.2f", payload.mult or 1) .. " damage)", Color3.fromRGB(255, 198, 45), notifRank, payload.kind)
@@ -4510,7 +4517,7 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		local when = (mins >= 60 and mins % 60 == 0) and ((mins // 60) .. "h") or (mins .. " min")
 		showNotification(
 			(payload.daily and ("📅 Daily Playtime Gift (" .. when .. ")! Reward claimed!")
-				or ("⏰ Playtime Gift (" .. when .. ")! Reward claimed!")),
+				or ("â° Playtime Gift (" .. when .. ")! Reward claimed!")),
 			Color3.fromRGB(255, 150, 90), notifRank, payload.kind)
 	elseif payload.kind == "bossRevive" then
 		celebratePurchase(("\u{2694}\u{FE0F} REVIVED!\n%s is back to %d%%"):format(payload.name or "The boss", payload.pct or 0),
@@ -4598,7 +4605,7 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 				(rarity and rarity.deep) or UITheme.Color.Lavender)
 		else
 			-- THE SERVER'S OWN WORDING, NOT A SECOND COPY OF IT. `RelicService` already writes the two
-			-- sentences this path needs -- "Rare relic! Ancient Femur", "Melon Slice  ·  copy 4",
+			-- sentences this path needs -- "Rare relic! Ancient Femur", "Melon Slice  Â·  copy 4",
 			-- "Golden Apple forged to Lv.3!" -- and it is the side that knows whether a merge happened,
 			-- so rebuilding them here would be two authors for one string and a `merged` branch that
 			-- adds nothing. Same call as the `reward` branch above, for the same reason.
@@ -4667,8 +4674,10 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 				end
 			end
 		end
+		elseif payload.kind == "inviteReward" then
+		showNotification("🤝 " .. payload.message, Color3.fromRGB(150, 255, 150), notifRank, payload.kind)
 	elseif payload.kind == "error" then
-		showNotification("❌ " .. payload.message, Color3.fromRGB(200, 60, 60), notifRank, payload.kind)
+		showNotification("âŒ " .. payload.message, Color3.fromRGB(200, 60, 60), notifRank, payload.kind)
 	end
 end)
 

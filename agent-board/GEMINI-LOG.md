@@ -328,8 +328,8 @@ ok    MainUI.client.lua                  144 registers,  56 of headroom
 - **GlobalGoalsClaimed Prune:** Added default `{}`. Uses `PlayerDataService.TrimCollection` to prune older windows by parsing string keys to numbers, sorting descending, and keeping the top 8.
 - **Arithmetic for Target (5,000,000):**
   If a player kills 1 creature every 2 seconds, that's 30 kills a minute or 1,800 kills an hour. Over a 48-hour weekend window, a single player playing non-stop would contribute 86,400 kills.
-  5,000,000 / 86,400 ≈ 57.8 concurrent players playing non-stop.
-  If players average 2 hours over the weekend, each contributes 3,600 kills. 5,000,000 / 3,600 ≈ 1,388 unique players required. This is a very plausible target for a released game.
+  5,000,000 / 86,400 â‰ˆ 57.8 concurrent players playing non-stop.
+  If players average 2 hours over the weekend, each contributes 3,600 kills. 5,000,000 / 3,600 â‰ˆ 1,388 unique players required. This is a very plausible target for a released game.
 - **Lints:** `luastruct.py` and `luascope.py` clean for the edited files.
 - **Not verified:** The cross-server tick and the payout (requires published place / `MessagingService`).
 
@@ -422,3 +422,25 @@ il them out of their friends' graphs.
   - luastruct.py OK
   - luanames.py OK
   - luascope.py OK
+## S29 | 22.2 -- The Invite Reward (Pay both sides exactly once)
+
+- **The API Shape**: SocialService:PromptGameInvite(player, experienceInviteOptions). I read this off the Roblox API Dump JSON (class ExperienceInviteOptions which has a string LaunchData property).
+- **The Two Save Fields**:
+  - data.WasInvited: A boolean on the joiner ensuring they can only be paid for being invited exactly once.
+  - data.InvitesPaid: A list of UserIds on the inviter ensuring they are paid once per unique friend, capped at GameConfig.InviteMaxPaid.
+  - Both fields are implicitly initialized as 
+il in old saves. We guard them with data.WasInvited = true and local paidList = data.InvitesPaid or {}.
+- **Offline Reliability ("Pays on next login")**: Implemented using a separate DataStore("InviteInbox") and UpdateAsync. The joiner safely drops their UserId into the offline inviter's inbox. When the inviter joins, InviteRewardService drains their inbox and pays out the pets. This completely avoids PlayerDataService race conditions and stale overwrites.
+- **Anti-Abuse Constants**:
+  - GameConfig.InviteMaxPaid = 5: Capping the save list prevents infinite growth and limits the economic damage of an alt farm, while 5 is a generous realistic number of friends for a real player.
+  - GameConfig.InviteMinAccountAgeDays = 14: Two weeks prevents same-day alt creation farms.
+- **The Reward**: Created Amicus, a new "Legendary" Exclusive pet (same rarity/power as Robux shop exclusives, x8.0 damage).
+- **Before / After Table (Save state over one paid pair & one refused repeat)**:
+
+| Step | Inviter (ID: 100) Save | Joiner (ID: 200) Save | Result |
+| :--- | :--- | :--- | :--- |
+| **0. Initial** | data.InvitesPaid = nil | data.WasInvited = nil | N/A |
+| **1. First Join** | (Inbox receives ID 200) -> InvitesPaid = { 200 } | WasInvited = true, receives Amicus pet | Both paid once. Inviter gets Amicus via Inbox. |
+| **2. Second Join** | InvitesPaid = { 200 } (unchanged) | WasInvited = true (unchanged) | Refused! Joiner has WasInvited=true. Inviter Inbox not updated. |
+
+- **Lints**: All four (luaremotes.py, luastruct.py, luanames.py, luascope.py) report OK.

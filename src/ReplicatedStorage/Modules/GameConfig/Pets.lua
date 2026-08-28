@@ -1203,7 +1203,19 @@ do
 		checkGlyph(("egg tier %s"):format(tostring(tier.suffix)), tier.emoji)
 	end
 
-	if #shared > 0 then
+	-- S29: The Invite Reward pet
+GameConfig.InviteRewardPetKey = "Amicus"
+local inviteRewardDef = {
+	key = "Amicus",
+	name = "Amicus",
+	emoji = "🤝",
+	color = Color3.fromRGB(150, 255, 150),
+	zone = "Forest",
+	rarity = "Legendary",
+	exclusive = true,
+}
+table.insert(GameConfig.Pets, inviteRewardDef)
+if #shared > 0 then
 		-- `pairs` gives no order, so sort before printing or the line churns between boots and
 		-- two runs of the same file look like two different faults.
 		table.sort(shared)

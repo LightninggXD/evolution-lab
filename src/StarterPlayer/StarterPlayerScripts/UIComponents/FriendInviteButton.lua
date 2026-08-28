@@ -11,12 +11,10 @@ function FriendInviteButton.Init(screenGui)
 	if btn then return btn end
 
 	-- Rebuild using UITheme standard kit
-	btn = UITheme.Button("Invite\nFriends")
-	btn.Name = "FriendInviteButton"
-	btn.Size = UDim2.new(0, 72, 0, 72)
+	btn = UITheme.Button(screenGui, { name = "FriendInviteButton", text = "Invite\nFriends", icon = "🤝" })
+		btn.Size = UDim2.new(0, 72, 0, 72)
 	btn.Position = UDim2.new(0, 20, 1, -90) -- Middle bottom, above hotbar
-	btn.Parent = screenGui
-
+	
 	-- The pill for showing live count and bonus percentage
 	local badge = Instance.new("TextLabel")
 	badge.Name = "Badge"
@@ -54,7 +52,9 @@ function FriendInviteButton.Init(screenGui)
 
 	btn.MouseButton1Click:Connect(function()
 		local ok, err = pcall(function()
-			SocialService:PromptGameInvite(Players.LocalPlayer)
+			local options = Instance.new("ExperienceInviteOptions")
+			options.LaunchData = tostring(Players.LocalPlayer.UserId)
+			SocialService:PromptGameInvite(Players.LocalPlayer, options)
 		end)
 		if not ok then
 			warn("Failed to prompt game invite:", err)
