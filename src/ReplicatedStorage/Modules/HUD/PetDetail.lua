@@ -294,6 +294,19 @@ function PetDetail.Build(panel, hud, top)
 			UDim.new(0, 10), 3)
 		themeLabel(enchantBtn, 17)
 
+		-- ===== TRANSFER IS ABSENT ON A PET WITH NOTHING TO MOVE =====
+		-- Same rule as RELEASE below, and for the same reason: the server refuses a transfer whose
+		-- source has no enchant, so drawing the button on a bare pet would be the UI promising
+		-- something the transaction then refuses. The chip directly above already says "no enchant".
+		local transferCost = GameConfig.EnchantTransferCost
+		transferBtn.Visible = pet.enchant ~= nil
+		transferBtn.Text = ("\u{27A1}\u{FE0F} TRANSFER  %d \u{1F48E}"):format(transferCost)
+		-- Greyed when it cannot be paid for rather than hidden, exactly like ENCHANT above: the
+		-- price is the information.
+		styleButton(transferBtn, ((data.Diamonds or 0) >= transferCost)
+			and UITheme.Color.Blue or Color3.fromRGB(176, 180, 192), UDim.new(0, 10), 3)
+		themeLabel(transferBtn, 16)
+
 		-- ===== RELEASE IS ABSENT ON A WORN PET, NOT DISABLED =====
 		-- The server refuses to release an equipped pet, so a button that is drawn and then refused
 		-- would teach the player the UI is lying to them. Unequipping is one click directly above.

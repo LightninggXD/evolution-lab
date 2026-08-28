@@ -115,54 +115,103 @@ local function buildTerminal(zone, kind, centre)
 	model:SetAttribute("TerminalVersion", TERMINAL_VERSION)
 	model:SetAttribute("ZoneKey", zone.key)
 
-	-- Phase 30.18: Load artist-authored Arcade Machine
-	local envProps = ServerStorage:FindFirstChild("EnvironmentProps")
-	local arcadeGroup = envProps and envProps:FindFirstChild("Arcade Machines")
-	local proto = arcadeGroup and arcadeGroup:GetChildren()[1]
+	local accent = zone.accentColor or Color3.fromRGB(80, 200, 255)
+	local shell = Color3.fromRGB(38, 34, 54)
 
-	local visual
-	if proto then
-		visual = proto:Clone()
-		visual.Name = "Arcade"
-		
-		-- Pivot to centre + y offset
-		visual:PivotTo(CFrame.new(centre + Vector3.new(0, 0, 0)) * CFrame.Angles(0, math.pi, 0))
-		visual.Parent = model
-		
-		if visual.PrimaryPart then
-			model.PrimaryPart = visual.PrimaryPart
-		else
-			model.PrimaryPart = visual:FindFirstChildWhichIsA("BasePart", true)
-		end
-	else
-		-- Fallback to a block if missing
-		local fallback = Instance.new("Part")
-		fallback.Size = Vector3.new(CAB_W, CAB_H, CAB_D)
-		fallback.Position = centre + Vector3.new(0, CAB_H/2, 0)
-		fallback.Anchored = true
-		fallback.Parent = model
-		model.PrimaryPart = fallback
-	end
+	local plinth = newPart({
+		Name = "Plinth",
+		Size = Vector3.new(CAB_W + 8, 3, CAB_D + 8),
+		Position = centre + Vector3.new(0, 1.5, 0),
+		Color = shell,
+		Material = Enum.Material.Metal,
+		Parent = model,
+	})
 
-	-- Prompt Attachment
-	local p = Instance.new("Part")
-	p.Name = "Screen"
-	p.Size = Vector3.new(4, 3, 1)
-	p.Position = centre + Vector3.new(0, 5, -2)
-	p.Transparency = 1
-	p.CanCollide = false
-	p.Anchored = true
-	p.Parent = model
-	
+	local body = newPart({
+		Name = "Cabinet",
+		Size = Vector3.new(CAB_W, CAB_H, CAB_D),
+		Position = centre + Vector3.new(0, 3 + CAB_H / 2, 0),
+		Color = shell,
+		Material = Enum.Material.SmoothPlastic,
+		Parent = model,
+	})
+
+	-- The raked screen. Tilted back 20 degrees so it faces a player standing at the pad rather than
+	-- the sky, and it is the part the name is painted on.
+	local screen = newPart({
+		Name = "Screen",
+		Size = Vector3.new(CAB_W - 6, 18, 1.6),
+		CFrame = CFrame.new(centre + Vector3.new(0, 3 + CAB_H - 6, CAB_D / 2 - 1.4))
+			* CFrame.Angles(math.rad(-20), 0, 0),
+		Color = accent,
+		Material = Enum.Material.Neon,
+		Parent = model,
+	})
+	addLight(screen, accent, 46, 2.4)
+
+	-- The name and the game, on a BillboardGui rather than painted on the face: the terminal is read
+	-- from the pad, 40+ studs away and at an angle, and a SurfaceGui at that distance is a smear.
+	local sign = Instance.new("BillboardGui")
+	sign.Name = "TerminalSign"
+	sign.Size = UDim2.new(0, 260, 0, 92)
+	-- THE SIGN SAT 68 STUDS IN THE SKY AND NOBODY SAW IT (measured 2026-08-21, by capture).
+	-- `ExtentsOffsetWorldSpace` was copied here from 21.1, where it is correct: the thing it hangs
+	-- over there is a PLAYER, whose body runs 1x to 9x across the twenty stages, so an offset that
+	-- scales with the adornee is the only one that works at both ends. A cabinet is authored geometry
+	-- and never changes size, so that reason does not apply -- and the copy brought the trap with
+	-- it: the unit is HALF the adornee's extent, so `4` is not 4 studs, it is 4 x 17 = 68, which
+	-- put the sign in the open sky beside the terminal it names. A fixed prop wants a plain stud
+	-- value, where the number in the source is the number on the screen.
+	sign.StudsOffsetWorldSpace = Vector3.new(0, 26, 0)
+	sign.MaxDistance = 260
+	sign.LightInfluence = 0
+	sign.AlwaysOnTop = false
+	sign.Adornee = body
+	sign.Parent = body
+
+	local title = Instance.new("TextLabel")
+	title.BackgroundTransparency = 1
+	title.Size = UDim2.new(1, 0, 0.56, 0)
+	title.Font = ZoneKit.SIGN_FONT
+	title.Text = kind.emoji .. " " .. kind.name
+	title.TextColor3 = Color3.fromRGB(255, 255, 255)
+	title.TextScaled = true
+	title.Parent = sign
+	local titleStroke = Instance.new("UIStroke")
+	titleStroke.Thickness = 3
+	titleStroke.Color = ZoneKit.SIGN_INK
+	titleStroke.Parent = title
+
+	local sub = Instance.new("TextLabel")
+	sub.BackgroundTransparency = 1
+	sub.Size = UDim2.new(1, 0, 0.44, 0)
+	sub.Position = UDim2.new(0, 0, 0.56, 0)
+	sub.Font = ZoneKit.SIGN_FONT
+	sub.Text = "ARCADE"
+	sub.TextColor3 = accent
+	sub.TextScaled = true
+	sub.Parent = sign
+	local subStroke = Instance.new("UIStroke")
+	subStroke.Thickness = 3
+	subStroke.Color = ZoneKit.SIGN_INK
+	subStroke.Parent = sub
+
 	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "Play Minigame"
-	prompt.ObjectText = string.upper(kind)
-	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.Name = "MinigamePrompt"
+	prompt.ActionText = "Play " .. kind.name
+	prompt.ObjectText = "Arcade Terminal"
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = PROMPT_DISTANCE
 	prompt.RequiresLineOfSight = false
-	prompt.MaxActivationDistance = 24
-	prompt.Parent = p
+	-- The attribute contract SplicerUI opens on: the client listens to ONE
+	-- `ProximityPromptService.PromptTriggered` and decides from the attribute whose panel this is.
+	-- A remote round trip to open a panel the client already has every number for would be a
+	-- quarter-second of nothing.
+	prompt:SetAttribute("ShopPanel", "minigame")
+	prompt:SetAttribute("ZoneKey", zone.key)
+	prompt.Parent = body
 
-	model.Parent = workspace
+	model.PrimaryPart = body
 	return model
 end
 
@@ -337,10 +386,14 @@ function MinigameService.HandleFinish(player, payload)
 	local reward = GameConfig.GetMinigameReward(kind, payload.score, data)
 	local ledger = GameConfig.GetMinigameLedger(data)
 
+	-- 34.1's counter. The Achievements table reads plays off the save, and this is the one place a
+	-- run is known to have FINISHED and been paid -- the start remote is not, because a session
+	-- that is abandoned or refused for coming back too fast must not count.
+	data.MinigamesPlayed = (data.MinigamesPlayed or 0) + 1
+
 	local Telemetry = require(script.Parent.Telemetry)
 
 	data.DNA = (data.DNA or 0) + reward.dna
-	data.MinigamesPlayed = (data.MinigamesPlayed or 0) + 1
 	Telemetry.Economy(player, "Source", Telemetry.Currency.DNA, reward.dna, data.DNA,
 		Telemetry.Tx.Gameplay, "minigame_" .. kind.key)
 

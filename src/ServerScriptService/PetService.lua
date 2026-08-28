@@ -784,12 +784,25 @@ local lastEnchant = {}          -- [userId] = os.clock()
 -- ===== TRANSFERRING AN ENCHANT (34.5) =====
 --
 -- The terminal Diamond sink. Move an enchant from one pet to another for a fixed Diamond price.
--- Best-kept-wins so no confirm dialog is needed.
-local TRANSFER_COST = 25000
+-- BEST-KEPT-WINS is what makes a confirm dialog unnecessary: the transfer can never take a better
+-- enchant off the target, so the worst outcome of a mis-click is the price plus the weaker enchant
+-- that was being moved -- and the picker prints what every target already wears before the click.
+--
+-- THE PRICE LIVES IN `GameConfig.EnchantTransferCost`, not here. `PetDetail` quotes it on the
+-- button and this function charges it, and the file's own rule for the enchant price one screen up
+-- is that a button may not quote a number the transaction disagrees with. The reasoning for the
+-- number itself is written where the number is.
 
 function PetService.HandleEnchantTransfer(player, sourcePetId, targetPetId)
 	local data = PlayerDataService.Get(player)
 	if not data then return end
+
+	-- The `ENCHANT_INTERVAL` guard, on the transfer too. Enchanting has one because a held click
+	-- is faster than a save; a transfer costs far more, but it also walks the whole pet list twice
+	-- and pushes the save, so an unthrottled remote is a free way to make the server do that work.
+	local now = os.clock()
+	if lastEnchant[player.UserId] and now - lastEnchant[player.UserId] < ENCHANT_INTERVAL then return end
+	lastEnchant[player.UserId] = now
 
 	if sourcePetId == targetPetId then return end
 
@@ -810,39 +823,61 @@ function PetService.HandleEnchantTransfer(player, sourcePetId, targetPetId)
 		return
 	end
 
-	if (data.Diamonds or 0) < TRANSFER_COST then
-		Remotes.Notify:FireClient(player, { kind = "error", message = ("Transfer costs %s Diamonds!"):format(GameConfig.FormatNumber and GameConfig.FormatNumber(TRANSFER_COST) or tostring(TRANSFER_COST)) })
+	local cost = GameConfig.EnchantTransferCost
+	local incoming = sourcePet.enchant
+
+	-- ===== A TRANSFER THAT IS NOT AN UPGRADE IS REFUSED, NOT CHARGED =====
+	--
+	-- THIS COST THE OWNER 1,000 DIAMONDS AND A PRISMATIC ON THE DAY IT SHIPPED (2026-08-28). The
+	-- first version charged first and asked afterwards: it cleared the source, ran best-kept-wins,
+	-- and when the target already wore an EQUAL enchant -- `IsEnchantBetter` is strict, so a tie is
+	-- not better -- the enchant was destroyed, the target kept what it had, and the player was
+	-- billed the full price for nothing at all. The `Notify` said "target pet's enchant was
+	-- stronger!" and the save was already spent by then.
+	--
+	-- The comment above this function claimed the worst case was "the price plus the weaker
+	-- enchant". That was the reasoning error: on a tie the player loses the price AND an enchant
+	-- that was not weaker, and gains nothing. A move that moves nothing is not a transaction.
+	--
+	-- So the test comes FIRST and the refusal is free. The picker greys these rows for the same
+	-- reason ([[the price IS the information]]) -- this is the guard behind that, because a client
+	-- can always fire the remote itself.
+	if not GameConfig.IsEnchantBetter(incoming, targetPet.enchant) then
+		local wornDef = GameConfig.GetEnchantDef(targetPet.enchant)
+		Remotes.Notify:FireClient(player, { kind = "error",
+			message = ("That pet already wears %s -- nothing to gain, so nothing was charged."):format(
+				wornDef and wornDef.name or "a better enchant") })
 		return
 	end
 
-	-- Charge
-	data.Diamonds -= TRANSFER_COST
-	Telemetry.Economy(player, "Sink", Telemetry.Currency.Diamonds, TRANSFER_COST, data.Diamonds, Telemetry.Tx.Shop, "enchant_transfer")
-
-	local incoming = sourcePet.enchant
-	sourcePet.enchant = nil
-
-	local upgraded = GameConfig.IsEnchantBetter(incoming, targetPet.enchant)
-	if upgraded then
-		targetPet.enchant = incoming
+	-- `GameConfig.FormatNumber` DOES NOT EXIST -- the formatter is `UITheme.FormatNumber`, and
+	-- UITheme is a client module. The guarded call that was here read as a nicety and was in fact a
+	-- branch that could never be taken, so the message is built the plain way instead.
+	if (data.Diamonds or 0) < cost then
+		Remotes.Notify:FireClient(player, { kind = "error", message = ("Transfer costs %d Diamonds!"):format(cost) })
+		return
 	end
+
+	data.Diamonds -= cost
+	Telemetry.Economy(player, "Sink", Telemetry.Currency.Diamonds, cost, data.Diamonds, Telemetry.Tx.Shop, "enchant_transfer")
+
+	sourcePet.enchant = nil
+	targetPet.enchant = incoming
 
 	PlayerDataService.PushToClient(player)
 	
 	local targetDef = GameConfig.GetPetDef(targetPet.key)
 	local rolledDef = GameConfig.GetEnchantDef(incoming)
-	
-	if upgraded then
-		Remotes.Notify:FireClient(player, {
-			kind = "success",
-			message = ("Successfully transferred %s to %s!"):format(rolledDef and rolledDef.name or incoming, targetDef and targetDef.name or targetPet.key)
-		})
-	else
-		Remotes.Notify:FireClient(player, {
-			kind = "info",
-			message = ("Transfer completed, but target pet's enchant was stronger!")
-		})
-	end
+
+	-- ONE branch, not two. The "target's enchant was stronger" message belonged to the version that
+	-- charged before it checked; that case returns above now, unbilled, so a transfer that reaches
+	-- this line always moved something.
+	Remotes.Notify:FireClient(player, {
+		kind = "success",
+		message = ("Moved %s to %s!"):format(
+			rolledDef and rolledDef.name or incoming,
+			targetDef and targetDef.name or targetPet.key),
+	})
 end
 
 function PetService.HandleEnchant(player, petId)

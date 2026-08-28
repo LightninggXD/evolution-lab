@@ -40,6 +40,18 @@ local function refresh()
 	panel.Clear()
 	local pets, total = listFor(data)
 
+	-- Read ONCE for the whole repaint rather than per card: fifty cards asking the same two
+	-- questions fifty times is fifty chances for half a list to disagree with the other half.
+	local cost = GameConfig.EnchantTransferCost
+	local affordable = (data.Diamonds or 0) >= cost
+
+	-- What is being moved. Read off the save rather than captured when the panel was opened: the
+	-- source can be re-rolled from the pet board while this list is up.
+	local sourceEnchant
+	for _, p in ipairs(data.Pets or {}) do
+		if p.id == sourcePetId then sourceEnchant = p.enchant break end
+	end
+
 	for order, pet in ipairs(pets) do
 		local def = Common.PetDef(pet)
 		local rarity = GameConfig.GetRarity(def and def.rarity)
@@ -59,6 +71,25 @@ local function refresh()
 			description = description == "" and ("Wears: %s"):format(enchantDef and enchantDef.name or wornEnchant) or description
 		end
 
+		-- WHY A TARGET CAN BE REFUSED, AND THE FOUR ANSWERS ON THE BUTTON. A button that says
+		-- TRANSFER and is then refused teaches the player the UI is lying to them -- the same rule
+		-- `PetDetail` states over RELEASE. `AWAY` was already here; the PRICE was missing (this was
+		-- the only purchase surface in the game that never quoted its own); and `HAS BETTER` is the
+		-- one that cost the owner a prismatic and 1,000 diamonds on the day this shipped.
+		--
+		-- THE ORDER MATTERS AND IT IS NOT ARBITRARY. `HAS BETTER` is tested before `NEED` because a
+		-- row that can never be worth pressing should say WHY it is dead, not send the player off
+		-- to earn diamonds they would then waste on it. `IsEnchantBetter` is the same strict
+		-- comparison the server refuses with, quoted rather than re-derived -- a tie is not better.
+		local reason
+		if entry then
+			reason = "AWAY"
+		elseif not GameConfig.IsEnchantBetter(sourceEnchant, pet.enchant) then
+			reason = "HAS BETTER"
+		elseif not affordable then
+			reason = "NEED \u{1F48E}"
+		end
+
 		panel.AddCard({
 			Name = tostring(pet.id),
 			LayoutOrder = order,
@@ -70,10 +101,10 @@ local function refresh()
 			Buttons = {
 				{
 					Name = "Transfer",
-					Price = entry and "AWAY" or "TRANSFER",
-					Colors = entry and Common.Color.Off or Common.Color.Go,
+					Price = reason or ("\u{1F48E} %d"):format(cost),
+					Colors = reason and Common.Color.Off or Common.Color.Go,
 					Callback = function()
-						if entry then return end
+						if reason then return end
 						SoundLibrary.PlayLocal("click")
 						Remotes.EnchantTransfer:FireServer(sourcePetId, pet.id)
 						EnchantTransferPicker.SetOpen(false)
@@ -83,9 +114,14 @@ local function refresh()
 		})
 	end
 
-	footLine.Text = total > #pets
-		and ("Showing %d of %d pets."):format(#pets, total)
-		or ("%d pet%s"):format(total, total == 1 and "" or "s")
+	-- THE FOOTER IS WHERE THE PRICE LIVES, not the header: the header is the question ("choose a
+	-- target") and this is what the answer costs. It quotes the balance beside it for the same
+	-- reason the shop rows do -- a player eight hundred diamonds short should be able to see that
+	-- without closing the panel to go and look at the wallet.
+	footLine.Text = ("\u{1F48E} %d per transfer  \u{2022}  you have %d  \u{2022}  %s"):format(
+		cost, data.Diamonds or 0,
+		total > #pets and ("%d of %d pets"):format(#pets, total)
+			or ("%d pet%s"):format(total, total == 1 and "" or "s"))
 end
 
 local function build(screenGui)

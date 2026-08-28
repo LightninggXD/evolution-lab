@@ -1694,6 +1694,18 @@ hudRefs.colorTag = colorTag
 -- nothing errors on -- see the note over the module.
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("PetsGrid"))(hudRefs)
 
+-- 34.5 -- THE ENCHANT TRANSFER PICKER, WIRED. `PetDetail`'s TRANSFER button calls
+-- `hud.openTransferPicker` at click time and does nothing at all when it is nil, which is what it
+-- was: the module, the panel, the remote and the server handler all existed and nothing anywhere
+-- assigned this one field. Lazily required, so a player who never owns an enchanted pet never pays
+-- for the module, and assigned onto `hudRefs` rather than held in a local -- this file's top level
+-- is at Luau's register ceiling (see the note over the bag split above).
+hudRefs.openTransferPicker = function(petId)
+	local Picker = require(script.Parent.UIComponents:WaitForChild("EnchantTransferPicker"))
+	Picker.Init(screenGui)
+	Picker.SetOpen(true, petId)
+end
+
 
 -- ===== Release confirmation =====
 --

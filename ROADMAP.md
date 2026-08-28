@@ -1314,7 +1314,7 @@ Phase 18.
 | 34.2 | `[~]` | **The vanity layer — trails, emotes, name plates.** Cosmetic only, **zero power**, so it can be sold without touching the pay-to-win bound the passes are held to. Trails ride the existing VFX attach rules; emotes reuse the canned-animation ids known to load here; name plates are a colour/frame on the existing overhead label. One shop tab, priced in Robux **and** Diamonds so it doubles as an endgame sink | live: a worn item visible on a second client; one 👤 product id per Robux row **2026-08-27, audited:** the equip exploit is closed (the type comes from the catalogue, never from the client argument), the three trails are real again -- `colors` instead of a `path` pointing at no asset, drawn by the new `CosmeticTrail.client.lua` off the `WornTrail` attribute -- the Robux button is not drawn while `productId == 0`, and the refresh no longer throws on the nil button that change left behind. `RobuxShopService` already granted a cosmetic by key; a second, unreachable grant was removed. Still owed: the capture, the second-client visibility, the three animation ids. |
 | 34.3 | `[ ]` | **Guilds on top of the group, not instead of it.** Blocked by **22.3** (group id). A guild is ≤10 players with a shared **weekly co-op counter** (kills / bosses / expedition runs), a guild board through the existing `OrderedDataStore` layer, and a guild-only shelf feeding 34.2. Roster + counter in one DataStore key per guild, written by the server only, rate-limited the way `TradeService` is | live: two clients in one guild both advance the counter; the weekly reward pays once per member |
 | 34.4 | `[~]` | **A server-wide weekly goal** — one community counter published through `MessagingService`, drawn on the Forest event board and the HUD event card, paying every player when it lands. Reuses 12.13's window/priority rules; it is the piece 25.1–25.3 assume exists | live tick: the counter advances cross-server, the board redraws, the payout fires once **2026-08-27, audited:** `AddProgress` has three callers now (`CreatureService:3816`, `BossService:2495` and `:2821`, all weighted 1), the publisher drops its own `MessagingService` echo by `JobId`, `PlayerAdded` arms inside `Init()`, the join payout polls for a slow save, and `GlobalGoalsClaimed` has a default and is pruned to 8 windows. **`Telemetry.Tx.EventReward` does not exist** and both payout paths passed it -- that threw, unprotected, so `PayoutAll` would have paid the first player and abandoned the rest; it is `Tx.TimedReward` now. Still owed: the cross-server tick and the payout. |
-| 34.5 | `[ ]` | **Enchant transfer — the terminal Diamond sink.** Phase 13 gave enchants a source; a maxed player still farms Diamonds with nothing to want. Move an enchant from one pet to another for a fixed Diamond price, **best-kept-wins** so no confirm dialog is needed, and it must respect the **two** places a pet is written (`insertPet` **and** `HandleFuse` — 12.15) | live: transfer between two owned pets, source cleared, save survives rejoin |
+| 34.5 | `[x]` | **Enchant transfer -- the terminal Diamond sink, and it was DEAD CODE plus a bug that eats a prismatic.** The module, the panel, the remote and the server handler all existed; **nothing anywhere assigned `hud.openTransferPicker`**, which `PetDetail`'s TRANSFER button calls and which does nothing at all when nil -- so the whole feature was unreachable, and the TRANSFER button was never drawn either (`transferBtn` was created and connected, never given a `.Text`, a colour or a `Visible`). The price was **25,000 Diamonds** hard-coded in the service against an enchant re-roll of 20-70; it is `GameConfig.EnchantTransferCost = 1000` now, one constant read by the server that charges it and the button that quotes it. Two more found on disk: the refusal message called `GameConfig.FormatNumber`, **which does not exist** (the formatter is `UITheme.FormatNumber`, a client module), and the handler had no rate limit though it walks the pet list twice and pushes the save | live 2026-08-28: five server paths measured (too poor / paid / rapid / self / bare source), a real click through the HUD moved a Prismatic and charged exactly 1000, and the source's TRANSFER button removed itself ✅ |
 | 34.6 | `[ ]` | **Mobile gesture layer** — swipe left/right to change panel, swipe down to close. Its own LocalScript and its own ScreenGui; **never inside MainUI** (28.4's rule). Must not fight the joystick zone or world-space prompts | on a real touch client: every panel reachable by gesture, no accidental close while dragging a list |
 | 34.7 | `[ ]` | **Dynamic weather, particles only, no gameplay effect** — rain in Forest, ash in the volcanic zones, motes in Celestial, driven from the zone builder so a rebuild keeps it. Density budgeted against the streaming rules; this is world depth, not a system | capture per weather zone in a fresh Play; frame time unchanged within noise |
 | 34.8 | `[ ]` | **Kill streak and toast grouping** — a streak counter that decays, and the notify stack collapsing a burst into one line ("5x Crit! +160T") instead of five. The rate-limit shape already exists (`KIND_COOLDOWN`, 12.2) | live: farm a burst — one grouped toast, the streak climbs and decays |
@@ -1332,6 +1332,9 @@ Phase 18.
 | 34.20 | `[x]` | **The Sword panel drew its crossed blades twice** -- `HeaderIcon` plus the same glyph typed into `Title`, so the board read `(swords)(swords) WEAPON`. The title is a plain word now, like every other builder panel | live capture ✅ |
 | 34.21 | `[x]` | **The damage readout drew over every open panel.** `ZIndexBehavior` is `Sibling`, `DamageStatContainer` was authored at Z 50 and every panel in this HUD is 20 -- so `Damage: 5.18K` punched through the open Goals board. Z 5 now, the wallet's band (CurrencyStack 4, evolve frame 1), which is what it is: chrome, not an overlay | live capture ✅ |
 | 34.22 | `[~]` | **THE VANITY SHOP SHOWED NO PRICES AT ALL, and the reason is one argument.** `UIKit.styleButton(btn, baseColor, radius, thickness)` -- the third argument is a RADIUS. All three buttons on a cosmetic row were authored as `styleButton(btn, colour, "100 Gems")`, so the price string was handed to `UDim.new` as a corner radius (**Luau accepts that silently** -- measured in Studio, it does not throw) and the caption was never set. Every buy button in the shop read `Button`, Roblox's default TextButton text; only Equip/Unequip looked right, and only because `refresh` writes their `.Text` directly. Same call shape at `AchievementsPanel:112`. Both fixed: a real radius, and the caption set on its own line | live capture: the rows read `💎 100` / `💎 300` / `💎 1.00K` ✅ |
+| 34.23 | `[x]` | **THE TRANSFER CHARGED 1,000 DIAMONDS AND DESTROYED THE ENCHANT WHEN IT MOVED NOTHING -- and it billed the owner within minutes of shipping.** The handler charged first and asked afterwards: it cleared the source, then ran best-kept-wins, and `IsEnchantBetter` is **strict** -- a tie is not better. Moving a Prismatic onto a pet that already wore a Prismatic therefore deleted the source's enchant, left the target untouched, and took the full price, with a `Notify` reading *"target pet's enchant was stronger!"* after the save was already spent. The row's own comment had claimed the worst case was *"the price plus the weaker enchant"* -- that was the reasoning error, because on a tie nothing moved and nothing was weaker. The test is **before** the charge now and the refusal is free; the picker greys those rows `HAS BETTER` off the same `IsEnchantBetter` call, ahead of the affordability test, so a dead row says why it is dead rather than sending the player to earn diamonds to waste on it. Owner's Prismatic and her 1,000 restored | live: a tie is refused uncharged (2108 -> 2108, both enchants kept) and a genuine upgrade still charges and moves (2108 -> 1108) ✅; capture shows `HAS BETTER` on the row that billed her |
+| 34.24 | `[x]` | **The vanity-shop price fault, one panel over.** The transfer picker was the last purchase surface in the game that never quoted its own price -- 50 cards reading `TRANSFER` with nothing anywhere saying 1,000 Diamonds. Footer reads `💎 1000 per transfer • you have N • 50 of 99 pets` and each button carries the price or the reason it cannot be pressed (`AWAY` / `HAS BETTER` / `NEED 💎`) | live capture ✅ |
+| 34.25 | `[x]` | **`MinigameService` did not compile past `Init` and took the whole boot with it.** An uncommitted 30.18 rewrite of `buildTerminal` on disk used a bare `ServerStorage` (a global, so nil -> `nil:FindFirstChild` throws) and passed `kind`, which is a TABLE, to `string.upper`. It threw at `ServerMain:271`, and everything after that line never initialised -- **76 remotes instead of 85**. It had never run because it had never been pushed. Reverted to the version Studio held (her authored cabinets are `MapArcade`'s job, not this file's), keeping only the one line that was a real addition: 34.1's `MinigamesPlayed` counter, incremented where a run FINISHES and is paid | live: `built 20 arcade terminals (v3)`, 85 remotes, 21 bosses, `Server systems initialized.` ✅ |
 
 **Sequencing.** Nothing here is pre-launch. **Phase 33 stays the open phase** (bugs, map close-out,
 HUD polish) because a launch build with a blocked road is worth less than a launch build without
@@ -1570,6 +1573,45 @@ codebase and adding it is an infrastructure layer, not a feature.
 ---
 
 ## Changelog
+
+- **2026-08-28 (34.5, 34.23-34.25)** — **The enchant transfer was a complete feature that no button
+  could reach, and the first time it ran for real it billed the owner 1,000 Diamonds and deleted a
+  Prismatic.** Every part existed on disk — the picker panel, the remote, the server handler, the
+  TRANSFER button and its click handler — and **one field was never assigned**: `hud.openTransferPicker`,
+  which the button calls and which silently does nothing when nil. The button was never drawn either;
+  it was created and connected but never given text, colour or visibility, so `PetDetail` showed three
+  buttons where the code wrote four.
+
+  **THE BUG THAT MATTERS IS THE ORDER OF TWO LINES.** The handler charged, cleared the source, and
+  *then* asked whether the move was an upgrade. `IsEnchantBetter` is strict — a tie is not better —
+  so moving a Prismatic onto a pet already wearing a Prismatic deleted the source's enchant, left the
+  target exactly as it was, and took the full price. The player was told *"target pet's enchant was
+  stronger!"* after the save had already been spent. The row's own comment had argued that no confirm
+  dialog was needed because the worst case was "the price plus the weaker enchant"; that sentence is
+  the whole error, because on a tie nothing moved and nothing was weaker. The test runs before the
+  charge now and the refusal costs nothing, and the picker greys those rows `HAS BETTER` off the same
+  comparison — **ahead of** the affordability test, so a row that can never be worth pressing says why
+  instead of sending the player away to earn diamonds to waste on it.
+
+  Also priced and dressed: **25,000 Diamonds** hard-coded in the service (against an enchant re-roll of
+  20-70) became `GameConfig.EnchantTransferCost = 1000`, one constant for the server that charges and
+  the button that quotes; the refusal message called `GameConfig.FormatNumber`, **which does not
+  exist**; the handler had no rate limit though it walks the pet list twice and pushes the save; and
+  the picker was the last purchase surface in the game quoting no price at all — fifty cards reading
+  `TRANSFER`, exactly the 34.22 shape one panel over.
+
+  **AND THE SERVER HAD STOPPED BOOTING AGAIN, from a file nobody had pushed.** An uncommitted 30.18
+  rewrite of `MinigameService.buildTerminal` sat on disk using a bare `ServerStorage` (a global, so
+  nil) and handing `kind` — a **table** — to `string.upper`. It threw at `ServerMain:271` and every
+  service after it never initialised: **76 remotes instead of 85**. It had never run because it had
+  never been pushed, which is the same lesson as 34.13 from the other end — *code on disk that Studio
+  has never held is not code that works*. Reverted to what Studio held, keeping the one real addition
+  in it (34.1's `MinigamesPlayed`, counted where a run finishes and is paid, never where it starts).
+
+  **The sweep that opened the session found ten files where disk and Studio disagreed and two the
+  place had never heard of** — all of Phase 34's in-flight work, `MobileGestures` and
+  `EnchantTransferPicker` included. `luascope` caught the bare `ServerStorage`; nothing but running it
+  caught the rest.
 
 - **2026-08-27 (32.21)** — **The floating trees are down, and the fix is a settle PASS rather than a
   repair in the builder that dropped them.** The owner pointed at one and defined the target exactly:

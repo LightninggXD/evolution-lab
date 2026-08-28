@@ -590,6 +590,25 @@ function GameConfig.GetEnchantCost(pet)
 	return GameConfig.EnchantCost[pet and pet.tier or "Normal"] or GameConfig.EnchantCost.Normal
 end
 
+-- ===== MOVING AN ENCHANT, AND WHY THE PRICE IS 1,000 (34.5) =====
+--
+-- The transfer's worth to a player is exactly what RE-ROLLING that enchant on the target pet would
+-- cost, so the price has to sit between the two ends of that range or the feature is dead:
+-- too cheap and it replaces enchanting, too dear and nobody ever presses it.
+--
+-- The arithmetic. `eternal` is weight 1.5 of 100, so it takes ~67 rolls in expectation -- 1,330
+-- diamonds on a Normal, ~4,670 on a Celestial. `prismatic` is 4.5, ~22 rolls, ~1,550 on a
+-- Celestial. `keen` is 44, ~2 rolls, ~160. **1,000 is under every re-roll worth moving and over
+-- every one that is not**, which makes this the button you press when a Celestial finally hatches
+-- and your Eternal is sitting on a Normal -- and never the button you press instead of enchanting.
+--
+-- It is also the top vanity price (34.2's 1,000-diamond trail), so the two endgame sinks quote the
+-- same headline number and a player can weigh them against each other without arithmetic.
+--
+-- ONE constant, read by the server that charges it and by the button that quotes it, for the same
+-- reason `GetEnchantCost` is: a price written twice is a price that will disagree with itself.
+GameConfig.EnchantTransferCost = 1000
+
 -- Same defence as AssertTierCoverage: a weights column that quietly stops summing to 100 turns
 -- every printed percentage into a lie, and nothing else in the game would notice.
 function GameConfig.AssertEnchantWeights()
