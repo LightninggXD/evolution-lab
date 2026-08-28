@@ -1055,3 +1055,195 @@ value**, and the interesting half is deciding *which* toasts group.
 The files you touched; `MainUI`'s register count before and after, read with `luaregs.py`; the grep
 showing `updateStreak` assigned; the list of kinds you gave a `groupId`, with the reason for each
 and for each one you left ungrouped; and anything you could not do, said plainly and left undone.
+
+## S25 | 33.11 (1.5) -- the currency readouts SNAP, and the count-up half was never built
+- **Owner:** Gemini
+- **Depends:** none
+- **Check:** `grep -rn "CountUp" src/` returns the new helper plus its three call sites and NOTHING else; `tools/luastruct.py`, `luascope.py`, `luaregs.py`, `luaremotes.py` clean on every file you touch; `luaregs.py` says `MainUI.client.lua 148 registers` and `UITheme.lua` no more than 66 -- read them, do not estimate
+
+**DISK ONLY. No Studio, no captures, no Play.** I own those and I will run them against what you
+write. Do not touch `ZoneBuilder`. If you need a change in a file I have pushed, write the request
+into `GEMINI-LOG.md` instead of making it.
+
+### What is actually there, measured on disk today
+
+Roadmap **33.11** lists eight polish items and names `guidelines/ui-research-2026.md` as the spec.
+**Read section 1.5 of that file before you write a line** -- it carries the real defaults and the
+two guards, and they are not guesses, they are lifted from a published module.
+
+| Piece | State on disk |
+|---|---|
+| the pulse half | **built and correct.** `UITheme.Pulse` (UITheme:3066) jumps the shell, not the inner frame, via the `PulseHost` ObjectValue. `MainUI:3918/3921` already calls it for Diamonds and Shards |
+| the count-up half | **does not exist.** `grep -rn "CountUp|countUp" src/` is **0 hits** |
+| the three wallet pills | `MainUI:3913-3915` writes `dnaPill.Value.Text = formatNumber(data.DNA)` and the same for Diamonds and Shards -- a straight assignment, so 41.2K becomes 58.9K between two frames with nothing in between |
+
+So this is not "build a feature". It is **the missing half of a pair whose other half already
+works**, and the interesting part is the two guards, because this is a clicker: the DNA counter
+moves several times a second and a naive count-up runs permanently behind the truth.
+
+### What you are building
+
+1. **`UITheme.CountUp(label, target, opts)`**, in `UITheme.lua`, near `UITheme.Pulse` so the pair
+   reads as a pair. Not in `MainUI` -- that file is at 148 registers of 200 and a top-level local
+   there is the most expensive thing in this repo. Signature and behaviour:
+   - it animates the **text of one label** from the value it is showing to `target`, formatted with
+     `UITheme.FormatNumber` unless `opts.format` gives another function;
+   - **duration 0.5 s TOTAL, whatever the delta.** Not 0.5 s per 1000. Section 1.5 says so and the
+     reason is in the same paragraph;
+   - **re-target, never queue.** A second call while a spin is running cancels the first and starts
+     from wherever the number stands. Two tweens writing one property is a bug this codebase has
+     already paid for -- the comment at `UITheme:1589` is about exactly that collision;
+   - **skip the spin when the delta is under 2% of the current value** and just write the text. A
+     60-clicks-per-minute drip otherwise makes the number vibrate forever;
+   - **`UITheme.ReducedMotion()` (UITheme:113) skips the spin entirely.** It is a player setting and
+     it already exists; do not read `GuiService` yourself.
+   - Easing **Quad/Out**, matching everything else in the kit.
+   - **A tween cannot drive a string.** The idiom that fits this kit is a hidden `NumberValue` child
+     tweened by `TweenService` with `GetPropertyChangedSignal("Value")` writing the text -- no
+     `RunService` loop, and cancelling is one `:Cancel()`. If you pick something else, say in the log
+     what and why.
+
+2. **Route the three pills through it** at `MainUI:3913-3915`. Nothing else. The DNA card in the
+   top-right and the damage readout are OUT of scope for this step -- they have their own owners and
+   I do not want a fourth thing moving in the same capture.
+
+3. **Leave `UITheme.Pulse` exactly where it is.** The pulse fires on a real increase; the count-up
+   fires on any change. They are meant to run together (section 1.5: "count-up *and* pulse, not
+   either/or"). Do not fold one into the other and do not make Pulse conditional.
+
+### The traps that have caught this exact work before
+
+- **`UITheme.FormatNumber` and `MainUI`'s `formatNumber` are two functions.** MainUI's is
+  `UIKit.formatNumber` (`MainUI:65`). If your helper formats with one and the caller compares
+  against the other, the label flickers between two spellings of the same number. Format in ONE
+  place -- inside the helper.
+- **The pill you pass is not the pill you see.** `UITheme.Pill` returns the inner content frame and
+  hangs the capsule around it; that is what `PulseHost` at `UITheme:3082` is for. You are writing to
+  `pill.Value`, a TextLabel, so this does not bite you here -- but do not "fix" it by walking up to
+  `.Parent`.
+- **A cancelled tween lands wherever the swing was.** Write the final value by hand after a cancel,
+  the way `attentionStop` (UITheme:1611) does. A count-up that is interrupted must still end on the
+  true number, always, or the wallet lies.
+- **Check every dotted field you did not write against the module that owns it.** Seventh time.
+
+### What to report in `GEMINI-LOG.md`
+
+The files you touched; `luaregs.py` output for `MainUI` and `UITheme` before and after; the grep for
+`CountUp` showing the helper and exactly three call sites; and the two guard numbers as you
+implemented them (total duration, and the delta threshold) with the line each sits on. Anything you
+could not do, say plainly and leave undone.
+
+## S26 | 33.11 (2.5) -- there are TWO idle-pulse implementations fighting over one UIScale, and one of them is a global
+- **Owner:** Gemini
+- **Depends:** none
+- **Check:** `grep -rn "_G\." src/` returns **0 hits**; `grep -rn "UITheme.Attention" src/` shows every claimable surface going through the kit; the four lints clean; `luaregs.py` says `MainUI.client.lua 148 registers`
+
+**DISK ONLY**, same seam as S25.
+
+### What is actually there, measured on disk today
+
+The kit already owns this. `UITheme.Attention` (UITheme:1585 onward) is a **single global slot** with
+a priority, a `pressMotion` suspend/resume pair, and a stop that writes `Scale` back to 1 by hand --
+each of those three exists because of a specific bug, and the comment block above it names them. The
+Daily Rewards **cells** use it correctly: `MainUI:2397` `UITheme.Attention(cell.frame, true,
+{ priority = 2, peak = 1.03 })`, with the 1.03 justified by measured geometry at `MainUI:2391`.
+
+**And then `MainUI:2432-2460` does the whole thing again by hand on the reward BUTTON.** Read that
+block. It has five faults and every one of them is a rule the kit block above it already states:
+
+| Fault | Why it matters |
+|---|---|
+| `_G.RewardPulseTween` | the **only** `_G` in all of `src/` (four references, all in this block). A client-wide global holding one tween handle |
+| `if not _G.RewardPulseTween then _G.RewardPulseTween = t end` | if a handle is already stored, the NEW tween is played and never stored -- so it can never be cancelled. An infinite tween orphaned for the session |
+| it bypasses the kit's one slot | so the HUD tile and a Daily cell can pulse **at the same time**. Section 2.5 says at most one pulsing tile on screen, and the kit enforces it -- this block opts out |
+| it bypasses `attentionSuspend` | every HUD tile is a `pressMotion` surface, so hovering this button puts the hover tween and an infinite reversing tween on the same `UIScale` in the same frame. That is the exact collision `UITheme:1589` describes |
+| `game:GetService("TweenService")` and `("GuiService")` inside the refresh body | this function runs on every `DataUpdate`. Services are cached at the top of the file everywhere else in this codebase |
+
+### What you are building
+
+1. **Delete the hand-rolled block and call the kit**: `UITheme.Attention(rewardButton, canClaim,
+   { priority = <n>, peak = <p> })` in the true branch and `UITheme.Attention(rewardButton, false)`
+   unconditionally in the else, matching the shape at `MainUI:2396-2400` and for the reason its
+   comment gives (turning it OFF is the half that matters).
+2. **Pick the priority deliberately and say why in the log.** The Daily cell is priority 2. A HUD
+   tile and the cell inside the panel it opens are the same news told twice -- decide which one wins
+   when both are claimable, and write the reason down. This is the judgement in this step; the code
+   is ten lines.
+3. **Pick the peak deliberately too.** The kit's default is 1.05, the Daily cell uses 1.03 because
+   its cells are anchored (0,0) and all growth goes down-right into an 8 px gutter. **Measure the
+   reward tile's own anchor and its neighbours' gap before you choose** -- if it is a column tile in
+   the HUD grid, the same arithmetic applies and the answer is probably not 1.06 (what the deleted
+   block used). Show the arithmetic.
+4. **Then sweep for the others.** `screenGui.GiftsButton.Badge` and the mastery badge
+   (`MainUI:1221`, `masteryBadge`, deliberately nil -- read the comment at :1219 before touching it)
+   are the other claimable markers. For each one, either wire `Attention` or write one line saying
+   why not. Do not add a pulse to a tile that is claimable most of the time -- an attention-getter
+   that is always on is decoration, not attention.
+
+### The traps
+
+- **`masteryBadge` is nil on purpose.** :1219 explains it. If you assign it you have changed a
+  behaviour nobody asked for.
+- **Cancelling an infinite reversing tween does not return the scale to 1.** `attentionStop` writes
+  it back by hand and says why. Whatever you delete, do not delete that.
+- **One `UIScale` per GuiObject** and Roblox does not promise which one it honours. Use the kit's
+  `scaleOf` path (it names the child `Scale`), never `Instance.new("UIScale")` beside an existing one.
+
+### What to report in `GEMINI-LOG.md`
+
+The `grep -rn "_G\." src/` output proving 0; the priority and peak you chose with the arithmetic
+behind the peak; the list of claimable surfaces you swept, each with wired-or-why-not; and
+`luaregs.py` for MainUI before and after.
+
+## S27 | 33.11 (5.3) -- MEASURE FIRST: does a shrunk panel actually swamp itself with its own outline
+- **Owner:** Gemini
+- **Depends:** none
+- **Check:** the measurement table below exists in `GEMINI-LOG.md` with real numbers before any file changed; if the measurement says nothing qualifies, **that is a complete step and you change nothing**
+
+**DISK ONLY.** This one is deliberately shaped as a measurement with an optional edit, because the
+edit is a visual change across 74 stroke sites and I do not want it made on a hunch.
+
+### The claim to test
+
+`guidelines/ui-research-2026.md` section 5.3: `UIStroke.StrokeSizingMode` is new since 4 Dec 2025.
+`FixedSize` (the default, and what every stroke in this game uses -- `grep -rn "StrokeSizingMode"
+src/` is **0 hits**) keeps pixel thickness, so a 5 px outline on a panel that `registerPanel` has
+`UIScale`-fitted down to 0.35 on a phone stays 5 px on a panel that is now a third the size.
+`ScaledSize` makes Thickness a **percentage of the parent's shortest axis** instead.
+
+`MainUI:807` builds one `UIScale` per panel and `MainUI:881` reads it back. **That fit is real and it
+is the whole premise of this step.**
+
+### Step one -- the measurement, and it may be the whole step
+
+For the **five widest panels** (find them; the Journal at 968 is one), report a row per panel:
+
+| Panel | authored W x H | UIScale at a 1280x720 viewport | UIScale at a phone viewport (say 640x360) | shell stroke thickness px | effective px after the fit | that as a % of the shortest axis |
+
+The fit factor comes from reading `registerPanel`'s own arithmetic, not from guessing -- and say
+which lines you read it off. **If the effective thickness never rises above about 4% of the shortest
+axis, the outline is not swamping anything and the right answer is to change nothing.** Write that
+conclusion in the log and stop; a measured "no" closes this step exactly like a "yes" does.
+
+### Step two -- ONLY if the measurement says yes
+
+Change `StrokeSizingMode` **only on the panel shell strokes**, converting each thickness with
+`thickness_px / shortest_axis_px` at the AUTHORED size, so the desktop rendering is unchanged to the
+pixel and only the shrunk case moves. Report the before/after number for every site you touch. Do
+not sweep the 74 sites; do not touch badge, pill, tile or card strokes; do not touch anything in
+`ZoneBuilder`, `ZoneKit` or any server file -- world-space strokes have no `UIScale` over them and
+nothing in this section applies to them.
+
+### Two facts from the same source, so nobody spends an afternoon on them
+
+- **`BorderOffset` cannot give you a drop shadow.** Custom border positioning does not produce an
+  offset shadow; the duplicate offset frame stays.
+- **`LineJoinMode` is inert here.** With `UICorner` present -- and every panel has one -- the corner
+  overrides it. Do not set it.
+- Keep the whole screen under **300** UIStrokes; if your change adds any, it is the wrong change.
+
+### What to report in `GEMINI-LOG.md`
+
+The table, in full, with the lines you read the fit off. Then either the sentence "measured no, no
+files changed" or the before/after list. **A guess in this table is worse than an empty table** --
+if you cannot get a number, name the number you cannot get.
