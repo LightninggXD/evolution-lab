@@ -1247,3 +1247,219 @@ nothing in this section applies to them.
 The table, in full, with the lines you read the fit off. Then either the sentence "measured no, no
 files changed" or the before/after list. **A guess in this table is worse than an empty table** --
 if you cannot get a number, name the number you cannot get.
+
+## S28 | 22.1 -- the friends-in-server bonus, and the one income multiplier it has to join
+- **Owner:** Gemini
+- **Depends:** none
+- **Check:** `grep -rn "IsFriendsWith" src/` shows the new service beside the two existing call sites and nowhere else; the four lints clean on every file touched; `luaregs.py` says `MainUI.client.lua 148 registers`; and the ordering decision, the cap and the offline decision each answered with the line they sit on
+
+**DISK ONLY. No Studio, no captures, no Play.** Those are mine. Do not touch `ZoneBuilder`,
+`MainUI`'s top-level scope, `TrailsPanel`, `EmotesPanel`, `InventoryTabs`, or `AchievementService`
+(that last one is under review in S17 and a second writer in it will collide).
+
+### The row
+
+Roadmap **22.1**: *"Friends-in-server bonus -- +X% DNA per friend present, capped, drawn as a live
+HUD pill that says how many and how much"*. Phase 22 is co-play and this is its cheapest rung: it
+costs no art, no product id and no owner action, and it pays a player for the thing the whole phase
+is trying to cause.
+
+### What is already on disk, measured today
+
+| Piece | Where |
+|---|---|
+| the friend count, already written once | `Telemetry.lua:530-548`. **Read this whole block before you write a line.** It is the pattern: `IsFriendsWith` is a web call **per pair**, so it runs off the join thread in a `task.spawn`, every call is `pcall`ed, and it is done ONCE per join with a count rather than once per friend |
+| a client-side count, unused for anything but a caption | `UIComponents/FriendInviteButton.lua:10-19` `getFriendCount()` |
+| the single income multiplier | `DNAService.GetIncomeMult` (`DNAService:13`). **Every** DNA the game pays -- clicks, kills, idle auto-collect, offline -- goes through this one function |
+| the way a server-computed figure reaches the HUD with no new remote | `DNAService:696` stamps `data.__autoPerSec = amt` and `PushToClient` carries it in the payload it already sends. The comment above it explains why the client must not recompose the number itself |
+| a bonus term with the same shape, already in the chain | `DNAService:54-56`, the group bonus: `if data.InGroup then mult = mult * (GameConfig.GroupIncomeMult or 1.10) end` |
+
+**Nothing anywhere pays a friend bonus.** `grep -rn "FriendBonus" src/` is 0 hits.
+
+### What you are building
+
+1. **A new server module** -- `FriendBonusService` or a name you can defend; **not** `SocialService`,
+   which is a Roblox service name and shadowing it in a require would be a bug that only shows up
+   the day somebody uses the real one. It owns a map from UserId to a friend count and keeps it
+   current. Init it from `ServerMain` beside the other services (see the block at `ServerMain:153`
+   onward for the order and the style).
+
+2. **The term in `DNAService.GetIncomeMult`.** Three decisions, and each one has a right answer that
+   is already argued somewhere in that function's own comments -- read them, then write yours:
+   - **Where in the chain.** The stated convention is earned-before-bought: passes sit late so a
+     bought multiplier applies to everything above it, the wardrobe after the pass, events last.
+     A friend bonus is earned and free. Place it and say why in one line of comment.
+   - **The cap.** The row says capped. Pick the per-friend percent and the ceiling, and justify them
+     against a number already in the file -- the group bonus is +10% flat, the zone bonuses are a
+     percent sum, `MegaIncome` is a percent per level. A bonus that beats a Robux pass for free is
+     the wrong answer and so is one nobody notices.
+   - **The offline payout.** `excludeEvents` has exactly ONE caller, `OfflineService`, and the
+     comment at `DNAService:213` says exactly why: the offline payout multiplies this rate by up to
+     eight hours of ABSENCE. **A friend who is in the server right now was not there while the
+     player slept.** Decide what the offline path does with this term and make the code say it.
+
+3. **The live count, and the trap that will get you.** The map must update when a friend **joins**
+   and when one **leaves**. `PlayerRemoving` **does not unparent the player** -- measured, it is in
+   the notes -- so `Players:GetPlayers()` inside that handler **still contains the person who is
+   leaving**. Recount after they are gone, or subtract them explicitly. Getting this wrong leaves
+   every remaining player paid for a friend who is not there, forever, until they rejoin.
+   Also: never call `IsFriendsWith` in a loop on a hot path. It is a web call.
+
+4. **The readout.** Do **not** add a fourth pill to the currency stack (`MainUI:391-405`) -- that
+   stack's geometry is measured and `MainUI` is at 148 registers of 200. The surface that is already
+   about friends is `FriendInviteButton`, and it already counts them. Put the live number and the
+   live percent there, fed by the server's stamped figure (the `__autoPerSec` pattern above), not by
+   the client's own `getFriendCount` -- two counts that can disagree is the bug, not the feature.
+
+5. **While you are in that file, it never got a shell.** `FriendInviteButton.lua:24-38` builds a raw
+   `ImageButton` with `btn.Image = ""` and a comment reading `-- REPLACE WITH UPLOADED ICON`, plus a
+   hand-rolled `UICorner` and `UIStroke` instead of going through the kit. Every other surface in
+   this game is `UITheme`. Give it the same treatment the rest of the HUD gets, and either give it a
+   real icon through `IconLibrary` or a glyph -- an empty `Image` renders as nothing at all.
+
+### The traps
+
+- **`IsFriendsWith` yields and can throw.** Every call in `pcall`, off the join thread, exactly as
+  `Telemetry:538` does it.
+- **Do not put the friend count in the save.** It is a live fact about right now. A save field would
+  pay a player forever for a friend who logged off in June.
+- **Two players, one pair.** If you count from both sides on every join you will double-count or
+  race. `Telemetry:533` explains the choice it made and why; make yours and say it.
+- **Check every dotted field you did not write against the module that owns it.** Eighth time.
+
+### What to report in `GEMINI-LOG.md`
+
+The files; the three decisions (position in the chain, the cap arithmetic, offline) each with the
+line number; the leave-path handling with the line that proves the leaver is excluded; `luaregs.py`
+for `MainUI` before and after; and the four lints. Anything you could not do, plainly, left undone.
+
+## S29 | 22.2 -- the invite button opens a prompt and nothing has ever been paid for it
+- **Owner:** Gemini
+- **Depends:** S28
+- **Check:** a joiner arriving with launch data pays BOTH sides exactly once, proven by a table in the log of what the save held before and after; a second join on the same pair pays nothing; the four lints clean
+
+**DISK ONLY.** Same seam.
+
+### The row
+
+Roadmap **22.2**: *"Invite reward -- `FriendInviteButton` already opens the prompt. **Pay for the
+join, not the click**, and pay both sides"*. The emphasis is the whole row. A reward for pressing a
+button is a reward for pressing a button; the thing worth paying for is a person who actually
+arrived.
+
+### What is on disk
+
+`FriendInviteButton.lua:74` is the entire feature: `SocialService:PromptGameInvite(Players.LocalPlayer)`.
+`grep -rn "LaunchData\|GetJoinData" src/` is **0 hits** -- nothing anywhere reads who invited whom.
+
+### What you are building
+
+1. **Carry the inviter through the invite.** `SocialService:PromptGameInvite` takes an optional
+   `ExperienceInviteOptions` whose `LaunchData` is a string that arrives with the joiner. Put the
+   inviter's UserId in it. **Look the API up before you write it** -- if the shape is not what this
+   paragraph says, follow the API and say so in the log; do not bend the code to match my sentence.
+2. **Read it on the join.** The joiner's `player:GetJoinData().LaunchData`. Validate it: it is a
+   string a client can put anything into, so parse it as a number, refuse anything else, and refuse
+   an inviter who is the joiner.
+3. **Pay both sides, once per pair, ever.** A save field on the inviter listing the UserIds they
+   have been paid for, and a flag on the joiner saying they have been paid as a joiner. Two separate
+   facts -- one of them is per-pair and one is per-account.
+4. **The anti-abuse half, which is the real work.** Alt accounts are the failure mode of every
+   referral system ever shipped. At minimum: a cap on how many invites one account is ever paid for,
+   and a reason to believe the joiner is a person -- account age is the usual lever and it is
+   readable (`Player.AccountAge`, in days). Pick the numbers, write them as named constants in
+   `GameConfig`, and put the reasoning in the log. **If you cannot defend a number, say so and leave
+   the constant at a deliberately conservative value.**
+5. **What the reward IS.** Not DNA -- DNA is stage-scaled and means nothing across two players at
+   different stages. The roadmap's own note under 34.4 says the exclusive-pet shape is the reward to
+   use here. Diamonds and Evolution Shards are the two currencies with a fixed meaning; a pet is a
+   better story. Choose, price it against something already in the game, and say what you compared
+   it to.
+6. **Tell the player.** Both sides get a `Notify` with the group rules S24 is already changing -- if
+   S24 is not merged yet, use the existing call shape and do not invent a new one.
+
+### The traps
+
+- **A save field that only ever grows is a save-size bug.** The inviter's paid list is bounded by
+  the cap in point 4; make the cap enforce the bound, do not let the list grow first and check after.
+- **`GetJoinData` is empty for a normal join.** Every path through this code must be a no-op for the
+  player who simply pressed Play on the game page, which is almost everybody.
+- **Never trust a client-supplied number as an identity.** The LaunchData is client-influenced.
+  It names a *candidate* inviter; the server decides whether that candidate gets paid.
+- **Do not write to another player's save through a stale table.** `PlayerDataService.Get` is the
+  only door, and the inviter may be offline -- decide what happens then and say it. "Pays on their
+  next login" is a legitimate answer if you implement it; silently dropping it is not.
+
+### What to report in `GEMINI-LOG.md`
+
+The API shape you actually used with the doc line you read it off; the two save fields and where
+they are initialised for an existing save; the anti-abuse constants with the reasoning; a
+before/after table of both saves across one paid pair and one refused repeat; and the four lints.
+
+## S30 | The remotes lint reports BAD on a healthy game, and that is how a lint stops being read
+- **Owner:** Gemini
+- **Depends:** none
+- **Check:** `C:/Python313/python.exe tools/luaremotes.py` reports **0 unreachable remotes** with no rule loosened -- proven by a deliberately broken test case that it still catches
+
+**TOOLS ONLY. Do not touch anything under `src/` in this step.** That is what makes it safe to run
+beside the others.
+
+### What is wrong
+
+```
+BAD 2 unreachable remote(s) of 83 resolved:
+
+  MinigameFinish -- the server listens for it and NO CLIENT EVER FIRES IT
+      src/ServerScriptService/MinigameService.lua:495
+  StationFinish -- the server listens for it and NO CLIENT EVER FIRES IT
+      src/ServerScriptService/ExpeditionService.lua:1020
+```
+
+**Both are false.** `MinigameUI.client.lua:1117-1120` fires both of them:
+
+```lua
+local finishRemote = finished.channel == "expedition"
+    and Remotes.StationFinish
+    or Remotes.MinigameFinish
+finishRemote:FireServer({ token = finished.token, score = math.floor(finished.score) })
+```
+
+The lint looks for `Remotes.<Name>:FireServer(`. Here the remote is put in a **local** first and
+fired through that local one line later, and the comment above it explains that this is deliberate
+design -- it is the single cleanup-and-submit path and the channel decides which server owns the
+result. So the code is right and the tool is wrong.
+
+**Why this is worth a step and not a shrug:** `luaremotes.py` is one of the four lints every claim
+in this repo is checked with, and roadmap **34.41** and **34.42** were both found by it -- a remote
+nothing could fire, and an expedition with no exit. A tool that prints BAD on a healthy tree is a
+tool people learn to skip, and the next real dead remote goes out with the noise.
+
+### What you are building
+
+Teach the resolver to follow a remote through a **local assignment in the same file**: when a local
+is assigned an expression containing `Remotes.<Name>` -- including the `cond and A or B` form above,
+which yields TWO names from one assignment -- then a `:FireServer(` on that local counts as a fire
+of every name in it.
+
+Keep it a text scan; do not write a Lua parser. Scope it deliberately and write the scope into the
+tool's own docstring: same file, local assigned once, name used as `<local>:FireServer(`. Anything
+you cannot resolve stays reported -- **a lint that resolves too much is worse than one that resolves
+too little**, and the tool's own header already says the compiler wins whenever the two disagree.
+
+### Prove it still bites
+
+A fix to a detector is only worth what its false-negative test says. Before you claim this:
+
+1. run it on the tree and paste the `0 unreachable` line;
+2. **temporarily** comment out the `finishRemote:FireServer(...)` line in a scratch COPY of the file
+   (not in `src/`), point the tool at it, and show that it reports `MinigameFinish` and
+   `StationFinish` again;
+3. paste both outputs in the log.
+
+If you cannot build the negative test without editing `src/`, say so and stop -- do not edit `src/`
+for it. Reverting a temporary edit is exactly how an unrelated change ships.
+
+### What to report in `GEMINI-LOG.md`
+
+Both tool outputs verbatim, the negative test and how you built it without touching `src/`, and the
+scope sentence you added to the docstring.

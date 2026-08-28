@@ -4,7 +4,7 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 `CLAUDE-REVIEW.md`. Any hand edit here is overwritten on the next render.
 
 ```
-[################------------] 56%   15 of 27 steps verified
+[##############--------------] 50%   15 of 30 steps verified
 ```
 
 | | Step | State | Owner | Last claim | Last review |
@@ -36,6 +36,9 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [!] | **S25** 33.11 (1.5) -- the currency readouts SNAP, and the count-up half was never built | `FIX-PENDING` | Gemini | - | R12 FIX 2026-08-28T17:30 |
 | [!] | **S26** 33.11 (2.5) -- there are TWO idle-pulse implementations fighting over one UIScale, and one of them is a global | `FIX-PENDING` | Gemini | - | R13 FIX 2026-08-28T17:30 |
 | [ ] | **S27** 33.11 (5.3) -- MEASURE FIRST: does a shrunk panel actually swamp itself with its own outline | `TODO` | Gemini | - | - |
+| [ ] | **S28** 22.1 -- the friends-in-server bonus, and the one income multiplier it has to join | `TODO` | Gemini | - | - |
+| [.] | **S29** 22.2 -- the invite button opens a prompt and nothing has ever been paid for it | `WAIT` | Gemini | - | - |
+| [ ] | **S30** The remotes lint reports BAD on a healthy game, and that is how a lint stops being read | `TODO` | Gemini | - | - |
 
 ## Waiting on GEMINI -- apply these fixes first
 
