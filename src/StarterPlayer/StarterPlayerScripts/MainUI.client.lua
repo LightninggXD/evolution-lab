@@ -4248,13 +4248,79 @@ if not gestureEvent then
 	gestureEvent.Parent = Remotes
 end
 
+-- ===== SWIPING BETWEEN PANELS (34.6) =====
+--
+-- ON `hudRefs` RATHER THAN A LOCAL, and not because of style: this file sits against Luau's
+-- 200-register ceiling and a top-level local is the one edit that can delete the entire HUD (see
+-- the register note in memory). A field on a table already in scope costs nothing.
+--
+-- THE CYCLE IS `togglePanels`, WHICH IS THE ONE-PANEL RULE'S OWN LIST. Everything that passed
+-- through `registerPanel` is in it, in the order the HUD built it, so a panel added later joins the
+-- cycle without this function learning about it. The `UIComponents` overlays (Teleport, Store) are
+-- deliberately NOT in it -- they are full-screen dims that `closeAllPanels` sweeps by attribute --
+-- so a swipe never lands on a screen that has no neighbours to swipe to.
+--
+-- EIGHT OF THEM ARE NOT SOMEWHERE YOU BROWSE TO, and a swipe must not deal them out. Three are
+-- modal answers to an event (`TradeModal`, `TradePickerPanel`, `WelcomeBackPanel`) and five are the
+-- screens of a place you are standing in -- the egg stall, the fusion lab, the mastery counter, the
+-- relic forge, the group board. None has a HUD tile, which is the test: the tile column IS the
+-- player's menu, and swiping is a second way through the same menu, not a way into rooms they have
+-- not walked to. A NEW MODAL PANEL HAS TO BE ADDED HERE; a new tile panel does not.
+hudRefs.swipeSkip = {
+	TradeModal = true,
+	TradePickerPanel = true,
+	WelcomeBackPanel = true,
+	EggPanel = true,
+	FusionPanel = true,
+	MasteryPanel = true,
+	RelicsPanel = true,
+	GroupRewardsPanel = true,
+}
+
+-- With nothing open, a swipe OPENS: right takes the first panel, left the last, so the gesture is
+-- an entry point on a phone and not only a way to move between panels that are already up.
+hudRefs.cyclePanel = function(step)
+	local all = hudRefs.togglePanels
+	if not (all and hudRefs.toggleOnly) then return end
+
+	local panels = {}
+	for _, panel in ipairs(all) do
+		if not hudRefs.swipeSkip[panel.Name] then
+			table.insert(panels, panel)
+		end
+	end
+	if #panels == 0 then return end
+
+	local current
+	for i, panel in ipairs(panels) do
+		if panel.Visible then
+			current = i
+			break
+		end
+	end
+
+	local nextIndex
+	if not current then
+		nextIndex = (step > 0) and 1 or #panels
+	else
+		nextIndex = ((current - 1 + step) % #panels) + 1
+	end
+	-- One registered panel and it is the open one: cycling would close the thing the player just
+	-- swiped toward, which reads as the gesture failing rather than as a cycle of length one.
+	if nextIndex == current then return end
+
+	hudRefs.toggleOnly(panels[nextIndex])
+end
+
 gestureEvent.Event:Connect(function(dir)
 	if dir == "Down" then
 		if hudRefs and hudRefs.closeAllPanels then
 			hudRefs.closeAllPanels()
 		end
-	elseif dir == "Left" or dir == "Right" then
-		-- TODO: Panel cycling logic if requested
+	elseif dir == "Left" then
+		hudRefs.cyclePanel(-1)
+	elseif dir == "Right" then
+		hudRefs.cyclePanel(1)
 	end
 end)
 
