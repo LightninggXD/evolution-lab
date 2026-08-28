@@ -93,8 +93,33 @@ end
 -- Liking and Favoriting reward one-time diamond and potion boosts.
 GameConfig.RobloxGroupId = 0 -- Configurable group id (default 0; in Studio always grants access)
 GameConfig.GroupIncomeMult = 1.10 -- +10% DNA permanent income boost for group members
-	GameConfig.FriendBonusPct = 5
-	GameConfig.FriendBonusCap = 4
+-- ===== THE FRIENDS-IN-SERVER BONUS, AND IT IS ONE RULE IN THREE PLACES (22.1) =====
+--
+-- +5% income a friend, capped at 4 friends (+20%). Both numbers lived as literals in
+-- `DNAService.GetIncomeMult`, in MainUI's HUD pill and in the invite button's badge, and the third
+-- copy had already drifted: the badge multiplied UNCAPPED, so a player with six friends in the
+-- server was promised **+30%** beside a server paying +20%. All three read these two now.
+--
+-- THE CAP IS NOT A FEEL NUMBER. `IsFriendsWith` is a real friendship, but a server can be filled
+-- with them deliberately, so this is the ceiling that keeps a full lobby from being a free x2 on
+-- the whole economy. `GetIncomeMult` applies it before the bought multipliers, beside the group
+-- bonus, because it is earned rather than paid for -- and it is skipped for offline earnings, which
+-- is what `excludeEvents` is doing on that branch.
+GameConfig.FriendBonusPct = 5
+GameConfig.FriendBonusCap = 4
+
+-- The multiplier itself, so no caller composes it from the two constants and gets the cap wrong.
+-- Returns 1.00 at zero friends, 1.20 at the cap and above.
+function GameConfig.GetFriendBonusMult(friendCount)
+	local n = math.min(math.max(tonumber(friendCount) or 0, 0), GameConfig.FriendBonusCap)
+	return 1 + n * (GameConfig.FriendBonusPct / 100)
+end
+
+-- What the HUD prints beside the count: the whole percent, already capped.
+function GameConfig.GetFriendBonusPct(friendCount)
+	local n = math.min(math.max(tonumber(friendCount) or 0, 0), GameConfig.FriendBonusCap)
+	return n * GameConfig.FriendBonusPct
+end
 GameConfig.GroupChestReward = {
 	dna = 1000, -- scaled by GameConfig.ScaleReward
 	diamonds = 25,

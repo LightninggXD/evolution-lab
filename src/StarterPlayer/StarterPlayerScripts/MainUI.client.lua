@@ -3927,7 +3927,8 @@ local function refreshUI()
 			})
 		end
 		friendPill.Visible = true
-		local bonus = math.min(data.__friendCount, 4) * 5
+		-- GameConfig's number, not a literal -- see the block over `FriendBonusPct` in Rewards
+		local bonus = GameConfig.GetFriendBonusPct(data.__friendCount)
 		friendPill.Value.Text = string.format("%d (+%d%%)", data.__friendCount, bonus)
 	elseif friendPill then
 		friendPill.Visible = false

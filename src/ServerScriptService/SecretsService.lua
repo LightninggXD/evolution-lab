@@ -20,7 +20,10 @@ local PlayerDataService = require(script.Parent.PlayerDataService)
 -- a trigger that already exists is never repositioned, so without a bump an edited offset is a
 -- no-op on any world that has already booted once.
 --   3 -- 33.19: the touch point moved off `offset` onto its own `triggerOffset`
-local SECRETS_VERSION = 3
+--   4 -- 34.44: `ForestSummitEgg` joined the table, so the holder has to gain a second trigger
+--   5 -- 34.44: that egg moved off the bridge deck onto the grass shelf beside it -- a trigger that
+--        already exists is never repositioned, so the move is a no-op on a booted world without this
+local SECRETS_VERSION = 5
 
 local TRIGGER_SIZE = Vector3.new(12, 12, 12)
 
@@ -87,6 +90,72 @@ local function grantTraining(player, data, reps)
 	-- has something to be paid, and the find is never a no-op.
 	GameConfig.AddTrainingReps(data, nil, reps)
 	PlayerDataService.PushToClient(player)
+	return true
+end
+
+-- ===== THE HIDDEN EGG AT THE TOP OF THE FALLS (34.44) =====
+--
+-- The owner's words are in `GameConfig.Secrets`; the species is not chosen here and the pet is not
+-- created here either. `PetService.GrantSecretPet` owns both -- `insertPet` is private to that file
+-- on purpose, and this module writing `table.insert(data.Pets, ...)` itself would be the second
+-- definition of what a pet is, which is the defect `GrantWheelPet` was extracted to avoid.
+--
+-- A FULL BAG REFUSES THE FIND, and the caller below puts `FoundSecrets[id]` back when it does.
+-- Nothing was spent to get here, so there is no reason to burn a once-per-save reward on a bag with
+-- no room in it -- the player clears a slot and walks back up. That is the opposite of the terrace
+-- drop's rule (which silently swallows the pet) and the difference is whether the payment has
+-- already happened.
+--
+-- IT SENDS THE HATCH ITSELF, not a text toast. `kind = "pet"` is the payload `HandleBuyEgg` fires
+-- and `HatchReveal` answers with the full egg theatre, which is what "jaje koje hatcuje player"
+-- asks for -- a line of text would have been a pet appearing in the inventory with no egg in it.
+-- `auto = false` so it gets the deliberate-purchase presentation and not the pass's quiet one.
+--
+-- REQUIRED INSIDE THE FUNCTION, not at the top of the file. `PetService` is a large module that
+-- pulls in `AnnounceService`, `SeasonPassService` and the egg tables; this service is required by
+-- `ServerMain` during the boot and a top-level require would drag all of it in behind a feature
+-- that fires when somebody walks into a cave.
+local function grantPet(player, data, zoneKey)
+	local PetService = require(script.Parent.PetService)
+	local def, why = PetService.GrantSecretPet(data, zoneKey)
+	local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
+	if not def then
+		if why == "full" then
+			if Remotes and Remotes:FindFirstChild("Notify") then
+				Remotes.Notify:FireClient(player, { kind = "error",
+					message = "Your pet inventory is full -- make room and come back for this egg!" })
+			end
+		else
+			warn(("[SecretsService] no secret pet for zone %q -- nothing granted"):format(tostring(zoneKey)))
+		end
+		return false
+	end
+
+	PlayerDataService.UpdateLeaderstats(player)
+	PlayerDataService.PushToClient(player)
+
+	if Remotes and Remotes:FindFirstChild("Notify") then
+		Remotes.Notify:FireClient(player, {
+			kind = "pet",
+			key = def.key,
+			name = def.name,
+			emoji = def.emoji,
+			tier = "Normal",
+			rarity = def.rarity,
+			auto = false,
+		})
+	end
+
+	-- The beam and its rate limit both live in AnnounceService, and `BeaconRarities.Secret` is
+	-- already true -- so this raises the same pillar of light a Premium hatch would, without this
+	-- file learning what counts as rare. AFTER the push, for the reason PetService gives: a beam
+	-- that goes up before the pet is in the inventory announces something that has not happened.
+	local okAnnounce = pcall(function()
+		require(script.Parent.AnnounceService).PetHatched(player, def)
+	end)
+	if not okAnnounce then
+		warn("[SecretsService] the summit egg could not announce its hatch")
+	end
 	return true
 end
 
@@ -198,6 +267,9 @@ function SecretsService.Init()
 				paid = grantMutation(player, data, secret.rewardName)
 			elseif secret.rewardType == "training" then
 				paid = grantTraining(player, data, GameConfig.SecretTrainingReps)
+			elseif secret.rewardType == "pet" then
+				-- the SECRET'S zone, not the player's -- see the note over `GrantSecretPet`
+				paid = grantPet(player, data, secret.zoneKey)
 			else
 				warn(("[SecretsService] %s has rewardType %q, which nothing pays"):format(secret.id, tostring(secret.rewardType)))
 				paid = false
@@ -214,8 +286,16 @@ function SecretsService.Init()
 			-- version fired four positional values (title, body, icon, colour); indexing a string
 			-- for `.kind` returns nil rather than erroring, so it was dropped in silence by every
 			-- listener and the player was told nothing at all.
+			--
+			-- ===== AND A PET SECRET SENDS NO TOAST AT ALL =====
+			--
+			-- `grantPet` has already fired `kind = "pet"`, which puts `HatchReveal`'s full-screen
+			-- egg on the player. A `kind = "reward"` toast underneath it would be a second
+			-- announcement of the same find, drawn over the theatre that IS the announcement -- and
+			-- the sentence below has no true arm for a pet anyway: the payout is a species, not a
+			-- figure and not an aura.
 			local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
-			if Remotes and Remotes:FindFirstChild("Notify") then
+			if secret.rewardType ~= "pet" and Remotes and Remotes:FindFirstChild("Notify") then
 				Remotes.Notify:FireClient(player, {
 					kind = "reward",
 					-- The noun comes from the ROW, because the payout is no longer one thing.

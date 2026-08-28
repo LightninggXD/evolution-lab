@@ -55,14 +55,15 @@ function DNAService.GetIncomeMult(data, excludeEvents)
 	if data.InGroup then
 		mult = mult * (GameConfig.GroupIncomeMult or 1.10)
 	end
-	-- Friends-in-server bonus (22.1). Placed before bought multipliers alongside the group bonus because it is earned and free.
-	-- excludeEvents is true for offline earnings, so friends-in-server doesn't boost offline payouts (they aren't playing with you while you're offline).
-	-- Capped at 4 friends (20%) so an exploited server doesn't break the economy.
+	-- Friends-in-server bonus (22.1). Placed before bought multipliers alongside the group bonus
+	-- because it is earned and free. excludeEvents is true for offline earnings, so friends-in-server
+	-- doesn't boost offline payouts -- they aren't playing with you while you're offline.
+	--
+	-- THE CAP AND THE RATE ARE `GameConfig`'s, not literals here. They were `math.min(n, 4) * 0.05`
+	-- on this line, `math.min(n, 4) * 5` in MainUI's pill and an UNCAPPED `n * 5` on the invite
+	-- button's badge -- three copies of one rule, one of which was already lying to the player.
 	if not excludeEvents then
-		local friendCount = FriendBonusService.GetFriendCount(data.UserId)
-		if friendCount > 0 then
-			mult = mult * (1 + math.min(friendCount, 4) * 0.05)
-		end
+		mult = mult * GameConfig.GetFriendBonusMult(FriendBonusService.GetFriendCount(data.UserId))
 	end
 	-- ...and any live server-wide event, last of all (Phase 7.1). It takes no `data`, which is the
 	-- difference between an event and a pass written out: an event is the same for everybody on the

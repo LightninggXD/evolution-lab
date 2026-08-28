@@ -1029,6 +1029,111 @@ local function buildRelic(folder, base, reward)
 	return built
 end
 
+-- ===== THE HIDDEN EGG ON THE SUMMIT SHELF (34.44) =====
+--
+-- The owner, 2026-08-28, on a capture looking down at the terraces: *"ovde negde na vrhu cemo
+-- sakriti secret peta tj jaje koje hatcuje player i dobije 2x nego najbolji pet na ovom stageu tj
+-- zoni"*. So the tower pays at both ends now, and this is the top one: the grotto under the falls
+-- teaches a stat, the shelf above them hides a pet.
+--
+-- IT IS BUILT FROM THE SECRET'S OWN OFFSET, exactly like the grotto -- one source of truth for
+-- where the thing is, so the prop and the trigger cannot drift apart (32.26's failure).
+--
+-- ===== FIVE STUDS, NOT ELEVEN, AND THAT IS THE FEATURE =====
+--
+-- `EggPlaza`'s shop eggs are 11.2 studs -- 1.33x the player -- because a thing for sale has to be
+-- seen from across a plaza. This one has to be MISSED from across a shelf, so it is 4.8 tall,
+-- a little over half the player's 8.4. Any bigger and it is a landmark, which is the one thing a
+-- secret must not be.
+--
+-- THE SHELL IS A BLOCK CARRYING A SPHERE MESH and not a `Shape = Ball` part, for the reason
+-- `EggPlaza` documents at length: a Ball ignores a non-uniform `Size` and renders a sphere of its
+-- SMALLEST axis, so an egg authored as (3.2, 4.8, 3.2) would draw as a 3.2 blob. Two ellipsoids --
+-- a body and a narrower, taller cap that takes over the silhouette where an egg points.
+--
+-- EVERY PIECE IS `CanCollide = false`, AND THAT IS A CONSTRAINT, NOT A STYLE -- the same one the
+-- grotto relic carries. `SecretsService.reportBlocked` asks whether a 4 x 6 x 4 humanoid box fits
+-- at the trigger, and the trigger stands 3.6 studs above this shelf: a solid egg there would make
+-- the service warn `ForestSummitEgg IS UNREACHABLE` on every boot and the player would walk through
+-- a prop that pays nothing.
+--
+-- THE COLOUR IS READ, NOT PICKED. `GameConfig.GetRarity("Secret").color` is rgb(255, 64, 160), the
+-- pink every Secret card, tile and beam in the game already uses -- so the shell promises exactly
+-- what it pays. A hand-picked pink here would be the one prop in the world that lies about its own
+-- prize the day that rarity is re-coloured.
+local SUMMIT_A, SUMMIT_B = 1.6, 2.4          -- body half-width and half-height: 3.2 x 4.8 studs
+local SUMMIT_CAP_A, SUMMIT_CAP_B = 1.15, 1.9 -- the taper that makes it an egg rather than a ball
+local SUMMIT_CAP_Y = 1.2                     -- where the cap takes over the outline
+
+local function buildSummitEgg(folder, base, secretColor)
+	local built = 0
+	local function shell(name, size, offset, colour, material, transparency)
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Anchored = true
+		-- read the CanCollide note above before changing either of these two
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CastShadow = false
+		p.Size = size
+		p.Position = base + offset
+		p.Color = colour
+		p.Material = material
+		p.Transparency = transparency or 0
+		local m = Instance.new("SpecialMesh")
+		m.MeshType = Enum.MeshType.Sphere
+		m.Parent = p
+		p.Parent = folder
+		built += 1
+		return p
+	end
+
+	-- The shell sits ON the shelf: half the body's height above the ground the offset names.
+	local body = shell("SummitEgg", Vector3.new(SUMMIT_A * 2, SUMMIT_B * 2, SUMMIT_A * 2),
+		Vector3.new(0, SUMMIT_B, 0), secretColor, Enum.Material.SmoothPlastic)
+	shell("SummitEggCap", Vector3.new(SUMMIT_CAP_A * 2, SUMMIT_CAP_B * 2, SUMMIT_CAP_A * 2),
+		Vector3.new(0, SUMMIT_B + SUMMIT_CAP_Y, 0), secretColor, Enum.Material.SmoothPlastic)
+
+	-- ===== THE SPOTS ARE THE ONLY THING THAT SAYS "EGG" AT THIS SIZE =====
+	-- A plain pink ellipsoid five studs tall reads as a berry. Three flat discs lying flush on the
+	-- shell is the vocabulary `EggPlaza` uses for its marks, and flush is the word that matters --
+	-- a disc pushed in along the radius instead of along the surface NORMAL sits tilted everywhere
+	-- except the equator, which reads as a chip knocked out of the paint.
+	for _, spot in ipairs({ { 0.30, 0.7 }, { -0.15, 2.5 }, { 0.05, 4.4 } }) do
+		local u, a = spot[1], spot[2]
+		local r = math.sqrt(math.max(0, 1 - u * u))
+		local pos = Vector3.new(SUMMIT_A * r * math.cos(a), SUMMIT_B * u, SUMMIT_A * r * math.sin(a))
+		local normal = Vector3.new(pos.X / (SUMMIT_A * SUMMIT_A), pos.Y / (SUMMIT_B * SUMMIT_B),
+			pos.Z / (SUMMIT_A * SUMMIT_A)).Unit
+		local mark = shell("SummitEggMark", Vector3.new(1.1, 1.1, 0.22),
+			Vector3.new(0, SUMMIT_B, 0) + pos + normal * 0.06,
+			Color3.fromRGB(255, 236, 250), Enum.Material.SmoothPlastic)
+		mark.CFrame = CFrame.lookAt(mark.Position, mark.Position + normal)
+	end
+
+	-- ===== AND IT GLOWS JUST ENOUGH TO BE FOUND ONCE YOU ARE ON THE SHELF =====
+	-- Range 14 is deliberately short: it does not reach the bridge at the other end of the shelf
+	-- (14 studs against the ~16 that separates them), so the egg is invisible from the crossing and
+	-- unmistakable from three steps away. `Shadows = false` for the reason the grotto's key light
+	-- carries -- a small light over a shelf full of trunks projects them across the rock as slabs.
+	local lamp = Instance.new("PointLight")
+	lamp.Color = secretColor
+	lamp.Brightness = 1.6
+	lamp.Range = 14
+	lamp.Shadows = false
+	lamp.Parent = body
+
+	-- A slow bob on the shell, and the cap and marks do NOT follow it: they are separate parts, so
+	-- tweening the body alone would take the egg apart. Nothing moves instead -- the light is the
+	-- only animation, and a repeating tween on a `PointLight.Brightness` is one property on one
+	-- instance with no per-frame Lua behind it.
+	TweenService:Create(lamp, TweenInfo.new(1.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
+		Brightness = 2.8,
+	}):Play()
+
+	return built
+end
+
 function MapWaterfall.Build(zoneKey, cx, map)
 	if not map then return 0, 0, 0 end
 
@@ -1189,7 +1294,19 @@ function MapWaterfall.Build(zoneKey, cx, map)
 	local rock = Color3.fromRGB(126, 122, 116)
 	local built = 0
 	for _, secret in ipairs(GameConfig.Secrets or {}) do
-		if secret.zoneKey == zoneKey and secret.offset then
+		-- ===== WHICH SCENERY DRESSES WHICH SECRET, AND WHY IT IS A FIELD (34.44) =====
+		--
+		-- This loop used to run on `zoneKey and offset` alone, and Forest had exactly one secret. The
+		-- moment it gained a second one that test became a trap: `ForestSummitEgg` would have been
+		-- handed the whole grotto build -- walls, roof, plinth, relic and a prop cut around it -- and
+		-- a second cave would have appeared at ground level under the summit, 90 studs from the
+		-- first. The row says what dresses it instead, and a row that predates the field keeps its
+		-- grotto.
+		local scenery = secret.scenery or "grotto"
+		if secret.zoneKey == zoneKey and secret.offset and scenery == "summitEgg" then
+			built += buildSummitEgg(folder, Vector3.new(cx, 0, 0) + secret.offset,
+				GameConfig.GetRarity("Secret").color)
+		elseif secret.zoneKey == zoneKey and secret.offset and scenery == "grotto" then
 			local centre = Vector3.new(cx, 0, 0) + secret.offset
 
 			-- Clear the room's own volume AND the walk up to it -- a tree standing in the middle

@@ -449,6 +449,11 @@ GameConfig.Secrets = {
 		-- it back with the rest of the ladder. `SecretsService` has a branch per `rewardType` and
 		-- refuses (rather than silently skips) a type nothing pays, so this cannot rot.
 		rewardType = "training",
+		-- WHICH SCENERY DRESSES IT (34.44). Forest has two secrets now and `MapWaterfall.Build`
+		-- walks this table: without this field the summit egg's row would have been handed the whole
+		-- grotto build and a second cave would have appeared under it. Defaulted to "grotto" on the
+		-- reader's side, so a row written before the field still gets its cave.
+		scenery = "grotto",
 		-- Display only, and it is the toast's noun. NOT a mutation name any more -- nothing looks it
 		-- up in `GameConfig.Mutations`.
 		rewardName = "Training Grounds",
@@ -462,7 +467,63 @@ GameConfig.Secrets = {
 		auraName = "Godly",
 		offset = Vector3.new(291, 6, -290),
 		triggerOffset = Vector3.new(291, 6, -281),
-	}
+	},
+
+	-- ===== AND THE SECOND ONE IS AT THE TOP OF THE SAME WATERFALL (34.44) =====
+	--
+	-- The owner, 2026-08-28, with a capture of the terraces looking down: *"ovde negde na vrhu cemo
+	-- sakriti secret peta tj jaje koje hatcuje player i dobije 2x nego najbolji pet na ovom stageu
+	-- tj zoni"*. So the tower now pays at both ends -- the grotto UNDER it teaches a stat, and the
+	-- shelf ON TOP of it hides a pet -- and neither is signposted.
+	--
+	-- `rewardType = "pet"` is a new branch in `SecretsService`, not a re-use of an old one, and the
+	-- species is NOT named here. It is `GameConfig.SecretPetsByZone[zoneKey]` -- the one Secret this
+	-- zone already has (Forest: Thorn Heart) -- so a second door to the same species cannot drift
+	-- from the first. Naming a key in this row would have been a second answer to "what is the
+	-- Forest secret", and the day one of them changed the game would hold two.
+	--
+	-- WHY IT IS WORTH 2x THE ZONE'S BEST, WHICH IS THE OWNER'S NUMBER AND NOT A FEEL DECISION:
+	-- `PetRarities.Secret.bonusMult` is 16 against Legendary's 8, so the ratio is exact at every
+	-- tier -- see the block over that row.
+	--
+	-- ===== THE TWO NUMBERS, AND WHERE THEY WERE MEASURED =====
+	--
+	-- Forest's zone offset is 0, so both vectors below are world coordinates, the same as the
+	-- grotto's above.
+	--
+	-- ===== AND THE FIRST SPOT WAS ON THE BRIDGE, WHICH A CAPTURE SETTLED AND A RAYCAST DID NOT =====
+	--
+	-- The shelf was probed by raycast first and (286, 224.7, -340) came back as flat ground with a
+	-- clear humanoid box -- and it is: it is the **plank deck of the bridge over the top of the
+	-- falls**, whose bounding box runs x 256..338 / z -345..-325. The egg built there stood dead
+	-- centre of the walkway, in the open, five studs from the crossing's midpoint. A ray that hits
+	-- ground says nothing about whether that ground is a path.
+	--
+	-- So the second pass asked the question the row actually cares about -- *can a player standing
+	-- on the bridge SEE this spot* -- by casting from a 226-high eye at the bridge's centre to every
+	-- candidate and keeping only the ones something blocks. Over x 252..344 / z -366..-316 that
+	-- leaves the grassy shelf **north-west of the bridge's west end**, two studs below deck level
+	-- and screened by the rock and the bushes on it.
+	--
+	-- (258, 219.48, -354) is grass (`Decorations.Waterfall.Grass.Part`), reports **0 solid parts**
+	-- in a 4 x 6 x 4 humanoid box, is **hidden** from the bridge, and is one 2-stud step off the
+	-- deck -- so it is reachable by walking and invisible from the walk. `Bush1` stands four studs
+	-- west of it, which is what does the screening.
+	--
+	-- `offset` is where the egg is DRAWN (`MapWaterfall.buildSummitEgg` builds it there) and sits on
+	-- the shelf at ground level; `triggerOffset` is 3.6 studs higher so the reachability test's body
+	-- box clears the floor it stands on -- exactly the split 33.19 had to make for the grotto, and
+	-- for exactly the same reason.
+	{
+		id = "ForestSummitEgg",
+		zoneKey = "Forest",
+		rewardType = "pet",
+		scenery = "summitEgg",
+		-- Display only. The species comes from `SecretPetsByZone`; this is the toast's noun.
+		rewardName = "Hidden Egg",
+		offset = Vector3.new(258, 219.5, -354),
+		triggerOffset = Vector3.new(258, 223.1, -354),
+	},
 }
 
 end
