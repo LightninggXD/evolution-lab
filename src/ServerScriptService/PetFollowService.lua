@@ -22,7 +22,6 @@ local RS = game:GetService("ReplicatedStorage")
 
 local GameConfig = require(RS.Modules.GameConfig)
 local PetModel = require(RS.Modules.PetModel)
-local EvolutionVisuals = require(script.Parent.Systems.EvolutionVisuals)
 local PlayerDataService = require(script.Parent.PlayerDataService)
 
 local PetFollowService = {}
@@ -86,12 +85,12 @@ local function signatureOf(player, data)
 			end
 		end
 	end
-	-- The worn mutation is in the signature because the rigs carry its aura (12.5) and the rebuild
-	-- is the only thing that puts one on. Without it a splice auras the owner's body and leaves the
-	-- pets bare until the next unrelated equip.
+	-- THE WORN MUTATION IS NO LONGER IN THE SIGNATURE (34.40). It was here because the rigs carried
+	-- the owner's aura (12.5) and a rebuild was the only thing that put one on -- without it a splice
+	-- aura'd the body and left the pets bare. The pets carry no aura now, so the only thing the term
+	-- still did was tear down and rebuild the whole row every time the owner changed mutation.
 	return table.concat(parts, "|")
 		.. ("@%.1f"):format(ownerScaleOf(player))
-		.. "#" .. tostring(EvolutionVisuals.WornMutation(player))
 end
 
 local function rebuild(player, data)
@@ -115,7 +114,6 @@ local function rebuild(player, data)
 	local hrp = character and character:FindFirstChild("HumanoidRootPart")
 	local ownerScale = ownerScaleOf(player)
 	local petScale = petScaleFor(ownerScale)
-	local mutation = EvolutionVisuals.WornMutation(player)
 
 	for slot, saved in ipairs(equipped) do
 		local def = GameConfig.GetPetDef(saved.key)
@@ -136,10 +134,20 @@ local function rebuild(player, data)
 			if hrp then
 				root.CFrame = hrp.CFrame * CFrame.new((slot - (#equipped + 1) / 2) * 5 * petScale, 0, 5 * ownerScale)
 			end
-			-- The owner's mutation, on the pets that follow them. Sized off the RIG's scale, not the
-			-- owner's -- a pet is a fraction of its owner and an aura built for the body would bury
-			-- the whole row of them.
-			EvolutionVisuals.AttachMutationAura(root, mutation, petScale)
+			-- NO MUTATION AURA ON THE FOLLOWERS (34.40, owner's call). Every pet used to get a full
+			-- copy of the owner's aura, sized off the rig rather than the body. Measured on her save
+			-- with 8 pets equipped: 8 enabled emitters on the character and 68 across the row, i.e.
+			-- the same effect drawn NINE times. Each `Windspin` particle lives 1s at speed 10.4 and
+			-- grows to 8.31 studs, so the row laid a continuous golden ribbon across the middle of
+			-- the frame -- the shopfronts, the arena door and the NPC stands were all behind it.
+			--
+			-- The part that made it a bug rather than a preference: the density is a function of the
+			-- SLOT COUNT, so it got worse the further a player progressed. An aura is a reward; a
+			-- reward that hides the game it is a reward in is priced backwards.
+			--
+			-- The aura stays on the OWNER's body, which is where it reads as theirs. Pets keep their
+			-- own species sparkles (`fx` above) -- those are per-rig and small, and they are not
+			-- what the capture showed.
 			model.Parent = folder
 		end
 	end
