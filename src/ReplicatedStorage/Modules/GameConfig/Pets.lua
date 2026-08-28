@@ -34,10 +34,20 @@ GameConfig.PetRarities = {
 	-- contain a Secret by accident, `poolWeights` would give it weight `0 * boost` = 0 and the roll
 	-- could still never land on it. A rarity that must not be rollable is worth defending twice.
 	--
-	-- `bonusMult = 12` sits above Legendary's 8 by half again, not by an order of magnitude. The
-	-- thing being sold here is that you have one, and a species 10x the game's best pet would make
-	-- the 49,999 hatches that did not produce it feel like a punishment rather than a lottery.
-	{ name = "Secret",    weight = 0,    bonusMult = 12,  color = Color3.fromRGB(255, 64, 160) },
+	-- `bonusMult = 16` IS EXACTLY TWICE LEGENDARY'S 8, and the number is the owner's, not a feel
+	-- decision: *"jaje koje hatcuje player i dobije 2x nego najbolji pet na ovom stageu tj zoni"*
+	-- (34.44, the hidden egg at the top of the waterfall). The best pet a zone can hand you is its
+	-- Legendary, so "2x the best pet in this zone" is `2 * 8`, and it is exact at every tier and in
+	-- every zone because `GetPetBonus` multiplies rarity, tier and zone factor separately -- the
+	-- ratio between two species in the same zone at the same tier IS the ratio of these two numbers.
+	--
+	-- IT WAS 12, and the old note argued that a species "10x the game's best" would make the 49,999
+	-- hatches that produced nothing feel like a punishment rather than a lottery. That argument is
+	-- untouched at 2x and it is why this is 16 rather than the 80 a 10x would be. What did change is
+	-- that the lottery is no longer the only door: 34.44 gives the same species a findable route, so
+	-- the two routes must pay the same thing or the pet means two different things depending on how
+	-- it arrived.
+	{ name = "Secret",    weight = 0,    bonusMult = 16,  color = Color3.fromRGB(255, 64, 160) },
 }
 
 -- FIVE LONG, DELIBERATELY, and Secret is not in it. This table is POSITIONAL -- entry i of a zone's

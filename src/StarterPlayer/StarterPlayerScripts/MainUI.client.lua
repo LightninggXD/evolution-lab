@@ -3627,7 +3627,7 @@ hudRefs.showNotification = showNotification
 -- Sized in PIXELS and AlwaysOnTop for the same reason the damage numbers are: this is a readout,
 -- so it stays legible at whatever distance the camera happens to be, and it must never end up
 -- behind the scenery. It is small on purpose -- the point is that it does not take the screen.
-local function worldPopup(text, subText, color)
+local function worldPopup(text, subText, color, groupId)
 	local character = player.Character
 	local head = character and character:FindFirstChild("Head")
 	if not head then
@@ -3635,7 +3635,7 @@ local function worldPopup(text, subText, color)
 		-- Rank 2, because everything routed through worldPopup is a one-off -- a fusion, an Apex pet
 		-- drop -- and this branch is already the unlucky path. Losing it to a crit toast would be
 		-- the second thing to go wrong for the same event.
-		showNotification(text, color, 2)
+		showNotification(text, color, 2, groupId)
 		return
 	end
 
@@ -4424,7 +4424,7 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		-- world, at the place it happened.
 		local rarity = GameConfig.GetRarity(payload.rarity)
 		worldPopup(payload.emoji .. " " .. payload.name,
-			payload.exclusive and "APEX DROP \u{2014} EGGS CANNOT HATCH THIS" or "DROPPED", rarity.color)
+			payload.exclusive and "APEX DROP \u{2014} EGGS CANNOT HATCH THIS" or "DROPPED", rarity.color, "petDrop")
 	elseif payload.kind == "fuse" then
 		local rarity = GameConfig.GetRarity(payload.rarity)
 		-- The enchant is named when one survived the fuse (13.2). A carried-forward enchant is a

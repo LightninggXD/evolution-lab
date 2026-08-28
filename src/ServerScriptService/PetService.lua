@@ -256,6 +256,41 @@ function PetService.GrantWheelPet(data)
 	return rollAndInsert(data, eggDef)
 end
 
+-- ===== THE PET INSIDE THE HIDDEN EGG (34.44) =====
+--
+-- The owner, 2026-08-28, pointing at the top of the waterfall: *"ovde negde na vrhu cemo sakriti
+-- secret peta tj jaje koje hatcuje player i dobije 2x nego najbolji pet na ovom stageu tj zoni"*.
+-- `SecretsService` owns the trigger and the once-per-save bookkeeping; this owns what comes out of
+-- the egg, for the same reason `GrantWheelPet` exists -- `insertPet` is deliberately local and a
+-- second `table.insert(data.Pets, ...)` in another file is a second definition of what a pet is.
+--
+-- IT PICKS, IT DOES NOT ROLL, and that is the difference between this and every other pet path in
+-- the game. A hidden egg has no luck term and no pool: there is exactly one species it can produce,
+-- the zone's own Secret (`SecretPetsByZone`), and finding it is the whole gamble. Rolling here would
+-- also have meant a player could walk the length of the map to a spot they can only find once and be
+-- handed a Common.
+--
+-- THE ZONE IS THE EGG'S, NOT THE PLAYER'S. `GetPetZoneFactor` scales a pet down as its owner climbs
+-- past the zone it came from, so a Forest secret is a Forest pet forever -- which is correct for a
+-- prize tied to a place. Passing the player's `CurrentZone` instead would let someone at Singularity
+-- collect a Singularity-grade pet out of the Forest waterfall.
+--
+-- Returns the def, or nil plus a reason. A FULL BAG REFUSES THE FIND rather than swallowing it:
+-- unlike a terrace drop (where the kill is already paid for), nothing has been spent here, so
+-- `SecretsService` puts the find back and the player can return with room. That is the only
+-- honest answer for a reward that can never be earned a second time.
+function PetService.GrantSecretPet(data, zoneKey)
+	if not data then return nil, "nodata" end
+	local def = GameConfig.SecretPetsByZone and GameConfig.SecretPetsByZone[zoneKey]
+	if not def then return nil, "nosecret" end
+	if #data.Pets >= MAX_PETS then return nil, "full" end
+	insertPet(data, def)
+	-- The same two boards a Premium hatch feeds -- this IS a hatch, and the Secrets Hatched board
+	-- would otherwise disagree with the achievement that counts the same event.
+	BoardStats.Hatched(data, def)
+	return def
+end
+
 local EGG_INTERVAL = 0.35   -- comfortably faster than the hatch animation, far slower than a loop
 local lastEgg = {}          -- [userId] = os.clock()
 
