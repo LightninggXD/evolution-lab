@@ -590,24 +590,33 @@ function GameConfig.GetEnchantCost(pet)
 	return GameConfig.EnchantCost[pet and pet.tier or "Normal"] or GameConfig.EnchantCost.Normal
 end
 
--- ===== MOVING AN ENCHANT, AND WHY THE PRICE IS 1,000 (34.5) =====
+-- ===== MOVING AN ENCHANT, AND WHY THE PRICE IS 500 (34.5, repriced 34.27) =====
 --
--- The transfer's worth to a player is exactly what RE-ROLLING that enchant on the target pet would
--- cost, so the price has to sit between the two ends of that range or the feature is dead:
--- too cheap and it replaces enchanting, too dear and nobody ever presses it.
+-- The transfer's worth to a player is exactly what RE-ROLLING that enchant onto the target would
+-- cost, so the price has to sit inside that range or the feature is dead: too cheap and it replaces
+-- enchanting, too dear and nobody ever presses it.
 --
--- The arithmetic. `eternal` is weight 1.5 of 100, so it takes ~67 rolls in expectation -- 1,330
--- diamonds on a Normal, ~4,670 on a Celestial. `prismatic` is 4.5, ~22 rolls, ~1,550 on a
--- Celestial. `keen` is 44, ~2 rolls, ~160. **1,000 is under every re-roll worth moving and over
--- every one that is not**, which makes this the button you press when a Celestial finally hatches
--- and your Eternal is sitting on a Normal -- and never the button you press instead of enchanting.
+-- THE ARITHMETIC, and it is the whole argument. A rung of weight w takes 100/w rolls in
+-- expectation, and a roll costs `GetEnchantCost` -- 20 / 30 / 45 / 70 by tier. So reaching a rung
+-- on a given pet costs, in Diamonds:
 --
--- It is also the top vanity price (34.2's 1,000-diamond trail), so the two endgame sinks quote the
--- same headline number and a player can weigh them against each other without arithmetic.
+--                        Normal   Golden   Rainbow   Celestial
+--     Radiant   (9%)        222      333       500         778
+--     Prismatic (4.5%)      444      667      1000        1556
+--     Eternal   (1.5%)     1333     2000      3000        4667
+--
+-- **500 is the line that makes this a Prismatic-and-up tool.** Under it: Eternal on every tier, and
+-- Prismatic on Golden, Rainbow and Celestial -- which is the case the feature exists for, a rare
+-- rung stranded on the wrong pet. Over it: every rung up to Savage, and Prismatic on a Normal,
+-- where re-rolling is simply cheaper and should be.
+--
+-- IT WAS 1,000 FOR HALF A DAY AND THAT WAS TOO HIGH -- it only beat a re-roll for Eternal, so on
+-- the rung players actually strand (Prismatic, 4.5%) the button was decoration. Kristina called it
+-- and set 500. Recorded because the table above is the reason, not the number.
 --
 -- ONE constant, read by the server that charges it and by the button that quotes it, for the same
 -- reason `GetEnchantCost` is: a price written twice is a price that will disagree with itself.
-GameConfig.EnchantTransferCost = 1000
+GameConfig.EnchantTransferCost = 500
 
 -- Same defence as AssertTierCoverage: a weights column that quietly stops summing to 100 turns
 -- every printed percentage into a lie, and nothing else in the game would notice.

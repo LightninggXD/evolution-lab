@@ -37,7 +37,9 @@ local RS = game:GetService("ReplicatedStorage")
 local GameConfig = require(RS.Modules.GameConfig)
 local UITheme = require(RS.Modules.UITheme)
 local UIKit = require(RS.Modules:WaitForChild("UIKit"))
-local PetModel = require(RS.Modules:WaitForChild("PetModel"))
+-- `PetModel` is no longer required here: the rig is built by `PetPreview`, which is the only
+-- caller now. The comment above still names it because it is still what draws a pet.
+local PetPreview = require(script.Parent:WaitForChild("PetPreview"))
 
 local themeLabel, styleCard, styleButton = UIKit.themeLabel, UIKit.styleCard, UIKit.styleButton
 local setButtonColor = UIKit.setButtonColor
@@ -123,75 +125,21 @@ function PetTile.Build(parent, opts)
 
 	-- ===== THE RIG, WHICH IS THE WHOLE POINT OF THE ROW =====
 	--
-	-- Same build as the world rig, no nameplate, no outline, no sparkle -- at 88 px an outline is a
-	-- smear and a sparkle is noise. Parented to the TILE and not to the disc so that the disc's
-	-- circular corner cannot clip a tail or an ear.
-	local preview = Instance.new("ViewportFrame")
-	preview.Name = "Preview"
-	preview.Size = UDim2.new(0, 84, 0, 84)
-	preview.Position = UDim2.new(0.5, 0, 0, 2)
-	preview.AnchorPoint = Vector2.new(0.5, 0)
-	preview.BackgroundTransparency = 1
-	preview.BorderSizePixel = 0
-	preview.Ambient = Color3.fromRGB(206, 206, 220)
-	preview.LightColor = Color3.fromRGB(255, 255, 255)
-	preview.LightDirection = Vector3.new(-0.4, -1, -0.55)
-	preview.ZIndex = disc.ZIndex + UITheme.Z.Content
-	preview.Parent = tile
+	-- Moved out to `HUD/PetPreview` (34.28) so the transfer picker can draw the same pets rather
+	-- than a list of names. What lived here was the viewport, the rig build and a camera solved to
+	-- fit it -- four captures' worth of reasoning that must not exist in two copies. The options
+	-- below are the tile's own: parented to the TILE and not to the disc so a full-radius corner
+	-- cannot clip a tail or an ear, and padded 1.25 because a disc has no corners to put a wing in.
+	local preview, rigRoot, rigPieces = PetPreview.Attach(tile, pet, {
+		size = 84,
+		position = UDim2.new(0.5, 0, 0, 2),
+		anchorPoint = Vector2.new(0.5, 0),
+		zIndex = disc.ZIndex + UITheme.Z.Content,
+		padding = 1.25,
+	})
 
 	local rigEntry
-	local def = GameConfig.GetPetDef(pet.key)
-	if def then
-		local rig, rigRoot, rigPieces = PetModel.Build(def, pet.tier, {
-			scale = 1,
-			nameplate = false,
-			outline = false,
-			sparkle = false,
-		})
-		PetModel.Place(rigRoot, rigPieces, CFrame.new())
-		rig.Parent = preview
-
-		-- ===== THE CAMERA IS FITTED TO THE RIG, AND A FIXED ONE CANNOT BE RIGHT =====
-		--
-		-- Three captures were spent moving a hard-coded camera in and out -- 40° at 6.9 studs cropped
-		-- every pet through the head, 44° at 10.4 shrank them to a speck, and the card's own proven
-		-- 45° at 8.3 landed somewhere in between and STILL read wrong. The fourth capture is what
-		-- named the real fault: **there is no single right distance, because the hundred species are
-		-- not one size.** `Absolon` is a wide flat rig and `TheFirst` is a tall one; the same camera
-		-- makes one a stripe across the disc and the other a dot in the middle of it, and the old
-		-- 232 px card hid that only because its viewport was big enough for both to look acceptable.
-		--
-		-- So the distance is SOLVED from the rig instead. `FieldOfView` is the vertical angle and the
-		-- viewport is square, so the horizontal one matches it and a single solve covers both:
-		--     distance = (extent / 2) / tan(fov / 2)
-		--
-		-- **The extent is the LARGEST axis, not the height**, because the turntable below spins this
-		-- rig a full ±0.55 rad on Y -- a fit taken on the depth axis would let a long tail swing
-		-- outside the frame a second after it was measured. And it is padded by 1.25 for the circle:
-		-- a disc has no corners for a wing to occupy, so the subject must sit inside the inscribed
-		-- circle rather than the square the maths solves for.
-		--
-		-- `GetExtentsSize` IS TAKEN AFTER `Place` AND AFTER PARENTING, which is not fussiness -- a
-		-- bounding box read one frame too early is the exact fault [[roblox-model-facing-and-scaling]]
-		-- records, and it reads as a camera that is right for some pets and wrong for others.
-		local extents = rig:GetExtentsSize()
-		local span = math.max(extents.X, extents.Y, extents.Z)
-		local fov = 45
-		local dist = (span * 0.5) / math.tan(math.rad(fov) * 0.5) * 1.25
-		-- A floor, because a genuinely tiny rig would otherwise pull the camera inside itself and
-		-- render the inside of its own head.
-		dist = math.max(dist, 3.5)
-		local centre = rig:GetPivot().Position
-
-		local cam = Instance.new("Camera")
-		cam.FieldOfView = fov
-		-- Off-axis by the same proportions the card used (a touch right, a touch above), so the rig
-		-- reads as three-dimensional rather than as a mugshot -- scaled to whatever distance the fit
-		-- asked for rather than typed as three more magic numbers.
-		cam.CFrame = CFrame.new(centre + Vector3.new(0.36, 0.32, -0.88).Unit * dist, centre)
-		cam.Parent = preview
-		preview.CurrentCamera = cam
-
+	if rigRoot then
 		rigEntry = { root = rigRoot, pieces = rigPieces, phase = (opts.order or 1) * 0.7 }
 	end
 

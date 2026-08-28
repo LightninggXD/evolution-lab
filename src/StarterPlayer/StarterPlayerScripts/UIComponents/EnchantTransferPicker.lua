@@ -6,6 +6,7 @@ local Remotes = RS:WaitForChild("Remotes")
 local Builder = require(script.Parent:WaitForChild("ScrollingPanelBuilder"))
 local PlayerData = require(script.Parent:WaitForChild("PlayerData"))
 local Common = require(script.Parent:WaitForChild("AdventureCommon"))
+local PetPreview = require(RS.Modules:WaitForChild("HUD"):WaitForChild("PetPreview"))
 
 local EnchantTransferPicker = {}
 
@@ -104,7 +105,7 @@ local function refresh()
 			reason = "NEED \u{1F48E}"
 		end
 
-		panel.AddCard({
+		local card = panel.AddCard({
 			Name = tostring(pet.id),
 			LayoutOrder = order,
 			Title = Common.PetName(pet),
@@ -126,6 +127,36 @@ local function refresh()
 				},
 			},
 		})
+
+		-- ===== THE PET'S OWN RIG ON THE ROW (34.28) =====
+		--
+		-- Her instruction, on the first build of this panel: *"treba da ima slike ljubimaca kao i
+		-- pet panel ... da player vidi kome ide a ne da nagadja"*. A name and a power figure do not
+		-- tell you which of a hundred pets you are about to hand a Prismatic to.
+		--
+		-- Attached the way `SwordPanel` attaches a blade, and the gutter arithmetic is copied from
+		-- there rather than re-derived: the builder's own `Icon` column is 130 wide and its action
+		-- column is 170, so a preview inset 12 with a width of 68 leaves the text starting at 92.
+		-- **The `Text` frame is named `Text`, and its labels are `CardTitle` / `CardSubtitle` /
+		-- `CardDescription`** -- guessing those names is what left the sword preview drawn straight
+		-- over its own card (34.17), so they are read off the builder and not from memory.
+		--
+		-- Padded 1.05 rather than the grid's 1.25: this slot is a rounded square that can use its
+		-- corners, where the grid's tile is a circle that cannot.
+		PetPreview.Attach(card.Instance, pet, {
+			name = "PetPreviewFrame",
+			size = 68,
+			position = UDim2.new(0, 12, 0.5, 0),
+			anchorPoint = Vector2.new(0, 0.5),
+			zIndex = card.Instance.ZIndex + 5,
+			padding = 1.05,
+		})
+
+		local txtFrame = card.Instance:FindFirstChild("Text")
+		if txtFrame then
+			txtFrame.Size = UDim2.new(1, -(92 + 170), 1, -20)
+			txtFrame.Position = UDim2.new(0, 92, 0.5, 0)
+		end
 	end
 
 	-- THE FOOTER IS WHERE THE PRICE LIVES, not the header: the header is the question and this is
