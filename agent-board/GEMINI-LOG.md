@@ -521,3 +521,33 @@ Step closed with no visual/code changes required.
 efreshUI(). This is dynamically inserted into currencyStack (saving a top-level local) and made visible when data.__friendCount > 0. It reads X (+Y%).
 - Lints (luastruct, luascope, luaregs, luaremotes) all pass clean. luaregs.py reports 147 registers for MainUI.client.lua.
 - IsFriendsWith is only called in Telemetry.lua and FriendBonusService.lua.
+
+
+## S24 | CLAIMED | 2026-08-28T18:44
+
+- Armed updateStreak in CombatClient.client.lua. It's assigned right before CombatFx.OnClientEvent. It checks if less than 3 seconds have passed since the last kill, and if so increments streakCount. If it reaches 2 or more, it pops a popNumber on the player's PrimaryPart saying \\u{1F525} Xx COMBO! in Red.
+- In MainUI.client.lua, showNotification grouping is now used correctly. Removed payload.kind grouping from everything that carries a name, figure, or refusal (fixing the previous agent's accidental grouping of everything).
+- Added groupId = "petDrop" to the worldPopup call for petDrop, and passed it through worldPopup to showNotification(text, color, 2, groupId) as a fallback for when the player has no head (e.g. mid-respawn) so it can be grouped in the toast stack.
+
+**List of toast kinds and whether they group:**
+- diamond: grouped - just an amount, identical toasts merge into one line.
+- petDrop: grouped - as explicitly requested; drops often stack out of bosses/chests so grouping prevents spam.
+- upgrade: ungrouped - carries a specific upgrade name.
+- evolve: ungrouped - carries the new pet's name/stage.
+- character: ungrouped - carries the new form's name.
+- questComplete: ungrouped - carries the quest name.
+- zone: ungrouped - carries the zone name.
+- use: ungrouped - carries the new tier/enchant name.
+- enchant: ungrouped - carries the rolled/kept enchant name.
+- stageMastery: ungrouped - carries the stage name.
+- sword: ungrouped - carries the sword name and damage figure.
+- diamondUpgrade: ungrouped - carries the diamond upgrade name.
+- potion: ungrouped - carries the potion effect text.
+- playtimeGift: ungrouped - carries the playtime figure (e.g., 30 min).
+- ossRevive: ungrouped - carries the boss name.
+- 
+elic: ungrouped - carries the relic name.
+- inviteReward: ungrouped - carries the reward message (figure/name).
+- error: ungrouped - carries a failure message (refusal).
+
+All files lint clean (luastruct, luascope, luaregs, luaremotes). MainUI.client.lua remains at 147 of 200 registers.

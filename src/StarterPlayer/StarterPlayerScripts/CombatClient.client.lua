@@ -23,7 +23,9 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local updateStreak
 local UserInputService = game:GetService("UserInputService")
+
 local Debris = game:GetService("Debris")
 local RS = game:GetService("ReplicatedStorage")
 
@@ -1705,6 +1707,27 @@ local function showReviveOffer(name, pct, held)
 	task.delay(REVIVE_TTL, hideReviveOffer)
 end
 
+local streakCount = 0
+local lastKillTime = 0
+
+updateStreak = function()
+	local now = tick()
+	-- Decays after 3 seconds of no kills
+	if now - lastKillTime < 3.0 then
+		streakCount += 1
+	else
+		streakCount = 1
+	end
+	lastKillTime = now
+	
+	if streakCount > 1 then
+		local char = player.Character
+		if char and char.PrimaryPart then
+			popNumber(char.PrimaryPart, "\u{1F525} " .. streakCount .. "x COMBO!", UITheme.Color.Red, true)
+		end
+	end
+end
+
 CombatFx.OnClientEvent:Connect(function(fx)
 	if type(fx) ~= "table" then return end
 	-- handled before the Vector3 check: a bar update carries no position, it is not a hit at a place
@@ -1774,6 +1797,9 @@ CombatFx.OnClientEvent:Connect(function(fx)
 	end
 
 	if mine then
+		if kill and updateStreak then
+			updateStreak()
+		end
 		-- before the DNA pop, so the two numbers do not start on the same frame in the same place:
 		-- the crystal spends its first four tenths of a second climbing out of the corpse while the
 		-- DNA figure rises off it, and its own "+1" is drawn a second later at the player

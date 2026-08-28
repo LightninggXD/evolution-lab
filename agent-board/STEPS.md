@@ -990,7 +990,7 @@ before and after, and the grep that proves each new panel is required from somew
 you could not do, say so plainly and leave it undone** -- a row reading `LEFT: the emote icon has
 nowhere on the HUD that does not collide with TileColumnFit, here is what I measured` is worth more
 than a guess I have to unpick.
-## S24 | 34.8 -- the kill streak is a local nothing assigns, and only ONE toast in the game groups
+## S24 | DONE | 34.8 -- the kill streak is a local nothing assigns, and only ONE toast in the game groups
 - **Owner:** Gemini
 - **Depends:** none
 - **Check:** `grep -n "updateStreak" src/StarterPlayer/StarterPlayerScripts/CombatClient.client.lua` shows an ASSIGNMENT and not only the declaration and the call; `tools/luastruct.py`, `luascope.py`, `luaregs.py`, `luaremotes.py` clean on every file you touch; `MainUI`'s register count unchanged at 148 of 200 (read it with `luaregs.py`, do not estimate); and every claim below answered with the grep that proves it
