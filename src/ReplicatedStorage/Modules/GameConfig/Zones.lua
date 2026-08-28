@@ -368,6 +368,38 @@ function GameConfig.GetTotalZoneBonusPct(unlockedZoneKeys)
 	return total
 end
 
+-- ===== WEATHER: WHICH ZONES HAVE ONE, AND IN WHAT COLOUR (34.7) =====
+--
+-- Particles only. Nothing here touches damage, income, movement or spawning -- weather is world
+-- depth, and a zone with weather must play exactly like the same zone without it.
+--
+-- THE NINE ZONES THAT ARE NOT LISTED HAVE CLEAR SKY ON PURPOSE. Weather in all twenty would read
+-- as a filter over the game rather than as a place having its own air; the gaps are what make
+-- walking into the Volcano's ash mean something. The Moon is the pointed one: it is the only zone
+-- whose emptiness is a fact about the place rather than a choice, so it must never get any.
+--
+-- `kind` is a key of `WeatherLibrary.Kinds` (rain / ash / dust / motes) and `color` (optional)
+-- replaces that kind's own tint. Five zones wear `motes` and they would otherwise be the same
+-- gold in every one; the tint is what makes the Nebula's drift read as the Nebula's.
+GameConfig.ZoneWeather = {
+	Forest          = { kind = "rain" },
+	Desert          = { kind = "dust" },
+	Ocean           = { kind = "rain",  color = Color3.fromRGB(120, 185, 220) },  -- a squall off the water
+	Volcano         = { kind = "ash" },
+	Mars            = { kind = "dust",  color = Color3.fromRGB(210, 130, 95) },   -- red grit, not desert sand
+	Galaxy          = { kind = "motes", color = Color3.fromRGB(190, 165, 255) },
+	Nebula          = { kind = "motes", color = Color3.fromRGB(235, 150, 230) },
+	QuantumRealm    = { kind = "motes", color = Color3.fromRGB(140, 235, 235) },
+	AntimatterZone  = { kind = "ash" },                                           -- embers, same fall, hotter ground
+	DreamDimension  = { kind = "motes", color = Color3.fromRGB(205, 165, 255) },
+	CelestialThrone = { kind = "motes" },                                         -- the gold the kind is built around
+}
+
+-- nil means clear sky, which is most of the strip. Callers must handle nil rather than defaulting.
+function GameConfig.GetZoneWeather(zoneKey)
+	return zoneKey and GameConfig.ZoneWeather[zoneKey] or nil
+end
+
 -- ===== SECRETS: A HIDDEN SPOT THAT PAYS A MUTATION =====
 --
 -- `offset` is ZONE-LOCAL: the trigger is built at `Vector3.new(zone.offset, 0, 0) + offset`, and

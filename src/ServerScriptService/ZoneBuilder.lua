@@ -92,7 +92,7 @@ local ZoneBuilder = {}
 -- every egg stall 575 studs from its own village and each egg split into two halves. The code is
 -- fixed (`ZoneKit.withFrame`), but a world already on disk carries the damage and the guard below
 -- only rebuilds when the stamp moves, so the stamp moves.
-local BUILD_VERSION = 139
+local BUILD_VERSION = 140
 
 -- ================= the build vocabulary =================
 -- THE KIT LEFT THIS FILE (18.9). `newPart` -- with the shadow-by-size rule and the
@@ -1858,108 +1858,45 @@ local function keepShellLoaded(zonesFolder)
 	return shell
 end
 
+-- ===== WEATHER IS A STAMP ON THE ZONE, NOT A PART IN IT (34.7 / 34.15) =====
+--
+-- This used to build a 1500 x 1246 stud sheet 120 studs over the crest and hang one
+-- ParticleEmitter on it. Two things were wrong with that and both are worth keeping written down.
+--
+-- THE PART WAS A FLOOR. `CanCollide = false` and `Transparency = 1` make a part you cannot touch
+-- and cannot see; they do NOT make one a raycast cannot find, because `CanQuery` defaults to true.
+-- Every pass in this game that seats something on the ground rays DOWNWARD from above, so the
+-- first thing they met was this sheet and they reported the floor at y 198.50: the egg columns
+-- were seated in the sky on every boot (`198.5/+200.1`) and the adventure board with them
+-- (`the ray landed on Workspace.Zones.Forest.WeatherEmitter`). It was read as two separate bugs in
+-- two separate rows. See [[roblox-canquery-ignored-when-collides]] for the half of that rule which
+-- does NOT apply here -- CanQuery is honoured precisely because CanCollide is already false.
+--
+-- AND IT DREW NOTHING ANYWAY. ~1,000 live particles spread over 1,869,000 square studs is twenty
+-- specks anywhere in a 200 x 200 view, and both of its textures (`6327318357`, `243082902`) fail
+-- to load in this place at all -- measured on the running client, `IsLoaded = false` for both.
+-- The weather is a camera-sized volume on the client now (`WeatherClient` + `WeatherLibrary`), so
+-- what the server owes it is the DECISION, not the geometry: the zone model carries the kind and
+-- the tint as attributes, and a rebuild carries them with it.
+local function buildWeather(model, zone, cx)
+	local weather = GameConfig.GetZoneWeather(zone.key)
+	if not weather then return end
+
+	model:SetAttribute("Weather", weather.kind)
+	if weather.color then
+		model:SetAttribute("WeatherColor", weather.color)
+	end
+	-- The client picks the nearest weather zone by this number rather than by the model's own
+	-- bounding box: a zone model runs ~1230 studs wide once the rampart and the backdrop mesas are
+	-- counted, and asking for a box costs a walk over every part in it on a client that is still
+	-- streaming them in.
+	model:SetAttribute("WeatherX", cx)
+end
+
 -- Moves (or creates) the one canonical SpawnLocation onto the Forest arrival clearing. Called at
 -- the end of Build(), so the Forest floor it stands on already exists. Any extra SpawnLocations
 -- are removed -- Roblox picks between them at random, so a stray one left in the Forest monument
 -- footprint would still strand a share of players inside the shop.
-local function buildWeather(model, zone, cx)
-	local particleTexture = nil
-	local color = ColorSequence.new(Color3.new(1,1,1))
-	local size = NumberSequence.new(1)
-	local speed = NumberRange.new(50, 60)
-	local transparency = NumberSequence.new(0)
-	local lifetime = NumberRange.new(4, 5)
-	local rate = 100
-	local accel = Vector3.new(0, -10, 0)
-	local emitDir = Enum.NormalId.Bottom
-
-	if zone.key == "Forest" then
-		particleTexture = "rbxassetid://6327318357"
-		color = ColorSequence.new(Color3.fromRGB(150, 180, 255))
-		size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0.4)})
-		speed = NumberRange.new(80, 100)
-		transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 1),
-			NumberSequenceKeypoint.new(0.1, 0.6),
-			NumberSequenceKeypoint.new(0.9, 0.6),
-			NumberSequenceKeypoint.new(1, 1)
-		})
-		lifetime = NumberRange.new(2, 3)
-		rate = 400
-		accel = Vector3.new(0, -50, 0)
-	elseif zone.key == "Volcano" then
-		particleTexture = "rbxassetid://243082902"
-		color = ColorSequence.new(Color3.fromRGB(255, 120, 60))
-		size = NumberSequence.new(0.8, 1.5)
-		speed = NumberRange.new(5, 15)
-		transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 1),
-			NumberSequenceKeypoint.new(0.2, 0.3),
-			NumberSequenceKeypoint.new(0.8, 0.3),
-			NumberSequenceKeypoint.new(1, 1)
-		})
-		lifetime = NumberRange.new(8, 12)
-		rate = 150
-		accel = Vector3.new(0, -2, 0)
-	elseif zone.key == "CelestialThrone" then
-		particleTexture = "rbxassetid://243082902"
-		color = ColorSequence.new(Color3.fromRGB(255, 240, 180))
-		size = NumberSequence.new(0.4, 0.8)
-		speed = NumberRange.new(1, 3)
-		transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 1),
-			NumberSequenceKeypoint.new(0.5, 0.2),
-			NumberSequenceKeypoint.new(1, 1)
-		})
-		lifetime = NumberRange.new(10, 15)
-		rate = 100
-		accel = Vector3.new(0, -0.5, 0)
-	end
-
-	if not particleTexture then return end
-
-	local emitterPart = Instance.new("Part")
-	emitterPart.Name = "WeatherEmitter"
-	emitterPart.Size = Vector3.new(1500, 1, TERRAIN_OUTER * 2)
-	local crestY = ZoneTerrain.crestY(zone.key) or 50
-	emitterPart.Position = Vector3.new(cx, crestY + 120, 0)
-	emitterPart.Anchored = true
-	emitterPart.CanCollide = false
-	emitterPart.Transparency = 1
-	emitterPart.CastShadow = false
-	-- ===== THE EGGS WERE STANDING ON THIS, 198 STUDS IN THE SKY (34.15) =====
-	--
-	-- `CanCollide = false` and `Transparency = 1` make a part you cannot touch and cannot see. They
-	-- do NOT make a part a raycast cannot find: `CanQuery` defaults to true, and this one is a
-	-- 1500-stud sheet lying flat 120 studs over the crest. Every pass in this game that seats
-	-- something on the ground does it by raying DOWNWARD from above -- so the first thing the ray
-	-- met was this, and it reported the floor at y 198.50.
-	--
-	-- It put the egg columns in the sky (`seated 3 egg columns ... 198.5/+200.1` on every boot) and
-	-- the adventure board with them (`the ray landed on Workspace.Zones.Forest.WeatherEmitter at
-	-- y = 198.50`), and it was read as two separate bugs in two separate rows.
-	--
-	-- `CanTouch` goes with it: this part exists to carry a ParticleEmitter and nothing else, so it
-	-- has no business answering a query or a touch. See [[roblox-canquery-ignored-when-collides]]
-	-- for the half of this rule that does NOT apply here -- CanQuery is honoured precisely because
-	-- CanCollide is already false.
-	emitterPart.CanQuery = false
-	emitterPart.CanTouch = false
-	emitterPart.Parent = model
-
-	local pe = Instance.new("ParticleEmitter")
-	pe.Texture = particleTexture
-	pe.Color = color
-	pe.Size = size
-	pe.Speed = speed
-	pe.Transparency = transparency
-	pe.Lifetime = lifetime
-	pe.Rate = rate
-	pe.Acceleration = accel
-	pe.EmissionDirection = emitDir
-	pe.Parent = emitterPart
-end
-
 function ZoneBuilder.EnsureSpawn()
 	local spawn
 	for _, d in ipairs(workspace:GetDescendants()) do
