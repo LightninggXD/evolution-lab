@@ -1347,6 +1347,7 @@ Phase 18.
 | 34.34 | `[x]` | **The Diamond pack ladder was flattened, and only the AMOUNTS moved** -- her rule: *"ne treba cena rasti samo koliko dijamanata dobija player"*. Doubling the top two had left R$199 at 0.251 per Robux against R$499's 0.601, a 2.4x step between neighbours that made the three small packs junk. R$99 22 -> 30 and R$199 50 -> 85 close it: the curve is now 0.204 / 0.303 / 0.427 / 0.601 / 0.601 (+0/48/109/195/194%). Not one Robux price changed and not one ribbon was edited -- `GetTierBonusPct` derives them | **the top two rows are still equal value by her own numbers**, so `BEST VALUE` means the bigger purchase rather than the better rate; recorded above the table |
 | 34.35 | `[x]` | **"sta su ove zvezdice" -- the shop typed the currency and the wallet DREW it.** The price caption carried the raw glyph `🌟 500`, which renders as a yellow sun; `MainUI`'s ShardPill carries the same glyph but goes through `IconLibrary`, which swaps it for a drawn shard (`rbxassetid://93975864077659`). Same currency, two pictures, nothing connecting them -- and the player has no way to know the star is the thing in their corner. `UITheme.IconifyLabel` cannot do this one (it refuses anything that is not a LEFT-aligned TextLabel; this is a centred TextButton), so the icon is placed the way `ScrollingPanelBuilder` places its own `ButtonIcon`. Falls back to the glyph when `IconLibrary` has no drawing, never to a blank | live: the button's Image is byte-identical to the wallet pill's, measured, and the capture shows the crystal and the gem on their rows ✅ |
 | 34.36 | `[~]` | **The three road systems OVERLAP, and that is what the seam in her capture is** -- *"ovde se putevi se preklapaju i vode u zid"*. Measured on a live build: 320 `PaintRoad` parts in three systems, each on its own height ladder -- `Jungle` tops at 0.45/0.49 (`MapPaint.Y` + STEP), `VillageGates` at 0.72/0.80, `MapRoad`'s approach ramp 0.74 -> 1.24. Those heights are each **deliberate and documented** (the village ladder has to clear HubPlaza's 1.18 band under its 1.40 ceiling), so the fault is not the heights -- it is that the systems overlap at all: **37 cross-system overlapping pairs, in exactly 2 clusters, both at the village's south gate mouth: (15, -253) worst step 0.35 studs and (-16, -256) worst step 0.43**. Jungle trails are running THROUGH the gate lanes instead of ending at them | measured, NOT fixed: the trails must terminate at the lane edge and join it, and the "into the wall" half is still to be measured |
+| 34.37 | `[x]` | **THE FIVE-TAB SPLIT WAS RENDERED FOR THE FIRST TIME AND THREE FAULTS FELL OUT, TWO OF THEM SPOTTED BY THE OWNER OFF HER OWN SCREEN.** (a) **The tab strip still covered the first card.** S23 pushed the builder's list down by 46 -- the strip's 38 plus the 8 px gutter -- which is the shift you need *if the strip started where the list did*. It does not: the strip is dropped at y = 52 and `ScrollingPanelBuilder` puts its `ScrollingFrame` at y = 20, so the list landed at 66 while the strip runs 52..90. **24 px of overlap, strip at ZIndex 57 against the cards' 53, so the strip won.** Measured live before the fix: list top 179.5, strip bottom 203. `(52 + 38 + 8) - 20 = 78`, and the comment now does the arithmetic against both edges. (b) **`TrailsPanel` and `EmotesPanel` both wore her REBIRTH ARROWS** -- *"trails ima rebirth znak gore"*. `rbxassetid://17009541315` is the rebirth icon and two other files name it as such (`MainUI:1064`, `RebirthPanel:118`); it was copied into both new panels as a placeholder. Trails takes the tab strip's own art through `IconLibrary` so the tab and the header cannot drift, Emotes takes the party popper, and **both titles dropped their glyph** -- a glyph beside a `HeaderIcon` draws the picture twice, which is 34.20 three panels over. (c) **The price drew a SPARKLE where the wallet draws a SHARD** -- *"shard je drugaciji"*. The caption typed the sparkle; an Evolution Shard is the glowing star, and `IconLibrary:272` exists because this game gives the two stars different meanings -- so the shop asked 500 of a currency the corner of the same screen draws as something else. **34.35 for the third time in four days**, same repair: resolve through `IconLibrary` into the builder's own `ButtonIcon`, fall back to the glyph and never to a blank | live captures: the five tabs on Relics and on Trails, the first card clear of the strip (gap +8), the Trails header a sparkle over a plain `TRAILS`, the Emotes header a party popper, and the Galaxy row's button Image measured `rbxassetid://93975864077659` -- byte for byte the ShardPill's. Pushed and hash-verified into Studio (8131 / 6524 / 3665 bytes, all IDENTICAL) ✅ |
 
 **Sequencing.** Nothing here is pre-launch. **Phase 33 stays the open phase** (bugs, map close-out,
 HUD polish) because a launch build with a blocked road is worth less than a launch build without
@@ -1585,6 +1586,35 @@ codebase and adding it is an infrastructure layer, not a feature.
 ---
 
 ## Changelog
+
+- **2026-08-28 (34.37, S23 verified)** — **The cosmetics split was finally RENDERED, and the render
+  found three faults that two code reviews had not.** S23 moved trails and swords onto the Inventory
+  tab strip, plates beside the titles and emotes onto their own HUD tile; R8 audited it on a reading,
+  fixed six defects and said plainly that nothing had been drawn. This is the drawing.
+
+  **The one that matters most is that R8's own fix was off by 32 px.** It pushed the builder's list
+  down by 46 — the strip's 38 plus the 8 px gutter — which is the shift you need *if the strip
+  started where the list did*. It does not: the strip drops in at y = 52 and the builder's
+  `ScrollingFrame` starts at y = 20, so the list landed at 66 while the strip runs 52..90. The strip
+  covered the top 24 px of the first card and, at ZIndex 57 against the cards' 53, it won. Measured
+  on the shipped build before the fix: list top 179.5, strip bottom 203. **The shift is measured
+  between two edges, and taking it from one of them is a whole class of mistake, not a typo:**
+  `(52 + 38 + 8) - 20 = 78`.
+
+  **The owner found the other two in the same minute I did, off her own screen.** Both new panels
+  wore her rebirth arrows as a placeholder header icon — *"trails ima rebirth znak gore"* — an
+  id that two other files name as the rebirth icon in as many words. And the Galaxy Trail asked for
+  500 of a currency it drew as a four-point sparkle while the wallet pill three inches away draws
+  the shard crystal: *"shard je drugaciji"*. That is **34.35 for the third time in four days** — a
+  shop typing the currency where the wallet draws it — and it is now the same repair everywhere:
+  resolve the glyph through `IconLibrary`, place it in the builder's own `ButtonIcon`, fall back to
+  the glyph and never to a blank. The button's Image is now byte-identical to the pill's, measured.
+
+  **The method is worth keeping.** Nothing here was found by reading, and nothing was tested against
+  a hand-edited GUI: each file was fetched over the HTTP bridge into a `StringValue`, built as a
+  probe module beside the shipped one, and photographed — so what the capture shows is the file
+  that ships. `PRESS THE BUTTON` is not enough on its own when a panel is lazily built and the tile
+  is all a capture of the HUD can show; the panel has to be *built from the bytes on disk*.
 
 - **2026-08-28 (34.5, 34.23-34.25)** — **The enchant transfer was a complete feature that no button
   could reach, and the first time it ran for real it billed the owner 1,000 Diamonds and deleted a

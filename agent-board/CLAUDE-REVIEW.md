@@ -1841,3 +1841,57 @@ been pressed, no trail bought, no plate equipped, no emote played, and the 46 px
 against the builder's authored geometry, not a capture. **Press the button** ([[evolution-lab-press-the-button]])
 is the standing rule and this review does not satisfy it: the push below puts the code in Studio, and
 S23 stays `AWAITING-REVIEW` on the render until a client has actually opened all five tabs.
+## S23 | VERIFIED | 2026-08-28T13:43 | R9
+
+*Rendered at last. R8 fixed six defects on a reading and said plainly that nothing had been drawn;
+this is the render, and it found three more -- one of them the very fault R8 thought it had fixed.*
+
+**MEASURED, on a live Play client, from the disk copy of each file** (fetched over the HTTP bridge
+into a `StringValue`, built as a probe module beside the shipped one, so what was photographed is
+the file that ships and not an approximation of it):
+
+- The five tabs draw across all five panels: `Pets | Potions | Relics | Trails | Sword`, each with
+  its drawn icon and its own accent, the active one lit. Captured on the Relics board and on Trails.
+- `TrailsPanel` builds 5 cards, `SwordPanel` 10, `EmotesPanel` 3. Every caption reads in full.
+- `MainUI` is at **148 registers, 52 of headroom** -- flat, as Gemini reported.
+
+**THE THREE FAULTS, all three visible only in a render:**
+
+1. **THE TAB STRIP STILL COVERED THE FIRST CARD -- R8's own fix, off by 32 px.** R8 moved the
+   builder's `List` down by 46 and reasoned `46 = the strip's 38 + the 8 px gutter`. That is the
+   shift you need *if the strip started where the list did*. It does not: the strip is dropped at
+   y = 52 and the builder puts its `ScrollingFrame` at y = 20, so the list landed at 66 while the
+   strip runs 52..90 -- **24 px of overlap, at ZIndex 57 against the cards' 53, so the strip won**.
+   Measured on the shipped build before the fix: list top y = 179.5, strip bottom y = 203. The
+   number is `(52 + 38 + 8) - 20 = 78`, and the arithmetic is now written out against both edges
+   rather than against one. After: gap = +8, the gutter exactly.
+
+2. **`TrailsPanel` AND `EmotesPanel` BOTH WORE HER REBIRTH ARROWS** -- the owner caught this in the
+   same minute I did, off her own screen: *"trails ima rebirth znak gore"*.
+   `rbxassetid://17009541315` is the rebirth icon and two other files say so in as many words
+   (`MainUI:1064` names it `Rebirth`, `RebirthPanel:118` calls it *"her rebirth arrows"*). It was
+   copied into both new panels as a placeholder and never replaced. Trails takes the tab strip's own
+   art now -- `IconLibrary.Resolve` on the sparkle, the same resolve `InventoryTabs` runs, so the tab
+   and the header cannot drift -- and Emotes takes the party popper. **Both titles also dropped
+   their glyph**: a glyph beside a `HeaderIcon` draws the picture twice, which is 34.20, three
+   panels over.
+
+3. **THE PRICE DREW A SPARKLE WHERE THE WALLET DRAWS A SHARD** -- the owner again, *"shard je
+   drugaciji"*. The caption typed the sparkle; an Evolution Shard is the glowing star, and
+   `IconLibrary`'s note at :272 exists precisely because **this game gives the two stars different
+   meanings**. So the shop asked 500 of a currency the corner of the same screen draws as something
+   else. This is 34.35 -- the shop typing the currency where the wallet draws it -- for the third
+   time in four days, and the repair is the same one: resolve the glyph through `IconLibrary`, put
+   it in the builder's own `ButtonIcon`, fall back to the glyph and never to a blank. **Measured:
+   the button's Image is `rbxassetid://93975864077659`, byte for byte the ShardPill's**, and the
+   caption is the bare number. `SetIcon("")` on the EQUIP/UNEQUIP branches so a word never keeps a
+   currency icon.
+
+**Pushed and hash-verified into Studio:** `InventoryTabs` 8131 bytes, `TrailsPanel` 6524,
+`EmotesPanel` 3665 -- all three IDENTICAL to disk. Full sweep: 203 of 206 matched before the push,
+those 3 after.
+
+**STILL NOT VERIFIED, named rather than implied:** no trail has been BOUGHT through this panel (the
+owner has 39 shards against a 500 price, so the Galaxy row is correctly grey and the purchase path
+is untested from the button); no emote has been played from the new panel; no second client has seen
+a trail or a plate; and the Name Plates section of `AchievementsPanel` has not been rendered.

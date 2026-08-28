@@ -538,7 +538,8 @@ mojibake (UTF-8 read as cp1252, written back) and **24 were not byte-reversible*
 
 * Read and write this file as **UTF-8 explicitly**. Never let a tool guess the codepage.
 * After you write it, **re-read it and print the codepoint of all 149 `emoji` fields**. Paste that
-  list. If any line shows `Ã` or `â€` you have already destroyed it -- `git checkout -- src/` and
+  list. If any line shows a capital A-tilde or an a-circumflex followed by the euro sign -- the
+  two tells of UTF-8 read as cp1252 -- you have already destroyed it:  and
   start again.
 * `board.py sync` refuses a commit that carries mojibake markers. Do not work around the guard.
 
@@ -989,3 +990,68 @@ before and after, and the grep that proves each new panel is required from somew
 you could not do, say so plainly and leave it undone** -- a row reading `LEFT: the emote icon has
 nowhere on the HUD that does not collide with TileColumnFit, here is what I measured` is worth more
 than a guess I have to unpick.
+## S24 | 34.8 -- the kill streak is a local nothing assigns, and only ONE toast in the game groups
+- **Owner:** Gemini
+- **Depends:** none
+- **Check:** `grep -n "updateStreak" src/StarterPlayer/StarterPlayerScripts/CombatClient.client.lua` shows an ASSIGNMENT and not only the declaration and the call; `tools/luastruct.py`, `luascope.py`, `luaregs.py`, `luaremotes.py` clean on every file you touch; `MainUI`'s register count unchanged at 148 of 200 (read it with `luaregs.py`, do not estimate); and every claim below answered with the grep that proves it
+
+**DISK ONLY. No Studio, no captures, no Play.** Those are mine and I will run them against what you
+write. Do not touch `TrailsPanel`, `EmotesPanel` or `InventoryTabs` -- I pushed all three into
+Studio an hour ago and a disk edit under them puts the two copies out of step. Do not touch
+`ZoneBuilder`. If you need a change in one of those, write the request into `GEMINI-LOG.md` and I
+will make it.
+
+### What is actually there, measured on disk today
+
+Roadmap **34.8** reads *"a streak counter that decays, and the notify stack collapsing a burst into
+one line"*. Half of it was written during S20, and neither half is finished:
+
+| Piece | State |
+|---|---|
+| `CombatClient:26` `local updateStreak` | **declared and never assigned.** So `CombatClient:1778` `if kill and updateStreak then` is `if kill and nil then` -- dead on every kill since the day it was written, and it compiles, lints and reads as working code |
+| `MainUI:3439` `showNotification(text, color, rank, groupId)` | the grouping IS built and it works -- it finds a live toast carrying the same `GroupId`, bumps a `Multiplier` attribute, rewrites `Body` to `"Nx <text>"` and pops it |
+| callers passing a `groupId` | **exactly one in the whole game**, `kind == "diamond"`. Every other burst still stacks N separate toasts |
+
+So this row is not "build a feature". It is **arm the one that exists and give the other one a
+value**, and the interesting half is deciding *which* toasts group.
+
+### What you are building
+
+1. **Assign `updateStreak`.** It is called at `CombatClient:1778`, inside the kill branch of the FX
+   handler. Read that whole block first: the note above it explains why the kill FX is deduped, and
+   your counter must count KILLS, not FX frames. The streak is `+1` per kill and **decays to 0 after
+   4 s with no kill** -- one `task.delay` guarded by a generation counter, never a per-kill timer. A
+   burst of six kills must not leave six timers racing. Nothing here is server-authoritative: it is
+   a number on one player's own screen and the server already pays the kill. **Do not add a remote.**
+
+2. **Draw it where this game already draws combat feedback**, which is the world and not the screen
+   centre -- that is the standing rule, and `CombatClient` already obeys it (the DNA pop is drawn
+   over the corpse). A streak of 1 or 2 draws NOTHING. From 3 up it rides the existing kill pop as a
+   second line (`3x STREAK`), climbing in weight, and it lives and dies inside `CombatClient`: **no
+   new ScreenGui, and nothing in `MainUI`.**
+
+3. **Give the burst toasts a `groupId`.** Walk the branch list under `Remotes.Notify.OnClientEvent`
+   at `MainUI:4255` and pass a 4th argument on the kinds that ARRIVE IN BURSTS and say the same
+   thing each time. `petDrop` is the obvious second one after `diamond`. **A kind carrying a name or
+   a figure that differs per event must NOT group** -- `"5x NEW CHARACTER!"` would be a lie about
+   five different characters. Write the list you chose into the log with one line of reason per
+   kind, including the ones you deliberately left alone. Getting that list wrong is the whole risk
+   in this step, and it is a judgement, not an arithmetic.
+
+### The traps that have caught this exact work before
+
+- **A `local x` with no assignment is invisible to every lint we own.** That is precisely what this
+  row is. When you finish, grep your own new locals the same way: a declaration, an assignment, a
+  use -- all three, by name.
+- **`MainUI` is at 148 registers of 200 and one more TOP-LEVEL local deletes the entire HUD.** The
+  helpers inside `showNotification` are nested for exactly that reason and the comment at :3425 says
+  so. Anything you add in there stays nested.
+- **A `task.delay` per event is how a decaying counter becomes six racing timers.** Guard it with a
+  generation number, not with `if streak > 0`.
+- **Check every dotted field you did not write against the module that owns it.** Sixth time.
+
+### What to report in `GEMINI-LOG.md`
+
+The files you touched; `MainUI`'s register count before and after, read with `luaregs.py`; the grep
+showing `updateStreak` assigned; the list of kinds you gave a `groupId`, with the reason for each
+and for each one you left ungrouped; and anything you could not do, said plainly and left undone.

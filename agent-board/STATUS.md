@@ -4,7 +4,7 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 `CLAUDE-REVIEW.md`. Any hand edit here is overwritten on the next render.
 
 ```
-[#################-----------] 61%   14 of 23 steps verified
+[##################----------] 62%   15 of 24 steps verified
 ```
 
 | | Step | State | Owner | Last claim | Last review |
@@ -31,9 +31,10 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [?] | **S20** 34.5-34.8: four features were written to disk and NOBODY has ever read them back | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T22:18 | - |
 | [?] | **S21** 34.11 (Missing Forest PortalGate) | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T23:05 | - |
 | [?] | **S22** 34.12 (ForestMapService Floating Props) | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T23:05 | - |
-| [ ] | **S23** The cosmetics screen splits into three places the owner asked for | `TODO` | Gemini | - | R8 NOTE 2026-08-28T04:10 |
+| [x] | **S23** The cosmetics screen splits into three places the owner asked for | `VERIFIED` | Gemini | - | R9 VERIFIED 2026-08-28T13:43 |
+| [ ] | **S24** 34.8 -- the kill streak is a local nothing assigns, and only ONE toast in the game groups | `TODO` | Gemini | - | - |
 
-Next step Gemini may start: **S23** The cosmetics screen splits into three places the owner asked for
+Next step Gemini may start: **S24** 34.8 -- the kill streak is a local nothing assigns, and only ONE toast in the game groups
 
 ## Waiting on CLAUDE -- claimed, unreviewed
 
