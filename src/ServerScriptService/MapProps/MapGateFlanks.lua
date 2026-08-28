@@ -170,6 +170,50 @@ local RAMPART_X_MAX = 320          -- the band ends where the survey's bare run 
 local RAMPART_GATE_MARGIN = 2
 local RAMPART_SINK = 10
 
+-- ===== THE PLATE, AND WHY THE RAMPART ALONE COULD NEVER FINISH THE JOB =====
+-- The size-ramp block above ends by admitting the residual cannot reach zero: a cone recedes, so
+-- the crag standing at the gate leaves `w * (h + S) / (T + S)` studs of wall bare at height `h`,
+-- and the only rock with no recession is one with VERTICAL SIDES. That was written down and left
+-- for the roadmap; the capture is what forced it. Photographed from the row's own eye
+-- (0, 25, -240) at FOV 32: two flat panels either side of her arch, grey over the zone's salmon
+-- plate, running from the ground to the top of frame -- the boundary wall's own face, dead centre
+-- of what a player walks toward. The survey called it 22 of 840 cells and it dominates the picture,
+-- because `DOOR_HALF` is 55 and the strip is two grid columns of a survey that spans 800 studs.
+--
+-- So one plate run per side fills exactly that strip: inner edge on the same gate line the crags
+-- use, outer edge at the FIRST CRAG'S OWN silhouette where it crosses the wall's top edge. Both
+-- numbers are measured off the rock that actually stood up rather than assumed, which is the same
+-- guarantee `keepClearOfLane` and the crag seating make, and for the same reason -- a stock that
+-- draws wide would otherwise leave a seam this file cannot see.
+--
+-- TWO PLATES, NOT ONE, with the top jittered upward per plate. `MapWaterfall.buildRidge` made this
+-- judgement first and its comment is the whole argument: a single slab per row reads as a wall
+-- somebody built, and the thing it has to read as is rock.
+local RAMPART_PLATES_PER_SIDE = 2
+local RAMPART_PLATE_DEPTH = 9
+-- ===== AND THE PLATE HUGS THE WALL, WHERE THE CRAGS STAND 12 STUDS OFF IT =====
+-- Measured, not assumed. With the plates in at `RAMPART_IN_FRONT` the wall-flagging capture still
+-- showed a bright sliver of plate-free wall about 5 studs wide against each arch leg, and PARALLAX
+-- is the whole of it: from the judging eye 335 studs out, an inner edge at x 55 standing 12 studs
+-- in front of the wall covers the wall plane only from x 56.9 outward. The nearer a plate stands to
+-- the surface it is hiding, the less of that surface its own edge gives away.
+--
+-- It is the one direction that is FREE. Moving a plate backwards can never put it in front of the
+-- gate, which is the single failure this file has already shipped twice (see RAMPART_GATE_MARGIN);
+-- moving its inner edge inward could. So the parallax is paid off with depth rather than with the
+-- gate margin, and the margin stays where the argument put it.
+--
+-- 6, not 0: the wall is 4 studs thick about its plane, so this seats the plate's back face just
+-- inside it. A plate that merely touched would show a hairline of wall at any yaw at all.
+local RAMPART_PLATE_IN_FRONT = 6
+local RAMPART_PLATE_SINK = 6
+local RAMPART_PLATE_YAW = 0.05     -- radians; taken off the seating below, never ignored
+-- The plate must MEET the crag's silhouette, not stop at it -- a hairline of wall between the two
+-- is the same fault at a fortieth of the width, and it is the one thing no survey grid at 10-stud
+-- spacing would ever sample.
+local RAMPART_PLATE_OVERLAP = 7
+local RAMPART_PLATE_TOP_JITTER = 18
+
 -- ===== FLANKS =====
 local FLANK_COUNT = 8                     -- four a side, staggered near-to-far
 local FLANK_X_MIN, FLANK_X_MAX = 56, 126  -- outside the arch legs, inside the 132 keep-clear
@@ -274,6 +318,21 @@ local function stretchTo(m, base, target)
 	end
 end
 
+-- The plate is the same rock as the range beside it, and that is READ off the stock rather than
+-- picked: a hand-chosen slate next to a mesh whose colour comes from the zone is a grey box beside
+-- a brown mountain. Largest part wins, because these stocks carry small trim parts.
+local function rockLook(proto)
+	local best, area = nil, -1
+	for _, d in ipairs(proto:GetDescendants()) do
+		if d:IsA("BasePart") then
+			local a = d.Size.X * d.Size.Y
+			if a > area then best, area = d, a end
+		end
+	end
+	if not best then return Color3.fromRGB(120, 118, 124), Enum.Material.Slate end
+	return best.Color, best.Material
+end
+
 -- One gate's rampart. Returns how many crags stood up and the top they were asked for, so the boot
 -- line can carry both -- a count alone cannot tell a rampart that is too short from one that is
 -- absent, which is the exact failure `MapPassDress`'s dead skyline test used to hide.
@@ -285,7 +344,12 @@ local function rampart(dress, proto, rng, zoneModel, sign)
 	local need = MapPassDress.NeedToClear(VIEW_Y, sign * -VIEW_Z_ABS, z)
 	local floor = math.max(need * RAMPART_RISE, gateTop * RAMPART_FRAME_RISE)
 	local made, capped, tallest = 0, 0, 0
+	local plates, bare = 0, 0
+	local plateColor, plateMaterial = rockLook(proto)
 	for _, side in ipairs({ -1, 1 }) do
+		-- The first crag of this side, kept because the plate's WIDTH is its recession and nothing
+		-- else. Captured at the moment it is stretched, so it is the rock standing there.
+		local firstRx, firstTop = nil, nil
 		-- Inner edge off the gate's OWN measured stonework on THIS side, not off a symmetric
 		-- assumption: the +Z gate measures x -120..110 and is 10 studs off centre.
 		local limit = math.abs(side > 0 and mxx or mnx) + RAMPART_GATE_MARGIN
@@ -332,6 +396,7 @@ local function rampart(dress, proto, rng, zoneModel, sign)
 			-- The stretch happens AFTER seating, so it works on the rock standing there --
 			-- `MapHorizon.hill` keeps the same ordering for the same reason.
 			stretchTo(m, -RAMPART_SINK, want)
+			if not firstRx then firstRx, firstTop = rx, want end
 			tallest = math.max(tallest, want)
 			for _, d in ipairs(m:GetDescendants()) do
 				if d:IsA("BasePart") then
@@ -349,9 +414,50 @@ local function rampart(dress, proto, rng, zoneModel, sign)
 			-- push included -- `x` is the centre before the guarantee ran, so it is not the answer.
 			edge = (math.abs(x) + spill - rx) + step
 		end
+
+		-- ===== AND NOW THE STRIP THE CRAG CANNOT REACH =====
+		-- `firstRx` is the crag's half-width at its BASE and `firstTop` its peak, so where its
+		-- silhouette crosses the wall's top edge it has receded by exactly this much. That distance
+		-- IS the bare strip, so it is also the plate run's width -- derived, never chosen.
+		if firstRx then
+			local cover = firstRx * (WALL.h + RAMPART_SINK) / (firstTop + RAMPART_SINK)
+			bare = math.max(bare, cover)
+			local runW = cover + RAMPART_PLATE_OVERLAP
+			local w = runW / RAMPART_PLATES_PER_SIDE
+			for i = 1, RAMPART_PLATES_PER_SIDE do
+				local top = floor + rng:NextNumber(0, RAMPART_PLATE_TOP_JITTER)
+				local yaw = rng:NextNumber(-RAMPART_PLATE_YAW, RAMPART_PLATE_YAW)
+				local q = Instance.new("Part")
+				q.Name = "GateRampartPlate"
+				q.Anchored = true
+				-- Skyline, exactly like the crags: the wall behind it is the barrier, and a
+				-- collider here would put a box beside a doorway players walk through.
+				q.CanCollide = false
+				q.CanQuery = false
+				q.CastShadow = false
+				q.Material = plateMaterial
+				-- alternating hair-darker, so two plates read as two rocks and not as one slab
+				q.Color = plateColor:Lerp(Color3.new(0, 0, 0), (i % 2) * 0.07)
+				q.Size = Vector3.new(w + 2, top + RAMPART_PLATE_SINK, RAMPART_PLATE_DEPTH)
+				-- The yaw is PAID FOR rather than ignored: a rotated box is wider on X by its own
+				-- depth times sin(yaw), and the whole point of a plate is that its inner edge lands
+				-- exactly on the gate line. Measure the rotated half-extent, then solve the centre.
+				local c, sn = math.cos(yaw), math.abs(math.sin(yaw))
+				local halfX = (q.Size.X / 2) * c + (q.Size.Z / 2) * sn
+				local inner = limit + (i - 1) * w
+				q.CFrame = CFrame.new(
+					side * (inner + halfX),
+					q.Size.Y / 2 - RAMPART_PLATE_SINK,
+					sign * (WALL.z - RAMPART_PLATE_IN_FRONT) + rng:NextNumber(-1, 1))
+					* CFrame.Angles(0, yaw, 0)
+				q.Parent = dress
+				plates += 1
+			end
+		end
 	end
-	return made, tallest, ("gate x %.0f..%.0f top %.0f; sight line asks %.0f, %d capped at %d")
-		:format(mnx, mxx, gateTop, need, capped, RAMPART_TOP_MAX)
+	return made, tallest, ("gate x %.0f..%.0f top %.0f; sight line asks %.0f, %d capped at %d; "
+		.. "%d plate(s) over a %.0f-stud recession")
+		:format(mnx, mxx, gateTop, need, capped, RAMPART_TOP_MAX, plates, bare)
 end
 
 function MapGateFlanks.Init(zoneKey, cx, map)
