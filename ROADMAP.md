@@ -1358,6 +1358,8 @@ blockers except product ids), with **34.3 waiting on 22.3** and **34.6–34.8** 
 polish pass is running. 34.9 waits for data by design.
 
 ---
+| 34.40 | `[ ]` | **Five equipped pets carry 68 enabled emitters of golden "windspin" ribbon, and they sit permanently across the middle of the screen.** Counted on the running client 2026-08-28 (`workspace.EquippedPets.*.Body.MutationAura.Windspin1..5` plus `sparkles` / `sparks` / `Impact1..2` per pet): every ambient-VFX judgement this session had to silence them first, and what the player sees behind them is the game. It is a MUTATION aura, so it is also a reward the owner may want loud -- this is a row to LOOK at it with her, not a bug to quietly turn down | a capture of the village with pets equipped, beside the same shot with the auras off, and her call on the density |
+| 34.41 | `[ ]` | **`SetAudioVolumes` is a server listener nothing can ever fire.** `PlayerDataService.Init:841` still creates the remote and connects `handleSetAudio`; the only client that fired it was the Audio panel deleted in 34.38. `luaremotes.py` reports it as "the server listens for it and NO CLIENT EVER FIRES IT". `data.AudioVolumes` is still saved and clamped and `SoundLibrary.Init` reads it, so the field stays -- what goes is the remote and its handler, or the row is closed by writing down why they are kept | the lint is clean of this line, and a Play boot still mixes audio |
 
 ## 👤 Owner action checklist
 
