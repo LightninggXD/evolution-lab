@@ -809,43 +809,24 @@ function PlayerDataService.UpdateLeaderstats(player)
 	end
 end
 
--- ===== THE ONE SETTING THE CLIENT IS ALLOWED TO WRITE =====
+-- ===== THE CLIENT WRITES NOTHING HERE ANY MORE (34.41) =====
 --
--- Every other write to `data` in this game is server-authoritative. Audio levels are the deliberate
--- exception: a volume fader is worth nothing to cheat, and routing four numbers through a service
--- would be ceremony around a preference.
+-- Audio levels used to be the one setting the client was allowed to write: `SetAudioVolumes` came
+-- down a RemoteEvent, was NaN-tested and clamped, and landed in `data.AudioVolumes`. 34.38 deleted
+-- the Audio tile and the panel behind it -- Roblox's own Esc menu already gives every player a
+-- master volume -- and that panel was the only thing in the game that ever fired the remote.
+-- `luaremotes.py` reported what was left as "the server listens for it and NO CLIENT EVER FIRES
+-- IT", so the remote and its handler go with the panel. A live RemoteEvent with an OnServerEvent
+-- connection is a door into the save table; leaving one open for a feature that no longer exists
+-- buys nothing and has to be re-read by everyone who audits this file.
 --
--- Validated anyway, because "worth nothing to cheat" is not the same as "safe to store". Anything at
--- all can come down a RemoteEvent, and this table goes into a DataStore -- unchecked, that is how a
--- save ends up holding a megabyte of string under a key nobody looks at, or a NaN the client later
--- multiplies a SoundGroup by. Note `value == value`: that is the NaN test, and math.clamp passes NaN
--- straight through.
-local AUDIO_KEYS = { Master = true, SFX = true, UI = true, Ambience = true }
-
-local function handleSetAudio(player, payload)
-	local data = PlayerDataService.Cache[player.UserId]
-	if not data or type(payload) ~= "table" then return end
-	if type(data.AudioVolumes) ~= "table" then
-		data.AudioVolumes = { Master = 1, SFX = 1, UI = 1, Ambience = 1 }
-	end
-	for key, value in pairs(payload) do
-		if AUDIO_KEYS[key] and type(value) == "number" and value == value then
-			data.AudioVolumes[key] = math.clamp(value, 0, 1)
-		end
-	end
-	-- deliberately NOT pushed back to the client: it is the client's own value coming home, and a
-	-- DataUpdate landing mid-drag would fight the fader the player is still holding
-end
+-- `data.AudioVolumes` STAYS, in the defaults (see `Defaults` above) and in the migration clamp. It
+-- costs four numbers, it keeps the save shape stable for every save that already holds it, and if a
+-- volume board ever comes back it comes back to a field that is already there. Nothing reads it
+-- today either: `SoundLibrary.Init` is called with no argument since 34.38, deliberately, so a save
+-- muted through the old board is not silent forever with no UI left to unmute it.
 
 function PlayerDataService.Init()
-	local setAudio = Remotes:FindFirstChild("SetAudioVolumes")
-	if not setAudio then
-		setAudio = Instance.new("RemoteEvent")
-		setAudio.Name = "SetAudioVolumes"
-		setAudio.Parent = Remotes
-	end
-	setAudio.OnServerEvent:Connect(handleSetAudio)
-
 	Players.PlayerAdded:Connect(function(player)
 		local data = PlayerDataService.Load(player)
 		-- nil means the player was kicked or left during the read. Everything below would index it.
