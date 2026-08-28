@@ -34,6 +34,7 @@ local Remotes = RS.Remotes
 
 local formatNumber, corner, themeLabel, styleCard = UIKit.formatNumber, UIKit.corner, UIKit.themeLabel, UIKit.styleCard
 local styleButton, setButtonColor = UIKit.styleButton, UIKit.setButtonColor
+local IconLibrary = require(RS.Modules:WaitForChild("IconLibrary"))
 
 return function(hud)
 	local screenGui = hud.screenGui
@@ -132,14 +133,45 @@ return function(hud)
 		-- Name Plate costs Diamonds, and an Emote is FREE. `GetCosmeticPrice` is the one place that
 		-- decides, and `CosmeticService` charges off the same call -- so this caption cannot quote
 		-- a price the transaction disagrees with.
+		--
+		-- ===== AND THE CURRENCY IS DRAWN, NOT TYPED (34.35) =====
+		--
+		-- The first version put the raw glyph in the caption -- `"\u{1F31F} 500"` -- and the owner
+		-- asked *"sta su ove zvezdice"*, which is the whole answer: **the wallet does not draw a
+		-- star.** `MainUI`'s ShardPill carries `icon = "\u{1F31F}"` and `IconLibrary` swaps that
+		-- glyph for a drawn shard (`rbxassetid://93975864077659`), so the balance in the corner is a
+		-- crystal and the price on this button was a yellow sun. Same currency, two pictures,
+		-- nothing connecting them.
+		--
+		-- `UITheme.IconifyLabel` cannot do this one: it refuses anything that is not a LEFT-aligned
+		-- TextLabel, and this is a centred TextButton. So the icon is placed the way
+		-- `ScrollingPanelBuilder` places its own `ButtonIcon` -- a square at the left edge with the
+		-- caption left in the middle of the button -- and the glyph never reaches the text.
 		local price, currency = GameConfig.GetCosmeticPrice(c)
 		local CURRENCY_GLYPH = { Shards = "\u{1F31F}", Diamonds = "\u{1F48E}" }
 		styleButton(btnDiamonds, currency == "Shards" and UITheme.Color.Gold or UITheme.Color.Aqua,
 			UDim.new(0, 10))
-		btnDiamonds.Text = currency
-			and (CURRENCY_GLYPH[currency] .. " " .. formatNumber(price))
-			or "CLAIM"
-		
+		btnDiamonds.Text = currency and formatNumber(price) or "CLAIM"
+
+		if currency then
+			local art = IconLibrary.Resolve(CURRENCY_GLYPH[currency])
+			if art then
+				local ic = Instance.new("ImageLabel")
+				ic.Name = "PriceIcon"
+				ic.Size = UDim2.new(0, 24, 0, 24)
+				ic.Position = UDim2.new(0, 8, 0.5, 0)
+				ic.AnchorPoint = Vector2.new(0, 0.5)
+				ic.BackgroundTransparency = 1
+				ic.Image = art
+				ic.ZIndex = btnDiamonds.ZIndex + 1
+				ic.Parent = btnDiamonds
+			else
+				-- IconLibrary is allowed to have no drawing for a glyph -- "unmapped is a feature"
+				-- -- and a caption with the glyph back in it is still readable. Never a blank.
+				btnDiamonds.Text = CURRENCY_GLYPH[currency] .. " " .. formatNumber(price)
+			end
+		end
+
 		local btnRobux = nil
 		if c.productId and c.productId > 0 then
 			btnRobux = Instance.new("TextButton")
