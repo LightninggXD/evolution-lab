@@ -2431,32 +2431,11 @@ local function refreshRewardPanel()
 		rewardBadge.Visible = canClaim
 		
 		-- Task 7: Idle pulse on claimable tiles (A 2.5)
-		local scale = rewardButton:FindFirstChildOfClass("UIScale")
-		if not scale then
-			scale = Instance.new("UIScale")
-			scale.Scale = 1
-			scale.Parent = rewardButton
-		end
-		
-		local TweenService = game:GetService("TweenService")
 		local GuiService = game:GetService("GuiService")
 		if canClaim and not GuiService.ReducedMotionEnabled then
-			if not rewardButton:GetAttribute("Pulsing") then
-				rewardButton:SetAttribute("Pulsing", true)
-				local t = TweenService:Create(scale, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, -1, true, 3), {Scale = 1.06})
-				t:Play()
-				-- Save it so we can cancel later
-				if not _G.RewardPulseTween then _G.RewardPulseTween = t end
-			end
+			UITheme.Attention(rewardButton, true, { priority = 2, peak = 1.06 })
 		else
-			if rewardButton:GetAttribute("Pulsing") then
-				rewardButton:SetAttribute("Pulsing", false)
-				if _G.RewardPulseTween then
-					_G.RewardPulseTween:Cancel()
-					_G.RewardPulseTween = nil
-				end
-				TweenService:Create(scale, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Scale = 1}):Play()
-			end
+			UITheme.Attention(rewardButton, false)
 		end
 	end
 
@@ -3907,18 +3886,28 @@ local function refreshUI()
 	-- free registers -- MainUI is at Luau's 200 top-level local cap -- and the write that was
 	-- supposed to replace them never landed. Reached through the frames instead, which costs no
 	-- locals at all.
+	local prevDNA = tonumber(dnaPill:GetAttribute("PrevVal") or 0)
 	local prevDiamonds = tonumber(diamondPill:GetAttribute("PrevVal") or 0)
 	local prevShards = tonumber(shardPill:GetAttribute("PrevVal") or 0)
 
-	dnaPill.Value.Text = formatNumber(data.DNA)
-	diamondPill.Value.Text = formatNumber(data.Diamonds or 0)
-	shardPill.Value.Text = formatNumber(data.EvolutionShards or 0)
+	if (data.DNA or 0) > prevDNA and prevDNA > 0 then
+		UITheme.CountUp(dnaPill.Value, prevDNA, data.DNA, formatNumber)
+	else
+		dnaPill.Value.Text = formatNumber(data.DNA)
+	end
 
 	if (data.Diamonds or 0) > prevDiamonds and prevDiamonds > 0 then
+		UITheme.CountUp(diamondPill.Value, prevDiamonds, data.Diamonds, formatNumber)
 		UITheme.Pulse(diamondPill)
+	else
+		diamondPill.Value.Text = formatNumber(data.Diamonds or 0)
 	end
+
 	if (data.EvolutionShards or 0) > prevShards and prevShards > 0 then
+		UITheme.CountUp(shardPill.Value, prevShards, data.EvolutionShards, formatNumber)
 		UITheme.Pulse(shardPill)
+	else
+		shardPill.Value.Text = formatNumber(data.EvolutionShards or 0)
 	end
 
 	dnaPill:SetAttribute("PrevVal", data.DNA or 0)

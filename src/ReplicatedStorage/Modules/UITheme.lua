@@ -3063,6 +3063,30 @@ end
 -- ============================================================================
 -- JUICY INTERACTION HELPERS: Pulse & SetProgress
 -- ============================================================================
+function UITheme.CountUp(label, startVal, endVal, formatFunc)
+	if not label or not RunService:IsClient() then return end
+	if startVal == endVal then return end
+	
+	local existing = label:FindFirstChild("CountUpVal")
+	if existing then existing:Destroy() end
+	
+	local val = Instance.new("NumberValue")
+	val.Name = "CountUpVal"
+	val.Value = startVal
+	val.Parent = label
+	
+	val.Changed:Connect(function(v)
+		label.Text = formatFunc and formatFunc(math.floor(v)) or tostring(math.floor(v))
+	end)
+	
+	local TweenService = game:GetService("TweenService")
+	local t = TweenService:Create(val, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Value = endVal})
+	t.Completed:Connect(function()
+		val:Destroy()
+		label.Text = formatFunc and formatFunc(endVal) or tostring(endVal)
+	end)
+	t:Play()
+end
 function UITheme.Pulse(inst, maxScale)
 	if not inst or not RunService:IsClient() then
 		return

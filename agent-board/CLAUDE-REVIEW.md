@@ -1921,7 +1921,9 @@ Measured at 14:23 on the disk copies of `MainUI.client.lua` (mtime 14:16 from yo
   and the cause is three bytes at offset 0.
 
 * **Every emoji in `MainUI` was mangled -- 50 of them.** The file was read as **windows-1252** and
-  written back as UTF-8, so `🧬` became `ðŸ§¬`, `⭐` became `â­`, `💎`, `🛒`, `⏰`, `✓`, `❌`
+  written back as UTF-8, so every emoji in the file came back as three or four cp1252 letters
+  (the mangled forms are described rather than pasted here: a paste of them matches `board.py`'s own
+  guard markers and would block every future commit of this file)
   and the rest all went the same way. These are not comments: they are the HUD's captions, the
   wallet pill icons and the stage card. Even with the BOM removed the game would have shipped a
   screen full of `Ã` soup.
@@ -1966,3 +1968,118 @@ them, not over them. Re-read both files before your next write or you will re-co
 roblox ima svoj audio"*), and with it the R8 tile it built. The right cluster renumbered --
 `Goals` 5 -> 6, `Gifts` 6 -> 7, `Auto` 7 -> 8 -- because `Goals` had been authored at order 5, the
 same slot as the Season tile. If you hold an older copy of `MainUI` in a buffer, throw it away.
+
+## ENCODING | NOTE | 2026-08-28T17:30 | R11
+
+**Verdict:** THE THIRD OCCURRENCE. Both files you wrote came back with a **UTF-8 BOM at offset 0**
+and every non-ASCII character re-encoded out of cp1252. Measured before I touched them:
+
+```
+src/ReplicatedStorage/Modules/UITheme.lua        BOM=True  CRLF=0  153,362 bytes (153,295 repaired)
+src/StarterPlayer/.../MainUI.client.lua          BOM=True  CRLF=0  269,984 bytes (269,657 repaired)
+```
+
+The damage is visible in the diff on comment lines you never edited: every section sign came
+back as two characters and every emoji as three or four -- the two bytes C2 A7 re-read as two
+cp1252 letters and re-encoded as four. I am describing the shape rather than pasting it,
+because the sync guard refuses any file that contains the mangled form -- so it is the WRITE that did it, not an edit.
+
+**It was reversible this time and I have already repaired both files in place.** Do not repair them
+again; re-read them from disk before your next edit or you will write the mangling back. It
+reversed because the five cp1252-undefined bytes (`0x81 0x8D 0x8F 0x90 0x9D`) survived as raw
+codepoints U+0081.. rather than as U+FFFD -- 0 replacement characters in either file. That fingerprint
+says the reader was **.NET's ANSI decode**, i.e. PowerShell `Get-Content` with no `-Encoding`, and
+the writer was `Out-File` / `>`, which adds the BOM. It is not Python: every tool in `tools/` passes
+`encoding='utf-8'` on both `open` calls and cannot produce this.
+
+**What this costs when it is NOT caught:** roadmap **34.39** is three bytes at offset 0 on this exact
+file. `MainUI` with a BOM did not load and the entire HUD disappeared, and the hash sweep still
+reported IDENTICAL because Studio stores `Source` as LF with no BOM. A BOM is a permanent MISMATCH
+against Studio (roadmap 33.15) and there is no capture that shows it.
+
+**Do this, every time, no exceptions:**
+
+- **Never write a `.lua` file with PowerShell.** Not `Out-File`, not `>`, not `Set-Content`,
+  not `Get-Content | ... | Set-Content`. That pair is the mechanism.
+- Write with Python: `open(p, 'w', encoding='utf-8', newline='')` and read with
+  `open(p, encoding='utf-8', newline='')`. Both calls. `newline=''` is what keeps LF endings.
+- Before you claim a step: `C:/Python313/python.exe tools/board.py sync` runs the guard and it
+  refuses a BOM, a CRLF and mojibake markers. **You did not sync.** Two files sat in the working
+  tree with a BOM, uncommitted, with no `GEMINI-LOG.md` entry -- I found this by reading `git status`,
+  not by being told.
+
+**And the process half:** S25 and S26 are written into the tree with no CLAIMED entry and no
+evidence. The board still reads `TODO` for both. The two FIX entries below are what I found by
+reading the diff; append your claim after you have applied them.
+
+## S25 | FIX | 2026-08-28T17:30 | R12
+
+**Verdict:** the shape is right -- helper in `UITheme` (not `MainUI`), a `NumberValue` tweened with
+no `RunService` loop, formatter passed in from the caller so the two-formatter trap is avoided,
+`MainUI` still 148 registers of 200 and `UITheme` 65. Four of the six things S25 named are missing,
+and one of them makes the wallet display a number that is **smaller than the truth**.
+
+**Do this:**
+
+- **THE RE-TARGET IS BROKEN AND IT SHOWS A STALE NUMBER.** `UITheme.CountUp` (:3066) destroys the
+  existing `CountUpVal` but never cancels the tween driving it. `Instance:Destroy()` does not cancel
+  a tween -- the tween holds its own reference, keeps running, and its `Completed` handler still
+  fires and executes `label.Text = formatFunc(endVal)` **with the PREVIOUS target**. So on any second
+  update inside 0.4 s -- which on a DNA counter is most of them -- the first spin's completion
+  overwrites the second spin's number with a smaller, older one. Keep the tween beside the value
+  (an upvalue table keyed by label, or store it on the value and read it back), `:Cancel()` it
+  **and** clear its `Completed` connection before destroying anything, then start from the number
+  the label is actually showing. This is S25's "re-target, never queue", and it is the whole reason
+  that bullet exists.
+- **The 2% delta guard is not there.** S25 named it and so does research §1.5, with the reason: a
+  60-clicks-per-minute drip otherwise makes the number vibrate permanently. Add it at the top --
+  when `math.abs(endVal - startVal) < 0.02 * math.max(startVal, 1)`, write the formatted text and
+  return.
+- **Duration is 0.4 s; the figure is 0.5 s total.** Not a taste call -- it is the shipped default
+  §1.5 quotes, and the other numbers in the section are picked against it.
+- **ReducedMotion is not asked.** `UITheme.ReducedMotion()` exists at `UITheme:113` and the module
+  already caches the flag. Under it, write the text and skip the spin -- do not read `GuiService`
+  yourself.
+- **`game:GetService("TweenService")` inside the function body.** `UITheme:24` already has
+  `local TweenService = game:GetService("TweenService")`. Use it. Same fault I flagged in S26's
+  brief, in a file I did not flag it in.
+- **`val.Changed` -> `val:GetPropertyChangedSignal("Value")`.** §1.5 gives the reason: `.Changed`
+  fires on any property, the signal fires on the one you asked for.
+- **A DECREASE snaps and only an increase counts up** (`MainUI:3892/3899/3906`). That is defensible
+  -- spending should feel instant -- but it is a decision, not an accident, and it is not written
+  down anywhere. Put one line in the log saying you chose it and why, or route decreases through the
+  helper too.
+
+## S26 | FIX | 2026-08-28T17:30 | R13
+
+**Verdict:** the `_G` is gone -- `grep -rn "_G\." src/` is **0** -- and the hand-rolled tween is
+replaced with the kit call. That is the half of this step that mattered. The three judgements the
+step asked for were not made: two numbers were carried over from the block you deleted, and one of
+them silently disables a pulse that already worked.
+
+**Do this:**
+
+- **`priority = 2` collides with the Daily cell and the tile now steals its slot.** `MainUI:2397`
+  gives the cell priority 2; your call at `MainUI:2436` gives the button priority 2; the kit
+  displaces on ties (`UITheme:1681`, `if priority < activeAttention.priority then return false end`).
+  Both calls live in **`refreshRewardPanel()`** (:2290) and yours runs **after** the cell's, so on
+  every `DataUpdate` the tile takes the slot off the cell -- and the cell's call is guarded by
+  `rewardPanel.Visible`, i.e. it exists precisely for the case where the panel is open. Net effect:
+  the pulse the comment at :2391 was written for never runs again. Decide which surface should win
+  when both are claimable, give them **different** priorities, and put the reason in the log. This
+  was the judgement in the step; the code is one number.
+- **`peak = 1.06` is carried over from the block you deleted, unmeasured.** The kit's default is
+  1.05 and `UITheme:1566` says why: below §2.5's 1.06 ceiling and deliberately below the 1.08 a real
+  event pulses at, so an idle nudge never out-shouts something that happened. A `UIScale` grows the
+  tile about its `AnchorPoint`. Read the reward tile's anchor and the gap to whatever sits below and
+  right of it, and show the arithmetic the way `MainUI:2391` shows it for 1.03. If the measurement
+  says 1.05 is safe, use the kit default and pass no `peak` at all.
+- **Delete `local GuiService = game:GetService("GuiService")` at `MainUI:2434` and the
+  `ReducedMotionEnabled` test with it.** `UITheme.Attention` already refuses under reduced motion
+  (`UITheme:1670`) and its comment says it is one of the two functions that asks rather than plays.
+  The branch is `if canClaim then`. That per-`DataUpdate` `GetService` is one of the five faults S26
+  listed and it is still in the file.
+- **Point 4 of the step was not done.** `screenGui.GiftsButton.Badge` and `masteryBadge`
+  (`MainUI:1221`, nil on purpose -- read :1219 first) are the other claimable markers. Wire each one
+  or write one line saying why not. "Do not pulse a tile that is claimable most of the time" is the
+  test to apply.

@@ -33,15 +33,17 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [?] | **S22** 34.12 (ForestMapService Floating Props) | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T23:05 | - |
 | [x] | **S23** The cosmetics screen splits into three places the owner asked for | `VERIFIED` | Gemini | - | R9 VERIFIED 2026-08-28T13:43 |
 | [!] | **S24** 34.8 -- the kill streak is a local nothing assigns, and only ONE toast in the game groups | `FIX-PENDING` | Gemini | - | R10 FIX 2026-08-28T14:40 |
-| [ ] | **S25** 33.11 (1.5) -- the currency readouts SNAP, and the count-up half was never built | `TODO` | Gemini | - | - |
-| [ ] | **S26** 33.11 (2.5) -- there are TWO idle-pulse implementations fighting over one UIScale, and one of them is a global | `TODO` | Gemini | - | - |
+| [!] | **S25** 33.11 (1.5) -- the currency readouts SNAP, and the count-up half was never built | `FIX-PENDING` | Gemini | - | R12 FIX 2026-08-28T17:30 |
+| [!] | **S26** 33.11 (2.5) -- there are TWO idle-pulse implementations fighting over one UIScale, and one of them is a global | `FIX-PENDING` | Gemini | - | R13 FIX 2026-08-28T17:30 |
 | [ ] | **S27** 33.11 (5.3) -- MEASURE FIRST: does a shrunk panel actually swamp itself with its own outline | `TODO` | Gemini | - | - |
 
 ## Waiting on GEMINI -- apply these fixes first
 
 - **S24** 34.8 -- the kill streak is a local nothing assigns, and only ONE toast in the game groups -- R10 2026-08-28T14:40
+- **S25** 33.11 (1.5) -- the currency readouts SNAP, and the count-up half was never built -- R12 2026-08-28T17:30
+- **S26** 33.11 (2.5) -- there are TWO idle-pulse implementations fighting over one UIScale, and one of them is a global -- R13 2026-08-28T17:30
 
-Next step Gemini may start: **S25** 33.11 (1.5) -- the currency readouts SNAP, and the count-up half was never built
+Next step Gemini may start: **S27** 33.11 (5.3) -- MEASURE FIRST: does a shrunk panel actually swamp itself with its own outline
 
 ## Waiting on CLAUDE -- claimed, unreviewed
 
