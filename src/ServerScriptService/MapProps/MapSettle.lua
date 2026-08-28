@@ -32,6 +32,18 @@
 
 local MapSettle = {}
 
+-- ===== WHICH OF THE MAP'S OWN PROPS STAND ON THE FLOOR -- ONE DECISION, ONE PLACE =====
+-- Exported because `ForestMapService`'s early float sweep has to agree with it: that sweep
+-- DESTROYS an unsupported top-level prop, and everything named here is a prop this pass would
+-- rather put back down. Two files reading one table is the shape `evolution-lab-zone-geometry-
+-- constants` asks for; two files carrying the same list is the shape that cost 31.5a.
+local MAP_OWN_NAMES = { Model = true, Leaves = true }
+MapSettle.MAP_OWN_NAMES = MAP_OWN_NAMES
+
+function MapSettle.Owns(inst)
+	return MAP_OWN_NAMES[inst.Name] == true
+end
+
 -- Under this and it is not worth moving: props are seated with a deliberate quarter-stud bite into
 -- the ground all over this map, and a slope means a wide prop's lowest corner is legitimately clear
 -- of the point its centre casts from.
@@ -104,6 +116,14 @@ end
 -- IDEMPOTENT BY CONSTRUCTION, and that matters because `ForestMapService.Init` is not the only thing
 -- that can run a build: a settled prop measures a gap under `TOLERANCE` on the next pass and is left
 -- alone, so running this three times settles the same 64 props once.
+--
+-- 34.47 turned that from a safety property into a REQUIREMENT. `ForestMapService.Init` calls this
+-- last and its own comment says LAST OF ALL -- but `ServerMain` runs `MapEggs.Reseat`,
+-- `MapSquare.Arrange` and `MapSigns.Init` AFTER that call, and the square's arrange carries whole
+-- shop groups across the village (measured: the potions stall goes (-55, -55) -> (70, 42)). Anything
+-- resting on one of those is in mid-air the moment it leaves, and the pass that would have caught it
+-- has already run. So `ServerMain` calls this a second time at the true end of the build, and being
+-- idempotent is what makes that free.
 function MapSettle.Run(spec)
 	local settling = {}
 	for _, set in ipairs(spec) do
@@ -148,6 +168,31 @@ function MapSettle.Forest(map)
 		{ folder = map:FindFirstChild("WaterfallRidge"),
 			names = { SkirtTree = true, SkirtRock = true, FlankTree = true, SkirtPlate = true } },
 		{ folder = map:FindFirstChild("Jungle"), names = nil },
+		-- ===== AND THE MAP'S OWN TREES, WHICH THIS PASS DID NOT OWN UNTIL 34.47 =====
+		--
+		-- The three sets above are all GENERATED props -- the wood this build plants, the ridge it
+		-- dresses, the camps it lays. The artist's own trees are the 89 `Model` children of the MAP
+		-- itself (each a `Top` canopy mesh over a `Bottom` trunk), nothing settled them, and that is
+		-- the one she could see: 2026-08-28, standing under a trunk hanging 33 studs up, *"SPUSTI OVO
+		-- U PLAY MODU, u editu ne lebdi ... napravi da je kao u edit modu"*.
+		--
+		-- They float for the reason the header already gives -- `MapRidge.Clear` takes the artist's
+		-- mountains out from under them -- and `ForestMapService` DOES sweep them once, right after
+		-- that cut, destroying 46. **That sweep is simply too early.** `MapPass`, `MapHorizon`,
+		-- `MapGates` and `MapWaterfall` each remove more ground AFTER it, and by the time the world
+		-- was finished 13 trees were hanging again, the worst with its foot 80 studs over the village
+		-- floor. This pass measures the FINISHED world, which is the whole argument of this file.
+		--
+		-- Measured live 2026-08-28 on the built Forest: 32 settled of 96 checked, worst drop 80.3 at
+		-- (248, 88). Afterwards nothing VISIBLE in the map floats -- what the float probe still finds
+		-- is 25 `HuntRockCollider`, 3 `HorizonHillCollider` and the three grotto pieces, all of them
+		-- invisible or deliberately overhead.
+		--
+		-- ONLY `Model` AND `Leaves`, and the narrowness is the point: the map's other high children
+		-- are high ON PURPOSE and are mounted on something BESIDE them rather than under them. The two
+		-- `ThreeDTextObject` shop signs and a `Meshes/Sell17` each measure a gap over 8 studs and a
+		-- wider name set drops all three into the stall they are lettering.
+		{ folder = map, names = MAP_OWN_NAMES },
 	})
 end
 

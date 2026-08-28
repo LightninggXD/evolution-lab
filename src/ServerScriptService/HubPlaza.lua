@@ -76,7 +76,7 @@ local HubPlaza = {}
 -- 3: the photo spot gained the prompt it had been missing since it was built (17.3).
 -- 4: the Exhibit -- fourteen locked-but-visible skins flanking the walk from the spawn (26.5).
 -- 5: the trading floor -- the marked circle 30.7 gives 21.1's proximity tags to point at.
-local PLAZA_VERSION = 5
+local PLAZA_VERSION = 6
 
 -- What the first photo pays, once per save, ever. Diamonds rather than DNA because DNA is
 -- stage-scaled and a fixed figure means nothing across twenty zones -- the same reasoning the
@@ -101,6 +101,25 @@ local DECK_CZ = 248
 -- the long ones, so they cannot share the inlay plane -- see `buildDeck`.
 local KERB_TOP  = 0.66
 local DECK_TOP  = 1.04
+
+-- ===== THE PAVING IS OFF: THE SQUARE IS THE FOREST'S, NOT THE PLAZA'S =====
+--
+-- `buildDeck` lays a 344 x 336 stone deck with a 356 x 348 kerb around it, centred at z 248 --
+-- and `ForestSpawn` stands at z 366, INSIDE it. So the first thing a player has ever seen is a
+-- rectangular plate over the village square, where the authored world has grass, the road and the
+-- shop fronts. Compared side by side from one camera (20, 140, 520) the deck is the single
+-- biggest difference between the world in Studio and the world in Play, and the owner's call on
+-- 2026-08-28 was the authored one: the square stays forest.
+--
+-- ONLY THE PAVING GOES. Lamps, banners, gate signs, the trade floor, the photo spot and the
+-- fifteen exhibit stands are built by their own functions and are untouched -- they stand at
+-- `DECK_TOP` 1.04, which is a stud over the ground rather than a stud over the deck, so nothing
+-- below needs a new number. `GROUND_CLEAR` is 1.4 and every one of those searches reads the bare
+-- ground as free, which is what it now is.
+--
+-- Left as a flag rather than deleted: the deck is 5 of this file's 2,525 lines away from coming
+-- back, and the numbers above are the record of what it was.
+local PAVE_DECK = false
 local INLAY_TOP = 1.14
 local BANDX_TOP = 1.18
 
@@ -1196,7 +1215,7 @@ local function build()
 	model.Name = "HubPlaza"
 	plazaModel = model
 
-	buildDeck(model)
+	if PAVE_DECK then buildDeck(model) end
 
 	-- Straight after the deck, because it IS deck: it tops out under `GROUND_CLEAR`, so every
 	-- search below still reads the ground it covers as free and no lamp is skipped for standing on

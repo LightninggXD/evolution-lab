@@ -184,6 +184,7 @@ GameConfig.Swords = {
 	           grip = Vector3.new(0, 0.05, 1.65), axis = "Z-", roll = 1 },
 	},
 	{ key = "gold",     displayName = "Gilded Saber",   emoji = "\u{2694}\u{FE0F}", damageMult = 2.50, cost = 640,
+	  model = { name = "Mythic Sword Of The Earth", length = 4.50, grip = Vector3.new(0, 0, 1.65),  axis = "Z-", roll = 0 },
 	  color = Color3.fromRGB(255, 202,  74), trim = Color3.fromRGB(146,  92,  20), material = Enum.Material.Metal,
 	  reach = 2.8,
 	  -- her `SwordOfDarkness` at 0.8, below void's 1.0 for the same reason.
@@ -191,6 +192,7 @@ GameConfig.Swords = {
 	           grip = Vector3.new(0, 0, -2), axis = "Z+", roll = 0 },
 	},
 	{ key = "venom",    displayName = "Venom Reaver",   emoji = "\u{2694}\u{FE0F}", damageMult = 3.00, cost = 1280,
+	  model = { name = "Sacrificial Sword",         length = 5.49, grip = Vector3.new(0, 0, 1.94),  axis = "Z-", roll = 0 },
 	  color = Color3.fromRGB(126, 232, 108), trim = Color3.fromRGB( 34,  92,  40), material = Enum.Material.Neon,
 	  reach = 3.0, glow = true,
 	  -- her `OverseerSword`. Handle 0.26 x 5.24 x 0.64 -- a Y-LONG blade, mesh Scale 0.75.
@@ -199,6 +201,7 @@ GameConfig.Swords = {
 	           grip = Vector3.new(0, -2, 0.1), axis = "Y+", roll = 1 },
 	},
 	{ key = "ember",    displayName = "Ember Brand",    emoji = "\u{2694}\u{FE0F}", damageMult = 3.60, cost = 2560,
+	  model = { name = "Crescendo The Soul Eater",  length = 5.24, grip = Vector3.new(0, -2.0225, 0), axis = "Y+", roll = 1 },
 	  color = Color3.fromRGB(255, 122,  56), trim = Color3.fromRGB(126,  34,  16), material = Enum.Material.Neon,
 	  reach = 3.2, glow = true,
 	  -- her `Eye of Hell`. The Overseer mesh under a different texture, same 5.24 Y-long
@@ -207,6 +210,7 @@ GameConfig.Swords = {
 	           grip = Vector3.new(0, -2.0225, -0.0705), axis = "Y+", roll = 1 },
 	},
 	{ key = "void",     displayName = "Void Splitter",  emoji = "\u{2694}\u{FE0F}", damageMult = 4.30, cost = 5120,
+	  model = { name = "Dark Sword",                length = 4.66, grip = Vector3.new(0, -1.54, 0), axis = "Y+", roll = 0 },
 	  color = Color3.fromRGB(176, 108, 255), trim = Color3.fromRGB( 58,  22, 106), material = Enum.Material.Neon,
 	  reach = 3.4, glow = true, spark = true,
 	  -- her `SwordOfDarkness`. Handle 0.55 x 0.30 x 4.62, mesh Scale 1, blade down +Z.
@@ -214,6 +218,7 @@ GameConfig.Swords = {
 	           grip = Vector3.new(0, 0, -2), axis = "Z+", roll = 0 },
 	},
 	{ key = "absolute", displayName = "Absolute Edge",  emoji = "\u{2694}\u{FE0F}", damageMult = 5.00, cost = 10240,
+	  model = { name = "King's Light",              length = 4.62, grip = Vector3.new(0, 0, -2),    axis = "Z+", roll = 0 },
 	  color = Color3.fromRGB(255, 246, 190), trim = Color3.fromRGB(212, 150,  30), material = Enum.Material.Neon,
 	  reach = 3.6, glow = true, spark = true,
 	  -- her `SwordOfLight`. Same 4.62 Z-long handle as Darkness, mesh Scale 0.75.

@@ -530,8 +530,18 @@ function ForestMapService.Init()
 				local floatParams = RaycastParams.new()
 				floatParams.FilterType = Enum.RaycastFilterType.Exclude
 				local floatingCut = 0
+				local floatingNames = {}
 				for _, c in ipairs(map:GetChildren()) do
-					if not MapCut.NEVER_CUT[c.Name] and not (protected and protected[c]) then
+					-- ===== AND NOT ANYTHING THE LATE SETTLE OWNS (34.47) =====
+					-- This sweep DESTROYS, and it runs here -- four passes before the world is finished --
+					-- so for the map's own trees it was the wrong verb at the wrong time. It deleted 46
+					-- props and the owner still walked under a trunk hanging 33 studs up, because
+					-- `MapPass`, `MapHorizon`, `MapGates` and `MapWaterfall` each strand more AFTER it.
+					-- `MapSettle` measures the finished world and PUTS THOSE BACK DOWN, which is what she
+					-- asked for -- *"napravi da je kao u edit modu"* -- so this hands them over rather than
+					-- racing it. The list lives in `MapSettle` alone; this only asks.
+					if not MapCut.NEVER_CUT[c.Name] and not MapSettle.Owns(c)
+						and not (protected and protected[c]) then
 						local cf, size
 						if c:IsA("Model") then
 							cf, size = c:GetBoundingBox()
@@ -557,6 +567,7 @@ function ForestMapService.Init()
 									end
 								end
 								if not supported then
+									floatingNames[c.Name] = (floatingNames[c.Name] or 0) + 1
 									c:Destroy()
 									floatingCut += 1
 								end
@@ -636,17 +647,23 @@ function ForestMapService.Init()
 				--
 				-- The owner found it by looking: *"kad kazem na zemlji mislim bas na podu gde se
 				-- hoda"*, with a `HuntTree` selected whose foot was 7.4 studs over a floor at 0.
-				local settled, settleChecked = MapSettle.Forest(map)
+				local settled, settleChecked, settleWorst, settleWorstName = MapSettle.Forest(map)
+				local floatingTally = {}
+				for name, n in pairs(floatingNames) do
+					floatingTally[#floatingTally + 1] = ("%s x%d"):format(name, n)
+				end
+				table.sort(floatingTally)
+				local floatingList = #floatingTally > 0 and table.concat(floatingTally, ", ") or "none"
 				print(("[ForestMapService] %s: dropped %d dressing, laid %d map parts at x%.2f, "
 					.. "cut %d props for the arrival and hunt bands, %d for the entrance road, "
-					.. "%d left floating by the mountain cut, "
+					.. "deleted %d over the void (%s), "
 					.. "raised %d horizon hills, planted %d trees over the whole platform, "
 					.. "built %d jungle camps, paved %d road parts and %d gate parts, "
 					.. "cut %d props out of the waterfall cliff and built %d grotto parts, "
-					.. "settled %d of %d props back onto the floor")
+					.. "settled %d of %d props back onto the floor, worst %.1f studs on %s")
 					:format(zoneKey, dropped, #map:GetDescendants(), spec.scale, cleared, road,
-						floatingCut, hills, planted, camps, paved, gates, wfCut, wfGrotto,
-						settled, settleChecked))
+						floatingCut, floatingList, hills, planted, camps, paved, gates, wfCut, wfGrotto,
+						settled, settleChecked, settleWorst, settleWorstName))
 				print("[MapAnchors] " .. MapAnchors.Describe(zoneKey))
 			end
 		end

@@ -421,6 +421,122 @@ end
 -- 0.38 studs under the ground. Length was never the fault; the direction was. The reach ladder is
 -- left exactly as it is and `restPose` turns the blade out of the floor instead, which is why a
 -- rung still buys a bigger sword.
+-- ===== 32.15: HER OWN SWORD MODELS, CLONED WHOLE =====
+--
+-- `tier.mesh` hangs an asset id on a bare Part and throws away everything the author built AROUND
+-- the steel -- Crescendo's Lightning emitter, King's Light's five Beams, the Mythic's Vine and
+-- Star. Those effects ARE how a tier reads from across the clearing, so a row carrying
+-- `tier.model` clones the whole template out of `ReplicatedStorage.SwordModels` instead.
+--
+-- `Model:ScaleTo` is what makes this safe at any body size: one call scales part sizes,
+-- SpecialMesh scales, attachment offsets AND particle sizes together. That is the entire reason
+-- the templates are wrapped in a Model with a PrimaryPart rather than stored as loose parts -- a
+-- loose part would need every one of those scaled by hand and the emitters would be missed.
+--
+-- EVERY PART IS WELDED TO THE HOST INDIVIDUALLY, never to the clone's own root. The templates
+-- carry WeldConstraints of their own and nothing in them is anchored; a chain of welds hanging off
+-- an unanchored root is exactly how a blade ends up trailing a frame behind the fist.
+local function buildModelBlade(host, ruler, tier, folder, pose)
+
+	local spec = tier.model
+
+	local store = game:GetService("ReplicatedStorage"):FindFirstChild("SwordModels")
+
+	local template = store and store:FindFirstChild(spec.name)
+
+	if not (template and template:IsA("Model") and template.PrimaryPart) then
+
+		warn(("[SwordModel] %s: no usable template '%s' in ReplicatedStorage.SwordModels -- falling back to the built blade")
+
+			:format(tostring(tier.key), tostring(spec.name)))
+
+		return false
+
+	end
+
+
+	local rot = AXIS_TO_DOWN[spec.axis]
+
+	if not rot then
+
+		warn(("[SwordModel] %s: unknown model axis %s -- falling back to the built blade")
+
+			:format(tostring(tier.key), tostring(spec.axis)))
+
+		return false
+
+	end
+
+	rot = CFrame.Angles(0, (spec.roll or 0) * math.pi / 2, 0) * rot
+
+
+	local scale = (ruler.Y * (tier.reach or 3.0)) / spec.length
+
+
+	local model = template:Clone()
+
+	model:ScaleTo(scale)
+
+	model.Name = "Blade"
+
+
+	-- the same line the mesh path uses: the scaled grip point is rotated into host space and then
+	-- cancelled, so it lands on the host's origin, and `pose` turns the finished sword about the
+	-- fist rather than about the model's own root.
+	local offset = pose * CFrame.new(-rot:VectorToWorldSpace(spec.grip * scale)) * rot
+
+	model:PivotTo(host.CFrame * offset)
+
+
+	for _, d in ipairs(model:GetDescendants()) do
+
+		if d:IsA("BasePart") then
+
+			d.Anchored = false
+
+			d.CanCollide = false
+
+			d.CanQuery = false
+
+			d.CanTouch = false
+
+			d.Massless = true
+
+			d.CastShadow = false
+
+
+			local weld = Instance.new("Weld")
+
+			weld.Name = "SwordWeld"
+
+			weld.Part0 = host
+
+			weld.Part1 = d
+
+			weld.C0 = host.CFrame:ToObjectSpace(d.CFrame)
+
+			weld.Parent = d
+
+		end
+
+	end
+
+
+	model.Parent = folder
+
+
+	if tier.spark then
+
+		addSparks(model.PrimaryPart, tier, ruler.X * 0.3)
+
+	end
+
+
+	return true
+
+end
+
+
 local function buildBlade(host, ruler, tier, folder, side, solids)
 	-- 32.13: six of the ten rungs wear one of her swords instead. `buildMeshBlade` returns false on
 	-- a row it cannot read, and then this function finishes the job rather than leaving a bare hand.
@@ -438,6 +554,13 @@ local function buildBlade(host, ruler, tier, folder, side, solids)
 	local restDir = rest:VectorToWorldSpace(Vector3.new(0, -1, 0))
 	local push = standoff(host, ruler, host.CFrame:VectorToWorldSpace(restDir), face, solids)
 	local pose = CFrame.new(restDir * push) * rest
+
+	if tier.model and buildModelBlade(host, ruler, tier, folder, pose) then
+
+		return
+
+	end
+
 
 	if tier.mesh and buildMeshBlade(host, ruler, tier, folder, pose) then
 		return

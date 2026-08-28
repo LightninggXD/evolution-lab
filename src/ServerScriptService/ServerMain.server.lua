@@ -35,6 +35,8 @@ local LeaderboardService = require(ServerScriptService.LeaderboardService)
 local StatsService = require(ServerScriptService.StatsService)
 local EventService = require(ServerScriptService.EventService)
 local HubPlaza = require(ServerScriptService.HubPlaza)
+
+local WorldApron = require(ServerScriptService.WorldApron)
 local TradeService = require(ServerScriptService.TradeService)
 local MinigameService = require(ServerScriptService.MinigameService)
 local ExpeditionService = require(ServerScriptService.ExpeditionService)
@@ -48,6 +50,7 @@ local MapSquare = require(ServerScriptService.MapProps.MapSquare)
 local MapArcade = require(ServerScriptService.MapProps.MapArcade)
 local MapPortals = require(ServerScriptService.MapProps.MapPortals)
 local MapSigns = require(ServerScriptService.MapProps.MapSigns)
+local MapSettle = require(ServerScriptService.MapProps.MapSettle)
 local MapAdventureBoard = require(ServerScriptService.MapProps.MapAdventureBoard)
 local SwordService = require(ServerScriptService.Sword.SwordService)
 local LevelService = require(ServerScriptService.Level.LevelService)
@@ -134,6 +137,25 @@ do
 		-- one with a pad. Aim before those and the sign points where the target used to be, which
 		-- is exactly the fault this row opened on.
 		MapSigns.Init("Forest", forestZone)
+		-- ===== AND THE SETTLE AGAIN, BECAUSE THIS BLOCK IS THE REAL END OF THE BUILD (34.47) =====
+		-- `ForestMapService.Init` finishes on `MapSettle.Forest`, and that file calls itself the pass
+		-- that runs LAST and measures the FINISHED world. It was -- until these four lines. `MapEggs`
+		-- drops 89 stall pieces and `MapSquare` carries three shop groups across the village, so a prop
+		-- that was resting on one of them is in mid-air the moment it leaves and NOTHING looks again.
+		-- Measured 2026-08-28 on a fresh build: two `Leaves` over the old potions spot at (-55, -55),
+		-- feet 16.4 and 17.9 with nothing under them but the village floor, and no line in the log --
+		-- the build's own settle had reported them correctly seated an instant before the stall moved.
+		--
+		-- Idempotent by construction, which is the whole reason this is a second CALL and not a moved
+		-- one: the build's own pass keeps reporting what the MAP build stranded, and this reports what
+		-- THIS block stranded. A quiet zero here is the assertion that the two agree.
+		local villageMap = forestZone:FindFirstChild("VillageMap")
+		if villageMap then
+			local reSettled, reChecked, reWorst, reWorstName = MapSettle.Forest(villageMap)
+			print(("[MapSettle] Forest: %d of %d props re-settled after the square was arranged%s")
+				:format(reSettled, reChecked,
+					reSettled > 0 and (", worst %.1f studs on %s"):format(reWorst, reWorstName) or ""))
+		end
 	end
 end
 
@@ -261,6 +283,11 @@ SplicerService.Init()
 -- ground for a spot nothing is standing on. Run it before the leaderboards, the event sign or the
 -- Splicer exist and it would happily stand a lamp post exactly where one of them is about to go.
 HubPlaza.Init()
+
+-- Straight after the plaza, and it must be after ZoneBuilder: this reads WorldShell's floors to
+-- learn where the twenty zones are and what colour each one's ground is. Its own stamp, so it
+-- never drags BUILD_VERSION and its 105,000 parts along with a scenery change.
+WorldApron.Init()
 -- LAST, and after DNAService in particular: the offline payout is DNAService.GetAutoCollectAmount
 -- multiplied by a bounded number of seconds, so it has to run once the income stack it reads is
 -- fully wired. It hooks PlayerAdded itself rather than being called from the block below, because
