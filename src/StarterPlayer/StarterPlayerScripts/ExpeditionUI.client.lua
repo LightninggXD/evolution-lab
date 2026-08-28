@@ -73,6 +73,10 @@ local tracker = nil
 local trackerRows = nil
 local trackerTotal = nil
 local leaveButton = nil
+-- The confirm window, as an absolute `os.clock()` deadline rather than a flag: a re-arm inside the
+-- window has to beat the revert that the first tap scheduled, and comparing deadlines does that
+-- without a token or a cancelled task.
+local leaveArmedUntil = nil
 
 local ZB = 0
 
@@ -240,11 +244,53 @@ local function buildTracker()
 	layout.Parent = row
 
 	trackerRows = row
+
+	-- ===== THE WAY OUT (34.42) =====
+	--
+	-- `ExpeditionLeave` and `HandleLeave` have existed since Phase 29 and NOTHING EVER FIRED THEM --
+	-- `luaremotes.py` named the remote as unreachable, and the local above was declared and never
+	-- assigned. So `endRun` had exactly two live reasons, "cleared" and "died", and a player who
+	-- walked into an expedition they could not beat had to DIE to get out of it.
+	--
+	-- It hangs off the tracker rather than off `gui`, so it inherits the tracker's visibility for
+	-- free: shown only while a run is live, and gone while a station's minigame owns the same pixels
+	-- (see `stationOpen` above). Outside the capsule's bounds, which is fine -- the tracker does not
+	-- clip -- and narrower than it, because this is the secondary action on screen.
+	--
+	-- GREY, NOT RED. The button is on screen for the whole run; a red one top-centre reads as an
+	-- alarm for four minutes. The warning belongs in the CAPTION, which only appears once the player
+	-- has actually reached for it.
+	leaveButton = UITheme.Button(tracker, {
+		name = "Leave",
+		text = "LEAVE",
+		color = UITheme.Color.Grey,
+		size = UDim2.new(0, 180, 0, 46),
+		position = UDim2.new(0.5, 0, 1, 10),
+		anchorPoint = Vector2.new(0.5, 0),
+		zIndex = 41,
+		maxTextSize = 18,
+	})
+end
+
+-- Two taps, because the daily run is SPENT AT THE DOOR (`HandleEnter` increments `DayRuns` before
+-- the teleport, deliberately -- see the note there). Leaving therefore throws away the run as well
+-- as the progress in it, and a single mis-tap on a button that sits under the seal tracker for the
+-- whole expedition is not a thing to make easy. Not a modal either: a modal over a live run is the
+-- one thing this file's header says the tracker exists to avoid.
+local function disarmLeave()
+	leaveArmedUntil = nil
+	if leaveButton then
+		leaveButton.Label.Text = "LEAVE"
+	end
 end
 
 -- Rebuilt rather than reconciled: a run has three seals and rebuilding three frames costs nothing,
 -- while a reconcile has to know what changed. The panel-refresh rule the whole HUD follows.
 local function refreshTracker()
+	-- Every redraw disarms it. A seal landing, a station closing or the run ending all mean the
+	-- player's attention moved, and a confirm left armed across any of those is a button that ends
+	-- the run on what its owner thinks is a first tap.
+	disarmLeave()
 	if not runState or not runState.running or stationOpen then
 		tracker.Visible = false
 		return
@@ -464,6 +510,29 @@ end)
 againButton.Activated:Connect(function()
 	SoundLibrary.PlayLocal("click")
 	modal.Visible = false
+end)
+
+leaveButton.Activated:Connect(function()
+	local now = os.clock()
+	if leaveArmedUntil and now < leaveArmedUntil then
+		SoundLibrary.PlayLocal("click")
+		disarmLeave()
+		-- The server does the rest: `HandleLeave` clears the run, pushes the empty state (which
+		-- hides this button with the tracker) and teleports home. Nothing is torn down here, so a
+		-- refused or dropped call leaves the player where they are rather than in a HUD-less limbo.
+		Remotes.ExpeditionLeave:FireServer()
+		return
+	end
+	SoundLibrary.PlayLocal("click")
+	leaveArmedUntil = now + 3
+	leaveButton.Label.Text = "LEAVE? TAP AGAIN"
+	task.delay(3, function()
+		-- Only if THIS arming is still the live one. A second tap that re-armed pushed the deadline
+		-- out, and this revert must not pull the caption back from under it.
+		if leaveArmedUntil and os.clock() >= leaveArmedUntil then
+			disarmLeave()
+		end
+	end)
 end)
 
 Remotes.DataUpdate.OnClientEvent:Connect(function(data)
