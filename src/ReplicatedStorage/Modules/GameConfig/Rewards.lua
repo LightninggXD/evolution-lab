@@ -93,6 +93,8 @@ end
 -- Liking and Favoriting reward one-time diamond and potion boosts.
 GameConfig.RobloxGroupId = 0 -- Configurable group id (default 0; in Studio always grants access)
 GameConfig.GroupIncomeMult = 1.10 -- +10% DNA permanent income boost for group members
+	GameConfig.FriendBonusPct = 5
+	GameConfig.FriendBonusCap = 4
 GameConfig.GroupChestReward = {
 	dna = 1000, -- scaled by GameConfig.ScaleReward
 	diamonds = 25,

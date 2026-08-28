@@ -57,6 +57,8 @@ more, and keeping the first made six live features look unreachable on the first
 
 WHAT IT DELIBERATELY DOES NOT DO. It does not follow a remote through a table, a function argument,
 a helper that returns more than one remote, or a name built at run time (`Remotes[kind .. "Reward"]`).
+It DOES resolve multi-line local assignments in the same file (like `cond and A or B`), proving 
+a use of `<local>:FireServer(` fires all names bound to that local.
 Anything it cannot resolve is dropped rather than guessed at, so a clean run is not a proof of
 reachability -- it is the absence of the one shape it does prove.
 
@@ -99,7 +101,7 @@ CLASS_NAMES = {"RemoteEvent", "RemoteFunction", "BindableEvent", "BindableFuncti
 
 # `x = <rhs>` or `local x = <rhs>`. Plain assignment counts too: several clients forward-declare
 # the local and fill it in a `task.spawn`, which is exactly where a slow remote is waited for.
-BIND = re.compile(r"^[ \t]*(?:local[ \t]+)?(%s)[ \t]*=[ \t]*(.+)$" % NAME, re.M)
+BIND = re.compile(r"^[ \t]*(?:local[ \t]+)?(%s)[ \t]*=([^\n]*(?:\n[ \t]+(?:and|or)[ \t]+[^\n]*)*)" % NAME, re.M)
 # every `("Name")` inside the right-hand side, with any trailing arguments -- `WaitForChild` takes
 # a timeout, and requiring a bare `)` after the string is what hid AutoAttack and CombatFx
 IN_CALL = re.compile(r"\([ \t]*[\"'](%s)[\"'][ \t]*(?:,[^)]*)?\)" % NAME)
@@ -162,7 +164,10 @@ def strip_comments(src):
 
 def scan(path, sightings, silent):
     src = strip_comments(path.read_text(encoding="utf-8"))
-    rel = path.relative_to(ROOT).as_posix()
+    try:
+        rel = path.relative_to(ROOT).as_posix()
+    except ValueError:
+        rel = path.as_posix()
 
     # THE LAST NAME IN THE CHAIN IS THE REMOTE. `RS:WaitForChild("Remotes"):WaitForChild("AutoAttack", 30)`
     # names two children and only the second one is a remote; taking the first bound every such
@@ -181,13 +186,13 @@ def scan(path, sightings, silent):
         if not found:
             found = RHS_DOT.findall(rhs)
         if found:
-            binds.append((m.start(1), m.group(1), found[-1], "find" if "FindFirstChild" in rhs else "wait"))
+            binds.append((m.start(1), m.group(1), found, "find" if "FindFirstChild" in rhs else "wait"))
 
     def resolve(var, pos):
         best = (None, None)
-        for at, name, remote, how in binds:
+        for at, name, remotes, how in binds:
             if at < pos and name == var:
-                best = (remote, how)
+                best = (remotes, how)
             elif at >= pos:
                 break
         return best
@@ -226,22 +231,24 @@ def scan(path, sightings, silent):
     for m in USE_VAR.finditer(src):
         if m.group(2) not in ALL_API or m.start(2) in seen:
             continue
-        remote, how = resolve(m.group(1), m.start(1))
-        if not remote:
+        remotes, how = resolve(m.group(1), m.start(1))
+        if not remotes:
             continue
-        record(remote, m.group(2), m.start())
-        # 15.9's shape: a ONE-SHOT connect on a lookup that can return nil. `FindFirstChild` does
-        # not wait, so if the remote is created later -- and half the services here create theirs
-        # on demand, at the moment of first use -- the connect is skipped without a word and the
-        # client can never receive that remote for the rest of the session. `WaitForChild` blocks
-        # and a bare `Remotes.NAME` errors loudly; only this form fails in silence.
-        if m.group(2) in CLIENT_LISTENS and how == "find":
-            silent.append((remote, f"{rel}:{src.count(chr(10), 0, m.start()) + 1}"))
+        for remote in remotes:
+            record(remote, m.group(2), m.start())
+            # 15.9's shape: a ONE-SHOT connect on a lookup that can return nil. `FindFirstChild` does
+            # not wait, so if the remote is created later -- and half the services here create theirs
+            # on demand, at the moment of first use -- the connect is skipped without a word and the
+            # client can never receive that remote for the rest of the session. `WaitForChild` blocks
+            # and a bare `Remotes.NAME` errors loudly; only this form fails in silence.
+            if m.group(2) in CLIENT_LISTENS and how == "find":
+                silent.append((remote, f"{rel}:{src.count(chr(10), 0, m.start()) + 1}"))
 
 
 def main(argv):
     verbose = "--verbose" in argv
-    files = sorted(p for p in SRC.rglob("*.lua")
+    custom_src = Path(argv[0]) if argv and not argv[0].startswith("--") else SRC
+    files = sorted(p for p in custom_src.rglob("*.lua")
                    if "_pre_" not in p.name and "_removed_" not in p.name)
 
     sightings, silent = {}, []

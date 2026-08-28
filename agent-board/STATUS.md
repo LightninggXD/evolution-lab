@@ -38,7 +38,7 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [ ] | **S27** 33.11 (5.3) -- MEASURE FIRST: does a shrunk panel actually swamp itself with its own outline | `TODO` | Gemini | - | - |
 | [ ] | **S28** 22.1 -- the friends-in-server bonus, and the one income multiplier it has to join | `TODO` | Gemini | - | - |
 | [.] | **S29** 22.2 -- the invite button opens a prompt and nothing has ever been paid for it | `WAIT` | Gemini | - | - |
-| [ ] | **S30** The remotes lint reports BAD on a healthy game, and that is how a lint stops being read | `TODO` | Gemini | - | - |
+| [ ] | **S30** The remotes lint reports BAD on a healthy game, and that is how a lint stops being read | `TODO` | Gemini | - | R14 NOTE 2026-08-28T18:05 |
 
 ## Waiting on GEMINI -- apply these fixes first
 

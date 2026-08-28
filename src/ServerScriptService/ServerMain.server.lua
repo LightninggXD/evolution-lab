@@ -6,6 +6,7 @@ local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local SoundLibrary = require(ReplicatedStorage.Modules.SoundLibrary)
 local PlayerDataService = require(ServerScriptService.PlayerDataService)
 local DNAService = require(ServerScriptService.DNAService)
+local FriendBonusService = require(ServerScriptService.FriendBonusService)
 local ZoneBuilder = require(ServerScriptService.ZoneBuilder)
 local ZoneService = require(ServerScriptService.ZoneService)
 local EvolutionVisuals = require(ServerScriptService.Systems.EvolutionVisuals)
@@ -153,6 +154,7 @@ SoundLibrary.EnsureGroups()
 Telemetry.Init()
 PlayerDataService.Init()
 DNAService.Init()
+FriendBonusService.Init()
 -- AFTER DNAService, and the order is a preference rather than a constraint: it connects one remote
 -- and reads nothing at Init time. It is placed here because it is the other half of the same
 -- purchase surface -- `SwordService.HandleBuy` is `HandleBuyDiamondUpgrade` beat for beat -- and

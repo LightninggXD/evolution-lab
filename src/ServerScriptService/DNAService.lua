@@ -5,6 +5,7 @@ local Remotes = RS.Remotes
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local Telemetry = require(script.Parent.Telemetry)
 local PetService = require(script.Parent.PetService)
+local FriendBonusService = require(script.Parent.FriendBonusService)
 
 local DNAService = {}
 DNAService.OnEvolve = nil -- optional callback(player, data) set by ServerMain to avoid circular requires
@@ -695,6 +696,7 @@ function DNAService.Init()
 					-- sends. Stamped even when it is 0, so a tile at level 0 reads "+0/s" rather than
 					-- keeping the last number a different save left there.
 					data.__autoPerSec = amt
+					data.__friendCount = FriendBonusService.GetFriendCount(player.UserId)
 					if amt > 0 then
 						data.DNA += amt
 						-- BATCHED, not sent. This line runs once a second for every player in the

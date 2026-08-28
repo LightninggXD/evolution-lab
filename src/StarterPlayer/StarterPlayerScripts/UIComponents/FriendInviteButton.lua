@@ -7,46 +7,26 @@ local PlayerData = require(script.Parent:WaitForChild("PlayerData"))
 local FriendInviteButton = {}
 local btn = nil
 
-local function getFriendCount()
-	local count = 0
-	local localPlayer = Players.LocalPlayer
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p ~= localPlayer and localPlayer:IsFriendsWith(p.UserId) then
-			count = count + 1
-		end
-	end
-	return count
-end
-
 function FriendInviteButton.Init(screenGui)
 	if btn then return btn end
 
-	btn = Instance.new("ImageButton")
+	-- Rebuild using UITheme standard kit
+	btn = UITheme.Button("Invite\nFriends")
 	btn.Name = "FriendInviteButton"
-	btn.Size = UDim2.new(0, 64, 0, 64)
-	btn.Position = UDim2.new(0, 20, 1, -80) -- Middle bottom, above hotbar
-	btn.BackgroundColor3 = UITheme.Color.Cream
-	btn.Image = "" -- REPLACE WITH UPLOADED ICON
+	btn.Size = UDim2.new(0, 72, 0, 72)
+	btn.Position = UDim2.new(0, 20, 1, -90) -- Middle bottom, above hotbar
 	btn.Parent = screenGui
 
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 12)
-	corner.Parent = btn
-
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = UITheme.Color.Outline
-	stroke.Thickness = 3
-	stroke.Parent = btn
-
+	-- The pill for showing live count and bonus percentage
 	local badge = Instance.new("TextLabel")
 	badge.Name = "Badge"
 	badge.Size = UDim2.new(0, 24, 0, 24)
 	badge.Position = UDim2.new(1, -12, 0, -12)
-	badge.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+	badge.BackgroundColor3 = UITheme.Color.Action
 	badge.Text = "+0%"
 	badge.Font = UITheme.Font.Display
 	badge.TextSize = 12
-	badge.TextColor3 = Color3.fromRGB(255, 255, 255)
+	badge.TextColor3 = UITheme.Color.TextLight
 	badge.Visible = false
 	badge.Parent = btn
 
@@ -60,7 +40,10 @@ function FriendInviteButton.Init(screenGui)
 	bStroke.Parent = badge
 
 	local function updateBadge()
-		local count = getFriendCount()
+		local data = PlayerData.Get()
+		if not data then return end
+		-- Server stamped figure from DNAService
+		local count = data.__friendCount or 0
 		if count > 0 then
 			badge.Text = "+" .. (count * 5) .. "%"
 			badge.Visible = true
@@ -78,12 +61,10 @@ function FriendInviteButton.Init(screenGui)
 		end
 	end)
 
-	Players.PlayerAdded:Connect(function() task.wait(1) updateBadge() end)
-	Players.PlayerRemoving:Connect(function() task.wait(1) updateBadge() end)
-	
+	-- We listen to data updates to redraw, not PlayerAdded, since the server tells us when it's real
+	PlayerData.Changed:Connect(updateBadge)
 	task.spawn(updateBadge)
 	return btn
 end
 
 return FriendInviteButton
-

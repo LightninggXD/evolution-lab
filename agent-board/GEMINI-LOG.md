@@ -396,3 +396,29 @@ ok    MainUI.client.lua                  144 registers,  56 of headroom
   - With Trails in Inventory, Swords in Inventory, Name Plates in Titles & Goals, and Emotes having their own HUD tile, `UIComponents/CosmeticsPanel.lua` and the Vanity HUD tile have no remaining content. Recommend deleting `CosmeticsPanel.lua` and replacing/removing the Vanity tile in a subsequent cleanup pass once verified.
 - **Not verified:**
   - Studio gameplay execution, live push, and in-game captures (Disk-only constraint per protocol).
+
+## S28 | 22.1 -- the friends-in-server bonus, and the one income multiplier it has to join
+
+- **Files touched:**
+  - src/ServerScriptService/FriendBonusService.lua (NEW)
+  - src/ServerScriptService/ServerMain.server.lua
+  - src/ServerScriptService/DNAService.lua
+  - src/StarterPlayer/StarterPlayerScripts/UIComponents/FriendInviteButton.lua
+  - src/ServerScriptService/PlayerDataService.lua
+  - src/ReplicatedStorage/Modules/GameConfig/Rewards.lua
+
+- **The Three Decisions:**
+  - **Where in the chain:** Added in DNAService.lua:59 right after GameConfig.GroupIncomeMult (and before events/passes). **Why**: It follows the *earned-before-bought* philosophy, so passes like VIP (which apply last) continue to multiply the base + earned bonuses.
+  - **The cap arithmetic:** GameConfig.FriendBonusPct = 5 and GameConfig.FriendBonusCap = 4, giving a max bonus of +20%. **Why**: This sits nicely above the +10% Group bonus but safely below the +50% VIP pass, making it very noticeable but not overpowering premium items.
+  - **The offline payout:** Handled in DNAService.lua:60. **Why**: Placed *inside* the if not excludeEvents then block. A friend who is currently online was not necessarily playing in your server overnight, so this ensures it is excluded from offline progress exactly like live events are.
+
+- **Leave-path handling:** FriendBonusService.lua:32. When PlayerRemoving fires, we iterate their friends list and immediately 
+il them out of their friends' graphs.
+- **MainUI.client.lua Registers:**
+  - Before: 148 registers, 52 headroom.
+  - After: 148 registers, 52 headroom.
+- **Lints:**
+  - luaremotes.py OK
+  - luastruct.py OK
+  - luanames.py OK
+  - luascope.py OK

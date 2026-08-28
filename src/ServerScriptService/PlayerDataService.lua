@@ -778,6 +778,7 @@ function PlayerDataService.Save(player, release)
 	if loadFailed[player.UserId] then return end
 
 	data.__sessionJobId = release and nil or JOB_ID
+	data.__sessionUserId = player.UserId
 	data.__sessionAt = os.time()
 	-- Stamped on EVERY save, not just the leave-save: a server that crashes never gets to run its
 	-- leave-save, and a LastSeen that only moved on a clean exit would pay that player eight hours
