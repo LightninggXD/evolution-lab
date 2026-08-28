@@ -127,8 +127,18 @@ return function(hud)
 		-- TextButton text, so the whole shop showed no prices. Only Equip/Unequip looked right, and
 		-- only because `refresh` writes their `.Text` directly a few lines down.
 
-		styleButton(btnDiamonds, UITheme.Color.Aqua, UDim.new(0, 10))
-		btnDiamonds.Text = "\u{1F48E} " .. formatNumber(c.priceDiamonds)
+		-- THE CAPTION CARRIES ITS OWN CURRENCY (34.29). Three now: a Trail costs Evolution Shards
+		-- (they are the speed ladder, and shards had one sink in the whole game before this), a
+		-- Name Plate costs Diamonds, and an Emote is FREE. `GetCosmeticPrice` is the one place that
+		-- decides, and `CosmeticService` charges off the same call -- so this caption cannot quote
+		-- a price the transaction disagrees with.
+		local price, currency = GameConfig.GetCosmeticPrice(c)
+		local CURRENCY_GLYPH = { Shards = "\u{1F31F}", Diamonds = "\u{1F48E}" }
+		styleButton(btnDiamonds, currency == "Shards" and UITheme.Color.Gold or UITheme.Color.Aqua,
+			UDim.new(0, 10))
+		btnDiamonds.Text = currency
+			and (CURRENCY_GLYPH[currency] .. " " .. formatNumber(price))
+			or "CLAIM"
 		
 		local btnRobux = nil
 		if c.productId and c.productId > 0 then
@@ -214,8 +224,16 @@ return function(hud)
 				if refs.btnRobux then refs.btnRobux.Visible = true end
 				refs.btnEquip.Visible = false
 				
-				if (data.Diamonds or 0) >= refs.c.priceDiamonds then
-					setButtonColor(refs.btnDiamonds, UITheme.Color.Aqua)
+				-- Affordability against the row's OWN currency. This asked `data.Diamonds` against
+				-- `priceDiamonds` for every row, so a shard-priced trail was coloured by a balance
+				-- that has nothing to do with it -- and a free row, which is always affordable,
+				-- would have been greyed by a comparison against nil.
+				local p2, cur2 = GameConfig.GetCosmeticPrice(refs.c)
+				local held = cur2 == "Shards" and (data.EvolutionShards or 0)
+					or cur2 == "Diamonds" and (data.Diamonds or 0)
+					or math.huge
+				if held >= p2 then
+					setButtonColor(refs.btnDiamonds, cur2 == "Shards" and UITheme.Color.Gold or UITheme.Color.Aqua)
 				else
 					setButtonColor(refs.btnDiamonds, UITheme.Color.Locked)
 				end

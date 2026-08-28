@@ -904,3 +904,88 @@ Find where `PortalGate` went missing in Forest (door to zone 2) and restore it s
 - **Check:** 
 
 Fix the discrepancy where `ForestMapService` orphans 39 props from the mountain cut but settles 0 back to the floor.
+
+---
+
+## S23 | The cosmetics screen splits into three places the owner asked for
+- **Owner:** Gemini
+- **Depends:** none
+- **Check:** `tools/luastruct.py`, `luascope.py`, `luaremotes.py`, `luaregs.py` all clean; `MainUI` register count does NOT rise (it is at 149 of 200 and one more top-level local deletes the HUD); and every claim below answered with the grep that proves it
+
+**DISK ONLY. No Studio, no captures, no Play.** Those are mine and I will run them against what you
+write. Do not touch `ZoneBuilder`, `PetService`, `EnchantTransferPicker`, `Cosmetics.lua`,
+`CosmeticService.lua` or `EvolutionVisuals` -- all six are mine this session and are being edited
+right now. If you need a change in one of them, write the request into `GEMINI-LOG.md` and I will
+make it.
+
+### Where this comes from
+
+Kristina's message, with a capture of the Vanity panel: *"ove trails trebaju biti negde odvojeno ...
+a trails moze u shopu samo drugi panel za to, kao inventory sto ima potion pets i relics, e tako
+trails ubaci i maceve spoji kao trecu opciju pa nek bude sve tu, emotes nek bude kao mala ikona pa
+kad je kliknes otvori par vrsta emota ... a ovaj tag u boji nek bude negde sa titlom, posto se titl
+moze dobiti to ima smisla da bude zajedno negde"*. She then chose the layout explicitly: **the
+existing Inventory tab strip grows to five tabs.** That is decided; do not re-open it.
+
+The one panel becomes three homes:
+
+| What | Where it goes |
+|---|---|
+| **Trails** (5 of them, and they are the SPEED ladder now) | a new **Trails** tab on the Inventory strip |
+| **Sword** ladder (today a HUD tile, `UIComponents/SwordPanel`) | a **Sword** tab on the same strip; the L5 HUD tile goes away |
+| **Name Plates** | beside the **Titles** list in `HUD/AchievementsPanel` -- her reason: a title is earned, a plate is worn, they belong together |
+| **Emotes** | their own small HUD icon that opens a short list. All three are FREE now |
+| `UIComponents/CosmeticsPanel` + the Vanity HUD tile | **nothing is left in it** -- report whether to delete it or leave it unreachable. Do NOT delete it yourself |
+
+### What you are building
+
+1. **`InventoryTabs.lua` grows from three tabs to five.** Read its own header first: the strip is
+   `3 * 112 + 2 * 8 = 352` inside a frame authored at 358, and the note at `:31` records that going
+   from two tabs to three cost a width change *and* a per-tab shrink. Five tabs need that
+   arithmetic done again, once, with the new numbers written into the comment the way the old ones
+   are. The two new entries follow the existing `{ text = ..., target = ..., color = ... }` shape.
+   **`target` must be a panel that already exists** -- the strip does not build panels, it swaps
+   between them, and its `:19` note says the require order decides whether a tab silently loses its
+   target.
+
+2. **A Trails panel.** Build it on `UIComponents/ScrollingPanelBuilder` like every other list panel
+   written this month -- `AdventurePetPicker` is the closest model. One card per row of
+   `GameConfig.Cosmetics` whose `type == "Trail"`. Each card shows the trail's name, **its speed
+   bonus (`speedPct`, "+N% walk speed")**, and one button that is:
+   - `EQUIP` / `UNEQUIP` when `data.CosmeticsOwned[key]` -- fires `Remotes.CosmeticEquip`
+   - the price otherwise -- `GameConfig.GetCosmeticPrice(c)` returns `amount, currency` and the
+     currency for a trail is `"Shards"`, held in `data.EvolutionShards`. Fire
+     `Remotes.CosmeticPurchase`.
+   - greyed with the reason when it cannot be pressed. **Do not put the caption in
+     `UIKit.styleButton`'s third argument -- that is a RADIUS** and it ate every price in the vanity
+     shop four days ago (roadmap 34.22). Set `.Text` on its own line.
+
+3. **The Sword tab points at `UIComponents/SwordPanel`**, which already exists and already builds
+   itself on the same builder. Remove the L5 `swordButton` tile from `MainUI` and its click handler.
+   **Removing lines from `MainUI` is safe; adding a top-level local is not.**
+
+4. **Name Plates move into `HUD/AchievementsPanel`** as a second section under the titles, same card
+   shape, priced in Diamonds (`GetCosmeticPrice` says so).
+
+5. **Emotes get their own HUD icon** -- one small button, its own panel, three rows, all free
+   (`GetCosmeticPrice` returns `0, nil`, and a nil currency means CLAIM-then-equip, not "refuse").
+   `StarterPlayerScripts/EmoteClient` already exists and already walks the catalogue: read it before
+   writing anything, and wire to it rather than around it.
+
+### The traps that have caught this exact work before
+
+- **`hud` IS `hudRefs`.** `hud.currentData` and `hud.hudRefs.x` do not exist; it is `hud.getData()`.
+  Three panels shipped dead this month on that alone.
+- **A panel that nothing requires is dead code**, and it looks identical to working code. Grep the
+  module name across `src/` and paste the hit.
+- **The builder's card labels are `CardTitle` / `CardSubtitle` / `CardDescription` inside a frame
+  named `Text`.** Guessing those names is what drew the sword preview over its own card (34.17).
+- **Check every dotted field you did not write against the module that owns it.** Fifth time.
+
+### What to report in `GEMINI-LOG.md`
+
+The five files you touched, the new tab arithmetic with the numbers, `MainUI`'s register count
+before and after, and the grep that proves each new panel is required from somewhere. **Anything
+you could not do, say so plainly and leave it undone** -- a row reading `LEFT: the emote icon has
+nowhere on the HUD that does not collide with TileColumnFit, here is what I measured` is worth more
+than a guess I have to unpick.

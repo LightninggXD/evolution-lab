@@ -563,6 +563,27 @@ function PlayerDataService.Load(player)
 			warn(("[PlayerDataService] %d (%s): Mutation Chance L%d refunded %d DNA")
 				:format(player.UserId, player.Name, mutationLevel, refund))
 		end
+		-- ===== THE TRAILS TAKE THE SPEED UPGRADE OVER (34.29) =====
+		--
+		-- Same conversion, same shape, and it is written from the Mutation one above rather than
+		-- invented: `GameConfig.Upgrades.Speed` is gone -- speed comes from the worn trail now --
+		-- so every level ever bought is refunded at the exact geometric sum that was paid for it.
+		-- 25 and 1.28 were that upgrade's own baseCost/costMult and are literals here for the
+		-- reason 60 and 1.35 are above: the table they came from no longer has the row.
+		--
+		-- THE KEY IS CLEARED WHATEVER THE LEVEL WAS, and the clear and the credit are the SAME
+		-- write, which is what makes a second pass a no-op -- an autosave landing between a load
+		-- and the next read must not be able to pay this twice.
+		local speedLevel = tonumber(data.Upgrades and data.Upgrades.Speed) or 0
+		if data.Upgrades then data.Upgrades.Speed = nil end
+		if speedLevel > 0 then
+			local refund = math.floor(25 * ((1.28 ^ speedLevel) - 1) / 0.28)
+			data.DNA = (data.DNA or 0) + refund
+			Telemetry.Economy(player, "Source", Telemetry.Currency.DNA, refund, data.DNA,
+				Telemetry.Tx.Onboarding, "speedUpgradeRefund")
+			warn(("[PlayerDataService] %d (%s): Speed L%d refunded %d DNA (trails carry speed now)")
+				:format(player.UserId, player.Name, speedLevel, refund))
+		end
 		-- (b) The old rolled list becomes the collection log plus the one worn mutation -- the
 		-- BEST one, so nobody's income falls further than the capped tail this replaces. Guarded
 		-- on SplicerMutation being unset, or a second pass would count every name again.

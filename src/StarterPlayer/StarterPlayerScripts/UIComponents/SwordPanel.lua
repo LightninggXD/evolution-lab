@@ -12,9 +12,16 @@ local SwordPanel = {}
 local panel = nil
 local rows = {}
 
+local WHITE = Color3.fromRGB(255, 255, 255)
 local READY = { Color3.fromRGB(120, 255, 170), Color3.fromRGB(20, 200, 100) }
 local DONE = { Color3.fromRGB(255, 214, 120), Color3.fromRGB(240, 165, 20) }
 local LOCKED = { Color3.fromRGB(180, 180, 180), Color3.fromRGB(100, 100, 100) }
+
+local function pastel(c, taken)
+	local a = taken and 0.68 or 0.30
+	local b = taken and 0.86 or 0.62
+	return { c:Lerp(WHITE, a), c:Lerp(WHITE, b) }
+end
 
 local function refresh()
 	local data = PlayerData.Get()
@@ -26,36 +33,44 @@ local function refresh()
 	local nextCost = GameConfig.GetSwordCost(level)
 	local maxed = (nextCost == math.huge)
 
-	panel.SetTitle("WEAPON")
+	panel.SetTitle(maxed and "WEAPON - FULLY FORGED" or "WEAPON")
 	
 	for i, tier in ipairs(GameConfig.Swords) do
 		local refs = rows[i]
 		if refs then
 			if i < level then
-				refs.card.SetSubtitle("✓ Forged")
+				refs.card.SetSubtitle("Forged")
 				refs.card.SetDescription(string.format("x%.2f damage", tier.damageMult))
-				refs.card.Button.SetPrice("✓")
+				refs.card.Button.SetPrice("DONE")
 				refs.card.Button.SetEnabled(false, DONE)
-				refs.card.SetColors({ tier.color:Lerp(Color3.new(1,1,1), 0.5), tier.color:Lerp(Color3.new(1,1,1), 0.7) })
+				refs.card.Button.SetColors(DONE)
+				refs.card.SetColors(pastel(tier.color, true))
 			elseif i == level then
 				refs.card.SetSubtitle("EQUIPPED")
 				refs.card.SetDescription(string.format("x%.2f damage", tier.damageMult))
-				refs.card.Button.SetPrice("⚔️")
+				refs.card.Button.SetPrice("EQUIPPED")
 				refs.card.Button.SetEnabled(false, DONE)
-				refs.card.SetColors({ tier.color, tier.color:Lerp(Color3.new(0,0,0), 0.2) })
+				refs.card.Button.SetColors(DONE)
+				refs.card.SetColors(pastel(tier.color, false))
 			elseif i == level + 1 then
 				local affordable = diamonds >= tier.cost
 				refs.card.SetSubtitle("Next Upgrade")
 				refs.card.SetDescription(string.format("x%.2f damage", tier.damageMult))
 				refs.card.Button.SetPrice("💎 " .. formatNumber(tier.cost))
 				refs.card.Button.SetEnabled(affordable, affordable and READY or LOCKED)
-				refs.card.SetColors({ tier.color, tier.color:Lerp(Color3.new(0,0,0), 0.2) })
+				if affordable then
+					refs.card.Button.SetColors(READY)
+				else
+					refs.card.Button.SetColors(LOCKED)
+				end
+				refs.card.SetColors(pastel(tier.color, false))
 			else
 				refs.card.SetSubtitle(string.format("After %d more", i - level - 1))
 				refs.card.SetDescription(string.format("x%.2f damage", tier.damageMult))
 				refs.card.Button.SetPrice("💎 " .. formatNumber(tier.cost))
 				refs.card.Button.SetEnabled(false, LOCKED)
-				refs.card.SetColors({ Color3.fromRGB(150, 150, 150), Color3.fromRGB(100, 100, 100) })
+				refs.card.Button.SetColors(LOCKED)
+				refs.card.SetColors(pastel(Color3.fromRGB(150, 150, 150), false))
 			end
 		end
 	end
@@ -67,11 +82,8 @@ function SwordPanel.Init(screenGui)
 	panel = Builder.CreatePanel({
 		Parent = screenGui,
 		Name = "Sword",
-		-- NO EMOJI IN THE TITLE. `HeaderIcon` already draws the crossed blades beside it, so a glyph
-		-- here renders the panel as "(swords) (swords) WEAPON" -- measured in the capture. Every
-		-- other builder panel passes a plain word for the same reason.
 		Title = "WEAPON",
-		HeaderIcon = "rbxassetid://115197317627143", -- swords
+		HeaderIcon = "rbxassetid://115197317627143",
 		HeaderColors = { Color3.fromRGB(255, 215, 0), Color3.fromRGB(200, 150, 0) },
 	})
 
@@ -82,8 +94,9 @@ function SwordPanel.Init(screenGui)
 			Title = i .. ". " .. tier.displayName,
 			Subtitle = "",
 			Description = "",
-			Icon = "", -- We will attach the preview below
-			BackgroundColors = { tier.color, tier.color:Lerp(Color3.new(0,0,0), 0.2) },
+			Icon = "rbxassetid://115197317627143", -- reserves the 140px gutter for icon/preview
+			IconPlate = true,
+			BackgroundColors = pastel(tier.color, false),
 			Buttons = {
 				{
 					Name = "Do",
@@ -97,31 +110,19 @@ function SwordPanel.Init(screenGui)
 			},
 		})
 		
-		-- Attach the 3D preview
+		-- Hide the default flat 2D image icon so the 3D viewport shows cleanly
+		local iconImg = card.Instance:FindFirstChild("Icon")
+		if iconImg then
+			iconImg.ImageTransparency = 1
+		end
+
+		-- Attach the 3D blade preview inside the card's icon space
 		SwordPreview.Attach(card.Instance, tier, {
-			size = 68,
-			position = UDim2.new(0, 12, 0.5, 0),
+			size = 110,
+			position = UDim2.new(0, 15, 0.5, 0),
 			anchorPoint = Vector2.new(0, 0.5),
 			zIndex = card.Instance.ZIndex + 5,
 		})
-		
-		-- ===== THE GUTTER IS ONE FRAME, AND IT IS NOT NAMED WHAT THIS ASKED FOR =====
-		--
-		-- This used to shift three labels found by `FindFirstChild("TitleLabel")` /
-		-- `"SubtitleLabel"` / `"DescriptionLabel"`. The builder names them `CardTitle`,
-		-- `CardSubtitle` and `CardDescription` and parents all three to a `Text` frame -- so all
-		-- three lookups returned nil, nothing moved, and the 68-stud sword preview drew straight
-		-- over the card's own text. A name that exists, just not here: the shape that has cost this
-		-- repo more silent bugs than any other.
-		--
-		-- Moving the ONE frame is also what the builder itself does (`SetIcon`), and its arithmetic
-		-- is copied rather than re-invented: a left gutter of `g`, a right margin of 170 for the
-		-- action button. 92 = the preview's 12-stud inset plus its 68 width plus 12 of air.
-		local txtFrame = card.Instance:FindFirstChild("Text")
-		if txtFrame then
-			txtFrame.Size = UDim2.new(1, -(92 + 170), 1, -20)
-			txtFrame.Position = UDim2.new(0, 92, 0.5, 0)
-		end
 
 		rows[i] = { card = card }
 	end

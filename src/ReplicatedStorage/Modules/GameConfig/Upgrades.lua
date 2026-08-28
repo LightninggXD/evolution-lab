@@ -28,14 +28,12 @@ return function(GameConfig)
 -- left to speed up. Paid levels are refunded at their exact geometric sum by the load
 -- migration in PlayerDataService, which carries the base 60 / mult 1.35 as literals because
 -- this table no longer does.
+-- THE `Speed` ROW IS GONE (34.29). Speed comes from the worn Trail now -- her call, *"nema vise
+-- speed u shopu da se kupi vec nek bude vise ovih trails i one ce da upgradaju speed"*. Levels
+-- already bought are refunded at their exact geometric sum by the load migration in
+-- `PlayerDataService`, which carries the base 25 / mult 1.28 as literals because this table no
+-- longer does -- the same arrangement the Mutation Chance removal left behind, one row up.
 GameConfig.Upgrades = {
-	Speed = {
-		displayName = "Speed",
-		emoji = "👟",
-		baseCost = 25,
-		costMult = 1.28,
-		description = "Moves you faster around the lab",
-	},
 	Income = {
 		displayName = "Income",
 		emoji = "💰",

@@ -460,11 +460,27 @@ local function applyMastery(character, data)
 	-- It is NOT `cap * sizeMult`: multiplying the ceiling by the body would put a max-stage player at
 	-- ~580 studs/s, which is the speed the cap exists to prevent.
 	local walkCap = GameConfig.GetPassMax(data, "walkCap", GameConfig.MaxWalkSpeed or 120)
+	--
+	-- THE TRAIL RIDES BESIDE THE MUTATION, AFTER THE CLAMP, AND FOR THE IDENTICAL REASON (34.29).
+	-- The Speed upgrade used to add studs INSIDE the parenthesis above; everything in there is
+	-- already 2.24x past the ceiling on a max-stage body, so those studs were sawn off exactly the
+	-- way the aura's were before 15.30. Trails pay a share of THIS player's cap instead, which
+	-- lands in full at 1x and at the top.
+	--
+	-- **THE TWO SHARES ARE BOUNDED TOGETHER, WHICH THE MUTATION ALONE NEVER NEEDED TO BE.** The note
+	-- above budgets a deliberate overshoot of at most 12% (a Godly aura) and calls the cap a
+	-- streaming number with a little slack. A second source makes that sum 32% -- 48 studs over the
+	-- standard 150 -- which is not "a little", and the cap exists to stop a player outrunning
+	-- StreamingEnabled. 20% is the ceiling on the pair: a Godly aura and the top trail together are
+	-- worth 20, not 32, and either one alone is unchanged from what it was.
+	local overshootPct = math.min(
+		GameConfig.GetMutationSpeedPct(data) + GameConfig.GetTrailSpeedPct(data),
+		20)
 	humanoid.WalkSpeed = math.min(
-		(GameConfig.BaseWalkSpeed + bonus.walkSpeed + GameConfig.GetSpeedUpgradeBonus(data))
+		(GameConfig.BaseWalkSpeed + bonus.walkSpeed)
 			* sizeMult * GameConfig.GetPassMult(data, "walkMult"),
 		walkCap
-	) + walkCap * GameConfig.GetMutationSpeedPct(data) / 100
+	) + walkCap * overshootPct / 100
 	-- R15 characters default to JumpHeight, not JumpPower, so setting JumpPower alone is silently
 	-- ignored -- UseJumpPower has to be flipped first or the jump bonus never lands.
 	humanoid.UseJumpPower = true

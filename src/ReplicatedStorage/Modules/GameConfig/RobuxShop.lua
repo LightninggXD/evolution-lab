@@ -50,11 +50,20 @@ GameConfig.RobuxProducts = {
 	-- Named with their real numbers, unlike the DNA packs above: a diamond count is not scaled, so
 	-- "50 Diamonds" is true at every stage, and hiding a true number behind an adjective only costs
 	-- the buyer clarity.
+	-- THE TOP TWO PACKS WERE DOUBLED 2026-08-28, her call, off a capture of these two rows: R$499
+	-- pays 300 where it paid 140, R$999 pays 600 where it paid 300. The bonus ribbon is DERIVED
+	-- (`GetTierBonusPct` divides this tier's diamonds-per-Robux by the cheapest tier's), so both
+	-- badges recomputed themselves and neither had to be edited.
+	--
+	-- WORTH KNOWING BEFORE THE NEXT REPRICE: this flattens the top of the ladder. Both rows now pay
+	-- 0.601 diamonds per Robux, so the BEST VALUE row is no longer better value than the one under
+	-- it -- it is only a bigger single purchase. Left exactly as asked; if the R$999 row stops
+	-- selling, that is the reason and the fix is one number here.
 	{ key = "Diamonds_1", productId = 3702250279, price = 49,  tierGroup = "Diamonds", name = "10 Diamonds",  emoji = "💎", grantDiamonds = 10 },
 	{ key = "Diamonds_2", productId = 3702250748, price = 99,  tierGroup = "Diamonds", name = "22 Diamonds",  emoji = "💎", grantDiamonds = 22 },
 	{ key = "Diamonds_3", productId = 3702251204, price = 199, tierGroup = "Diamonds", name = "50 Diamonds",  emoji = "💎", grantDiamonds = 50 },
-	{ key = "Diamonds_4", productId = 3702251679, price = 499, tierGroup = "Diamonds", name = "140 Diamonds", emoji = "💎", grantDiamonds = 140 },
-	{ key = "Diamonds_5", productId = 3702252142, price = 999, tierGroup = "Diamonds", name = "300 Diamonds", emoji = "💎", grantDiamonds = 300, ribbon = "BEST VALUE" },
+	{ key = "Diamonds_4", productId = 3702251679, price = 499, tierGroup = "Diamonds", name = "300 Diamonds", emoji = "💎", grantDiamonds = 300 },
+	{ key = "Diamonds_5", productId = 3702252142, price = 999, tierGroup = "Diamonds", name = "600 Diamonds", emoji = "💎", grantDiamonds = 600, ribbon = "BEST VALUE" },
 
 	-- ===== EVOLUTION SHARDS (11.12) =====
 	--
@@ -83,7 +92,12 @@ GameConfig.RobuxProducts = {
 
 	-- The wheel. Priced against the 99 R$ DNA pack it sits next to -- see the SpinWheel comment for
 	-- why its expected DNA is deliberately the lower of the two.
-	{ key = "LuckySpin",   productId = 3702253641, price = 99,  name = "Lucky Spin",    emoji = "\u{1F3A1}", grantSpin = true },
+	-- R$99 -> R$49, 2026-08-28, and it was strictly dominated at 99. A spin costs 25 shards
+	-- (`GameConfig.SpinCostShards`) and the cheapest shard pack is exactly 25 for R$49 -- so the
+	-- identical spin was on sale two rows apart at R$49 and R$99, and nobody should ever have
+	-- pressed this one. Her catch: *"nema smisla da je lucky spin 99, a 25 shardova 49"*. At 49 the
+	-- two doors cost the same and this one is simply the direct one.
+	{ key = "LuckySpin",   productId = 3702253641, price = 49,  name = "Lucky Spin",    emoji = "\u{1F3A1}", grantSpin = true },
 
 	-- A COUNTED CHARGE, not a moment. `grantBossRevives` adds to data.BossRevives and BossService
 	-- spends one when there is something to restore; the receipt can therefore arrive late, on

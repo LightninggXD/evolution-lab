@@ -1927,6 +1927,24 @@ local function buildWeather(model, zone, cx)
 	emitterPart.CanCollide = false
 	emitterPart.Transparency = 1
 	emitterPart.CastShadow = false
+	-- ===== THE EGGS WERE STANDING ON THIS, 198 STUDS IN THE SKY (34.15) =====
+	--
+	-- `CanCollide = false` and `Transparency = 1` make a part you cannot touch and cannot see. They
+	-- do NOT make a part a raycast cannot find: `CanQuery` defaults to true, and this one is a
+	-- 1500-stud sheet lying flat 120 studs over the crest. Every pass in this game that seats
+	-- something on the ground does it by raying DOWNWARD from above -- so the first thing the ray
+	-- met was this, and it reported the floor at y 198.50.
+	--
+	-- It put the egg columns in the sky (`seated 3 egg columns ... 198.5/+200.1` on every boot) and
+	-- the adventure board with them (`the ray landed on Workspace.Zones.Forest.WeatherEmitter at
+	-- y = 198.50`), and it was read as two separate bugs in two separate rows.
+	--
+	-- `CanTouch` goes with it: this part exists to carry a ParticleEmitter and nothing else, so it
+	-- has no business answering a query or a touch. See [[roblox-canquery-ignored-when-collides]]
+	-- for the half of this rule that does NOT apply here -- CanQuery is honoured precisely because
+	-- CanCollide is already false.
+	emitterPart.CanQuery = false
+	emitterPart.CanTouch = false
 	emitterPart.Parent = model
 
 	local pe = Instance.new("ParticleEmitter")

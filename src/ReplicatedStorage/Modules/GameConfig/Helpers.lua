@@ -38,23 +38,12 @@ function GameConfig.ScaleReward(amount, data)
 	return math.floor((amount or 0) * mult)
 end
 
--- WHAT THE SPEED UPGRADE DOES. Until this existed: nothing.
---
--- `Speed` is the cheapest upgrade in the game (25 DNA) and the first one in the shop's order, so
--- it is the first purchase almost every new player makes -- and no line anywhere in the game ever
--- read `data.Upgrades.Speed`. The level went up, the cost went up, and the character moved at
--- exactly the same pace. The first thing a player buys cannot be the thing that teaches them
--- buying does nothing.
---
--- Flat studs per level rather than a multiplier: it is applied BEFORE the body-size multiplier in
--- EvolutionVisuals.applyMastery, so a level bought at Cell is worth proportionally more later,
--- which is the same shape every other early upgrade in this game has.
-GameConfig.SpeedPerLevel = 1.5
-
-function GameConfig.GetSpeedUpgradeBonus(data)
-	local level = data and data.Upgrades and data.Upgrades.Speed or 0
-	return level * GameConfig.SpeedPerLevel
-end
+-- WHERE THE SPEED BONUS WENT (34.29). `GameConfig.SpeedPerLevel` and `GetSpeedUpgradeBonus` stood
+-- here and are deleted with the upgrade they read. The replacement is `GetTrailSpeedPct` in
+-- `GameConfig/Cosmetics`, and it is a PERCENTAGE rather than a number of studs on purpose: the
+-- studs were added inside the walk clamp, and `EvolutionVisuals`'s own note records that the term
+-- in there already reaches 581 against a cap of 260 -- so they were sawn off for most of the game,
+-- which is exactly the fault 15.30 found and fixed for the mutation auras.
 
 -- ===== UPGRADES ARE CAPPED BY HOW FAR YOU HAVE ACTUALLY GOT =====
 --

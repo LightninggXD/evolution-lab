@@ -4014,9 +4014,12 @@ local function refreshUI()
 				refs.effectLabel.Text = ("x%.2f DNA earned"):format(1 + level * 0.12)
 			elseif key == "Luck" then
 				refs.effectLabel.Text = ("+%d%% egg luck"):format(level * GameConfig.PetLuckPerUpgradeLevel)
-			elseif key == "Speed" then
-				refs.effectLabel.Text = ("+%.1f walk speed"):format(GameConfig.GetSpeedUpgradeBonus(data))
 			end
+			-- THE `Speed` BRANCH IS GONE WITH THE UPGRADE (34.29). It called
+			-- `GameConfig.GetSpeedUpgradeBonus`, which is deleted -- and this loop walks
+			-- `upgradeButtons`, whose rows are built from `GameConfig.Upgrades`, so with the row
+			-- removed the branch was unreachable AND a nil call waiting for anyone who put it back.
+			-- Speed is the worn Trail now; the number is printed on the Trails tab.
 		end
 		if refs.button then
 			-- Maxed is genuinely Locked -- there is nothing left to buy. Merely short of DNA is not,
