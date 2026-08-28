@@ -5,9 +5,11 @@ local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local Telemetry = require(script.Parent.Telemetry)
--- for the free daily spin only. No cycle: RobuxShopService reaches PlayerDataService, SeasonPass
--- Service and DNAService, and none of those reaches back here.
-local RobuxShopService = require(script.Parent.RobuxShopService)
+-- ===== THE `RobuxShopService` REQUIRE IS GONE (34.46) =====
+-- It existed for one call, `GrantSpin`, and the free daily no longer spins: it credits a ticket and
+-- the lobby's SPIN button spends it, so this file's only remaining business with the wheel is the
+-- day boundary. A require kept for a call nobody makes is a boot-order coupling nobody can see the
+-- reason for, and ServerMain requires that service two lines below this one anyway.
 
 local RewardService = {}
 
@@ -152,24 +154,55 @@ function RewardService.GetFreeSpinStatus(data)
 	return false, math.max((today + 1) * SECONDS_PER_DAY - now, 0)
 end
 
+-- ===== THE FREE SPIN IS A TICKET NOW, NOT A TURN (34.46) =====
+--
+-- It used to roll the wheel the instant it was claimed, which is what made the whole feature a
+-- cutscene: the owner's note on it was that opening the wheel must NOT start it turning -- you look
+-- at the prizes, you see how many spins you are holding, and you press the button yourself. That
+-- only works if "free spin ready" is a BALANCE rather than a moment, so the daily now credits one
+-- `SpinTickets`, and `RobuxShopService.SpendSpinTicket` is the single thing that turns the wheel.
+--
+-- Credited when the player OPENS the lobby (or triggers the world prop), not on join, and that is
+-- deliberate: the countdown printed under the wheel is derived from `LastFreeSpin`, so stamping it
+-- at a moment the player is not looking would show them a timer that had already restarted for a
+-- spin they never saw arrive.
+--
+-- ONE DAY IS ONE TICKET. A player away for a week comes back to one, not seven -- the stamp is set
+-- to `os.time()` rather than advanced by a day -- which is the same thing `LastRewardClaim` does and
+-- for the same reason: a daily is an invitation to log in, not an account that accrues interest.
+--
+-- Returns true if a ticket was credited. Nothing between the read and the stamp yields, so two
+-- triggers on consecutive frames cannot both find the spin ready.
+function RewardService.AccrueFreeSpin(player, data)
+	data = data or PlayerDataService.Get(player)
+	if not data then return false end
+	if not RewardService.GetFreeSpinStatus(data) then return false end
+
+	data.LastFreeSpin = os.time()
+	data.SpinTickets = (data.SpinTickets or 0) + 1
+	Telemetry.Custom(player, "SpinTaken", 0)   -- 0 = the free daily, 1 = shards, 2 = a ticket
+	return true
+end
+
 -- Returns a status string, so this is testable without a mouse -- see CodesService for the same
 -- reasoning.
+--
+-- THIS NO LONGER SPINS. It banks whatever the day owes and opens the lobby; the player presses SPIN
+-- in there. Both callers -- the HUD tile and the world wheel prop -- want the same screen, so this
+-- stayed the one place that decides what the free spin is worth rather than becoming two.
 function RewardService.HandleFreeSpin(player)
 	local data = PlayerDataService.Get(player)
 	if not data then return "nodata" end
 
-	if not RewardService.GetFreeSpinStatus(data) then
-		Remotes.Notify:FireClient(player, { kind = "error", message = "Your free spin isn't ready yet!" })
-		return "notready"
-	end
+	local credited = RewardService.AccrueFreeSpin(player, data)
+	PlayerDataService.PushToClient(player)
 
-	-- STAMPED BEFORE THE GRANT, and nothing between them yields -- the same rule the code redemption
-	-- follows. GrantSpin rolls, pays, pushes and notifies; if the stamp came after it, two clicks on
-	-- consecutive frames would both find the spin ready.
-	data.LastFreeSpin = os.time()
-	Telemetry.Custom(player, "SpinTaken", 0)   -- 0 = the free daily, 1 = paid with shards
-	RobuxShopService.GrantSpin(player)
-	return "ok"
+	-- Fired AFTER the push, so the lobby draws with the free spin already in the balance rather than
+	-- opening on a stale zero and correcting itself a frame later.
+	local openRemote = Remotes:FindFirstChild("OpenSpinLobby")
+	if openRemote then openRemote:FireClient(player) end
+
+	return credited and "ok" or "opened"
 end
 
 -- ============================================================================
@@ -442,6 +475,19 @@ function RewardService.Init()
 	freeSpin.OnServerEvent:Connect(function(player)
 		RewardService.HandleFreeSpin(player)
 	end)
+
+	-- The lobby telling the server it is on screen (34.46). It banks the day's free spin and pushes,
+	-- and it does NOT fire `OpenSpinLobby` back: the client that sent this already has the panel up,
+	-- so echoing an open would be a second open. The world prop takes the `ClaimFreeSpin` route
+	-- above instead, which does need the echo because nothing is open there yet.
+	local requestLobby = ensureRemote("RequestSpinLobby")
+	requestLobby.OnServerEvent:Connect(function(player)
+		if RewardService.AccrueFreeSpin(player) then
+			PlayerDataService.PushToClient(player)
+		end
+	end)
+
+	ensureRemote("OpenSpinLobby")
 
 	local claimGroup = ensureRemote("ClaimGroupChest")
 	claimGroup.OnServerEvent:Connect(function(player)

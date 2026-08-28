@@ -124,11 +124,17 @@ function MapCounters.Init(zoneKey)
 	-- one feature -- HandleFreeSpin owns the readiness check, the timestamp and the payout, and a
 	-- second copy of any of those is a second daily spin.
 	--
+	-- THE PROMPT SAYS "OPEN" NOW (34.46), and the wording is the feature: this used to spin the wheel
+	-- where the player stood, and it now banks the day's free spin and opens the lobby, where the
+	-- prizes, the countdown and the spin balance are all on screen before anything turns. A prompt
+	-- reading "Spin" over a door that opens a panel is the kind of half-truth a player only ever
+	-- notices by being disappointed by it.
+	--
 	-- REQUIRED INSIDE THE CALLBACK, not at the top of this file. `RewardService.Init` runs well after
 	-- this one and requiring it at module scope would pull a half-built service into the boot order
 	-- for no reason; by the time anyone can press a prompt, everything is up.
 	local wheelPart = findPart(MapAnchors.Get(zoneKey, "wheel"))
-	local wheelPrompt = addPrompt(wheelPart, "MapPrompt_wheel", "Spin", "\u{1F3A1} Daily Spin")
+	local wheelPrompt = addPrompt(wheelPart, "MapPrompt_wheel", "Open", "\u{1F3A1} Lucky Wheel")
 	if wheelPrompt then
 		wheelPrompt.Triggered:Connect(function(player)
 			local RewardService = require(script.Parent.Parent.RewardService)

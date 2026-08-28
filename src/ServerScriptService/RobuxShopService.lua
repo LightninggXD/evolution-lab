@@ -279,6 +279,15 @@ local function processReceipt(receiptInfo)
 		Telemetry.Economy(player, "Source", Telemetry.Currency.Shards, product.grantShards,
 			data.EvolutionShards, Telemetry.Tx.IAP, "product:" .. tostring(product.key))
 	end
+	-- A COUNTED CHARGE, not a spin (34.46). `grantSpin` below still rolls the wheel there and then --
+	-- that is the one-press door and it must stay one press -- but a PACK pays tickets, which the
+	-- lobby's SPIN button spends one at a time. That is what makes a pack safe to buy mid-session:
+	-- ProcessReceipt is retried on Roblox's own schedule, so a receipt can arrive on another server,
+	-- after a rejoin, or with no wheel on screen, and none of those may cost the buyer a spin.
+	-- Unscaled, like the shards above and for the identical reason: a ticket buys exactly one thing.
+	if product.grantSpins then
+		data.SpinTickets = (data.SpinTickets or 0) + product.grantSpins
+	end
 	-- The premium pass is a flag, not a payout, and it pushes its own confirmation -- so it is
 	-- unlocked here and the generic notify below still fires for the receipt itself.
 	if product.grantSeasonPremium then
@@ -384,13 +393,18 @@ function RobuxShopService.GrantSpin(player)
 	return last and last.segment or nil
 end
 
--- ===== THE SAME WHEEL, PAID FOR IN EVOLUTION SHARDS (9.4) =====
+-- ===== THE SAME WHEEL, PAID FOR IN EVOLUTION SHARDS (9.4, REPOINTED 34.46) =====
 --
 -- Shards became a drop off the raised creatures and needed a sink; this is it, and it is
--- deliberately not a second wheel. Same table, same roll, same luck bend, same grant: GrantSpin was
--- already public for the free daily spin, and this is the third door into one implementation rather
--- than a copy that would have to be balanced separately and would drift the first time either was
--- touched. It is also why the 3.3 balance pass still describes this wheel exactly.
+-- deliberately not a second wheel. Same table, same roll, same luck bend, same grant, and that is
+-- why the 3.3 balance pass still describes this wheel exactly.
+--
+-- IT BUYS A TICKET NOW; IT DOES NOT SPIN. 25 shards used to call `GrantSpin` and the wheel appeared
+-- already turning -- which is precisely the thing the owner cut in 34.46 (*"ne odma da vrti"*). The
+-- price is unchanged and the value is unchanged, because a ticket IS a spin: `SpendSpinTicket` is
+-- the only thing that rolls, so the wheel has exactly one trigger and every other door merely puts a
+-- spin in the bank. That also removes an asymmetry nobody could have defended -- a shard press had
+-- to be watched immediately while a Robux pack could be spent whenever the buyer liked.
 --
 -- Returns a status string so it is testable without a mouse, the shape CodesService and
 -- RewardService.HandleFreeSpin both use.
@@ -401,8 +415,8 @@ function RobuxShopService.SpendShardSpin(player)
 	local data = PlayerDataService.Get(player)
 	if not data then return "nodata" end
 
-	-- Not an anti-exploit measure -- the price is that -- but a spammed button would fire a spin
-	-- notification per frame until the balance ran out, and the wheel is a thing you watch.
+	-- Not an anti-exploit measure -- the price is that -- but a spammed button would fire a toast and
+	-- a push per frame until the balance ran out.
 	local now = os.clock()
 	local previous = lastSpin[player.UserId]
 	if previous and (now - previous) < SPIN_INTERVAL then return "throttled" end
@@ -411,20 +425,67 @@ function RobuxShopService.SpendShardSpin(player)
 	if (data.EvolutionShards or 0) < cost then
 		Remotes.Notify:FireClient(player, {
 			kind = "error",
-			message = ("You need %d \u{1F31F} Shards to spin -- beat the creatures up on the cliffs!"):format(cost),
+			message = ("You need %d \u{1F31F} Shards to buy a spin -- beat the creatures up on the cliffs!"):format(cost),
 		})
 		return "poor"
 	end
 
 	lastSpin[player.UserId] = now
-	-- CHARGED BEFORE THE GRANT, WITH NO YIELD BETWEEN THEM -- the rule the code redemption and the
-	-- free spin both follow. GrantSpin reads the same table back out of the cache, rolls, pays,
-	-- pushes and notifies; nothing on that path yields, so there is no frame in which a second call
-	-- could see these shards still sitting there and spin twice off one balance.
+	-- CHARGED AND CREDITED WITH NO YIELD BETWEEN THEM -- the rule the code redemption and the free
+	-- spin both follow. There is no frame in which a second call could see these shards still sitting
+	-- there and buy two tickets off one balance.
 	data.EvolutionShards -= cost
+	data.SpinTickets = (data.SpinTickets or 0) + 1
 	Telemetry.Economy(player, "Sink", Telemetry.Currency.Shards, cost, data.EvolutionShards,
 		Telemetry.Tx.Shop, "shardSpin")
-	Telemetry.Custom(player, "SpinTaken", 1)   -- 1 = paid with shards, 0 = the free daily
+	Telemetry.Custom(player, "SpinTaken", 1)   -- 1 = bought with shards, 0 = the free daily, 2 = spent
+	PlayerDataService.UpdateLeaderstats(player)
+	PlayerDataService.PushToClient(player)
+	-- The receipt for a purchase whose effect is now a NUMBER GOING UP somewhere else. Without it a
+	-- player who pressed a 25-shard button and got no wheel has to find the balance themselves to
+	-- learn that anything happened at all.
+	Remotes.Notify:FireClient(player, {
+		kind = "success",
+		message = "\u{1F3A1} +1 Spin -- open the wheel and press SPIN!",
+	})
+	return "ok"
+end
+
+-- ===== THE LOBBY'S OWN DOOR: ONE TICKET, ONE TURN (34.46) =====
+--
+-- The fourth and now the ORDINARY way into this wheel. The other three are unchanged and all still
+-- reach `GrantSpin`: `grantSpin` on a receipt (one press, one spin), `SpendShardSpin` (25 shards),
+-- and the free daily -- except the free daily no longer spins by itself, it credits a ticket that
+-- lands here (see `RewardService.AccrueFreeSpin`). So the lobby has exactly one spend path and the
+-- balance it prints is the balance it charges.
+--
+-- Throttled off the SAME `lastSpin` stamp the shard door uses, deliberately: the two buttons drive
+-- one animation, and a player alternating them would otherwise fire two overlapping spins.
+--
+-- Returns a status string so it is testable without a mouse, the shape the three doors above use.
+function RobuxShopService.SpendSpinTicket(player)
+	local data = PlayerDataService.Get(player)
+	if not data then return "nodata" end
+
+	local now = os.clock()
+	local previous = lastSpin[player.UserId]
+	if previous and (now - previous) < SPIN_INTERVAL then return "throttled" end
+
+	if (data.SpinTickets or 0) < 1 then
+		Remotes.Notify:FireClient(player, {
+			kind = "error",
+			message = "You have no spins left -- wait for the free one or grab a pack!",
+		})
+		return "poor"
+	end
+
+	lastSpin[player.UserId] = now
+	-- CHARGED BEFORE THE GRANT, WITH NO YIELD BETWEEN THEM -- the rule every door into this wheel
+	-- follows. GrantSpin reads the same cached table back out, rolls, pays, pushes and notifies;
+	-- nothing on that path yields, so there is no frame in which a second call could see this ticket
+	-- still sitting there and spin twice off one balance.
+	data.SpinTickets -= 1
+	Telemetry.Custom(player, "SpinTaken", 2)   -- 0 = free daily, 1 = shards, 2 = a ticket
 	RobuxShopService.GrantSpin(player)
 	return "ok"
 end
@@ -438,6 +499,11 @@ function RobuxShopService.Init()
 	local shardSpin = ensureRemote("SpinWithShards")
 	shardSpin.OnServerEvent:Connect(function(player)
 		RobuxShopService.SpendShardSpin(player)
+	end)
+
+	local ticketSpin = ensureRemote("UseSpinTicket")
+	ticketSpin.OnServerEvent:Connect(function(player)
+		RobuxShopService.SpendSpinTicket(player)
 	end)
 
 	-- the throttle stamp is the only thing this file holds per player, and it is keyed by user id

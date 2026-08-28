@@ -99,6 +99,14 @@ local function defaultData()
 		-- os.time() of the last free daily spin (5.6). Compared by UTC day number, the same boundary
 		-- LastRewardClaim uses, so the login reward and the free spin roll over together.
 		LastFreeSpin = 0,
+		-- ===== SPIN TICKETS (34.46) =====
+		-- The one thing the lucky wheel's SPIN button spends. A COUNT rather than a moment, for the
+		-- reason every counted charge in this file is one: a Robux receipt is retried on Roblox's own
+		-- schedule and can land on another server or after a rejoin, so a purchase that had to be
+		-- consumed the instant it arrived would have a tail of buyers paid nothing. The free daily
+		-- spin pays into the same field (`RewardService.AccrueFreeSpin`), so the wheel has exactly one
+		-- currency and one spend path no matter which of the three doors the spin was bought through.
+		SpinTickets = 0,
 		-- ===== ACHIEVEMENTS (Phase 34) =====
 		Fuses = 0,
 		MinigamesPlayed = 0,

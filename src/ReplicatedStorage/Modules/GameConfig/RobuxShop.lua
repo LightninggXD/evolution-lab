@@ -113,6 +113,31 @@ GameConfig.RobuxProducts = {
 	-- two doors cost the same and this one is simply the direct one.
 	{ key = "LuckySpin",   productId = 3702253641, price = 49,  name = "Lucky Spin",    emoji = "\u{1F3A1}", grantSpin = true },
 
+	-- ===== SPIN PACKS: THE WHEEL SELLS ITSELF NOW (34.46) =====
+	--
+	-- `LuckySpin` above still exists and still spins IMMEDIATELY -- it is the one-press door, and a
+	-- receipt that paid a ticket instead would leave a buyer looking at a shop instead of a wheel.
+	-- These four pay a COUNTED CHARGE into `data.SpinTickets`, which is the only thing the lobby's
+	-- SPIN button spends, and that is what makes them safe to buy in the middle of a session: a
+	-- receipt retried on Roblox's own schedule can land on another server, after a rejoin, or while
+	-- the lobby is shut, and the spins are still there when the player next opens it.
+	--
+	-- PRICED AGAINST THE SHARD LADDER, because that is the other way to buy this exact wheel: a spin
+	-- costs 25 shards, so 25/125/750 shards at R$49/199/999 is 1/5/30 spins at those prices, and any
+	-- row here that came out worse would be the strictly-dominated mistake `LuckySpin` was at R$99.
+	--   +2  at   99 = 0.0202 spins/R$   (the shard ladder's 0.0204 -- the same deal, one press)
+	--   +5  at  199 = 0.0251            (exactly Shards_2, which pays exactly 5 spins' worth)
+	--   +20 at  699 = 0.0286            (better than the ~0.0271 that 500 shards costs on that curve)
+	--   +50 at 1499 = 0.0334            (better than the best shard pack's 0.0300 -- BEST VALUE)
+	-- The curve rises the whole way and never crosses the shard route, so no tile in this shop makes
+	-- another tile in this shop pointless.
+	--
+	-- UNSCALED, like shards and for the identical reason: a ticket buys exactly one thing.
+	{ key = "Spins_2",  productId = 0, price = 99,   tierGroup = "Spins", name = "2 Lucky Spins",  emoji = "\u{1F3A1}", grantSpins = 2 },
+	{ key = "Spins_5",  productId = 0, price = 199,  tierGroup = "Spins", name = "5 Lucky Spins",  emoji = "\u{1F3A1}", grantSpins = 5 },
+	{ key = "Spins_20", productId = 0, price = 699,  tierGroup = "Spins", name = "20 Lucky Spins", emoji = "\u{1F3A1}", grantSpins = 20 },
+	{ key = "Spins_50", productId = 0, price = 1499, tierGroup = "Spins", name = "50 Lucky Spins", emoji = "\u{1F3A1}", grantSpins = 50, ribbon = "BEST VALUE" },
+
 	-- A COUNTED CHARGE, not a moment. `grantBossRevives` adds to data.BossRevives and BossService
 	-- spends one when there is something to restore; the receipt can therefore arrive late, on
 	-- another server, or after a rejoin without the player losing what they paid for. That is not a
@@ -200,7 +225,7 @@ function GameConfig.GetValuePerRobux(product)
 	-- prints is derived here, so a grant field missing from it makes its whole tier group silently
 	-- ribbon-less -- which reads as "no bonus", not as "not implemented".
 	local amount = product.grantDNA or product.grantDiamonds or product.grantShards
-		or product.grantPotions or product.grantTierUps
+		or product.grantSpins or product.grantPotions or product.grantTierUps
 	if not amount then return 0 end
 	return amount / product.price
 end

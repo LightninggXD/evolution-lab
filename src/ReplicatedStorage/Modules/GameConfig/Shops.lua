@@ -408,6 +408,33 @@ GameConfig.SpinLuckSpread = 1.2
 -- roll and the same luck bend, reached through a third door.
 GameConfig.SpinCostShards = 25
 
+-- ===== THE FOUR BUY BUTTONS UNDER THE WHEEL (34.46) =====
+--
+-- The wheel is a LOBBY now, not a cutscene: it opens showing the prizes, the free-spin countdown
+-- and how many spins the player is holding, and nothing turns until SPIN is pressed. That door
+-- needs a way to top up from inside it, and these are the four tiles it draws -- her own layout,
+-- read straight off the reference: +2 gold, +5 green, SPIN in the middle, +20 blue, +50 red.
+--
+-- `spins` IS NOT AUTHORED HERE. It is read back off the product row (`grantSpins`), because the
+-- number on the tile and the number the receipt pays must be one fact -- the same rule the shard
+-- button already follows against `SpinCostShards`. This table only says WHICH products the lobby
+-- offers, in what order, and in what colour.
+GameConfig.SpinPacks = {
+	{ productKey = "Spins_2",  color = Color3.fromRGB(240, 196, 45) },
+	{ productKey = "Spins_5",  color = Color3.fromRGB(86, 196, 84) },
+	{ productKey = "Spins_20", color = Color3.fromRGB(64, 146, 240) },
+	{ productKey = "Spins_50", color = Color3.fromRGB(226, 66, 76) },
+}
+
+-- How many spins one pack pays, read off the product row so a tile cannot advertise a number the
+-- grant does not pay. Returns nil for a pack whose product row is missing or delisted -- the lobby
+-- draws no tile for those rather than an unpressable one.
+function GameConfig.GetSpinPackAmount(pack)
+	local product = pack and pack.productKey and GameConfig.GetRobuxProduct(pack.productKey)
+	if not product or product.delisted then return nil end
+	return product.grantSpins, product
+end
+
 -- Returns the winning SEGMENT TABLE, not an index or a key -- the caller grants straight off it, so
 -- there is no second lookup that could disagree with the roll.
 function GameConfig.RollSpin(luckPercent)

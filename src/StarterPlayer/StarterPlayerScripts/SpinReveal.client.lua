@@ -1,12 +1,31 @@
 --[[
-	SpinReveal -- modern animated Lucky Wheel reveal theatre (Phase 5.6 + Phase 18.23).
+	SpinReveal -- the lucky wheel's shell: it opens the lobby, plays the spins, and owns the remotes
+	that both halves talk through (Phase 5.6 + 18.23, rebuilt as a lobby in 34.46).
 
-	Inspired by high-production Roblox hits (Blade Ball, Pet Simulator 99, Sol's RNG):
-	  - Dynamic physical ratchet flapper/pointer that deflects and springs on every tick
-	  - 24-bulb animated LED carnival chaser rim with high-speed strobe and victory pulses
-	  - Dual counter-rotating sunburst celebration rays
-	  - Smooth anticipation windup, cubic deceleration with rising pitch clicks, and spring settle
-	  - Bouncy victory pod scaling with golden halo and tiered fanfare sounds
+	===== WHAT 34.46 CHANGED, AND WHY IT IS A DIFFERENT SHAPE OF FILE =====
+
+	This used to be a CUTSCENE. A `SpinResult` arrived, a shell was built, the wheel was already
+	turning by the time it faded in, it announced a prize and it closed itself three seconds later.
+	The player never chose to spin from in here -- they had pressed something on another panel, been
+	charged, and then been shown a result.
+
+	The owner's note, over the reference capture: *"ovo treba da izgleda kad se otvori spin, znaci ne
+	odma da vrti, vec da ima opcija da se spina, da pokaze koliko player ima spinova i opcija da
+	kupi"*. So the wheel is a PLACE now. It opens idle, showing the prizes, the free-spin countdown
+	and how many spins are in the bank; the player presses SPIN; the wheel turns; the prize is
+	announced in the same two lines the countdown was using; and it goes back to idle so they can
+	spin again without the screen ever being torn down and rebuilt.
+
+	THREE CONSEQUENCES WORTH KNOWING BEFORE EDITING:
+
+	  1. THE SHELL OUTLIVES THE SPIN. `busy` used to mean "a shell exists" and now means "a spin is
+	     animating". A shell that exists is just a panel the player is looking at, and closing it is
+	     their business, not a `task.delay`.
+	  2. EVERY DOOR ENDS UP HERE. A `SpinResult` with no lobby open -- a `LuckySpin` receipt, a spin
+	     bought while the panel was shut -- OPENS one and plays into it, rather than building a
+	     second, different piece of theatre. One code path, so the wheel cannot look like two things.
+	  3. THE ART MOVED OUT to `Modules.HUD.SpinWheelArt` and the chrome to `Modules.HUD.SpinLobby`.
+	     Nothing in either changed; they were split because the wheel is now drawn in two states.
 --]]
 
 local Players = game:GetService("Players")
@@ -17,121 +36,54 @@ local RS = game:GetService("ReplicatedStorage")
 
 local Modules = RS:WaitForChild("Modules")
 local GameConfig = require(Modules:WaitForChild("GameConfig"))
-local UITheme = require(Modules:WaitForChild("UITheme"))
 local UIKit = require(Modules:WaitForChild("UIKit"))
-local CardKit = require(Modules:WaitForChild("HUD"):WaitForChild("CardKit"))
-local IconLibrary = require(Modules:WaitForChild("IconLibrary"))
 local SoundLibrary = require(Modules:WaitForChild("SoundLibrary"))
+local HUD = Modules:WaitForChild("HUD")
+local Art = require(HUD:WaitForChild("SpinWheelArt"))
+local SpinLobby = require(HUD:WaitForChild("SpinLobby"))
 
 local player = Players.LocalPlayer
 local Remotes = RS:WaitForChild("Remotes")
 
 local STEP = RunService.Heartbeat
 
--- ============================================================================
--- THE NUMBERS
--- ============================================================================
-local SPIN_TIME = 4.6
-local WINDUP_TIME = 0.35
-local WINDUP_DEG = 16
-local SETTLE_TIME = 0.32
-local SETTLE_DEG = 3.8
-local TURNS = 5
-local SPIN_POWER = 3.0
-local JITTER_ARC = 0.32
-
--- ===== THE WHEEL IS A PIE NOW, AND ROTATION IS WHY IT HAD TO BE (19.13) =====
---
--- `GuiObject.Rotation` pivots on the element's CENTRE and ignores `AnchorPoint`. Every radial piece
--- on this wheel -- the twelve prize pods, the twelve boundary pegs, the twenty-four rim bulbs --
--- was built as a bar anchored (0.5, 1) at the hub and given `Rotation = theta`, which is the
--- construction that reads correctly and renders wrong: each bar spun about its own midpoint, a
--- point 106 px above the hub, so all twelve landed in ONE place as a fan of overlapping rectangles
--- offset up-and-left of the disc. That is exactly what Kristina photographed -- "radi, vrti se, ali
--- su kartice spojene". The pegs give it away independently: they came out on a circle of radius
--- ~half their own length, centred half a length above the hub, which is only possible under a
--- centre pivot.
---
--- THE FIX IS STRUCTURAL, not a number: a piece may only carry `Rotation` if its own centre IS the
--- hub. So every radial element is now a full-diameter bar centred on the wheel, with the half that
--- points inward masked off by a `UIGradient` transparency step at t = 0.5. `radialBar` is the only
--- constructor allowed to place one, and nothing else in this file sets `Rotation` on an off-centre
--- frame.
---
--- Once the pieces sit where they are told, a rectangle per prize is the wrong shape anyway: a
--- 0.165-wide card spanning hub to rim overlaps its neighbours everywhere inside r = 0.30, because
--- near the hub a fixed width subtends an arc far wider than 360/12. A sector cannot be drawn in one
--- frame, so each prize is filled by a fan of STRIPS_PER_SEG same-coloured bars -- they overlap each
--- other, which is the point, and the seam where a fan overshoots its neighbour is covered by the
--- ink divider that every real carnival wheel has anyway.
-local PIE_R = 0.462          -- outer radius of the pie, in fractions of the wheel's side
-local STRIPS_PER_SEG = 9     -- fan density: 9 closes the gap at PIE_R with 30-degree sectors
-local STRIP_W = 0.032        -- one fan bar's width; must exceed PIE_R * (arc / STRIPS_PER_SEG)
-local DIV_W = 0.040          -- ink divider; must exceed STRIP_W so the fan's overshoot is buried
-local ICON_R = 0.265         -- where the prize glyph sits, measured from the hub
-local TEXT_R = 0.400         -- where its caption sits -- further out, because there is more room there
-
 local BIG_WINS = {
 	jackpot = true, vault = true, relic = true, pet = true, dna_flood = true,
 }
 
-local SHELL_MAX_LIFE = math.max(24, (GameConfig.SpinMaxChain or 12) * 5.6)
+-- How long ONE spin's animation may take before the busy flag is force-cleared. It is a fuse, not a
+-- schedule: the sequence is `Art.SPIN_TIME` plus a windup, a settle and a prize pause, and the whole
+-- chain is bounded by `SpinMaxChain`. If a builder throws in a way the pcall around it does not see,
+-- this is what stops the SPIN button reading "SPINNING" for the rest of the session.
+local SPIN_WATCHDOG = math.max(24, (GameConfig.SpinMaxChain or 12) * 5.6)
 local MAX_QUEUE = 3
--- How many times one payload may fail to build before it is dropped. Dropping a spin is bad;
--- retrying one that can never build is worse, because it holds every later spin behind it.
-local MAX_BUILD_ATTEMPTS = 8
+local PRIZE_HOLD = 2.6
 
-local INK = CardKit.INK
-local WHITE = Color3.fromRGB(255, 255, 255)
-local GOLD = Color3.fromRGB(255, 226, 120)
+-- 0.30 -> 0.08, measured against the live HUD (34.46) rather than chosen. The lobby's two status
+-- lines sit across the bottom of the screen and so do the damage stat (y 545..625) and the evolve
+-- bar (y 657..725); the HUD is DisplayOrder 0 and this scrim is 95, so it is drawn over them, but at
+-- 0.30 their bright yellow read straight through it and "Damage 4.13K" crossed "Spins : 0". 0.16
+-- halved that and did not kill it -- a stroked yellow label survives a 16% veil. This is the number
+-- at which the HUD behind stops competing with the panel in front for the same pixels, and the panel
+-- is the one the player opened.
+local DIM_ALPHA = 0.08
+
+local WHITE = Art.WHITE
 local formatNumber = UIKit.formatNumber
-
--- ============================================================================
--- HELPERS
--- ============================================================================
-local function iconInto(parent, emoji, size, position, zIndex)
-	local id = IconLibrary.Resolve(emoji)
-	if id then
-		local img = Instance.new("ImageLabel")
-		img.Name = "Icon"
-		img.BackgroundTransparency = 1
-		img.Image = id
-		img.ScaleType = Enum.ScaleType.Fit
-		img.Size = size
-		img.Position = position
-		img.AnchorPoint = Vector2.new(0.5, 0.5)
-		img.ZIndex = zIndex
-		img.Parent = parent
-		return img
-	end
-	local lbl = Instance.new("TextLabel")
-	lbl.Name = "Glyph"
-	lbl.BackgroundTransparency = 1
-	lbl.Text = emoji or ""
-	lbl.Font = UITheme.Font.Display
-	lbl.TextScaled = true
-	lbl.TextColor3 = WHITE
-	lbl.Size = size
-	lbl.Position = position
-	lbl.AnchorPoint = Vector2.new(0.5, 0.5)
-	lbl.ZIndex = zIndex
-	lbl.Parent = parent
-	return lbl
-end
 
 local function detailText(spin)
 	local d = spin.detail
 	if type(d) ~= "table" then return "" end
 	local bits = {}
 	if d.dna then table.insert(bits, ("+%s DNA"):format(formatNumber(d.dna))) end
-	if d.diamonds then table.insert(bits, ("+%d 💎"):format(d.diamonds)) end
-	if d.shards then table.insert(bits, ("+%d 🌟"):format(d.shards)) end
+	if d.diamonds then table.insert(bits, ("+%d \u{1F48E}"):format(d.diamonds)) end
+	if d.shards then table.insert(bits, ("+%d \u{1F31F}"):format(d.shards)) end
 	if d.potion then table.insert(bits, ("%dx %s"):format(d.potions or 1, d.potion)) end
 	if d.relicChests then
 		table.insert(bits, ("%d Relic Chest -- open it in the Forge"):format(d.relicChests))
 	end
 	if d.petName then
-		table.insert(bits, ("%s %s%s"):format(d.petEmoji or "🐾", d.petName,
+		table.insert(bits, ("%s %s%s"):format(d.petEmoji or "\u{1F43E}", d.petName,
 			d.petRarity and (" (" .. d.petRarity .. ")") or ""))
 	end
 	if d.substituted then table.insert(bits, "(" .. d.substituted .. ")") end
@@ -139,19 +91,40 @@ local function detailText(spin)
 end
 
 -- ============================================================================
+-- THE SAVE, AS THIS SCRIPT SEES IT
+-- ============================================================================
+--
+-- `DataUpdate` carries the whole table and every panel in the game reads its own fields off it, so
+-- the lobby needs no status remote of its own: the spin balance and the free-spin stamp are already
+-- being pushed on every change. The two things derived from it are kept here rather than in
+-- `SpinLobby`, because the day boundary is a rule about the SAVE and the lobby only draws.
+local SECONDS_PER_DAY = 86400
+local latestData = nil
+
+local function dayNumber(t)
+	return math.floor((t or 0) / SECONDS_PER_DAY)
+end
+
+-- Returns (spinTickets, secondsUntilFree, isReady) -- the same day boundary
+-- `RewardService.GetFreeSpinStatus` uses on the server, so the countdown under the wheel and the
+-- moment the server credits the ticket are one rule rather than two that drift.
+local function spinStatus()
+	if not latestData then return 0, 0, false end
+	local now = os.time()
+	local ready = dayNumber(now) > dayNumber(latestData.LastFreeSpin)
+	local remaining = ready and 0 or math.max((dayNumber(now) + 1) * SECONDS_PER_DAY - now, 0)
+	return latestData.SpinTickets or 0, remaining, ready
+end
+
+-- ============================================================================
 -- THE SHELL
 -- ============================================================================
-local busy = false
+local shell = nil        -- the one open lobby, or nil
+local animating = false  -- a spin is turning right now
 
 local function buildShell()
-	if busy then return nil end
-	busy = true
-
 	local playerGui = player:FindFirstChildOfClass("PlayerGui")
-	if not playerGui then
-		busy = false
-		return nil
-	end
+	if not playerGui then return nil end
 
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "SpinReveal"
@@ -174,11 +147,14 @@ local function buildShell()
 	dim.ZIndex = 1
 	dim.Parent = gui
 
+	-- 0.70 -> 0.60 and the centre lifted, because the wheel is no longer the only thing on screen:
+	-- two status lines and a 72 px control row now sit under it, and at 0.70 the row was drawn over
+	-- the bottom of the pie.
 	local root = Instance.new("Frame")
 	root.Name = "Stage"
 	root.AnchorPoint = Vector2.new(0.5, 0.5)
-	root.Position = UDim2.fromScale(0.5, 0.47)
-	root.Size = UDim2.fromScale(0.70, 0.70)
+	root.Position = UDim2.fromScale(0.5, 0.41)
+	root.Size = UDim2.fromScale(0.60, 0.60)
 	root.SizeConstraint = Enum.SizeConstraint.RelativeYY
 	root.BackgroundTransparency = 1
 	root.ZIndex = 2
@@ -189,18 +165,34 @@ local function buildShell()
 	uiScale.Parent = root
 
 	local conns = {}
-	local shell = {
-		gui = gui, blur = blur, dim = dim, root = root, uiScale = uiScale, done = false,
+	local s = {
+		gui = gui, blur = blur, dim = dim, root = root, uiScale = uiScale,
+		done = false, rot = 0, lastPod = nil,
 	}
 
-	function shell.track(conn)
+	function s.track(conn)
 		table.insert(conns, conn)
 		return conn
 	end
 
-	function shell.finish()
-		if shell.done then return end
-		shell.done = true
+	-- Everything `finish` does EXCEPT the fade, because there is nothing left to fade. Split out for
+	-- the one caller that needs it: a shell whose ScreenGui was destroyed underneath it (see
+	-- `openLobby`), where tweening the corpse throws and the blur would otherwise be left on the
+	-- Lighting service for the rest of the session.
+	function s.abandon()
+		if s.done then return end
+		s.done = true
+		if shell == s then shell = nil end
+		for _, c in ipairs(conns) do
+			if c.Connected then c:Disconnect() end
+		end
+		blur:Destroy()
+	end
+
+	function s.finish()
+		if s.done then return end
+		s.done = true
+		if shell == s then shell = nil end
 		for _, c in ipairs(conns) do
 			if c.Connected then c:Disconnect() end
 		end
@@ -210,744 +202,242 @@ local function buildShell()
 		task.delay(0.3, function()
 			gui:Destroy()
 			blur:Destroy()
-			busy = false
 		end)
 	end
 
-	function shell.open()
+	function s.open()
 		blur.Enabled = true
 		TweenService:Create(blur, TweenInfo.new(0.3), { Size = 20 }):Play()
-		TweenService:Create(dim, TweenInfo.new(0.28), { BackgroundTransparency = 0.30 }):Play()
+		TweenService:Create(dim, TweenInfo.new(0.28), { BackgroundTransparency = DIM_ALPHA }):Play()
 		TweenService:Create(uiScale, TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
 			{ Scale = 1 }):Play()
 		SoundLibrary.PlayLocal("open", { volume = 0.45 })
 	end
 
-	task.delay(SHELL_MAX_LIFE, shell.finish)
-	return shell
+	return s
 end
 
 -- ============================================================================
--- DRAWING THE WHEEL WITH LED CHASER RIM
+-- OPENING THE LOBBY
 -- ============================================================================
 
--- The ONE way a rotating radial piece may be built. `holder` is the full square of the parent, so
--- its centre is the parent's centre and `Rotation` therefore turns about the hub; `bar` is a full
--- diameter of it, and the caller masks the inward half. `lengthScale` is the radius the visible
--- half reaches, in fractions of the parent's side.
-local function radialBar(parent, angleDeg, widthScale, lengthScale, zIndex)
-	local holder = Instance.new("Frame")
-	holder.Name = "Spoke"
-	holder.AnchorPoint = Vector2.new(0.5, 0.5)
-	holder.Position = UDim2.fromScale(0.5, 0.5)
-	holder.Size = UDim2.fromScale(1, 1)
-	holder.BackgroundTransparency = 1
-	holder.Rotation = angleDeg
-	holder.ZIndex = zIndex
-	holder.Parent = parent
-
-	local bar = Instance.new("Frame")
-	bar.Name = "Bar"
-	bar.AnchorPoint = Vector2.new(0.5, 0.5)
-	bar.Position = UDim2.fromScale(0.5, 0.5)
-	bar.Size = UDim2.fromScale(widthScale, lengthScale * 2)
-	bar.BackgroundColor3 = WHITE
-	bar.BorderSizePixel = 0
-	bar.ZIndex = zIndex
-	bar.Parent = holder
-
-	return holder, bar
+-- Fire-and-forget, and it is what BANKS the day's free spin: the server credits a ticket, pushes,
+-- and the `DataUpdate` below repaints the balance the lobby is already showing. Deliberately not a
+-- RemoteFunction -- a panel that cannot draw until the server answers is a panel that opens late.
+local function tellServerLobbyIsOpen()
+	local remote = Remotes:FindFirstChild("RequestSpinLobby")
+	if remote then remote:FireServer() end
 end
 
--- Colour along the OUTWARD half and a hard transparency step at the hub. t = 0 is the rim, t = 0.5
--- is the centre; everything past it is the same bar pointing into the opposite sector and must not
--- draw. The object's own `BackgroundTransparency` still multiplies through the visible half -- that
--- is what the win flash animates, since a `ColorSequence` cannot be tweened.
-local function maskOutward(bar, colors)
-	local g = Instance.new("UIGradient")
-	g.Rotation = 90
-	g.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, colors[1]),
-		ColorSequenceKeypoint.new(0.5, colors[2]),
-		ColorSequenceKeypoint.new(1, colors[2]),
-	})
-	g.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0),
-		NumberSequenceKeypoint.new(0.499, 0),
-		NumberSequenceKeypoint.new(0.501, 1),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	g.Parent = bar
-	return g
+local function fireSpin()
+	local remote = Remotes:FindFirstChild("UseSpinTicket")
+	if remote then remote:FireServer() end
 end
 
-local function buildWheel(root)
-	-- Outer decorative golden bezel with LED bulbs
-	local outerBezel = Instance.new("Frame")
-	outerBezel.Name = "OuterBezel"
-	outerBezel.AnchorPoint = Vector2.new(0.5, 0.5)
-	outerBezel.Position = UDim2.fromScale(0.5, 0.5)
-	outerBezel.Size = UDim2.fromScale(0.96, 0.96)
-	outerBezel.BackgroundColor3 = Color3.fromRGB(245, 180, 50)
-	outerBezel.BorderSizePixel = 0
-	outerBezel.ZIndex = 2
-	outerBezel.Parent = root
-	CardKit.Corner(outerBezel, 9999)
-	CardKit.Gradient(outerBezel, { Color3.fromRGB(255, 235, 120), Color3.fromRGB(200, 130, 20) }, 90)
-	CardKit.Stroke(outerBezel, INK, 6)
+local function buyPack(productKey)
+	local remote = Remotes:FindFirstChild("PromptRobuxPurchase")
+	if remote then remote:FireServer(productKey) end
+end
 
-	-- 24 LED bulbs around the rim. Same centre-pivot rule as everything else: the bulb rides a
-	-- full-square holder, so it orbits the bezel's centre instead of spinning where it stands.
-	local bulbs = {}
-	local NUM_BULBS = 24
-	for b = 1, NUM_BULBS do
-		local bulbPeg = Instance.new("Frame")
-		bulbPeg.Name = "BulbPeg" .. b
-		bulbPeg.AnchorPoint = Vector2.new(0.5, 0.5)
-		bulbPeg.Position = UDim2.fromScale(0.5, 0.5)
-		bulbPeg.Size = UDim2.fromScale(1, 1)
-		bulbPeg.Rotation = (b - 1) * (360 / NUM_BULBS)
-		bulbPeg.BackgroundTransparency = 1
-		bulbPeg.ZIndex = 3
-		bulbPeg.Parent = outerBezel
-
-		local bulb = Instance.new("Frame")
-		bulb.Name = "Bulb"
-		bulb.AnchorPoint = Vector2.new(0.5, 0.5)
-		bulb.Position = UDim2.fromScale(0.5, 0.5 - 0.462)
-		bulb.Size = UDim2.fromScale(0.034, 0.034)
-		bulb.BackgroundColor3 = Color3.fromRGB(255, 240, 160)
-		bulb.BorderSizePixel = 0
-		bulb.ZIndex = 4
-		bulb.Parent = bulbPeg
-		CardKit.Corner(bulb, 9999)
-		local bulbStroke = Instance.new("UIStroke")
-		bulbStroke.Color = Color3.fromRGB(120, 80, 10)
-		bulbStroke.Thickness = 1.5
-		bulbStroke.Parent = bulb
-
-		bulbs[b] = bulb
-	end
-
-	-- The rotating wheel disc inside
-	local wheel = Instance.new("Frame")
-	wheel.Name = "Wheel"
-	wheel.AnchorPoint = Vector2.new(0.5, 0.5)
-	wheel.Position = UDim2.fromScale(0.5, 0.5)
-	wheel.Size = UDim2.fromScale(0.88, 0.88)
-	wheel.BackgroundColor3 = Color3.fromRGB(38, 34, 66)
-	wheel.BorderSizePixel = 0
-	wheel.ZIndex = 4
-	wheel.Parent = root
-	CardKit.Corner(wheel, 9999)
-	CardKit.Gradient(wheel, { Color3.fromRGB(58, 52, 92), Color3.fromRGB(26, 22, 48) }, 90)
-	CardKit.Stroke(wheel, INK, 5)
-
-	local segments = GameConfig.SpinWheel
-	local n = #segments
-	local arc = 360 / n
-	local pods = {}
-
-	for i, seg in ipairs(segments) do
-		local theta = (i - 1) * arc
-
-		-- One sector = one transparent full-square container, so the win animation can scale the
-		-- whole wedge about the hub with a single UIScale. `Theta`/`Arc` ride on it as attributes
-		-- because the flash fan is built later, from `revealPod`, which has only the container.
-		local pod = Instance.new("Frame")
-		pod.Name = "Pod" .. i
-		pod.AnchorPoint = Vector2.new(0.5, 0.5)
-		pod.Position = UDim2.fromScale(0.5, 0.5)
-		pod.Size = UDim2.fromScale(1, 1)
-		pod.BackgroundTransparency = 1
-		pod.ZIndex = 5
-		pod.Parent = wheel
-		pod:SetAttribute("Theta", theta)
-		pod:SetAttribute("Arc", arc)
-
-		local podScale = Instance.new("UIScale")
-		podScale.Parent = pod
-
-		local colors = seg.colors or { Color3.fromRGB(170, 170, 190), Color3.fromRGB(120, 120, 140) }
-		for k = 1, STRIPS_PER_SEG do
-			local phi = theta - arc * 0.5 + (k - 0.5) * (arc / STRIPS_PER_SEG)
-			local _, bar = radialBar(pod, phi, STRIP_W, PIE_R, 5)
-			maskOutward(bar, colors)
+-- Puts the wheel back the way an idle lobby wants it: the won sector shrunk back into the pie, the
+-- sunburst off, the prize lines swapped out for the countdown and the balance. Called after every
+-- spin rather than on close, because the lobby stays open and the NEXT spin has to start from a
+-- wheel that does not still have last time's winner sticking out of it.
+local function returnToIdle(s)
+	if s.done then return end
+	if s.lastPod then
+		local scale = s.lastPod:FindFirstChildOfClass("UIScale")
+		if scale then
+			TweenService:Create(scale, TweenInfo.new(0.25), { Scale = 1 }):Play()
 		end
-
-		-- The caption and the glyph ride their own centred holder at the sector's mid-angle.
-		local face = Instance.new("Frame")
-		face.Name = "Face"
-		face.AnchorPoint = Vector2.new(0.5, 0.5)
-		face.Position = UDim2.fromScale(0.5, 0.5)
-		face.Size = UDim2.fromScale(1, 1)
-		face.BackgroundTransparency = 1
-		face.Rotation = theta
-		face.ZIndex = 8
-		face.Parent = pod
-
-		iconInto(face, seg.emoji, UDim2.fromScale(0.085, 0.085),
-			UDim2.fromScale(0.5, 0.5 - ICON_R), 9)
-
-		-- Outward of the glyph on purpose: tangential room grows with radius, and this is the piece
-		-- that has to stay legible. At TEXT_R a sector is ~0.207 of the disc wide before the divider
-		-- takes its share, so the box is 0.155 and two 15px lines are the worst case.
-		local label = CardKit.Text(face, {
-			name = "Short",
-			text = seg.short or seg.name or "",
-			size = UDim2.fromScale(0.155, 0.075),
-			position = UDim2.fromScale(0.5, 0.5 - TEXT_R),
-			textSize = 15,
-			xAlign = "Center",
-			zIndex = 9,
-			strokeThickness = 2.5,
-			truncate = false,
-			wrapped = true,
-		})
-		label.AnchorPoint = Vector2.new(0.5, 0.5)
-
-		pods[i] = pod
+		s.lastPod = nil
 	end
-
-	-- Ink dividers on the sector boundaries. Wider than a fan bar, which is the whole job: a fan
-	-- overshoots its sector by half a bar and the divider is what buries the seam.
-	for j = 1, n do
-		local _, bar = radialBar(wheel, (j - 0.5) * arc, DIV_W, PIE_R, 6)
-		maskOutward(bar, { INK, INK })
+	if s.burst then s.burst.Visible = false end
+	TweenService:Create(s.uiScale, TweenInfo.new(0.25), { Scale = 1 }):Play()
+	if s.lobby then
+		s.lobby.ShowPrize(nil)
+		local tickets, remaining, ready = spinStatus()
+		s.lobby.SetStatus(tickets, remaining, ready)
 	end
-
-	-- One ring closes the scalloped ends of the fan bars into a circle.
-	local rim = Instance.new("Frame")
-	rim.Name = "Rim"
-	rim.AnchorPoint = Vector2.new(0.5, 0.5)
-	rim.Position = UDim2.fromScale(0.5, 0.5)
-	rim.Size = UDim2.fromScale(PIE_R * 2 + 0.012, PIE_R * 2 + 0.012)
-	rim.BackgroundTransparency = 1
-	rim.ZIndex = 7
-	rim.Parent = wheel
-	CardKit.Corner(rim, 9999)
-	CardKit.Stroke(rim, INK, 5)
-
-	return wheel, pods, arc, bulbs
 end
 
--- ============================================================================
--- THE FURNITURE & BOUNCING RATCHET POINTER
--- ============================================================================
-local function buildFurniture(root)
-	-- Center shiny hub
-	local hub = Instance.new("Frame")
-	hub.Name = "Hub"
-	hub.AnchorPoint = Vector2.new(0.5, 0.5)
-	hub.Position = UDim2.fromScale(0.5, 0.5)
-	hub.Size = UDim2.fromScale(0.245, 0.245)
-	hub.BackgroundColor3 = WHITE
-	hub.BorderSizePixel = 0
-	hub.ZIndex = 9
-	hub.Parent = root
-	CardKit.Corner(hub, 9999)
-	CardKit.Gradient(hub, { Color3.fromRGB(255, 240, 160), Color3.fromRGB(240, 150, 30) }, 90)
-	CardKit.Stroke(hub, INK, 5)
-	CardKit.Studs(hub, 16, 0.82, 9999, 9)
-	iconInto(hub, "\u{1F3A1}", UDim2.fromScale(0.68, 0.68), UDim2.fromScale(0.5, 0.5), 10)
-
-	-- ===== THE FLAPPER PIVOTS ON ITS PIN, AND THAT COSTS ONE EXTRA FRAME =====
+local function openLobby()
+	-- ===== A SHELL IS ONLY OPEN IF ITS GUI IS STILL ON THE SCREEN (34.46) =====
 	--
-	-- `wobblePointer` writes `Rotation` on this, and rotation turns about an element's CENTRE. The
-	-- old flapper was a 0.11 x 0.125 box anchored near its top, so every tick swung it about its own
-	-- waist -- the tip and the pin travelled in opposite directions, which is not how a ratchet
-	-- moves. `pointer` is now empty scaffolding whose centre IS the pivot, and `flap` hangs in its
-	-- lower half carrying the geometry the old box had.
-	local pointer = Instance.new("Frame")
-	pointer.Name = "Pointer"
-	pointer.AnchorPoint = Vector2.new(0.5, 0.5)
-	pointer.Position = UDim2.fromScale(0.5, 0.045)
-	pointer.Size = UDim2.fromScale(0.11, 0.25)
-	pointer.BackgroundTransparency = 1
-	pointer.ZIndex = 11
-	pointer.Parent = root
-
-	local flap = Instance.new("Frame")
-	flap.Name = "Flap"
-	flap.AnchorPoint = Vector2.new(0.5, 0)
-	flap.Position = UDim2.fromScale(0.5, 0.5)
-	flap.Size = UDim2.fromScale(1, 0.5)
-	flap.BackgroundTransparency = 1
-	flap.ZIndex = 11
-	flap.Parent = pointer
-
-	local stem = Instance.new("Frame")
-	stem.Name = "Stem"
-	stem.AnchorPoint = Vector2.new(0.5, 0)
-	stem.Position = UDim2.fromScale(0.5, 0)
-	stem.Size = UDim2.fromScale(0.65, 0.65)
-	stem.BackgroundColor3 = Color3.fromRGB(255, 80, 95)
-	stem.BorderSizePixel = 0
-	stem.ZIndex = 11
-	stem.Parent = flap
-	CardKit.Corner(stem, 8)
-	CardKit.Gradient(stem, { Color3.fromRGB(255, 120, 130), Color3.fromRGB(230, 40, 60) }, 90)
-	CardKit.Stroke(stem, INK, 4)
-
-	local tip = Instance.new("Frame")
-	tip.Name = "Tip"
-	tip.AnchorPoint = Vector2.new(0.5, 0.5)
-	tip.Position = UDim2.fromScale(0.5, 0.74)
-	tip.Size = UDim2.fromScale(0.58, 0.58)
-	tip.Rotation = 45
-	tip.BackgroundColor3 = Color3.fromRGB(255, 80, 95)
-	tip.BorderSizePixel = 0
-	tip.ZIndex = 11
-	tip.Parent = flap
-	CardKit.Corner(tip, 4)
-	CardKit.Gradient(tip, { Color3.fromRGB(255, 120, 130), Color3.fromRGB(230, 40, 60) }, 90)
-	CardKit.Stroke(tip, INK, 4)
-
-	-- Pointer pivot pin
-	local pin = Instance.new("Frame")
-	pin.AnchorPoint = Vector2.new(0.5, 0.5)
-	pin.Position = UDim2.fromScale(0.5, 0.18)
-	pin.Size = UDim2.fromScale(0.24, 0.24)
-	pin.BackgroundColor3 = Color3.fromRGB(255, 230, 120)
-	pin.BorderSizePixel = 0
-	pin.ZIndex = 12
-	pin.Parent = flap
-	CardKit.Corner(pin, 9999)
-	CardKit.Stroke(pin, INK, 2)
-
-	return hub, pointer
-end
-
--- ============================================================================
--- DUAL ROTATING SUNBURST CELEBRATION RAYS
--- ============================================================================
-local function buildBurst(root)
-	local burst = Instance.new("Frame")
-	burst.Name = "Burst"
-	burst.AnchorPoint = Vector2.new(0.5, 0.5)
-	burst.Position = UDim2.fromScale(0.5, 0.5)
-	burst.Size = UDim2.fromScale(1.60, 1.60)
-	burst.BackgroundTransparency = 1
-	burst.Visible = false
-	burst.ZIndex = 1
-	burst.Parent = root
-
-	-- Inner golden starburst
-	local inner = Instance.new("Frame")
-	inner.Name = "InnerRays"
-	inner.Size = UDim2.fromScale(1, 1)
-	inner.BackgroundTransparency = 1
-	inner.ZIndex = 1
-	inner.Parent = burst
-
-	for i = 1, 16 do
-		local ray = Instance.new("Frame")
-		ray.AnchorPoint = Vector2.new(0.5, 0.5)
-		ray.Position = UDim2.fromScale(0.5, 0.5)
-		ray.Size = UDim2.fromScale(i % 2 == 0 and 1.35 or 1.05, 0.045)
-		ray.Rotation = (i - 1) * (360 / 16)
-		ray.BackgroundColor3 = GOLD
-		ray.BackgroundTransparency = 0.35
-		ray.BorderSizePixel = 0
-		ray.ZIndex = 1
-		ray.Parent = inner
-		local c = Instance.new("UICorner")
-		c.CornerRadius = UDim.new(1, 0)
-		c.Parent = ray
-		local g = Instance.new("UIGradient")
-		g.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 1),
-			NumberSequenceKeypoint.new(0.5, 0.1),
-			NumberSequenceKeypoint.new(1, 1),
-		})
-		g.Parent = ray
+	-- MEASURED, not theorised: destroy `PlayerGui.SpinReveal` from anywhere -- a client-side sweep, a
+	-- future `ResetOnSpawn`, a developer console -- and `shell` was left pointing at it with
+	-- `shell.done` still false, so this returned the corpse and the wheel could never be opened again
+	-- for the rest of the session. The old file could not have this bug because its shell lived four
+	-- seconds and a `task.delay` cleared the flag; this one is meant to stay open, so the flag needs
+	-- a fact behind it rather than a timer.
+	if shell and not shell.done then
+		if shell.gui.Parent then return shell end
+		shell.abandon()
 	end
 
-	-- Outer pastel aura rays
-	local outer = Instance.new("Frame")
-	outer.Name = "OuterRays"
-	outer.Size = UDim2.fromScale(1.15, 1.15)
-	outer.AnchorPoint = Vector2.new(0.5, 0.5)
-	outer.Position = UDim2.fromScale(0.5, 0.5)
-	outer.BackgroundTransparency = 1
-	outer.ZIndex = 1
-	outer.Parent = burst
+	local s = buildShell()
+	if not s then return nil end
+	shell = s
 
-	for i = 1, 12 do
-		local ray = Instance.new("Frame")
-		ray.AnchorPoint = Vector2.new(0.5, 0.5)
-		ray.Position = UDim2.fromScale(0.5, 0.5)
-		ray.Size = UDim2.fromScale(1.20, 0.06)
-		ray.Rotation = (i - 1) * 30 + 15
-		ray.BackgroundColor3 = Color3.fromRGB(150, 230, 255)
-		ray.BackgroundTransparency = 0.55
-		ray.BorderSizePixel = 0
-		ray.ZIndex = 1
-		ray.Parent = outer
-		local c = Instance.new("UICorner")
-		c.CornerRadius = UDim.new(1, 0)
-		c.Parent = ray
-		local g = Instance.new("UIGradient")
-		g.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 1),
-			NumberSequenceKeypoint.new(0.5, 0.2),
-			NumberSequenceKeypoint.new(1, 1),
-		})
-		g.Parent = ray
-	end
+	local wheel, pods, arc, bulbs = Art.Wheel(s.root)
+	local _, pointer = Art.Furniture(s.root)
+	local burst = Art.Burst(s.root)
+	s.wheel, s.pods, s.arc, s.bulbs, s.pointer, s.burst = wheel, pods, arc, bulbs, pointer, burst
 
-	return burst
-end
-
-local function buildCaption(gui)
-	local caption = Instance.new("TextLabel")
-	caption.Name = "Caption"
-	caption.AnchorPoint = Vector2.new(0.5, 0.5)
-	caption.Position = UDim2.fromScale(0.5, 0.890)
-	caption.Size = UDim2.fromScale(0.75, 0.088)
-	caption.BackgroundTransparency = 1
-	caption.Font = UITheme.Font.Display
-	caption.TextScaled = true
-	caption.TextColor3 = WHITE
-	caption.Text = ""
-	caption.ZIndex = 12
-	caption.Parent = gui
-	local capStroke = Instance.new("UIStroke")
-	capStroke.Thickness = 4.5
-	capStroke.Color = UITheme.Color.Outline
-	capStroke.Parent = caption
-
-	local sub = Instance.new("TextLabel")
-	sub.Name = "Detail"
-	sub.AnchorPoint = Vector2.new(0.5, 0.5)
-	sub.Position = UDim2.fromScale(0.5, 0.960)
-	sub.Size = UDim2.fromScale(0.75, 0.048)
-	sub.BackgroundTransparency = 1
-	sub.Font = UITheme.Font.Display
-	sub.TextScaled = true
-	sub.TextColor3 = UITheme.Color.Cream
-	sub.Text = ""
-	sub.ZIndex = 12
-	sub.Parent = gui
-	local subStroke = Instance.new("UIStroke")
-	subStroke.Thickness = 3.5
-	subStroke.Color = UITheme.Color.Outline
-	subStroke.Parent = sub
-
-	return caption, sub
-end
-
--- ============================================================================
--- THE ANIMATED SPIN SEQUENCE WITH SPRING POINTER & LED CHASE
--- ============================================================================
-local function wobblePointer(pointer, intensity)
-	intensity = intensity or 1
-	pointer.Rotation = -18 * intensity
-	TweenService:Create(pointer,
-		TweenInfo.new(0.12, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out),
-		{ Rotation = 0 }):Play()
-end
-
-local function updateLEDs(bulbs, rot, isPulsing)
-	local n = #bulbs
-	if isPulsing then
-		local pulseColor = (math.floor(os.clock() * 10) % 2 == 0) and WHITE or GOLD
-		for _, b in ipairs(bulbs) do
-			b.BackgroundColor3 = pulseColor
-		end
-		return
-	end
-
-	local lead = math.floor(math.abs(rot) / (360 / n)) % n + 1
-	for i, b in ipairs(bulbs) do
-		local dist = (i - lead) % n
-		if dist == 0 then
-			b.BackgroundColor3 = WHITE
-		elseif dist == 1 or dist == 2 then
-			b.BackgroundColor3 = GOLD
-		elseif dist == 3 or dist == 4 then
-			b.BackgroundColor3 = Color3.fromRGB(255, 180, 60)
-		else
-			b.BackgroundColor3 = Color3.fromRGB(140, 90, 25)
-		end
-	end
-end
-
-local function spinTo(shell, wheel, pointer, bulbs, targetIndex, arc, rot)
-	local jitter = (math.random() * 2 - 1) * arc * JITTER_ARC
-	local want = -((targetIndex - 1) * arc) + jitter
-	local base = rot + TURNS * 360
-	local final = base + ((want - base) % 360)
-
-	-- 1. ANTICIPATION WINDUP
-	local from = rot
-	local windTo = rot - WINDUP_DEG
-	local t0 = os.clock()
-	while true do
-		local a = (os.clock() - t0) / WINDUP_TIME
-		if a >= 1 or shell.done then break end
-		local eased = 1 - (1 - a) * (1 - a)
-		local currentR = from + (windTo - from) * eased
-		wheel.Rotation = currentR
-		pointer.Rotation = (1 - eased) * 6
-		updateLEDs(bulbs, currentR, false)
-		STEP:Wait()
-	end
-	if shell.done then return final end
-	wheel.Rotation = windTo
-
-	SoundLibrary.PlayLocal("swing", { speed = 0.65, volume = 0.50 })
-
-	-- 2. MAIN ACCELERATION & DECELERATION SPIN
-	local span = final - windTo
-	local ticksAt = math.floor((windTo + arc * 0.5) / arc)
-	t0 = os.clock()
-	while true do
-		local a = (os.clock() - t0) / SPIN_TIME
-		if a >= 1 or shell.done then break end
-		local eased = 1 - (1 - a) ^ SPIN_POWER
-		local r = windTo + span * eased
-		wheel.Rotation = r
-		updateLEDs(bulbs, r, false)
-
-		-- Tick & Ratchet pointer deflect
-		local now = math.floor((r + arc * 0.5) / arc)
-		if now ~= ticksAt then
-			ticksAt = now
-			local intensity = math.clamp(1 - a * 0.4, 0.5, 1.2)
-			wobblePointer(pointer, intensity)
-			SoundLibrary.PlayLocal("click", { speed = 0.92 + a * 0.55, volume = 0.32 })
-		end
-
-		STEP:Wait()
-	end
-	if shell.done then return final end
-	wheel.Rotation = final
-
-	-- 3. THE SETTLE & BOUNCE
-	SoundLibrary.PlayLocal("hit", { speed = 1.35, volume = 0.32 })
-	wobblePointer(pointer, 1.4)
-	t0 = os.clock()
-	while true do
-		local a = (os.clock() - t0) / SETTLE_TIME
-		if a >= 1 or shell.done then break end
-		local bounce = math.sin(a * math.pi) * SETTLE_DEG * (1 - a)
-		wheel.Rotation = final + bounce
-		updateLEDs(bulbs, final + bounce, false)
-		STEP:Wait()
-	end
-	if not shell.done then
-		wheel.Rotation = final
-		pointer.Rotation = 0
-	end
-
-	return final
-end
-
--- ============================================================================
--- THE REVEAL THEATRE
--- ============================================================================
-local function revealPod(pod, big)
-	local scale = pod:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
-	scale.Parent = pod
-
-	-- Modest, because the sector now reaches PIE_R: 1.25 would push it out over the golden bezel.
-	TweenService:Create(scale,
-		TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-		{ Scale = big and 1.06 or 1.04 }):Play()
-
-	-- A won sector cannot be "brightened" in place: its colour lives in a UIGradient, gradients
-	-- multiply the frame's own colour, and a ColorSequence is not tweenable. So the win is a second
-	-- fan laid over the first in white or gold, faded in and out by BackgroundTransparency -- which
-	-- the mask leaves free on the outward half. Built here rather than at wheel time so eleven
-	-- losing sectors never pay for it, and destroyed after, so a re-spin needs no cleanup.
-	local theta = pod:GetAttribute("Theta") or 0
-	local arcDeg = pod:GetAttribute("Arc") or 30
-
-	local flash = Instance.new("Frame")
-	flash.Name = "Flash"
-	flash.AnchorPoint = Vector2.new(0.5, 0.5)
-	flash.Position = UDim2.fromScale(0.5, 0.5)
-	flash.Size = UDim2.fromScale(1, 1)
-	flash.BackgroundTransparency = 1
-	flash.ZIndex = 7
-	flash.Parent = pod
-
-	local bars = {}
-	for k = 1, STRIPS_PER_SEG do
-		local phi = theta - arcDeg * 0.5 + (k - 0.5) * (arcDeg / STRIPS_PER_SEG)
-		local _, bar = radialBar(flash, phi, STRIP_W, PIE_R, 7)
-		bar.BackgroundColor3 = big and GOLD or WHITE
-		bar.BackgroundTransparency = 1
-		maskOutward(bar, { WHITE, WHITE })
-		bars[k] = bar
-	end
-
-	task.spawn(function()
-		for pulse = 1, big and 3 or 2 do
-			for _, bar in ipairs(bars) do
-				TweenService:Create(bar, TweenInfo.new(0.14), { BackgroundTransparency = 0.42 }):Play()
-			end
-			task.wait(0.16)
-			if not flash.Parent then return end
-			for _, bar in ipairs(bars) do
-				TweenService:Create(bar, TweenInfo.new(0.20), { BackgroundTransparency = 1 }):Play()
-			end
-			task.wait(0.22)
-			if not flash.Parent then return end
-		end
-		flash:Destroy()
-	end)
-end
-
--- Held from the moment a shell exists until the animation thread takes ownership of it, so the
--- protected wrapper below can tear down one that was abandoned half-built.
---
--- MEASURED, not theorised: with a builder made to throw on purpose, the first spin was caught and
--- dropped correctly and the next two still reported "still busy after 8 attempts". `buildShell`
--- sets `busy` before any of the builders run, and the only thing that clears it is `shell.finish`
--- -- which the throw skipped, leaving it to the `task.delay(SHELL_MAX_LIFE, ...)` safety net 67
--- seconds later. So a single builder fault still ate a minute of spins, and left a dimmed, blurred,
--- empty shell sitting over the game while it did. Same bug as the drain wedge, one order of
--- magnitude smaller, and invisible until the wedge above was fixed.
-local pendingShell = nil
-
-local function buildAndPlay(payload)
-	local spins = payload.spins
-	if type(spins) ~= "table" or #spins == 0 then return false end
-
-	local shell = buildShell()
-	if not shell then return false end
-	pendingShell = shell
-
-	local wheel, pods, arc, bulbs = buildWheel(shell.root)
-	local hub, pointer = buildFurniture(shell.root)
-	local burst = buildBurst(shell.root)
-	local caption, sub = buildCaption(shell.gui)
-
-	-- Dual counter-rotating sunburst rays
+	-- The celebration rays and the LED strobe, gated on the burst being visible -- so an idle lobby
+	-- costs one comparison a frame rather than two rotations and 24 colour writes.
 	local innerRays = burst:FindFirstChild("InnerRays")
 	local outerRays = burst:FindFirstChild("OuterRays")
-	shell.track(STEP:Connect(function(dt)
+	s.track(STEP:Connect(function(dt)
 		if burst.Visible then
 			if innerRays then innerRays.Rotation = (innerRays.Rotation + dt * 24) % 360 end
 			if outerRays then outerRays.Rotation = (outerRays.Rotation - dt * 16) % 360 end
-			updateLEDs(bulbs, 0, true)
+			Art.UpdateLEDs(bulbs, 0, true)
 		end
 	end))
 
-	local hit = Instance.new("TextButton")
-	hit.Name = "Dismiss"
-	hit.Size = UDim2.fromScale(1, 1)
-	hit.BackgroundTransparency = 1
-	hit.Text = ""
-	hit.ZIndex = 25
-	hit.Parent = shell.gui
+	-- The idle rim chase. The wheel does not turn until SPIN is pressed, but 24 dead bulbs read as a
+	-- broken machine, so the lights run on their own clock while nothing else moves.
+	--
+	-- THROTTLED TO ~12 Hz, and that is not a micro-optimisation. `UpdateLEDs` writes 24 colours; at
+	-- Heartbeat on a 144 Hz display that is 3,456 property writes a second for a panel that is doing
+	-- nothing, and the chase is a four-bulb-wide band moving one step at a time -- it does not read
+	-- any smoother above about 12 steps a second than it does at 144.
+	local nextChase = 0
+	s.track(STEP:Connect(function()
+		if burst.Visible or animating then return end
+		local now = os.clock()
+		if now < nextChase then return end
+		nextChase = now + (1 / 12)
+		Art.UpdateLEDs(bulbs, now * 90, false)
+	end))
 
-	local revealed = false
-	hit.MouseButton1Click:Connect(function()
-		if revealed then shell.finish() end
-	end)
-
-	shell.open()
-	caption.Text = "\u{1F3A1} LUCKY SPIN"
-	sub.Text = "Good luck!"
-
-	task.spawn(function()
-		local ok, err = pcall(function()
-			local rot = 0
-			for i, spin in ipairs(spins) do
-				local index = tonumber(spin.index)
-
-				if index and pods[index] then
-					rot = spinTo(shell, wheel, pointer, bulbs, index, arc, rot)
-				else
-					task.wait(0.25)
-				end
-				if shell.done then return end
-
-				local isRespin = spin.key == "respin"
-				local big = BIG_WINS[spin.key] == true
-
-				if isRespin then
-					if pods[index] then revealPod(pods[index], false) end
-					caption.Text = "\u{1F3A1} SPIN AGAIN!"
-					caption.TextColor3 = Color3.fromRGB(255, 220, 100)
-					sub.Text = ("free re-spin (%d)"):format(i)
-					SoundLibrary.PlayLocal("levelUp", { volume = 0.55 })
-					task.wait(1.1)
-					if shell.done then return end
-					local scale = pods[index] and pods[index]:FindFirstChildOfClass("UIScale")
-					if scale then
-						TweenService:Create(scale, TweenInfo.new(0.25), { Scale = 1 }):Play()
+	s.lobby = SpinLobby.Build(s.gui, s.root, {
+		onSpin = function()
+			if animating then return end
+			local tickets = select(1, spinStatus())
+			-- The press goes to the server EITHER WAY. With no tickets the server answers with the
+			-- toast that explains how to get one; what the client does differently is skip the
+			-- "SPINNING" state, so a refusal does not flicker the button through a lie.
+			if tickets >= 1 then
+				animating = true
+				s.lobby.SetBusy(true)
+				-- The fuse. `SpinResult` clears this by playing; if the server refuses after all --
+				-- a throttle, a balance the client's copy was stale about -- nothing else would.
+				task.delay(6, function()
+					if animating and not s.playing then
+						animating = false
+						if not s.done then s.lobby.SetBusy(false) end
 					end
-					caption.Text = "\u{1F3A1} LUCKY SPIN"
-					caption.TextColor3 = WHITE
-					sub.Text = "Good luck!"
-				else
-					caption.Text = ("%s %s"):format(spin.emoji or "", spin.name or "?")
-					caption.TextColor3 = big and GOLD or WHITE
-					sub.Text = detailText(spin)
-					revealed = true
-
-					burst.Visible = true
-					if pods[index] then revealPod(pods[index], big) end
-					SoundLibrary.PlayLocal(big and "evolve" or "purchase", { volume = big and 0.70 or 0.55 })
-
-					-- Stage pop & celebration pulse
-					TweenService:Create(shell.uiScale,
-						TweenInfo.new(0.40, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-						{ Scale = big and 1.08 or 1.04 }):Play()
-				end
+				end)
 			end
-		end)
-		if not ok then
-			warn("[SpinReveal] sequence failed: " .. tostring(err))
-			local last = spins[#spins]
-			if last then
-				caption.Text = ("%s %s"):format(last.emoji or "", last.name or "?")
-				sub.Text = detailText(last)
-			end
-			revealed = true
+			fireSpin()
+		end,
+		onBuy = buyPack,
+		onClose = function() s.finish() end,
+	})
+
+	local tickets, remaining, ready = spinStatus()
+	s.lobby.SetStatus(tickets, remaining, ready)
+
+	-- One second, and only while this lobby is up. A countdown nobody is looking at is a string
+	-- rebuild a second, forever, on every client in the server -- the rule `WheelEntry` already
+	-- follows for the same clock on the daily panel.
+	task.spawn(function()
+		while not s.done do
+			task.wait(1)
+			if not s.done and s.lobby then s.lobby.Tick() end
 		end
-
-		task.delay(3.0, shell.finish)
 	end)
 
-	-- The animation thread owns the shell from here; it has its own pcall and its own finish.
-	pendingShell = nil
-	return true
+	s.open()
+	tellServerLobbyIsOpen()
+	return s
 end
 
--- THE PROTECTED DOOR, and the half that never had one. Everything `buildAndPlay` does before its
--- `task.spawn` -- five builders, the dismiss button, `shell.open()` -- ran outside any `pcall`:
--- the one inside guards the ANIMATION only, and it lives in a different thread, so an error in a
--- builder escaped into the drain loop below and killed it. A missing icon, a `SpinWheel` row with
--- no emoji, a PlayerGui reparent mid-open: any of them and the wheel went silent for the rest of
--- the session while the server kept charging Robux, shards and the free daily for it.
+-- ============================================================================
+-- PLAYING A CHAIN INTO THE OPEN LOBBY
+-- ============================================================================
 --
--- Returns `played, unbuildable`. The second value is what stops the retry from becoming the same
--- wedge by a slower road: a payload that THREW will throw again, so it is dropped rather than
--- put back at the head of the queue forever.
+-- `payload.spins` is an ORDERED LIST, not one prize: a `respin` segment chains server-side and the
+-- whole chain arrives in one message, already paid for. See `notifySpin` in RobuxShopService for
+-- why it must never be handed one segment at a time.
 local function playChain(payload)
-	local ok, res = pcall(buildAndPlay, payload)
-	if not ok then
-		warn("[SpinReveal] could not build the wheel: " .. tostring(res))
-		-- Give the half-built shell back rather than waiting out SHELL_MAX_LIFE: `busy` is what
-		-- every later spin queues behind, and an empty dimmed overlay is what the player is
-		-- looking through in the meantime.
-		if pendingShell then
-			pendingShell.finish()
-			pendingShell = nil
+	local spins = payload.spins
+	local s = openLobby()
+	if not s then return false end
+
+	animating = true
+	s.playing = true
+	s.lobby.SetBusy(true)
+
+	local ok, err = pcall(function()
+		for i, spin in ipairs(spins) do
+			local index = tonumber(spin.index)
+
+			if index and s.pods[index] then
+				s.rot = Art.SpinTo(s, s.wheel, s.pointer, s.bulbs, index, s.arc, s.rot)
+			else
+				task.wait(0.25)
+			end
+			if s.done then return end
+
+			local isRespin = spin.key == "respin"
+			local big = BIG_WINS[spin.key] == true
+
+			if isRespin then
+				if s.pods[index] then Art.RevealPod(s.pods[index], false) end
+				s.lobby.ShowPrize("\u{1F3A1} SPIN AGAIN!", ("free re-spin (%d)"):format(i), true)
+				SoundLibrary.PlayLocal("levelUp", { volume = 0.55 })
+				task.wait(1.1)
+				if s.done then return end
+				local scale = s.pods[index] and s.pods[index]:FindFirstChildOfClass("UIScale")
+				if scale then
+					TweenService:Create(scale, TweenInfo.new(0.25), { Scale = 1 }):Play()
+				end
+			else
+				s.lastPod = s.pods[index]
+				s.lobby.ShowPrize(("%s %s"):format(spin.emoji or "", spin.name or "?"),
+					detailText(spin), big)
+
+				s.burst.Visible = true
+				if s.pods[index] then Art.RevealPod(s.pods[index], big) end
+				SoundLibrary.PlayLocal(big and "evolve" or "purchase", { volume = big and 0.70 or 0.55 })
+
+				TweenService:Create(s.uiScale,
+					TweenInfo.new(0.40, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+					{ Scale = big and 1.08 or 1.04 }):Play()
+			end
 		end
-		return false, true
+	end)
+
+	if not ok then
+		warn("[SpinReveal] sequence failed: " .. tostring(err))
+		local last = spins[#spins]
+		if last and not s.done and s.lobby then
+			s.lobby.ShowPrize(("%s %s"):format(last.emoji or "", last.name or "?"), detailText(last), false)
+		end
 	end
-	return res, false
+
+	-- THE PRIZE IS HELD, NOT DISMISSED. The lobby stays open, so this is the one pause in the whole
+	-- sequence whose job is purely to let the player read the thing they won before the countdown
+	-- takes its two lines back.
+	task.wait(PRIZE_HOLD)
+	returnToIdle(s)
+	s.playing = false
+	animating = false
+	if not s.done and s.lobby then s.lobby.SetBusy(false) end
+	return true
 end
 
 -- ============================================================================
 -- QUEUE MANAGEMENT
 -- ============================================================================
+--
+-- Two spins can genuinely be in flight at once -- a receipt landing while a ticket spin is turning,
+-- or a fast second press the throttle let through -- and each has already been PAID FOR, so neither
+-- may be dropped for being inconvenient. The queue is what makes them play one after the other into
+-- the same lobby.
 local queue = {}
 local draining = false
 
@@ -956,29 +446,17 @@ local function drain()
 	draining = true
 	task.spawn(function()
 		-- `draining` MUST be cleared on every exit, and it used to be cleared on exactly one: the
-		-- line after a `while` that ran unprotected. Anything that threw inside took the thread
-		-- with it and left the flag true forever, so every later `SpinResult` was queued and
-		-- `drain()` returned at its first line. The player kept paying and saw nothing at all --
-		-- there is no notify fallback any more, deliberately.
+		-- line after a `while` that ran unprotected. Anything that threw inside took the thread with
+		-- it and left the flag true forever, so every later `SpinResult` was queued and `drain()`
+		-- returned at its first line. The player kept paying and saw nothing at all.
 		local ok, err = pcall(function()
-			local attempts = 0
 			while #queue > 0 do
-				-- Peek rather than pop: the payload only leaves the queue once it is spoken for,
+				-- Peek rather than pop: the payload only leaves the queue once it has been played,
 				-- so a failure has nothing to put back and cannot lose one by forgetting to.
-				local played, unbuildable = playChain(queue[1])
-				if played then
-					table.remove(queue, 1)
-					attempts = 0
-					repeat task.wait(0.2) until not busy
-				elseif unbuildable or attempts >= MAX_BUILD_ATTEMPTS then
-					table.remove(queue, 1)
-					warn(("[SpinReveal] dropped a spin payload (%s)"):format(
-						unbuildable and "it threw while building" or ("still busy after " .. attempts .. " attempts")))
-					attempts = 0
-				else
-					-- The ordinary case: `buildShell` refused because one is already open.
-					attempts += 1
-					task.wait(0.35)
+				local played = playChain(queue[1])
+				table.remove(queue, 1)
+				if not played then
+					warn("[SpinReveal] dropped a spin payload (no PlayerGui to draw it in)")
 				end
 			end
 		end)
@@ -987,10 +465,71 @@ local function drain()
 	end)
 end
 
+-- ============================================================================
+-- THE DOORS
+-- ============================================================================
 Remotes:WaitForChild("SpinResult").OnClientEvent:Connect(function(payload)
 	if type(payload) ~= "table" then return end
 	if type(payload.spins) ~= "table" or #payload.spins == 0 then return end
 	if #queue >= MAX_QUEUE then return end
 	table.insert(queue, payload)
 	drain()
+end)
+
+-- The server asking for the lobby: the world wheel prop, and anything else that wants the player
+-- looking at this screen. `openLobby` is idempotent, so a second trigger while it is up does
+-- nothing rather than stacking a second dimmed overlay.
+task.spawn(function()
+	local openRemote = Remotes:WaitForChild("OpenSpinLobby", 30)
+	if openRemote then
+		openRemote.OnClientEvent:Connect(openLobby)
+	end
+end)
+
+-- The HUD's own buttons, on a BindableEvent rather than a round trip through the server -- the
+-- `ClientGesture` pattern. `WheelEntry` fires this; the server never needs to hear about a panel
+-- being opened, only about the free spin it should bank (`RequestSpinLobby`, fired from `openLobby`).
+local openLocal = Remotes:FindFirstChild("OpenSpinLobbyLocal")
+if not openLocal then
+	openLocal = Instance.new("BindableEvent")
+	openLocal.Name = "OpenSpinLobbyLocal"
+	openLocal.Parent = Remotes
+end
+openLocal.Event:Connect(openLobby)
+
+Remotes:WaitForChild("DataUpdate").OnClientEvent:Connect(function(data)
+	if type(data) ~= "table" then return end
+	latestData = data
+	-- NOT WHILE A SPIN IS TURNING: the payout push lands the instant the server rolls, which is five
+	-- seconds before the wheel stops, and repainting the balance then would show the prize arriving
+	-- before the pointer got to it. `returnToIdle` reads the same status when the spin is over.
+	if shell and not shell.done and shell.lobby and not animating then
+		local tickets, remaining, ready = spinStatus()
+		shell.lobby.SetStatus(tickets, remaining, ready)
+	end
+end)
+
+-- The fuse of last resort. Nothing in `playChain` can run longer than one chain of spins, but a
+-- thread killed between setting `animating` and clearing it would leave the SPIN button reading
+-- "SPINNING" for the rest of the session -- and unlike the old shell, there is no auto-close to
+-- clean it up, because the lobby is meant to stay open.
+task.spawn(function()
+	local since = nil
+	while true do
+		task.wait(2)
+		if animating then
+			since = since or os.clock()
+			if os.clock() - since > SPIN_WATCHDOG then
+				warn("[SpinReveal] a spin never finished; releasing the wheel")
+				animating = false
+				if shell and not shell.done and shell.lobby then
+					shell.playing = false
+					shell.lobby.SetBusy(false)
+				end
+				since = nil
+			end
+		else
+			since = nil
+		end
+	end
 end)
