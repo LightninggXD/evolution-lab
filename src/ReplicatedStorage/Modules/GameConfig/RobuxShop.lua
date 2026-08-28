@@ -50,18 +50,32 @@ GameConfig.RobuxProducts = {
 	-- Named with their real numbers, unlike the DNA packs above: a diamond count is not scaled, so
 	-- "50 Diamonds" is true at every stage, and hiding a true number behind an adjective only costs
 	-- the buyer clarity.
-	-- THE TOP TWO PACKS WERE DOUBLED 2026-08-28, her call, off a capture of these two rows: R$499
-	-- pays 300 where it paid 140, R$999 pays 600 where it paid 300. The bonus ribbon is DERIVED
-	-- (`GetTierBonusPct` divides this tier's diamonds-per-Robux by the cheapest tier's), so both
-	-- badges recomputed themselves and neither had to be edited.
+	-- ===== THE DIAMOND LADDER WAS REPRICED 2026-08-28, AND ONLY THE AMOUNTS MOVED =====
 	--
-	-- WORTH KNOWING BEFORE THE NEXT REPRICE: this flattens the top of the ladder. Both rows now pay
-	-- 0.601 diamonds per Robux, so the BEST VALUE row is no longer better value than the one under
-	-- it -- it is only a bigger single purchase. Left exactly as asked; if the R$999 row stops
-	-- selling, that is the reason and the fix is one number here.
+	-- Her rule for it, in as many words: *"ne treba cena rasti samo koliko dijamanata dobija
+	-- player"*. Every Robux price below is untouched; what changed is what each one pays.
+	--
+	-- The first pass doubled the top two rows (R$499 140 -> 300, R$999 300 -> 600) and that left a
+	-- hole: R$199 paid 0.251 diamonds per Robux and R$499 paid 0.601, a 2.4x step between adjacent
+	-- rungs, so the three small packs were strictly not worth buying. The two middle rows are lifted
+	-- to close it -- 22 -> 30 and 50 -> 85 -- which puts the curve on a roughly even multiple:
+	--
+	--     R$49  10   0.204/R$   +0%
+	--     R$99  30   0.303/R$  +48%
+	--     R$199 85   0.427/R$ +109%
+	--     R$499 300  0.601/R$ +195%
+	--     R$999 600  0.601/R$ +194%
+	--
+	-- The bonus ribbon is DERIVED (`GetTierBonusPct` divides this tier's diamonds-per-Robux by the
+	-- cheapest tier's), so every badge recomputed itself and not one was edited.
+	--
+	-- **THE TOP TWO ROWS ARE DELIBERATELY EQUAL VALUE, and `BEST VALUE` therefore means the bigger
+	-- purchase rather than the better rate.** Those two amounts are the owner's own numbers; the
+	-- flattening was reported to her and left as she set it. If the R$999 row ever needs to be the
+	-- best rate again, it is one number here and nothing else in the game reads it.
 	{ key = "Diamonds_1", productId = 3702250279, price = 49,  tierGroup = "Diamonds", name = "10 Diamonds",  emoji = "💎", grantDiamonds = 10 },
-	{ key = "Diamonds_2", productId = 3702250748, price = 99,  tierGroup = "Diamonds", name = "22 Diamonds",  emoji = "💎", grantDiamonds = 22 },
-	{ key = "Diamonds_3", productId = 3702251204, price = 199, tierGroup = "Diamonds", name = "50 Diamonds",  emoji = "💎", grantDiamonds = 50 },
+	{ key = "Diamonds_2", productId = 3702250748, price = 99,  tierGroup = "Diamonds", name = "30 Diamonds",  emoji = "💎", grantDiamonds = 30 },
+	{ key = "Diamonds_3", productId = 3702251204, price = 199, tierGroup = "Diamonds", name = "85 Diamonds",  emoji = "💎", grantDiamonds = 85 },
 	{ key = "Diamonds_4", productId = 3702251679, price = 499, tierGroup = "Diamonds", name = "300 Diamonds", emoji = "💎", grantDiamonds = 300 },
 	{ key = "Diamonds_5", productId = 3702252142, price = 999, tierGroup = "Diamonds", name = "600 Diamonds", emoji = "💎", grantDiamonds = 600, ribbon = "BEST VALUE" },
 

@@ -39,9 +39,9 @@ local function refresh()
 		local refs = rows[i]
 		if refs then
 			if i < level then
-				refs.card.SetSubtitle("Forged")
+				refs.card.SetSubtitle("Owned")
 				refs.card.SetDescription(string.format("x%.2f damage", tier.damageMult))
-				refs.card.Button.SetPrice("DONE")
+				refs.card.Button.SetPrice("OWNED")
 				refs.card.Button.SetEnabled(false, DONE)
 				refs.card.Button.SetColors(DONE)
 				refs.card.SetColors(pastel(tier.color, true))

@@ -459,7 +459,7 @@ shopLayout.Parent = upgradeRow
 -- true, and the tile said so ("Passively collects DNA every second" reads as picking things up).
 -- `DNAService.GetAutoCollectAmount` has always paid a real per-second share of a click, so the
 -- description was rewritten to describe that instead and the tile is honest now.
-local upgradeOrder = { "Speed", "Income", "Luck", "AutoCollect" }
+local upgradeOrder = { "Income", "Luck", "AutoCollect" }
 local upgradeButtons = {}
 
 for i, key in ipairs(upgradeOrder) do

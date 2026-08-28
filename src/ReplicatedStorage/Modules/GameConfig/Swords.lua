@@ -127,6 +127,23 @@ return function(GameConfig)
 -- makes `Grip.Position` the point on the blade the fist closes around. It is scaled by the same
 -- factor as the mesh and then moved onto the host's origin, or the sword floats a hand's length out
 -- of the palm on the small stages and buries itself in the arm on the large ones.
+-- ===== ALL TEN RUNGS DRAW HER OWN SWORD MESHES NOW (34.33) =====
+--
+-- *"ove maceve ubaci umesto svojih"*, with a capture of the blade in her hands. Six of the ten
+-- already did -- rusty, crystal, venom, ember, void and absolute -- and the four in between drew
+-- the procedurally-built chunky blade, so the ladder was six meshes and four boxes. Two shapes in
+-- one ladder reads as four rungs being unfinished, which is the opposite of what a ladder is for
+-- (see the same argument in `HUD/SwordPreview`: fewer silhouettes, one family).
+--
+-- **THERE ARE SIX SOURCE TOOLS AND TEN RUNGS, so four rungs REUSE a silhouette.** Every id below is
+-- read off `ServerStorage.ParkedFreeModels.SwordSourceTools` -- nothing is invented, and the four
+-- new rows use only mesh/texture pairs that were already in this table. The reuse always points
+-- DOWNWARD: iron and bronze grow the `Wooden` shape rusty opens with, steel takes crystal's
+-- `BlueEpicness` at a smaller scale, gold takes void's `SwordOfDarkness` at a smaller scale. A
+-- cheap rung never wears a silhouette introduced above it, so the endgame blades stay exclusive.
+--
+-- **IF SHE WANTS TEN DISTINCT BLADES, IT IS FOUR MORE MODELS AND NOTHING ELSE** -- drop them in the
+-- same ServerStorage folder and replace four `mesh` tables here. No code changes.
 GameConfig.Swords = {
 	{ key = "rusty",    displayName = "Rusty Stub",     emoji = "\u{2694}\u{FE0F}", damageMult = 1.00, cost = 0,
 	  color = Color3.fromRGB(126,  96,  70), trim = Color3.fromRGB( 82,  62,  46), material = Enum.Material.Slate,
@@ -137,13 +154,27 @@ GameConfig.Swords = {
 	},
 	{ key = "iron",     displayName = "Iron Cleaver",   emoji = "\u{2694}\u{FE0F}", damageMult = 1.20, cost = 40,
 	  color = Color3.fromRGB(150, 156, 165), trim = Color3.fromRGB( 74,  78,  86), material = Enum.Material.Metal,
-	  reach = 2.0 },
+	  reach = 2.0,
+	  -- her `Wooden` again, one size up from rusty (1.6 -> 1.8). SIX TOOLS, TEN RUNGS: see the
+	  -- note over this table for why four rungs share a silhouette with a cheaper one.
+	  mesh = { id = 12130075, texture = 12130104, scale = 1.8, length = 4.00,
+	           grip = Vector3.new(0, 0, -1.5), axis = "Z+", roll = 0 },
+	},
 	{ key = "bronze",   displayName = "Bronze Fang",    emoji = "\u{2694}\u{FE0F}", damageMult = 1.45, cost = 80,
 	  color = Color3.fromRGB(196, 138,  72), trim = Color3.fromRGB(108,  72,  36), material = Enum.Material.Metal,
-	  reach = 2.2 },
+	  reach = 2.2,
+	  -- `Wooden` at 2.0, the top of the wooden run.
+	  mesh = { id = 12130075, texture = 12130104, scale = 2.0, length = 4.00,
+	           grip = Vector3.new(0, 0, -1.5), axis = "Z+", roll = 0 },
+	},
 	{ key = "steel",    displayName = "Steel Edge",     emoji = "\u{2694}\u{FE0F}", damageMult = 1.75, cost = 160,
 	  color = Color3.fromRGB(206, 214, 226), trim = Color3.fromRGB( 64,  70,  84), material = Enum.Material.Metal,
-	  reach = 2.4 },
+	  reach = 2.4,
+	  -- her `SwordOfBlueEpicness` at 1.6, BELOW crystal's 2.0 -- the metal run opens on the
+	  -- shape crystal finishes, so the ladder reads as one family growing rather than as two.
+	  mesh = { id = 365565135, texture = 365565061, scale = 1.6, length = 4.50,
+	           grip = Vector3.new(0, 0.05, 1.65), axis = "Z-", roll = 1 },
+	},
 	{ key = "crystal",  displayName = "Crystal Shard",  emoji = "\u{2694}\u{FE0F}", damageMult = 2.10, cost = 320,
 	  color = Color3.fromRGB(126, 226, 236), trim = Color3.fromRGB( 40, 118, 148), material = Enum.Material.Glass,
 	  reach = 2.6,
@@ -154,7 +185,11 @@ GameConfig.Swords = {
 	},
 	{ key = "gold",     displayName = "Gilded Saber",   emoji = "\u{2694}\u{FE0F}", damageMult = 2.50, cost = 640,
 	  color = Color3.fromRGB(255, 202,  74), trim = Color3.fromRGB(146,  92,  20), material = Enum.Material.Metal,
-	  reach = 2.8 },
+	  reach = 2.8,
+	  -- her `SwordOfDarkness` at 0.8, below void's 1.0 for the same reason.
+	  mesh = { id = 77241866, texture = 77241892, scale = 0.8, length = 4.62,
+	           grip = Vector3.new(0, 0, -2), axis = "Z+", roll = 0 },
+	},
 	{ key = "venom",    displayName = "Venom Reaver",   emoji = "\u{2694}\u{FE0F}", damageMult = 3.00, cost = 1280,
 	  color = Color3.fromRGB(126, 232, 108), trim = Color3.fromRGB( 34,  92,  40), material = Enum.Material.Neon,
 	  reach = 3.0, glow = true,
