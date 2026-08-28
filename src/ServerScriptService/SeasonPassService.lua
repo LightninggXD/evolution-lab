@@ -67,9 +67,9 @@ local function freshPeriod(period)
 		periodId = GameConfig.GetQuestPeriodId(period),
 		progress = {},
 		claimed = {},
-		-- Season XP already paid out per quest as its progress advanced -- see Track. A fresh period
-		-- has paid nothing, and this must exist rather than be created lazily: Track indexes it on
-		-- the very first creature anyone kills after a daily reset.
+		-- Season XP already handed over per quest. Only HandleClaimQuest writes it now (Track pays
+		-- nothing), so a live period fills in one step per claim -- but it is still built here
+		-- rather than lazily, because the claim path reads it before it writes it.
 		paid = {},
 	}
 end
@@ -101,8 +101,8 @@ function SeasonPassService.GetQuestPeriod(data, period)
 	else
 		held.progress = held.progress or {}
 		held.claimed = held.claimed or {}
-		-- how much of each quest's XP has already been paid out as progress was made. A save from
-		-- before the pro-rata change has none, which is correct: its quests were paid on claim.
+		-- how much of each quest's XP has already been handed over. A save carried across the
+		-- pro-rata experiment can have a part-paid quest in here; the claim settles the shortfall.
 		held.paid = held.paid or {}
 	end
 	return held
@@ -203,20 +203,16 @@ function SeasonPassService.Track(player, counter, amount)
 	if not data then return end
 	amount = amount or 1
 
-	-- SEASON XP IS EARNED AS THE QUEST ADVANCES, NOT IN ONE LUMP AT THE CLAIM BUTTON.
+	-- NO SEASON XP IS PAID HERE. Progress alone moves nothing on the level bar -- the XP lands in
+	-- one lump when the Claim button is pressed (HandleClaimQuest), which is the rule this file's
+	-- header states and the one the panel is drawn for.
 	--
-	-- It used to arrive only in HandleClaimQuest, so the level bar was frozen for the entire time a
-	-- player was actually doing the work: kill thirty creatures and "350 / 1500 XP" has not moved a
-	-- pixel. The panel that exists to show progress showed none, which reads as broken rather than
-	-- as unclaimed.
-	--
-	-- Paid pro rata and tracked in `held.paid`, so the arithmetic is exact rather than accumulated:
-	-- owed = floor(xp * progress / target) - already-paid. Rounding can never drift, and by the time
-	-- progress reaches the target the player has been paid exactly `quest.xp` -- so the "+250 Season
-	-- XP" printed on the quest row stays true, it just arrives in fifty pieces instead of one.
-	local completedAny, xpGained = false, 0
-	local season = SeasonPassService.GetSeason(data)
-	local ceiling = GameConfig.Season.maxLevel * GameConfig.Season.xpPerLevel
+	-- It WAS paid pro rata for a while, so that the bar moved while the work was being done. That
+	-- made the claim itself pay nothing, and a Claim button that visibly does nothing reads worse
+	-- than a bar that waits. `held.paid` survives that experiment and still matters: a save written
+	-- under the old rule carries a part-paid quest, and the claim settles only the SHORTFALL so
+	-- nobody is paid twice for the same quest.
+	local completedAny = false
 
 	for period in pairs(GameConfig.QuestPeriods) do
 		local held = SeasonPassService.GetQuestPeriod(data, period)
@@ -226,16 +222,6 @@ function SeasonPassService.Track(player, counter, amount)
 				if before < quest.target then
 					local after = math.min(before + amount, quest.target)
 					held.progress[quest.key] = after
-
-					if quest.xp and quest.target > 0 then
-						local paid = held.paid[quest.key] or 0
-						local owed = math.floor(quest.xp * after / quest.target) - paid
-						if owed > 0 then
-							held.paid[quest.key] = paid + owed
-							season.xp = math.min(season.xp + owed, ceiling)
-							xpGained += owed
-						end
-					end
 
 					if after >= quest.target then
 						completedAny = true
@@ -275,10 +261,11 @@ function SeasonPassService.Track(player, counter, amount)
 		})
 	end
 
-	-- A completion always pushes. XP alone pushes too -- that is the entire point of the change --
-	-- but this runs on every creature kill in the game, so it rides the caller's own replication
-	-- when it can: every Track call site already pushes a line or two later.
-	if completedAny or xpGained > 0 then
+	-- ONLY A COMPLETION PUSHES. This runs on every creature kill in the game, so ordinary progress
+	-- rides the caller's own replication -- every Track call site already pushes a line or two
+	-- later. A quest CROSSING its target pushes here so the Claim button lights up on the kill that
+	-- earned it rather than on the next one.
+	if completedAny then
 		PlayerDataService.PushToClient(player)
 	end
 end
@@ -305,12 +292,12 @@ function SeasonPassService.HandleClaimQuest(player, period, questKey)
 
 	held.claimed[questKey] = true
 
-	-- THE XP IS ALREADY PAID -- see Track. It was earned across the whole quest rather than handed
-	-- over here, so adding it again would pay it twice. Only whatever is left (diamonds, potions)
-	-- is granted at the button.
+	-- THE SEASON XP IS PAID HERE AND NOWHERE ELSE -- see Track, which pays none. The bar moves on
+	-- the button press, which is the point of the button.
 	--
-	-- A save from before that change has `paid` empty for its in-flight quests, so the shortfall is
-	-- settled here: nobody loses XP they had already worked for under the old rule.
+	-- Settled as a SHORTFALL rather than a flat `season.xp += quest.xp`, and that is not
+	-- bookkeeping for its own sake: a save written while Track was paying pro rata carries a
+	-- part-paid quest in `held.paid`, and a flat add would hand that player the same XP twice.
 	local season = SeasonPassService.GetSeason(data)
 	local ceiling = GameConfig.Season.maxLevel * GameConfig.Season.xpPerLevel
 	local owed = (quest.xp or 0) - (held.paid[questKey] or 0)

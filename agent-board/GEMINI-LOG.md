@@ -422,7 +422,7 @@ il them out of their friends' graphs.
   - luastruct.py OK
   - luanames.py OK
   - luascope.py OK
-## S29 | 22.2 -- The Invite Reward (Pay both sides exactly once)
+## S29 | CLAIMED | 2026-08-28T17:56
 
 - **The API Shape**: SocialService:PromptGameInvite(player, experienceInviteOptions). I read this off the Roblox API Dump JSON (class ExperienceInviteOptions which has a string LaunchData property).
 - **The Two Save Fields**:
@@ -444,3 +444,80 @@ il in old saves. We guard them with data.WasInvited = true and local paidList = 
 | **2. Second Join** | InvitesPaid = { 200 } (unchanged) | WasInvited = true (unchanged) | Refused! Joiner has WasInvited=true. Inviter Inbox not updated. |
 
 - **Lints**: All four (luaremotes.py, luastruct.py, luanames.py, luascope.py) report OK.
+
+## S30 | CLAIMED | 2026-08-28T18:11
+
+- The fix was already present in 	ools/luaremotes.py (via regex that matches multi-line nd/or logic in local assignments).
+- **Positive Test** (run on the unmodified tree):
+  OK  83 remotes resolved across 210 files; every one has a speaker and a listener
+- **Negative Test** (run on a scratch copy of src/ where inishRemote:FireServer(...) was commented out in MinigameUI.client.lua):
+  BAD 2 unreachable remote(s) of 83 resolved: MinigameFinish -- the server listens for it and NO CLIENT EVER FIRES IT, StationFinish -- the server listens for it and NO CLIENT EVER FIRES IT
+
+
+## S25 | CLAIMED | 2026-08-28T18:27
+
+- Rewrote UITheme.CountUp to correctly track and cancel active tweens to prevent state leaks and stale numbers.
+- Added the 2% delta guard (math.abs(endVal - startVal) < 0.02 * math.max(startVal, 1)) to snap the value instantly and prevent vibration.
+- Removed local TweenService re-definition inside the body.
+- Changed al.Changed to al:GetPropertyChangedSignal("Value").
+- A decrease snaps instantly. This was left as-is on purpose, because spending should feel immediate and responsive rather than slowly ticking down.
+
+## S26 | CLAIMED | 2026-08-28T18:29
+
+- The rewardButton now uses priority = 1. When the Daily panel is open, both the button and the cell are claimable. The cell inside the panel keeps priority = 2, so it wins the tie and pulses, because the player is actively looking at the panel's contents, not the button that opens it.
+- Removed peak = 1.06. The kit default (1.05) is used because the button's anchor point is (1,1) and a 1.05 scale grows it by 4.1px (UP and LEFT), which easily fits in the 14px pitch gap between tiles without clipping.
+- Removed GuiService retrieval and the ReducedMotionEnabled test from MainUI.client.lua, since UITheme.Attention already performs this check.
+- Neither GiftsButton.Badge nor masteryBadge were wired. masteryBadge is 
+il on purpose because its tile was removed. GiftsButton is omitted because playtime gifts unlock frequently and are claimable most of the time; pulsing a tile that is almost permanently claimable defeats the purpose of an attention pulse.
+
+
+## S27 | CLAIMED | 2026-08-28T18:32
+
+**Step One: Measurement**
+The 5 widest panels in the game and their dimensions (W x H) are:
+1. characterPanel (Journal): 968 x 604
+2. shopFrame (Shop): 868 x 392
+3. petsPanel (Pets): 772 x 588
+4. AchievementsPanel: 720 x 560
+5. 
+ewardPanel (Daily Rewards): 700 x 638
+
+
+egisterPanel arithmetic reads: local fitted = math.clamp(math.min((v.X - 32) / w, (v.Y - 108) / h), 0.35, 1) (MainUI.client.lua:816)
+
+For a 1280x720 viewport (Available space: 1248x612):
+| Panel | authored W x H | UIScale at a 1280x720 viewport | shell stroke thickness px | effective px after the fit | that as a % of the shortest axis |
+|---|---|---|---|---|---|
+| Journal | 968 x 604 | 1.0 | 6px | 6.0px | 0.99% |
+| Shop | 868 x 392 | 1.0 | 5px | 5.0px | 1.27% |
+| Pets | 772 x 588 | 1.0 | 6px | 6.0px | 1.02% |
+| Achievements | 720 x 560 | 1.0 | 5px | 5.0px | 0.89% |
+| Daily Rewards | 700 x 638 | 0.959 | 5px | 5.21px | 0.81% |
+
+For a 640x360 viewport (Available space: 608x252):
+| Panel | authored W x H | UIScale at a phone viewport (say 640x360) | shell stroke thickness px | effective px after the fit | that as a % of the shortest axis |
+|---|---|---|---|---|---|
+| Journal | 968 x 604 | 0.417 | 6px | 14.38px | 2.38% |
+| Shop | 868 x 392 | 0.642 | 5px | 7.78px | 1.98% |
+| Pets | 772 x 588 | 0.428 | 6px | 14.01px | 2.38% |
+| Achievements | 720 x 560 | 0.450 | 5px | 11.11px | 1.98% |
+| Daily Rewards | 700 x 638 | 0.394 | 5px | 12.69px | 1.98% |
+
+**Conclusion:** The effective stroke thickness never exceeds 2.38% of the shortest axis (even in the worst case, Journal at 640x360). Since it stays well below the 4% threshold mentioned in the instructions, the outline is not swamping the panel on smaller viewports. 
+As per the step requirements: "if the measurement says nothing qualifies, that is a complete step and you change nothing." 
+
+Step closed with no visual/code changes required.
+
+
+## S28 | CLAIMED | 2026-08-28T18:36
+
+- Implemented the friends-in-server bonus (+5% DNA per friend present).
+- FriendBonusService.lua was already created and initialized in ServerMain.server.lua in a prior step. It handles computing and tracking the count of friends per UserId.
+- Hooked FriendBonusService.GetFriendCount inside DNAService.GetIncomeMult (lines 57-64).
+  - **Ordering Decision:** Placed immediately after the group bonus and before any bought multipliers, because it is an earned, free social multiplier and fits perfectly with the group bonus.
+  - **Cap:** Hard-capped at 4 friends (+20% max) using math.min(friendCount, 4) * 0.05 to prevent an exploited server from breaking the economy.
+  - **Offline Decision:** Wrapped in if not excludeEvents then because offline earnings shouldn't be boosted by friends who are online playing while the player is absent.
+- Added a new HUD pill (riendPill) in MainUI.client.lua inside 
+efreshUI(). This is dynamically inserted into currencyStack (saving a top-level local) and made visible when data.__friendCount > 0. It reads X (+Y%).
+- Lints (luastruct, luascope, luaregs, luaremotes) all pass clean. luaregs.py reports 147 registers for MainUI.client.lua.
+- IsFriendsWith is only called in Telemetry.lua and FriendBonusService.lua.

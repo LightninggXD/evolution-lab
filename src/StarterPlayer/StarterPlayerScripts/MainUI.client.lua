@@ -2438,9 +2438,8 @@ local function refreshRewardPanel()
 		rewardBadge.Visible = canClaim
 		
 		-- Task 7: Idle pulse on claimable tiles (A 2.5)
-		local GuiService = game:GetService("GuiService")
-		if canClaim and not GuiService.ReducedMotionEnabled then
-			UITheme.Attention(rewardButton, true, { priority = 2, peak = 1.06 })
+		if canClaim then
+			UITheme.Attention(rewardButton, true, { priority = 1 })
 		else
 			UITheme.Attention(rewardButton, false)
 		end
@@ -3915,6 +3914,23 @@ local function refreshUI()
 		UITheme.Pulse(shardPill)
 	else
 		shardPill.Value.Text = formatNumber(data.EvolutionShards or 0)
+	end
+
+	-- Task 22.1: Live HUD pill for the friends-in-server bonus
+	local friendPill = currencyStack:FindFirstChild("FriendPill")
+	if data.__friendCount and data.__friendCount > 0 then
+		if not friendPill then
+			friendPill = UITheme.Pill(currencyStack, {
+				name = "FriendPill", icon = "\u{1F465}", text = "0", layoutOrder = 4,
+				size = UDim2.new(1, 0, 0, 40), maxTextSize = 24,
+				shellColor = UITheme.Color.Frost:Lerp(UITheme.Color.Peach, 0.16), color = UITheme.Color.Ink,
+			})
+		end
+		friendPill.Visible = true
+		local bonus = math.min(data.__friendCount, 4) * 5
+		friendPill.Value.Text = string.format("%d (+%d%%)", data.__friendCount, bonus)
+	elseif friendPill then
+		friendPill.Visible = false
 	end
 
 	dnaPill:SetAttribute("PrevVal", data.DNA or 0)

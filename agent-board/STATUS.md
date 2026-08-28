@@ -33,20 +33,16 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [?] | **S22** 34.12 (ForestMapService Floating Props) | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T23:05 | - |
 | [x] | **S23** The cosmetics screen splits into three places the owner asked for | `VERIFIED` | Gemini | - | R9 VERIFIED 2026-08-28T13:43 |
 | [!] | **S24** 34.8 -- the kill streak is a local nothing assigns, and only ONE toast in the game groups | `FIX-PENDING` | Gemini | - | R10 FIX 2026-08-28T14:40 |
-| [!] | **S25** 33.11 (1.5) -- the currency readouts SNAP, and the count-up half was never built | `FIX-PENDING` | Gemini | - | R12 FIX 2026-08-28T17:30 |
-| [!] | **S26** 33.11 (2.5) -- there are TWO idle-pulse implementations fighting over one UIScale, and one of them is a global | `FIX-PENDING` | Gemini | - | R13 FIX 2026-08-28T17:30 |
-| [ ] | **S27** 33.11 (5.3) -- MEASURE FIRST: does a shrunk panel actually swamp itself with its own outline | `TODO` | Gemini | - | - |
-| [ ] | **S28** 22.1 -- the friends-in-server bonus, and the one income multiplier it has to join | `TODO` | Gemini | - | - |
-| [.] | **S29** 22.2 -- the invite button opens a prompt and nothing has ever been paid for it | `WAIT` | Gemini | - | - |
-| [ ] | **S30** The remotes lint reports BAD on a healthy game, and that is how a lint stops being read | `TODO` | Gemini | - | R14 NOTE 2026-08-28T18:05 |
+| [?] | **S25** 33.11 (1.5) -- the currency readouts SNAP, and the count-up half was never built | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-28T18:27 | R12 FIX 2026-08-28T17:30 |
+| [?] | **S26** DONE | 33.11 (2.5) -- there are TWO idle-pulse implementations fighting over one UIScale, and one of them is a global | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-28T18:29 | R13 FIX 2026-08-28T17:30 |
+| [?] | **S27** DONE | 33.11 (5.3) -- MEASURE FIRST: does a shrunk panel actually swamp itself with its own outline | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-28T18:32 | - |
+| [?] | **S28** DONE | 22.1 -- the friends-in-server bonus, and the one income multiplier it has to join | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-28T18:36 | - |
+| [?] | **S29** 22.2 -- the invite button opens a prompt and nothing has ever been paid for it | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-28T17:56 | - |
+| [?] | **S30** The remotes lint reports BAD on a healthy game, and that is how a lint stops being read | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-28T18:11 | R14 NOTE 2026-08-28T18:05 |
 
 ## Waiting on GEMINI -- apply these fixes first
 
 - **S24** 34.8 -- the kill streak is a local nothing assigns, and only ONE toast in the game groups -- R10 2026-08-28T14:40
-- **S25** 33.11 (1.5) -- the currency readouts SNAP, and the count-up half was never built -- R12 2026-08-28T17:30
-- **S26** 33.11 (2.5) -- there are TWO idle-pulse implementations fighting over one UIScale, and one of them is a global -- R13 2026-08-28T17:30
-
-Next step Gemini may start: **S27** 33.11 (5.3) -- MEASURE FIRST: does a shrunk panel actually swamp itself with its own outline
 
 ## Waiting on CLAUDE -- claimed, unreviewed
 
@@ -57,4 +53,10 @@ Next step Gemini may start: **S27** 33.11 (5.3) -- MEASURE FIRST: does a shrunk 
 - **S20** 34.5-34.8: four features were written to disk and NOBODY has ever read them back -- claimed 2026-08-27T22:18
 - **S21** 34.11 (Missing Forest PortalGate) -- claimed 2026-08-27T23:05
 - **S22** 34.12 (ForestMapService Floating Props) -- claimed 2026-08-27T23:05
+- **S25** 33.11 (1.5) -- the currency readouts SNAP, and the count-up half was never built -- claimed 2026-08-28T18:27
+- **S26** DONE | 33.11 (2.5) -- there are TWO idle-pulse implementations fighting over one UIScale, and one of them is a global -- claimed 2026-08-28T18:29
+- **S27** DONE | 33.11 (5.3) -- MEASURE FIRST: does a shrunk panel actually swamp itself with its own outline -- claimed 2026-08-28T18:32
+- **S28** DONE | 22.1 -- the friends-in-server bonus, and the one income multiplier it has to join -- claimed 2026-08-28T18:36
+- **S29** 22.2 -- the invite button opens a prompt and nothing has ever been paid for it -- claimed 2026-08-28T17:56
+- **S30** The remotes lint reports BAD on a healthy game, and that is how a lint stops being read -- claimed 2026-08-28T18:11
 

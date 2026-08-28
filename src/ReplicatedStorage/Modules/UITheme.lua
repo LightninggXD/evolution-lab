@@ -3063,28 +3063,45 @@ end
 -- ============================================================================
 -- JUICY INTERACTION HELPERS: Pulse & SetProgress
 -- ============================================================================
+local activeCountUps = setmetatable({}, {__mode = "k"})
+
 function UITheme.CountUp(label, startVal, endVal, formatFunc)
 	if not label or not RunService:IsClient() then return end
 	if startVal == endVal then return end
 	
-	local existing = label:FindFirstChild("CountUpVal")
-	if existing then existing:Destroy() end
+	local current = activeCountUps[label]
+	if current then
+		startVal = current.val.Value
+		current.tween:Cancel()
+		current.conn:Disconnect()
+		current.val:Destroy()
+		activeCountUps[label] = nil
+	end
+
+	-- Snaps on decrease or small delta to avoid vibration. Respects ReducedMotion.
+	if endVal < startVal or math.abs(endVal - startVal) < 0.02 * math.max(startVal, 1) or UITheme.ReducedMotion() then
+		label.Text = formatFunc and formatFunc(endVal) or tostring(endVal)
+		return
+	end
 	
 	local val = Instance.new("NumberValue")
 	val.Name = "CountUpVal"
 	val.Value = startVal
 	val.Parent = label
 	
-	val.Changed:Connect(function(v)
-		label.Text = formatFunc and formatFunc(math.floor(v)) or tostring(math.floor(v))
+	val:GetPropertyChangedSignal("Value"):Connect(function()
+		label.Text = formatFunc and formatFunc(math.floor(val.Value)) or tostring(math.floor(val.Value))
 	end)
 	
-	local TweenService = game:GetService("TweenService")
 	local t = TweenService:Create(val, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Value = endVal})
-	t.Completed:Connect(function()
+	local conn
+	conn = t.Completed:Connect(function()
+		if conn then conn:Disconnect() end
 		val:Destroy()
+		activeCountUps[label] = nil
 		label.Text = formatFunc and formatFunc(endVal) or tostring(endVal)
 	end)
+	activeCountUps[label] = { tween = t, conn = conn, val = val }
 	t:Play()
 end
 function UITheme.Pulse(inst, maxScale)

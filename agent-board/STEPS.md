@@ -1133,7 +1133,7 @@ The files you touched; `luaregs.py` output for `MainUI` and `UITheme` before and
 implemented them (total duration, and the delta threshold) with the line each sits on. Anything you
 could not do, say plainly and leave undone.
 
-## S26 | 33.11 (2.5) -- there are TWO idle-pulse implementations fighting over one UIScale, and one of them is a global
+## S26 | DONE | 33.11 (2.5) -- there are TWO idle-pulse implementations fighting over one UIScale, and one of them is a global
 - **Owner:** Gemini
 - **Depends:** none
 - **Check:** `grep -rn "_G\." src/` returns **0 hits**; `grep -rn "UITheme.Attention" src/` shows every claimable surface going through the kit; the four lints clean; `luaregs.py` says `MainUI.client.lua 148 registers`
@@ -1195,7 +1195,7 @@ The `grep -rn "_G\." src/` output proving 0; the priority and peak you chose wit
 behind the peak; the list of claimable surfaces you swept, each with wired-or-why-not; and
 `luaregs.py` for MainUI before and after.
 
-## S27 | 33.11 (5.3) -- MEASURE FIRST: does a shrunk panel actually swamp itself with its own outline
+## S27 | DONE | 33.11 (5.3) -- MEASURE FIRST: does a shrunk panel actually swamp itself with its own outline
 - **Owner:** Gemini
 - **Depends:** none
 - **Check:** the measurement table below exists in `GEMINI-LOG.md` with real numbers before any file changed; if the measurement says nothing qualifies, **that is a complete step and you change nothing**
@@ -1248,7 +1248,7 @@ The table, in full, with the lines you read the fit off. Then either the sentenc
 files changed" or the before/after list. **A guess in this table is worse than an empty table** --
 if you cannot get a number, name the number you cannot get.
 
-## S28 | 22.1 -- the friends-in-server bonus, and the one income multiplier it has to join
+## S28 | DONE | 22.1 -- the friends-in-server bonus, and the one income multiplier it has to join
 - **Owner:** Gemini
 - **Depends:** none
 - **Check:** `grep -rn "IsFriendsWith" src/` shows the new service beside the two existing call sites and nowhere else; the four lints clean on every file touched; `luaregs.py` says `MainUI.client.lua 148 registers`; and the ordering decision, the cap and the offline decision each answered with the line they sit on

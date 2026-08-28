@@ -654,8 +654,8 @@ return function(hud)
 					zIndex = row.ZIndex + UITheme.Z.Content,
 				})
 
-				-- WHAT THIS RUNG PAYS, AND NOT A WORD ABOUT SEASON XP. The daily rows say "N Season XP
-				-- as you go" because `Track` pays theirs pro rata; the event ladder pays none at all
+				-- WHAT THIS RUNG PAYS, AND NOT A WORD ABOUT SEASON XP. The daily rows say "+N Season
+				-- XP" because their claim pays it; the event ladder pays none at all
 				-- (the AdvanceEventQuests loop in `Track` grants nothing), so a copied label here
 				-- would promise a bar that never moves. The DNA figure is the AUTHORED one rather
 				-- than the scaled one -- `ScaleReward` is a server function over the save, and the
@@ -910,19 +910,13 @@ return function(hud)
 				zIndex = row.ZIndex + UITheme.Z.Content,
 			})
 
-			-- ===== WHAT THE CLAIM BUTTON ACTUALLY PAYS, WHICH IS NOT THE SEASON XP =====
+			-- ===== WHAT THE CLAIM BUTTON PAYS, WHICH IS EVERYTHING INCLUDING THE SEASON XP =====
 			--
-			-- This row used to read "+1200 Season XP" beside a Claim button, and that is the whole
-			-- "the Season Pass bar does not go up when I claim" report -- the bar is right and the
-			-- label was wrong. `SeasonPassService.Track` pays the XP **pro rata as the quest
-			-- advances** (deliberately: it used to arrive in one lump at the button, so the level bar
-			-- was frozen for the entire time the player was doing the work). By the time a quest is
-			-- claimable the player has already been paid every point of its XP, so the claim adds
-			-- nothing to the bar and cannot be made to without paying twice.
-			--
-			-- So the label says where each half really comes from: the XP is earned as you go, and
-			-- the button hands over the diamonds. A quest with no diamonds says so plainly rather
-			-- than promising a number that has already landed.
+			-- The XP lands in one lump on the button press -- `SeasonPassService.Track` pays none as
+			-- the quest advances, so the level bar deliberately holds still until a finished quest is
+			-- claimed. That makes this label the plain truth again: every number on this row is what
+			-- the button hands over, so it lists them together rather than splitting them between
+			-- "as you go" and "on claim".
 			local payLabel = Instance.new("TextLabel")
 			payLabel.Size = UDim2.new(0, 220, 1, -16)
 			payLabel.Position = UDim2.new(0, 360, 0, 8)
@@ -930,8 +924,8 @@ return function(hud)
 			payLabel.TextXAlignment = Enum.TextXAlignment.Left
 			payLabel.TextWrapped = true
 			payLabel.Text = quest.diamonds
-				and ("Claim: +%d \u{1F48E}\n%d Season XP as you go"):format(quest.diamonds, quest.xp)
-				or ("%d Season XP as you go"):format(quest.xp)
+				and ("Claim: +%d \u{1F48E}\n+%d Season XP"):format(quest.diamonds, quest.xp)
+				or ("Claim: +%d Season XP"):format(quest.xp)
 			payLabel.Parent = row
 			-- `Cream` (rgb 255,248,235, lum 0.97) on a row shell at lum 0.885 is a near-white word on
 			-- a near-white card, held up entirely by its 4 px near-black halo -- legible, and drawn as
