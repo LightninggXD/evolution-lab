@@ -35,6 +35,18 @@ import os
 import re
 import sys
 
+# THE CONSOLE IS cp1252 AND THE LANE FILES ARE NOT. This script's own literals are ASCII (see the
+# note above), but `check` PRINTS lines lifted out of CLAUDE-REVIEW.md and GEMINI-LOG.md, and those
+# quote the owner's Bosnian and the game's emoji. On a Windows console that is an unhandled
+# UnicodeEncodeError halfway through the inbox -- i.e. the one command both agents run first dies
+# after printing part of the fix it exists to deliver. Replace what the codepage cannot draw and
+# keep going; a `?` in a console line is a cosmetic loss, a traceback is a lost instruction.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except Exception:
+        pass
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BOARD = os.path.join(ROOT, "agent-board")
 STEPS_MD = os.path.join(BOARD, "STEPS.md")

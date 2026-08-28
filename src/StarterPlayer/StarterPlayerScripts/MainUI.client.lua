@@ -1188,7 +1188,12 @@ local rewardButton = columnTile("R", 3, "\u{1F381}", "Daily", UITheme.Color.Peac
 -- the moment the day is claimed and shows it again when the next day unlocks.
 local rewardBadge = rewardButton:FindFirstChild("Badge")
 local robuxButton  = columnTile("R", 4, "\u{1F6CD}\u{FE0F}", "Robux", UITheme.Color.Mint)
-local achievementsButton = columnTile("R", 5, "\u{1F3C6}", "Goals", UITheme.Color.Gold)
+-- ORDER 6, NOT 5 (34.38). It was authored at 5 -- the SAME slot as the Season tile
+-- (`HUD/SeasonPass:1277`), which is built in its own block further down and so does not appear in
+-- this list. `TileColumnFit` sorts by the ColumnOrder attribute and a tie sorts arbitrarily, so the
+-- collision only ever cost the authored frame; it is still exactly the mistake the comment above
+-- warns about. With Audio's order 8 freed, the eight tiles number 1..8 with no duplicate.
+local achievementsButton = columnTile("R", 6, "\u{1F3C6}", "Goals", UITheme.Color.Gold)
 achievementsButton.MouseButton1Click:Connect(function()
 	if not hudRefs.achievementsPanel then
 		require(RS.Modules:WaitForChild("HUD"):WaitForChild("AchievementsPanel"))(hudRefs)
@@ -1237,13 +1242,13 @@ local masteryBadge = nil
 -- top-level local silently deletes the whole HUD. `PlaytimeGiftsPanel` finds it back through
 -- `screenGui.GiftsButton.Badge` -- the name `columnTile` stamps -- and owns lighting it, since it
 -- is already the only reader of the remote that says what is claimable.
-local playtimeButton = columnTile("R", 6, "⏰", "Gifts", UITheme.Color.Peach, "CLAIM!", UITheme.Color.Green)
+local playtimeButton = columnTile("R", 7, "⏰", "Gifts", UITheme.Color.Peach, "CLAIM!", UITheme.Color.Green)
 
 -- AUTO-ATTACK toggle. The state itself lives on the player as an attribute, not in either script:
 -- CombatClient does the fighting and also toggles it off the T key, this tile draws it, and the
 -- attribute is the single place both of them read. Either side can flip it and the other follows.
 -- Caption starts as "Auto" and refreshAutoTile immediately rewrites it to Auto ON / Auto OFF.
-local autoAttackButton = columnTile("R", 7, "\u{2694}\u{FE0F}", "Auto", UITheme.Color.Locked)
+local autoAttackButton = columnTile("R", 8, "\u{2694}\u{FE0F}", "Auto", UITheme.Color.Locked)
 
 local function refreshAutoTile()
 	local on = player:GetAttribute("AutoAttack") == true
@@ -4119,12 +4124,14 @@ Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 	currentData = data
 
 	-- AUDIO STARTS HERE, on the first payload, because this is the earliest point at which the client
-	-- knows both that the server is alive and what this player's saved volumes are (4.6). Init resolves
-	-- the three SoundGroups the server made, pushes the saved levels onto them and warms the asset
-	-- cache off the main thread -- without that last part the first swing of a session is silent while
-	-- the wav is still downloading.
+	-- knows the server is alive (4.6). Init resolves the three SoundGroups the server made, puts them
+	-- at their default levels and warms the asset cache off the main thread -- without that last part
+	-- the first swing of a session is silent while the wav is still downloading.
+	-- NO SAVED VOLUMES SINCE 34.38: the panel that wrote `data.AudioVolumes` is deleted, so passing
+	-- them here would pin a player muted by the old board at zero forever, with nothing left to move
+	-- the slider back. Volume is Roblox's own Esc menu now.
 	if firstPayload then
-		SoundLibrary.Init(data.AudioVolumes)
+		SoundLibrary.Init()
 	end
 
 	-- The ambient bed follows the SAVE rather than the travel remote. ZoneTransition only fires when a
@@ -4138,7 +4145,6 @@ Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 	if hudRefs.refreshPetsPanel then hudRefs.refreshPetsPanel() end
 	if hudRefs.refreshFusionPanel then hudRefs.refreshFusionPanel() end
 	if hudRefs.refreshSeasonPanel then hudRefs.refreshSeasonPanel() end
-	if hudRefs.refreshAudioPanel then hudRefs.refreshAudioPanel(data) end
 	if hudRefs.refreshCodes then hudRefs.refreshCodes(data) end
 	if hudRefs.refreshSpins then hudRefs.refreshSpins() end
 	-- the odds move with luck, and luck moves with a potion, a pet swap or a bought upgrade -- all
@@ -4275,7 +4281,7 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 	-- both are inert for a kind that no longer arrives, and both are one row rather than a branch.
 	if payload.kind == "upgrade" then
 		local def = GameConfig.Upgrades[payload.upgrade]
-		showNotification("⬆️ " .. def.displayName .. " upgraded to Lv." .. payload.level, Color3.fromRGB(90, 200, 255), notifRank)
+		showNotification("⬆️ " .. def.displayName .. " upgraded to Lv." .. payload.level, Color3.fromRGB(90, 200, 255), notifRank, payload.kind)
 		-- nil-guarded like every other hudRefs consumer: a panel that failed to build must not take
 		-- the notification with it
 		if hudRefs.punchUpgrade then hudRefs.punchUpgrade(payload.upgrade) end
@@ -4288,12 +4294,12 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		-- The reveal card draws the picture; this line is the words that go with it.
 		if payload.advanced then
 			showNotification("\u{1F31F} EVOLVED into " .. payload.emoji .. " " .. payload.stage .. "!",
-				Color3.fromRGB(190, 120, 255), notifRank)
+				Color3.fromRGB(190, 120, 255), notifRank, payload.kind)
 		else
 			showNotification(("\u{2728} NEW FORM: %s %s  (%d/%d)"):format(
 				(GameConfig.GetCharacter(payload.character or "") or {}).emoji or "\u{2B50}",
 				(GameConfig.GetCharacter(payload.character or "") or {}).name or payload.stage,
-				payload.step or 1, payload.steps or 5), Color3.fromRGB(190, 120, 255), notifRank)
+				payload.step or 1, payload.steps or 5), Color3.fromRGB(190, 120, 255), notifRank, payload.kind)
 		end
 	elseif payload.kind == "character" then
 		-- THE CLIENT HALF OF A CHANGE THAT ONLY LANDED ON THE SERVER.
@@ -4309,18 +4315,18 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		if payload.isNew then
 			celebratePurchase(("📒 NEW CHARACTER!\n%s %s%s"):format(payload.emoji, payload.name, gain), tint)
 		else
-			showNotification(("%s %s%s"):format(payload.emoji, payload.name, gain), tint, notifRank)
+			showNotification(("%s %s%s"):format(payload.emoji, payload.name, gain), tint, notifRank, payload.kind)
 		end
 	elseif payload.kind == "questComplete" then
 		-- finishing one is worth a toast; the reward itself is a separate, deliberate press, so the
 		-- message says where to go rather than implying it has already been paid out
 		showNotification(("%s %s \u{2014} ready to claim in %s!")
 			:format(payload.emoji, payload.name, GameConfig.Season.emoji .. " Season"),
-			UITheme.Color.Gold, notifRank)
+			UITheme.Color.Gold, notifRank, payload.kind)
 	-- The "mutation" toast is gone: DNAService stopped sending it. Mutations roll every ten
 	-- seconds and the banner fired over and over during ordinary play.
 	elseif payload.kind == "zone" then
-		showNotification("🗺️ NEW ZONE UNLOCKED: " .. payload.emoji .. " " .. payload.name .. "!", Color3.fromRGB(60, 160, 220), notifRank)
+		showNotification("🗺️ NEW ZONE UNLOCKED: " .. payload.emoji .. " " .. payload.name .. "!", Color3.fromRGB(60, 160, 220), notifRank, payload.kind)
 	elseif payload.kind == "pet" then
 		-- Deliberately silent here now. The whole hatch -- the egg shaking, cracking, the rarity
 		-- flash, the pet rising out of it and the card naming what it is -- belongs to HatchReveal
@@ -4410,22 +4416,22 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		if payload.tierMult and payload.tierMult > 1 then
 			text = text .. "  (" .. (payload.tierName or "Streak") .. " x" .. payload.tierMult .. ")"
 		end
-		showNotification(text, Color3.fromRGB(255, 180, 60), notifRank)
+		showNotification(text, Color3.fromRGB(255, 180, 60), notifRank, payload.kind)
 	elseif payload.kind == "stageMastery" then
-		showNotification("⭐ " .. payload.emoji .. " " .. payload.stage .. " MASTERED! (" .. payload.owned .. "/" .. #GameConfig.Stages .. ")", Color3.fromRGB(255, 215, 70), notifRank)
+		showNotification("⭐ " .. payload.emoji .. " " .. payload.stage .. " MASTERED! (" .. payload.owned .. "/" .. #GameConfig.Stages .. ")", Color3.fromRGB(255, 215, 70), notifRank, payload.kind)
 	elseif payload.kind == "sword" then
 		showNotification(payload.emoji .. " " .. payload.name .. " forged!  (x" ..
-			string.format("%.2f", payload.mult or 1) .. " damage)", Color3.fromRGB(255, 198, 45), notifRank)
+			string.format("%.2f", payload.mult or 1) .. " damage)", Color3.fromRGB(255, 198, 45), notifRank, payload.kind)
 	elseif payload.kind == "diamondUpgrade" then
 		local def = GameConfig.DiamondUpgrades[payload.upgrade]
-		showNotification("💎 " .. (def and def.displayName or payload.upgrade) .. " upgraded to Lv." .. payload.level .. "!", Color3.fromRGB(120, 200, 255), notifRank)
+		showNotification("💎 " .. (def and def.displayName or payload.upgrade) .. " upgraded to Lv." .. payload.level .. "!", Color3.fromRGB(120, 200, 255), notifRank, payload.kind)
 	elseif payload.kind == "potion" then
 		local remaining = math.max(0, (payload.untilTs or 0) - os.time())
 		local potion = payload.potionId and GameConfig.GetPotion(payload.potionId)
 		showNotification(string.format("%s %s  \u{2022}  %dm %02ds left",
 			potion and potion.emoji or "\u{1F9EA}",
 			potion and potion.effectText or "Potion used",
-			remaining // 60, remaining % 60), (potion and potion.color) or Color3.fromRGB(120, 255, 180), notifRank)
+			remaining // 60, remaining % 60), (potion and potion.color) or Color3.fromRGB(120, 255, 180), notifRank, payload.kind)
 	elseif payload.kind == "offline" then
 		-- A card, not a toast: this is the first thing a returning player sees and it is the entire
 		-- argument for having come back. `away` and `capped` are computed server-side (see
@@ -4450,7 +4456,7 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		showNotification(
 			(payload.daily and ("📅 Daily Playtime Gift (" .. when .. ")! Reward claimed!")
 				or ("⏰ Playtime Gift (" .. when .. ")! Reward claimed!")),
-			Color3.fromRGB(255, 150, 90), notifRank)
+			Color3.fromRGB(255, 150, 90), notifRank, payload.kind)
 	elseif payload.kind == "bossRevive" then
 		celebratePurchase(("\u{2694}\u{FE0F} REVIVED!\n%s is back to %d%%"):format(payload.name or "The boss", payload.pct or 0),
 			UITheme.Color.Gold)
@@ -4550,7 +4556,7 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 			if payload.equipped then
 				text = text .. "  \u{00B7}  equipped"
 			end
-			showNotification(text, (rarity and rarity.color) or UITheme.Color.Lavender, notifRank)
+			showNotification(text, (rarity and rarity.color) or UITheme.Color.Lavender, notifRank, payload.kind)
 
 			-- ===== THE CHIP CARRIES THE RELIC'S OWN DRAWING =====
 			--
@@ -4607,7 +4613,7 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 			end
 		end
 	elseif payload.kind == "error" then
-		showNotification("❌ " .. payload.message, Color3.fromRGB(200, 60, 60), notifRank)
+		showNotification("❌ " .. payload.message, Color3.fromRGB(200, 60, 60), notifRank, payload.kind)
 	end
 end)
 
@@ -4616,17 +4622,18 @@ evolveButton.MouseButton1Click:Connect(function()
 	Remotes.Evolve:FireServer()
 end)
 
--- ================= AUDIO (Phase 4.6) =================
+-- ================= AUDIO: DELETED (34.38, 2026-08-28) =================
 --
--- THE TILE FILLS THE ONE HOLE IN THE GRID. Right-column order 8 is the empty bottom-right corner
--- next to the lone order 7, so RIGHT_COUNT goes 7 -> 8 while `rows` stays ceil(COUNT/COLS) = 4 and
--- nothing already on screen moves.
+-- The tile and its four-slider panel are gone on Kristina's instruction -- "ovo mi ne treba roblox
+-- ima svoj audio". Roblox ships a master volume in its own Esc menu, so this was a HUD slot spent
+-- on a control the platform already gives every player. `HUD/AudioPanel` owned BOTH halves (the R8
+-- tile and the board behind it), so deleting the file deleted the feature; there is nothing else to
+-- unhook here beyond this require and the `refreshAudioPanel` call in the DataUpdate handler.
 --
--- The whole block is an immediately-called function with only its refresh escaping onto `hudRefs`,
--- because this file is at Luau's 200-local ceiling. A `do ... end` is NOT enough -- see the note
--- over the Season Pass panel for the two times that mistake deleted the entire HUD.
--- MOVED OUT (18.9) to `ReplicatedStorage.Modules.HUD.AudioPanel` -- 188 lines, unchanged.
-require(RS.Modules:WaitForChild("HUD"):WaitForChild("AudioPanel"))(hudRefs)
+-- `SoundLibrary.Init` is called with NO argument now, and that is the one part of this that is not
+-- cosmetic: `data.AudioVolumes` is still saved and still clamped server-side, but with the panel
+-- gone nothing can ever write it again -- so a save that was muted through the old board would be
+-- silent for the rest of its life with no UI left to unmute it. Defaults, every session.
 
 
 -- ================= shop counters that open a panel =================

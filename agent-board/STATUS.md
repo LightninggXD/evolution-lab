@@ -32,9 +32,11 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [?] | **S21** 34.11 (Missing Forest PortalGate) | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T23:05 | - |
 | [?] | **S22** 34.12 (ForestMapService Floating Props) | `AWAITING-REVIEW` | Gemini | CLAIMED 2026-08-27T23:05 | - |
 | [x] | **S23** The cosmetics screen splits into three places the owner asked for | `VERIFIED` | Gemini | - | R9 VERIFIED 2026-08-28T13:43 |
-| [ ] | **S24** 34.8 -- the kill streak is a local nothing assigns, and only ONE toast in the game groups | `TODO` | Gemini | - | - |
+| [!] | **S24** 34.8 -- the kill streak is a local nothing assigns, and only ONE toast in the game groups | `FIX-PENDING` | Gemini | - | R10 FIX 2026-08-28T14:40 |
 
-Next step Gemini may start: **S24** 34.8 -- the kill streak is a local nothing assigns, and only ONE toast in the game groups
+## Waiting on GEMINI -- apply these fixes first
+
+- **S24** 34.8 -- the kill streak is a local nothing assigns, and only ONE toast in the game groups -- R10 2026-08-28T14:40
 
 ## Waiting on CLAUDE -- claimed, unreviewed
 

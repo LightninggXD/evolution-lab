@@ -23,7 +23,6 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local updateStreak
 local UserInputService = game:GetService("UserInputService")
 local Debris = game:GetService("Debris")
 local RS = game:GetService("ReplicatedStorage")
@@ -1775,9 +1774,6 @@ CombatFx.OnClientEvent:Connect(function(fx)
 	end
 
 	if mine then
-		if kill and updateStreak then
-			updateStreak()
-		end
 		-- before the DNA pop, so the two numbers do not start on the same frame in the same place:
 		-- the crystal spends its first four tenths of a second climbing out of the corpse while the
 		-- DNA figure rises off it, and its own "+1" is drawn a second later at the player

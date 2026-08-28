@@ -1895,3 +1895,74 @@ those 3 after.
 owner has 39 shards against a 500 price, so the Galaxy row is correctly grey and the purchase path
 is untested from the button); no emote has been played from the new panel; no second client has seen
 a trail or a plate; and the Name Plates section of `AchievementsPanel` has not been rendered.
+
+## S24 | FIX | 2026-08-28T14:40 | R10
+
+**STOP AND READ THIS BEFORE YOUR NEXT WRITE.**
+
+*Not a review of S24's design -- the step is still mid-flight and unlogged. This is about HOW the
+two files were written to disk, because the way they were written **stopped the game from booting**
+and I had to repair both by hand before anything could be verified.*
+
+### YOUR WRITER RE-ENCODED THE FILE, AND LUAU REFUSED TO COMPILE IT
+
+Measured at 14:23 on the disk copies of `MainUI.client.lua` (mtime 14:16 from your write) and
+`CombatClient.client.lua`:
+
+* **A UTF-8 BOM (`EF BB BF`) was prepended to both files.** A BOM is not whitespace to Luau. The
+  client log read, in full:
+
+      Players.OGLightninggXD.PlayerScripts.MainUI:1: Expected identifier when parsing expression,
+      got Unicode character U+feff
+
+  `MainUI` never ran. `EvolutionLabUI` did not exist. **The entire HUD was gone** -- no tiles, no
+  wallet, no panels -- and the only other symptom was one line further down the log
+  (`[PanelFocus] EvolutionLabUI never appeared`). A boot with no HUD reads as a game-wide outage,
+  and the cause is three bytes at offset 0.
+
+* **Every emoji in `MainUI` was mangled -- 50 of them.** The file was read as **windows-1252** and
+  written back as UTF-8, so `🧬` became `ðŸ§¬`, `⭐` became `â­`, `💎`, `🛒`, `⏰`, `✓`, `❌`
+  and the rest all went the same way. These are not comments: they are the HUD's captions, the
+  wallet pill icons and the stage card. Even with the BOM removed the game would have shipped a
+  screen full of `Ã` soup.
+
+  The tell that fixes the codec: the round trip needs **cp1252 with the C1 fallback** (bytes
+  0x81/0x8D/0x8F/0x90/0x9D map to U+0081..U+009D), which is the WHATWG windows-1252 table. Pure
+  latin-1 fails on `Ÿ` (0x9F) and pure cp1252 fails on ``.
+
+**The rule, and it is not negotiable: read and write every file in this repo as UTF-8, with no BOM
+and no re-encode.** `src/` is a byte-for-byte mirror of Studio -- the hash sweep compares bytes, the
+push compares bytes, and Studio stores source as LF. A write that changes the encoding changes every
+line of the file even where you changed nothing: your two-line edit arrived as **94 insertions and
+87 deletions**, which is also how a real defect hides in a diff nobody can read.
+
+**Both files are repaired on disk and pushed** (MainUI 267,482 bytes, CombatClient 94,737, both
+hash-verified IDENTICAL against Studio). Your S24 edits were kept -- I re-applied the repair *around*
+them, not over them. Re-read both files before your next write or you will re-corrupt them.
+
+### TWO THINGS ABOUT THE WORK ITSELF, FOUND WHILE REPAIRING -- fix them in the same claim
+
+1. **THE GROUPING NEVER FIRES. `GroupId` IS READ AND NEVER WRITTEN.** `showNotification` searches
+   `c:GetAttribute("GroupId") == groupId` at :3451, and the whole file contains exactly three
+   mentions of `GroupId`: that read, and the `Multiplier` pair inside the branch it can never enter.
+   Nothing sets the attribute on the toast it creates, so every burst still draws N toasts. This is
+   the *same shape* as the row you are fixing -- 34.8 exists because `updateStreak` was a local
+   nothing assigned. Grep your own new attributes the way the step told you to grep your own
+   locals: a write, a read, and a test that the two names match.
+
+2. **YOU GAVE `payload.kind` TO EVERY BRANCH, AND THE STEP SAID NOT TO.** Fourteen call sites now
+   pass a groupId, including `NEW ZONE UNLOCKED: <name>`, the character drop `%s %s%s`, `<stage>
+   MASTERED!`, the potion timer and `❌ <message>`. The step's words: *"A kind carrying a name or a
+   figure that differs per event must NOT group -- `5x NEW CHARACTER!` would be a lie about five
+   different characters."* It is worse than a lie about the count: the merge branch overwrites the
+   existing toast's text with the NEW event's text, so two different zones unlocking would draw
+   `2x 🗺️ NEW ZONE UNLOCKED: <the second one>` and the first would be silently deleted. Group
+   `diamond` and `petDrop`; leave anything carrying a name, a figure or a refusal alone, and write
+   the list with one line of reason per kind, including the ones you left ungrouped.
+
+### AND ONE FILE MOVED UNDER YOU
+
+`ReplicatedStorage/Modules/HUD/AudioPanel.lua` is **deleted** (34.38, the owner: *"ovo mi ne treba
+roblox ima svoj audio"*), and with it the R8 tile it built. The right cluster renumbered --
+`Goals` 5 -> 6, `Gifts` 6 -> 7, `Auto` 7 -> 8 -- because `Goals` had been authored at order 5, the
+same slot as the Season tile. If you hold an older copy of `MainUI` in a buffer, throw it away.

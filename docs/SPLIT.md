@@ -258,7 +258,7 @@ looking at the screen. Anything else that becomes reassignable must join it as a
 ```
 UIKit 589        TradePanel 1012   JournalGrid 810     SeasonPass 947
 PotionTimers 664 EggShop 434       PetFusion 412       GroupRewards 218
-WelcomeBack 233  Quests 220        ProductTiles 201    AudioPanel 208
+WelcomeBack 233  Quests 220        ProductTiles 201
 PassShop 190     PetsActions 207   PetRelease 164      WheelEntry 144
 ScrollAffordance 123  InventoryTabs 116  RebirthRungs 115  Codes 115
 TileColumnFit 108     RebirthBeacon 101  CurrencyPlus 47
