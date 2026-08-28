@@ -47,10 +47,24 @@ local function refresh()
 
 	-- What is being moved. Read off the save rather than captured when the panel was opened: the
 	-- source can be re-rolled from the pet board while this list is up.
-	local sourceEnchant
+	local sourceEnchant, sourcePet
 	for _, p in ipairs(data.Pets or {}) do
-		if p.id == sourcePetId then sourceEnchant = p.enchant break end
+		if p.id == sourcePetId then sourceEnchant = p.enchant; sourcePet = p break end
 	end
+
+	-- THE HEADING NAMES THE ENCHANT AND THE PET IT LEAVES. "Choose a Target" over a list of pets
+	-- reads as choosing a pet to send somewhere -- the owner asked *"gde odu i da li se vrate"*,
+	-- which is the right question to ask of a screen that says that. No pet moves: the enchant
+	-- moves, off one pet in the bag and onto another, and both stay exactly where they are. The
+	-- title is the one line with room to say so.
+	--
+	-- SHORT ON PURPOSE. The first version named the source pet too ("Move Prismatic off Absolon")
+	-- and the heading is not wide enough for it: it rendered as "Move Prismatic off ..." with the
+	-- pet's name -- the informative half -- cut off. `TextBounds` calls that fitting, so the only
+	-- way to know is to look at it. Which pet it leaves is the one the player just clicked; the
+	-- enchant's name is the part they cannot see from here.
+	local movingDef = GameConfig.GetEnchantDef(sourceEnchant)
+	panel.SetTitle(("\u{2728} Move %s"):format(movingDef and movingDef.name or tostring(sourceEnchant)))
 
 	for order, pet in ipairs(pets) do
 		local def = Common.PetDef(pet)
@@ -114,22 +128,24 @@ local function refresh()
 		})
 	end
 
-	-- THE FOOTER IS WHERE THE PRICE LIVES, not the header: the header is the question ("choose a
-	-- target") and this is what the answer costs. It quotes the balance beside it for the same
-	-- reason the shop rows do -- a player eight hundred diamonds short should be able to see that
-	-- without closing the panel to go and look at the wallet.
-	footLine.Text = ("\u{1F48E} %d per transfer  \u{2022}  you have %d  \u{2022}  %s"):format(
-		cost, data.Diamonds or 0,
-		total > #pets and ("%d of %d pets"):format(#pets, total)
-			or ("%d pet%s"):format(total, total == 1 and "" or "s"))
+	-- THE FOOTER IS WHERE THE PRICE LIVES, not the header: the header is the question and this is
+	-- what the answer costs. It quotes the balance beside it for the same reason the shop rows do
+	-- -- a player eight hundred diamonds short should be able to see that without closing the panel
+	-- to go and look at the wallet -- and it states the thing the whole screen was failing to say:
+	-- BOTH PETS STAY. Nothing is sent anywhere and nothing has to come back.
+	-- The balance is NOT quoted here any more: it did not fit beside the rest, and the wallet is on
+	-- screen behind this panel while every button already says `NEED` when it cannot be paid.
+	footLine.Text = ("\u{1F48E} %d \u{2022} both pets stay, only the enchant moves"):format(cost)
 end
 
 local function build(screenGui)
 	panel = Builder.CreatePanel({
 		Parent = screenGui,
 		Name = "EnchantTransferPets",
-		Title = "\u{1F48E} Choose a Target",
-		EmptyText = "You have no other pets to transfer to!",
+		-- Placeholder only: `refresh` retitles this with the enchant's own name and the pet it is
+		-- leaving, which it cannot do here because no source is chosen until the panel is opened.
+		Title = "\u{2728} Move an enchant",
+		EmptyText = "No other pet can take this enchant right now.",
 		FooterHeight = 58,
 	})
 

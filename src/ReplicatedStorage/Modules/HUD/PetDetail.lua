@@ -298,14 +298,25 @@ function PetDetail.Build(panel, hud, top)
 		-- Same rule as RELEASE below, and for the same reason: the server refuses a transfer whose
 		-- source has no enchant, so drawing the button on a bare pet would be the UI promising
 		-- something the transaction then refuses. The chip directly above already says "no enchant".
+		--
+		-- THE CAPTION NAMES THE ENCHANT, AND THAT IS THE WHOLE POINT (asked 2026-08-28: *"ne
+		-- razumem gde se petovi transferuju, gde odu i da li se vrate"*). A button reading
+		-- "TRANSFER" on a PET card says the pet is being transferred -- sent somewhere, possibly
+		-- not coming back. Nothing of the sort happens: both pets stay in the bag and the only
+		-- thing that moves is the enchant. So the button says which enchant, by name, and the word
+		-- "pet" never appears on it.
 		local transferCost = GameConfig.EnchantTransferCost
 		transferBtn.Visible = pet.enchant ~= nil
-		transferBtn.Text = ("\u{27A1}\u{FE0F} TRANSFER  %d \u{1F48E}"):format(transferCost)
+		if pet.enchant then
+			local movingDef = GameConfig.GetEnchantDef(pet.enchant)
+			transferBtn.Text = ("\u{2728} MOVE %s  %d \u{1F48E}"):format(
+				(movingDef and movingDef.name or pet.enchant):upper(), transferCost)
+		end
 		-- Greyed when it cannot be paid for rather than hidden, exactly like ENCHANT above: the
 		-- price is the information.
 		styleButton(transferBtn, ((data.Diamonds or 0) >= transferCost)
 			and UITheme.Color.Blue or Color3.fromRGB(176, 180, 192), UDim.new(0, 10), 3)
-		themeLabel(transferBtn, 16)
+		themeLabel(transferBtn, 15)
 
 		-- ===== RELEASE IS ABSENT ON A WORN PET, NOT DISABLED =====
 		-- The server refuses to release an equipped pet, so a button that is drawn and then refused
