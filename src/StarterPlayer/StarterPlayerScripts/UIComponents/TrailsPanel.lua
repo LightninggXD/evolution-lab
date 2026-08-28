@@ -8,6 +8,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Builder = require(script.Parent:WaitForChild("ScrollingPanelBuilder"))
 local PlayerData = require(script.Parent:WaitForChild("PlayerData"))
 local UIKit = require(RS.Modules:WaitForChild("UIKit"))
+local IconLibrary = require(RS.Modules:WaitForChild("IconLibrary"))
 local formatNumber = UIKit.formatNumber
 
 local TrailsPanel = {}
@@ -44,6 +45,7 @@ local function refresh()
 				if isOwned then
 					if isWorn then
 						refs.card.SetDescription("Equipped on your character")
+						refs.card.Button.SetIcon("")
 						refs.card.Button.SetPrice("UNEQUIP")
 						-- WORN, not LOCKED. `SetEnabled(true, ...)` leaves the button clickable, and
 						-- painting a live button in the DISABLED grey is how a working control reads
@@ -52,6 +54,7 @@ local function refresh()
 						refs.card.Button.SetColors(WORN)
 					else
 						refs.card.SetDescription("Owned")
+						refs.card.Button.SetIcon("")
 						refs.card.Button.SetPrice("EQUIP")
 						refs.card.Button.SetEnabled(true, READY)
 						refs.card.Button.SetColors(READY)
@@ -67,7 +70,21 @@ local function refresh()
 					local wallet = (currency == "Diamonds") and (data.Diamonds or 0) or shards
 					local affordable = wallet >= price
 					refs.card.SetDescription("Speed boost cosmetic")
-					refs.card.Button.SetPrice(("\u{2728} %s %s"):format(formatNumber(price), currency or ""))
+					-- ===== AND IT DRAWS THE CURRENCY THE WALLET DRAWS (2026-08-28, owner: "shard je
+					-- drugaciji") =====
+					--
+					-- The first draft typed a literal \u{2728} in front of the number. That is the SPARKLE
+					-- glyph, and an Evolution Shard is \u{1F31F} -- `IconLibrary`'s own note at :272 says
+					-- the game gives the two stars different meanings, so the shop drew a four-point sparkle
+					-- where the wallet pill three inches away draws the shard crystal, for the SAME currency.
+					-- That is 34.35 one panel over. The glyph is resolved through `IconLibrary` and placed in
+					-- the builder's own `ButtonIcon`, so the button's Image is the pill's Image byte for byte --
+					-- and it falls back to the glyph, never to a blank, when a currency has no drawing.
+					local glyph = (currency == "Diamonds") and "\u{1F48E}" or "\u{1F31F}"
+					local art = IconLibrary.Resolve(glyph)
+					refs.card.Button.SetIcon(art or "")
+					refs.card.Button.SetPrice(art and formatNumber(price)
+						or ("%s %s"):format(glyph, formatNumber(price)))
 					refs.card.Button.SetEnabled(affordable, affordable and READY or LOCKED)
 					refs.card.Button.SetColors(affordable and READY or LOCKED)
 				end
@@ -82,8 +99,14 @@ function TrailsPanel.Init(screenGui)
 	panel = Builder.CreatePanel({
 		Parent = screenGui,
 		Name = "Trails",
-		Title = "\u{2728} TRAILS",
-		HeaderIcon = "rbxassetid://17009541315",
+		-- A PLAIN WORD, AND NOT HER REBIRTH ARROWS (2026-08-28, owner: "trails ima rebirth znak
+		-- gore"). `rbxassetid://17009541315` is the rebirth icon -- `MainUI:1064` and `RebirthPanel`
+		-- both name it as such -- and it was copied in here and into `EmotesPanel` as a placeholder,
+		-- so two panels wore the rebirth sign. The icon is the tab strip's own Trails art now
+		-- (\u{2728} through `IconLibrary`, the same resolve `InventoryTabs` does), and the title
+		-- drops the glyph: a `HeaderIcon` plus the same glyph typed into `Title` draws it twice (34.20).
+		Title = "TRAILS",
+		HeaderIcon = IconLibrary.Resolve("\u{2728}"),
 		HeaderColors = { Color3.fromRGB(175, 138, 250), Color3.fromRGB(120, 80, 200) },
 	})
 

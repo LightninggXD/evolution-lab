@@ -140,9 +140,17 @@ return function(hud)
 	-- `panel.ZIndex + Z.Badge` (57) and the cards sit at 53.
 	--
 	-- So the strip goes on at the same 52 (five tabs must line up across all five panels or the row
-	-- appears to jump when you change tab) and the SCROLL moves under it. 46 = the strip's 38 plus
-	-- the 8 px gutter every list in this HUD leaves above its first card. Height comes off the same
-	-- amount so the bottom edge and the builder's footer stay where they were.
+	-- appears to jump when you change tab) and the SCROLL moves under it.
+	--
+	-- 78, AND THE FIRST NUMBER HERE WAS 46, WHICH IS THE SHIFT MEASURED FROM THE WRONG EDGE.
+	-- 46 is the strip (38) plus the gutter (8) -- i.e. how far the list moves if the strip started
+	-- where the list did. It does not: the strip is dropped at y = 52 and the builder puts its
+	-- ScrollingFrame at y = 20. So the list landed at 66 while the strip runs 52..90, and the strip
+	-- still covered the top 24 px of the first card -- at ZIndex 57 against the cards' 53, so it won.
+	-- Measured live on 2026-08-28 before the fix: list top y = 179.5, strip bottom y = 203.
+	-- The number is the strip's BOTTOM plus the gutter, minus where the list already was:
+	-- (52 + 38 + 8) - 20 = 78. Height comes off the same amount so the bottom edge and the
+	-- builder's footer stay where they were.
 	local function tabbedBuilderPanel(api, index)
 		local frame = (typeof(api) == "table" and api.Panel) or nil
 		if not frame then return end
@@ -150,8 +158,8 @@ return function(hud)
 		local sc = (typeof(api) == "table" and api.Scroll) or frame:FindFirstChild("List")
 		if sc and sc:IsA("ScrollingFrame") and not sc:GetAttribute("TabStripShifted") then
 			sc:SetAttribute("TabStripShifted", true)
-			sc.Position = sc.Position + UDim2.new(0, 0, 0, 46)
-			sc.Size = sc.Size - UDim2.new(0, 0, 0, 46)
+			sc.Position = sc.Position + UDim2.new(0, 0, 0, 78)
+			sc.Size = sc.Size - UDim2.new(0, 0, 0, 78)
 		end
 	end
 

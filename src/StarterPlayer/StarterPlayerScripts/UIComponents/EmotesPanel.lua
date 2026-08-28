@@ -57,8 +57,11 @@ function EmotesPanel.Init(screenGui)
 	panel = Builder.CreatePanel({
 		Parent = screenGui,
 		Name = "Emotes",
-		Title = "\u{1F44B} EMOTES",
-		HeaderIcon = "rbxassetid://17009541315",
+		-- The rebirth arrows were copied in here as a placeholder too -- see the note in
+		-- `TrailsPanel`. \u{1F44B} has no drawing in `IconLibrary`, so this takes the party
+		-- popper, and the title drops its glyph so the picture is drawn once (34.20).
+		Title = "EMOTES",
+		HeaderIcon = "rbxassetid://123272919810963",
 		HeaderColors = { Color3.fromRGB(255, 180, 100), Color3.fromRGB(255, 120, 50) },
 	})
 
