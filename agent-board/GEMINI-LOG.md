@@ -368,3 +368,31 @@ ok    MainUI.client.lua                  144 registers,  56 of headroom
   - Updated `MainUI.client.lua` to construct the Sword column tile and initialize the new `UIComponents.SwordPanel`.
 - **Not verified:**
   - Could not verify the visual alignment in Studio because `Rojo` is not syncing disk edits to the active Studio session (Disk-only constraint). Claude will need to push/sync and verify screenshots.
+
+## S23 | The cosmetics screen splits into three places the owner asked for - 2026-08-28 03:20
+- **Status:** CLAIMED
+- **Files Touched:**
+  1. `src/ReplicatedStorage/Modules/HUD/InventoryTabs.lua` (5 tabs: Pets, Potions, Relics, Trails, Sword)
+  2. `src/StarterPlayer/StarterPlayerScripts/UIComponents/TrailsPanel.lua` (built on `ScrollingPanelBuilder`)
+  3. `src/StarterPlayer/StarterPlayerScripts/UIComponents/SwordPanel.lua` (OWNED state & ScrollingPanelBuilder integration)
+  4. `src/ReplicatedStorage/Modules/HUD/AchievementsPanel.lua` (added Name Plates section with Diamond purchasing/equipping)
+  5. `src/StarterPlayer/StarterPlayerScripts/UIComponents/EmotesPanel.lua` (built on `ScrollingPanelBuilder`, free emotes)
+  6. `src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua` (wired HUD components onto `hudRefs`, replaced L5 sword tile with emote tile)
+- **New Tab Arithmetic:**
+  - Usable interior width across a 520 px panel: `520 - 32 = 488 px`.
+  - 5 tabs of 90 px + 4 gaps of 6 px = `450 + 24 = 474 px` (leaves 14 px margin slack).
+  - Each tab: 90 x 34 px with 20 px icon at x = 8 and caption starting at x = 30.
+  - At 16 px display font, longest caption ("Potions") measures ~44 px, ending at x = 74 with 16 px to spare inside the 90 px tab.
+- **MainUI Register Count:**
+  - Before: 149 registers (51 of headroom)
+  - After: 149 registers (51 of headroom)
+- **Grep Proof for Requires:**
+  - `TrailsPanel`: `src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua:96: hudRefs.trailsPanel = require(script.Parent.UIComponents.TrailsPanel).Init(screenGui)`
+  - `SwordPanel`: `src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua:93: hudRefs.swordPanel = require(script.Parent.UIComponents.SwordPanel).Init(screenGui)`
+  - `EmotesPanel`: `src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua:99: hudRefs.emotesPanel = require(script.Parent.UIComponents.EmotesPanel).Init(screenGui)`
+  - `InventoryTabs`: `src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua:2893: require(RS.Modules:WaitForChild("HUD"):WaitForChild("InventoryTabs"))(hudRefs)`
+  - `AchievementsPanel`: `src/StarterPlayer/StarterPlayerScripts/MainUI.client.lua:1179: require(RS.Modules:WaitForChild("HUD"):WaitForChild("AchievementsPanel"))(hudRefs)`
+- **CosmeticsPanel / Vanity Tile Recommendation:**
+  - With Trails in Inventory, Swords in Inventory, Name Plates in Titles & Goals, and Emotes having their own HUD tile, `UIComponents/CosmeticsPanel.lua` and the Vanity HUD tile have no remaining content. Recommend deleting `CosmeticsPanel.lua` and replacing/removing the Vanity tile in a subsequent cleanup pass once verified.
+- **Not verified:**
+  - Studio gameplay execution, live push, and in-game captures (Disk-only constraint per protocol).

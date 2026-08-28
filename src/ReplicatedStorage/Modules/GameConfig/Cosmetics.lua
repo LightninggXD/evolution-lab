@@ -11,7 +11,8 @@
 --
 -- Wrapped in `return function(GameConfig) ... end` and assigned onto the table, which is the shape
 -- every other part uses and the shape this feature's own three readers already assume --
--- `CosmeticService`, `CosmeticsPanel` and `EmoteClient` all walk `ipairs(GameConfig.Cosmetics)`.
+-- `CosmeticService`, the four HUD homes (Trails/Sword tabs, Name Plates, Emotes) and `EmoteClient`
+-- all walk `ipairs(GameConfig.Cosmetics)`.
 -- NOT ONE ROW OF THE CATALOGUE WAS TOUCHED.
 
 return function(GameConfig)

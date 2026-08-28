@@ -130,12 +130,31 @@ return function(hud)
 	if relicsPanel then
 		buildTabs(relicsPanel, 3, 52)
 	end
-	if trailsPanel then
-		local targetFrame = (typeof(trailsPanel) == "table" and (trailsPanel.Panel or trailsPanel.Overlay)) or trailsPanel
-		if targetFrame then buildTabs(targetFrame, 4, 52) end
+	-- ===== THE TWO BUILDER PANELS NEED THEIR LIST PUSHED DOWN, NOT JUST A STRIP DRAWN ON THEM =====
+	--
+	-- Tabs 4 and 5 are `ScrollingPanelBuilder` panels, and that builder is a DIFFERENT shape from
+	-- the three above it. The MainUI panels carry a `PanelHeader` band and their content line is
+	-- y = 52, which is where `topY` puts the strip. A builder panel has no band: its title hangs
+	-- OUTSIDE the board (y = -6) and its ScrollingFrame starts at y = 20 -- so a 38 px strip dropped
+	-- at 52 lands squarely on the first card, and wins, because the strip is authored at
+	-- `panel.ZIndex + Z.Badge` (57) and the cards sit at 53.
+	--
+	-- So the strip goes on at the same 52 (five tabs must line up across all five panels or the row
+	-- appears to jump when you change tab) and the SCROLL moves under it. 46 = the strip's 38 plus
+	-- the 8 px gutter every list in this HUD leaves above its first card. Height comes off the same
+	-- amount so the bottom edge and the builder's footer stay where they were.
+	local function tabbedBuilderPanel(api, index)
+		local frame = (typeof(api) == "table" and api.Panel) or nil
+		if not frame then return end
+		buildTabs(frame, index, 52)
+		local sc = (typeof(api) == "table" and api.Scroll) or frame:FindFirstChild("List")
+		if sc and sc:IsA("ScrollingFrame") and not sc:GetAttribute("TabStripShifted") then
+			sc:SetAttribute("TabStripShifted", true)
+			sc.Position = sc.Position + UDim2.new(0, 0, 0, 46)
+			sc.Size = sc.Size - UDim2.new(0, 0, 0, 46)
+		end
 	end
-	if swordPanel then
-		local targetFrame = (typeof(swordPanel) == "table" and (swordPanel.Panel or swordPanel.Overlay)) or swordPanel
-		if targetFrame then buildTabs(targetFrame, 5, 52) end
-	end
+
+	if trailsPanel then tabbedBuilderPanel(trailsPanel, 4) end
+	if swordPanel then tabbedBuilderPanel(swordPanel, 5) end
 end

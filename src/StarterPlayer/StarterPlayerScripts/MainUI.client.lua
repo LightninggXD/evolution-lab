@@ -85,8 +85,34 @@ hudRefs.screenGui = screenGui
 --   * FindFirstChild, never a bare WaitForChild. The module is not in every place file yet, and a
 --     WaitForChild with no timeout yields FOREVER at the top of MainUI -- which does not "skip the
 --     button", it deletes the entire HUD below this point.
-if script.Parent:WaitForChild("UIComponents", 10) and script.Parent.UIComponents:FindFirstChild("FriendInviteButton") then
-	require(script.Parent.UIComponents.FriendInviteButton).Init(screenGui)
+if script.Parent:WaitForChild("UIComponents", 10) then
+	if script.Parent.UIComponents:FindFirstChild("FriendInviteButton") then
+		require(script.Parent.UIComponents.FriendInviteButton).Init(screenGui)
+	end
+	-- ===== THE THREE INVENTORY-TAB PANELS, BUILT HERE AND PCALL'd (S23) =====
+	--
+	-- `InventoryTabs` near the bottom of this file swaps between five tabs and does NOT build the
+	-- panels behind them -- it reads `hud.trailsPanel` / `hud.swordPanel` and its own note at :19
+	-- says a tab whose target is nil silently loses its target rather than erroring. So the two
+	-- have to exist by the time that require runs, which means here.
+	--
+	-- EVERY ONE IS WRAPPED, and that is the whole reason this block is not three bare requires.
+	-- Each `Init` builds a full ScrollingPanelBuilder panel at startup -- SwordPanel builds TEN
+	-- ViewportFrames with a 3D blade in each -- and a throw anywhere in that work at line 90 of
+	-- this file does not "skip a panel", it deletes the entire HUD below this point, exactly as the
+	-- FindFirstChild note above describes for a WaitForChild. A warn and a nil handle costs one tab.
+	for _, name in ipairs({ "SwordPanel", "TrailsPanel", "EmotesPanel" }) do
+		if script.Parent.UIComponents:FindFirstChild(name) then
+			local ok, built = pcall(function()
+				return require(script.Parent.UIComponents[name]).Init(screenGui)
+			end)
+			if ok then
+				hudRefs[name:sub(1, 1):lower() .. name:sub(2)] = built
+			else
+				warn(("[MainUI] %s failed to build: %s"):format(name, tostring(built)))
+			end
+		end
+	end
 end
 
 -- ===== Top bar: Stage + DNA =====
@@ -1170,24 +1196,17 @@ achievementsButton.MouseButton1Click:Connect(function()
 	if hudRefs.refreshAchievementsPanel then hudRefs.refreshAchievementsPanel() end
 	toggleOnly(hudRefs.achievementsPanel)
 end)
-local cosmeticsButton = columnTile("R", 6, "\u{1F457}", "Vanity", UITheme.Color.Pink)
--- ===== AND IT OPENS SOMETHING NOW (33.26) =====
+-- ===== THE VANITY TILE IS GONE, AND SO IS THE PANEL BEHIND IT (S23, 2026-08-28) =====
 --
--- *"ovde imamo i nesto novo vidi sta je i uvezi da radi"*. This tile was drawn by 34.2 and its local
--- was never read again -- the panel behind it (`UIComponents.CosmeticsPanel`) and the whole server
--- for it (`CosmeticService`, already wired in `ServerMain`) were complete and unreachable. The
--- panel's own three contract faults are written up in its header; this is the missing door.
+-- R6 was "Vanity", the one board that sold trails, name plates and emotes. All three moved out on
+-- Kristina's instruction: trails and the sword ladder are TABS on the Inventory strip, name plates
+-- sit beside the titles in `HUD/AchievementsPanel` ("a title is earned, a plate is worn"), and the
+-- emotes have their own L5 tile lower down this file.
 --
--- BUILT LAZILY AND ONCE, the shape `ZonePanel` and `RebirthPanel` above already use: the module is
--- required on the first press rather than at startup, so a HUD that never opens Vanity never pays
--- for 9 rows of catalogue, and `hud.cosmeticsPanel` is the built-flag as well as the handle.
-cosmeticsButton.MouseButton1Click:Connect(function()
-	if not hudRefs.cosmeticsPanel then
-		require(script.Parent.UIComponents.CosmeticsPanel)(hudRefs)
-	end
-	if hudRefs.refreshCosmeticsPanel then hudRefs.refreshCosmeticsPanel() end
-	toggleOnly(hudRefs.cosmeticsPanel)
-end)
+-- The tile had to go with them rather than be left pointing at a fourth copy: two doors onto the
+-- same catalogue is two prices to keep in step, and `UIComponents/CosmeticsPanel` -- which nothing
+-- requires now -- is deleted for the same reason. `CosmeticService` is untouched; it is the one
+-- server for all four homes and every new panel still fires `CosmeticPurchase`/`CosmeticEquip`.
 
 
 
@@ -1510,11 +1529,11 @@ end
 -- toggleOnly, columnTile, panelClose -- is filled above this point; nothing it uses is below it,
 -- which is the rule in `docs/SPLIT.md` §3.
 
-local swordButton = columnTile("L", 5, "\u{2694}\u{FE0F}", "Sword", UITheme.Color.Gold, "BUY!", UITheme.Color.Green)
-swordButton.MouseButton1Click:Connect(function()
-	local SwordPanel = require(script.Parent.UIComponents.SwordPanel)
-	SwordPanel.Init(screenGui)
-	SwordPanel.Toggle()
+local emoteButton = columnTile("L", 5, "\u{1F44B}", "Emotes", UITheme.Color.Lavender)
+emoteButton.MouseButton1Click:Connect(function()
+	local EmotesPanel = require(script.Parent.UIComponents.EmotesPanel)
+	EmotesPanel.Init(screenGui)
+	EmotesPanel.Toggle()
 end)
 
 

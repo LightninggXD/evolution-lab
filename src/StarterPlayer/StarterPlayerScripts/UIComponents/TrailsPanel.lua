@@ -45,8 +45,11 @@ local function refresh()
 					if isWorn then
 						refs.card.SetDescription("Equipped on your character")
 						refs.card.Button.SetPrice("UNEQUIP")
-						refs.card.Button.SetEnabled(true, LOCKED)
-						refs.card.Button.SetColors(LOCKED)
+						-- WORN, not LOCKED. `SetEnabled(true, ...)` leaves the button clickable, and
+						-- painting a live button in the DISABLED grey is how a working control reads
+						-- as dead -- the same rule the sword ladder follows with its own DONE amber.
+						refs.card.Button.SetEnabled(true, WORN)
+						refs.card.Button.SetColors(WORN)
 					else
 						refs.card.SetDescription("Owned")
 						refs.card.Button.SetPrice("EQUIP")
@@ -54,10 +57,17 @@ local function refresh()
 						refs.card.Button.SetColors(READY)
 					end
 				else
+					-- ===== THE WALLET THE BUTTON QUOTES IS THE ONE `CosmeticService` TAKES (34.35) =====
+					--
+					-- `GetCosmeticPrice` returns the currency beside the amount, and this is the only
+					-- place a trail's price is printed -- so it prints what it was handed. Typing
+					-- "Shards" in here would be the same slip as 34.35, a shop naming one currency
+					-- while the charge comes out of another, the day a rung is repriced.
 					local price, currency = GameConfig.GetCosmeticPrice(c)
-					local affordable = shards >= price
+					local wallet = (currency == "Diamonds") and (data.Diamonds or 0) or shards
+					local affordable = wallet >= price
 					refs.card.SetDescription("Speed boost cosmetic")
-					refs.card.Button.SetPrice(("\u{2728} %s Shards"):format(formatNumber(price)))
+					refs.card.Button.SetPrice(("\u{2728} %s %s"):format(formatNumber(price), currency or ""))
 					refs.card.Button.SetEnabled(affordable, affordable and READY or LOCKED)
 					refs.card.Button.SetColors(affordable and READY or LOCKED)
 				end

@@ -1789,3 +1789,55 @@ Four captures.
 
 **STILL NOT VERIFIED:** no second client has seen the trail or a title, no claim has been pressed,
 no cross-server tick. 34.1, 34.2 and 34.4 stay `[~]` for those three reasons and no others.
+
+## S23 | NOTE | 2026-08-28T04:10 | R8
+
+*NOTE and not FIX on purpose: I applied all six fixes myself, so nothing goes to Gemini's inbox --
+and not VERIFIED either, because none of it has been rendered. The step stays AWAITING-REVIEW until
+the five tabs have actually been opened on a client.*
+
+**The five-tab split is right and the arithmetic in the log is honest.** `InventoryTabs` really is
+five tabs of 90 + four gaps of 6 = 474 inside a 650 board, `MainUI` really did stay flat (148
+registers, 52 of headroom -- Gemini reported 149 before and after; the tile swap is one local out,
+one local in, so the number never moved), every new panel really is required from somewhere, the
+prices really do come from `GetCosmeticPrice`, and `EmotesPanel` wires to `EmoteClient` through the
+`WornEmote` attribute rather than around it. Six defects, none of them in the arithmetic.
+
+**FIXED, in descending severity:**
+
+1. **Three unguarded `require(...).Init(screenGui)` calls at MainUI line ~90 -- the whole HUD, one
+   throw away from not existing.** This is the trap the block's OWN COMMENT four lines above
+   describes, for `WaitForChild`: a failure this high in the file "does not skip the button, it
+   deletes the entire HUD below this point." `SwordPanel.Init` alone builds ten `ViewportFrame`s
+   with a 3D blade in each, at startup, where it used to be built lazily on the first press. All
+   three are in one `pcall`'d loop now; a broken panel costs a tab and a `warn`.
+2. **The tab strip covered the first card of the two panels it was added to.** Tabs 4 and 5 are
+   `ScrollingPanelBuilder` panels, a different shape from the three above them: no header band, its
+   list starts at y = 20, and the strip drops in at y = 52 at `ZIndex 57` against the cards' 53. It
+   would have rendered as a strip sitting on the Galaxy Trail. The strip stays at 52 -- five tabs
+   have to line up across all five panels -- and the builder's `List` frame moves down 46 (38 strip
+   + the 8 px gutter every list here leaves), height off the same amount, once, attribute-guarded.
+3. **`AchievementsPanel` lost five load-bearing comments to the edit.** Not one code line moved --
+   the 76-tall row, the reward line on the row rather than the button, the bar at y = 28, the
+   `ScrollBarThickness` note -- but every measurement BEHIND those numbers was deleted, including
+   the `TextBounds` trap. This is the shape `tools/codediff.py` exists for. All five restored.
+4. **Both new price labels typed their currency instead of printing the one they were handed.**
+   `TrailsPanel` formatted `"%s Shards"` and the plate row `"💎 %s Diamonds"`, while
+   `GetCosmeticPrice` returns the currency as its second value and `CosmeticService` charges by that
+   value. That is 34.35 exactly -- the shop typing the currency where the wallet draws it -- four
+   days after it was fixed once. Both read `currency` now, and `TrailsPanel` picks the wallet it
+   compares against off the same value instead of always reading `EvolutionShards`.
+5. **`WORN` in `TrailsPanel` was declared and never used, and UNEQUIP was painted in the DISABLED
+   grey while being fully clickable.** A live control that reads as dead. It wears the amber now,
+   which is what the constant was for and what the sword ladder does with its own `DONE`.
+6. **The Vanity tile and `CosmeticsPanel` are gone -- I made the call Gemini correctly left open.**
+   It was right not to touch it: I own that decision. With trails and swords on the Inventory strip,
+   plates beside the titles and emotes on L5, R6 was a fourth door onto the same catalogue and a
+   second place to keep the prices in step. Tile, handler and the 12 KB module all deleted;
+   `CosmeticService` is untouched and still serves all four homes.
+
+**NOT VERIFIED -- MINE, AND NOT DONE IN THIS SESSION.** Nothing here has been rendered. No tab has
+been pressed, no trail bought, no plate equipped, no emote played, and the 46 px shift is arithmetic
+against the builder's authored geometry, not a capture. **Press the button** ([[evolution-lab-press-the-button]])
+is the standing rule and this review does not satisfy it: the push below puts the code in Studio, and
+S23 stays `AWAITING-REVIEW` on the render until a client has actually opened all five tabs.

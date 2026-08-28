@@ -48,6 +48,7 @@ return function(hud)
 	listLayout.Parent = scroll
 	
 	local rows = {}
+	local namePlateRows = {}
 	
 	for i, ach in ipairs(Achievements) do
 		local row = Instance.new("Frame")
@@ -109,7 +110,11 @@ return function(hud)
 		btn.Size = UDim2.new(0, 80, 0, 36)
 		btn.Position = UDim2.new(1, -92, 0, 16)
 		btn.Parent = row
-		styleButton(btn, UITheme.Color.Blue, "Claim")
+		-- THE THIRD ARGUMENT IS A RADIUS, NOT A CAPTION (34.22). This read
+		-- `styleButton(btn, Blue, "Claim")`, which handed a string to `radius` -- the same slip that
+		-- ate every price in the vanity shop. The caption is set on its own line, always.
+		styleButton(btn, UITheme.Color.Blue, UDim.new(0, 8))
+		btn.Text = "Claim"
 		
 		local rewardTxt = ""
 		if ach.reward.dna then rewardTxt = "+" .. formatNumber(ach.reward.dna) .. " DNA"
@@ -146,10 +151,7 @@ return function(hud)
 				return
 			end
 			
-			local ok = Remotes.AchievementClaim:InvokeServer(ach.key)
-			if ok then
-				-- Server fires DataUpdate, we just wait for refresh
-			end
+			Remotes.AchievementClaim:InvokeServer(ach.key)
 		end)
 		
 		rows[ach.key] = {
@@ -160,13 +162,115 @@ return function(hud)
 			ach = ach
 		}
 	end
+
+	-- ===== SECTION 2: NAME PLATES (S23) =====
+	local plateSec = Instance.new("TextLabel")
+	plateSec.Name = "NamePlatesHeader"
+	plateSec.Size = UDim2.new(1, -12, 0, 36)
+	plateSec.LayoutOrder = #Achievements + 1
+	plateSec.BackgroundTransparency = 1
+	plateSec.TextXAlignment = Enum.TextXAlignment.Left
+	plateSec.Text = "  \u{1F3F7}\u{FE0F} Name Plates"
+	plateSec.Parent = scroll
+	themeLabel(plateSec, 24, Color3.fromRGB(46, 54, 74))
+
+	local plateOrder = #Achievements + 1
+	for _, c in ipairs(GameConfig.Cosmetics) do
+		if c.type == "NamePlate" then
+			plateOrder = plateOrder + 1
+			local row = Instance.new("Frame")
+			row.Name = c.key
+			row.Size = UDim2.new(1, -12, 0, 76)
+			row.LayoutOrder = plateOrder
+			row.Parent = scroll
+			styleCard(row, Color3.fromRGB(240, 244, 250), UDim.new(0, 8), 2)
+
+			local iconLbl = Instance.new("TextLabel")
+			iconLbl.Size = UDim2.new(0, 40, 0, 40)
+			iconLbl.Position = UDim2.new(0, 10, 0, 10)
+			iconLbl.BackgroundTransparency = 1
+			iconLbl.Text = c.emoji
+			iconLbl.Parent = row
+			themeLabel(iconLbl, 28, Color3.fromRGB(46, 54, 74))
+
+			local nameLbl = Instance.new("TextLabel")
+			nameLbl.Size = UDim2.new(0.6, -50, 0, 28)
+			nameLbl.Position = UDim2.new(0, 56, 0, 8)
+			nameLbl.BackgroundTransparency = 1
+			nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+			nameLbl.Text = c.name
+			nameLbl.Parent = row
+			themeLabel(nameLbl, 20, Color3.fromRGB(46, 54, 74))
+
+			local descLbl = Instance.new("TextLabel")
+			descLbl.Size = UDim2.new(0.6, -50, 0, 24)
+			descLbl.Position = UDim2.new(0, 56, 0, 32)
+			descLbl.BackgroundTransparency = 1
+			descLbl.TextXAlignment = Enum.TextXAlignment.Left
+			descLbl.Text = "Custom nameplate cosmetic"
+			descLbl.Parent = row
+			themeLabel(descLbl, 16, Color3.fromRGB(120, 130, 150))
+
+			-- ===== THE PRICE AND ITS GLYPH BOTH COME FROM `GetCosmeticPrice` (34.35) =====
+			--
+			-- The plates are Diamonds today and the trails beside them are Shards, off that same
+			-- one function -- so typing the diamond in here is the exact shape of 34.35, where the
+			-- shop printed one currency while the wallet was charged another. `currency` is what
+			-- `CosmeticService` will actually take; the label reads it rather than assuming.
+			local price, currency = GameConfig.GetCosmeticPrice(c)
+			local glyph = (currency == "Shards" and "\u{2728}") or (currency == "Diamonds" and "\u{1F48E}") or ""
+			local priceText = (price > 0) and (glyph .. " " .. formatNumber(price)) or "FREE"
+			local rewLbl = Instance.new("TextLabel")
+			rewLbl.Size = UDim2.new(1, -24, 0, 16)
+			rewLbl.Position = UDim2.new(0, 12, 1, -20)
+			rewLbl.BackgroundTransparency = 1
+			rewLbl.TextXAlignment = Enum.TextXAlignment.Right
+			rewLbl.Text = (price > 0) and (priceText .. " " .. currency) or "Free"
+			rewLbl.Parent = row
+			themeLabel(rewLbl, 13, Color3.fromRGB(120, 130, 150))
+
+			local btn = Instance.new("TextButton")
+			btn.Size = UDim2.new(0, 100, 0, 36)
+			btn.Position = UDim2.new(1, -112, 0, 16)
+			btn.Parent = row
+			styleButton(btn, UITheme.Color.Aqua, UDim.new(0, 8))
+			btn.Text = priceText
+
+			btn.MouseButton1Click:Connect(function()
+				local data = hud.getData and hud.getData()
+				if not data then return end
+				local owned = data.CosmeticsOwned or {}
+				local worn = data.WornCosmetics or {}
+				if owned[c.key] then
+					if worn.NamePlate == c.key then
+						Remotes.CosmeticEquip:InvokeServer("NamePlate", "")
+					else
+						Remotes.CosmeticEquip:InvokeServer("NamePlate", c.key)
+					end
+				else
+					Remotes.CosmeticPurchase:InvokeServer(c.key)
+				end
+			end)
+
+			namePlateRows[c.key] = {
+				row = row,
+				btn = btn,
+				c = c,
+				price = price,
+				priceText = priceText,
+			}
+		end
+	end
 	
 	local function refresh()
 		local data = hud.getData and hud.getData()
 		if not data then return end
 		
 		local claimed = data.AchievementsClaimed or {}
-		local worn = data.WornTitle
+		local wornTitle = data.WornTitle
+		local ownedCosmetics = data.CosmeticsOwned or {}
+		local wornCosmetics = data.WornCosmetics or {}
+		local diamonds = data.Diamonds or 0
 		
 		local count = 0
 		for key, refs in pairs(rows) do
@@ -182,7 +286,7 @@ return function(hud)
 			
 			if claimed[key] then
 				if refs.ach.reward.title then
-					if worn == refs.ach.reward.title then
+					if wornTitle == refs.ach.reward.title then
 						setButtonColor(refs.btn, UITheme.Color.Locked)
 						refs.btn.Text = "Worn"
 					else
@@ -203,8 +307,25 @@ return function(hud)
 				end
 			end
 		end
+
+		for key, refs in pairs(namePlateRows) do
+			count = count + 1
+			if ownedCosmetics[key] then
+				if wornCosmetics.NamePlate == key then
+					setButtonColor(refs.btn, UITheme.Color.Locked)
+					refs.btn.Text = "Worn"
+				else
+					setButtonColor(refs.btn, UITheme.Color.Purple)
+					refs.btn.Text = "Equip"
+				end
+			else
+				local canAfford = diamonds >= refs.price
+				setButtonColor(refs.btn, canAfford and UITheme.Color.Aqua or UITheme.Color.Locked)
+				refs.btn.Text = refs.priceText
+			end
+		end
 		
-		scroll.CanvasSize = UDim2.new(0, 0, 0, count * 84 + 8)
+		scroll.CanvasSize = UDim2.new(0, 0, 0, (count + 1) * 84 + 16)
 	end
 	
 	Remotes.DataUpdate.OnClientEvent:Connect(function()
