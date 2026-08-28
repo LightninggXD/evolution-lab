@@ -12,10 +12,14 @@
 	replicates to every client on its own, so there is no remote here and every player sees every
 	other player's trail for free. That also makes the second-client check the only honest test.
 
-	SIZED OFF THE BODY. The player runs 1x to 5x across the twenty stages (`BodyScale`, stamped by
-	EvolutionVisuals.ApplyStage), so a fixed ribbon is a scarf on a Cell and a thread on an
-	Absolute. The two attachments are pushed apart by the scale rather than the trail being
-	widened, because a Trail's width IS the distance between its attachments.
+	SIZED OFF THE BODY -- AND THE BODY IS ONE SIZE NOW. `BodyScale` is the attribute
+	`EvolutionVisuals.ApplyStage` stamps, and since her 2026-08-21 call (*"nemoj da igrac raste"*)
+	that is `FIXED_BODY_SCALE = 1.0` at every one of the twenty stages, so this term is 1 today and
+	the ribbon is a constant 3.2 studs against a body measured at 8.8. Measured and photographed at
+	that ratio on 2026-08-28: it reads as a ribbon, not a thread. The term stays because it is the
+	right shape if the body ever grows again -- it is not dead code, it is a scale that currently
+	has one value. The two attachments are pushed apart rather than the trail being widened,
+	because a Trail's width IS the distance between its attachments.
 ]]
 
 local Players = game:GetService("Players")
