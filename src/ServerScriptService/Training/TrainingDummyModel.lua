@@ -72,7 +72,23 @@ local SCALE = 2.0
 --
 -- That is the number not to spend. A collidable body inside that box makes the secret unreachable
 -- and prints a boot warning nobody would ever connect to a dummy.
-local SEAT_OFFSET = Vector3.new(-15, 0, 6)
+-- ===== (0, 0, 0): THE MIDDLE OF THE CAVE, AND SHE ASKED FOR IT TWICE (34.61) =====
+--
+-- *"samo mi dummy treba na sredini"*, then *"dummy treba biti u vodopadu, gde je sad, samo na
+-- sredini te spilje"*. It was `(-15, 0, 6)`, which put the rig at (276, 0, -284) -- against the
+-- west wall and forward of centre, standing beside the shrine rather than in the room.
+--
+-- ZERO IS THE MIDDLE BECAUSE THE SECRET'S OFFSET ALREADY IS. `GameConfig.Secrets[1].offset` is
+-- (291, 6, -290) and the grotto is built around it: measured on the live server, the floor is
+-- 50 x 43 at (291, -1.3, -290) with inner faces at x 269..313 and z -310..-270, so (291, -290) is
+-- the geometric centre of the room to the stud. The seat drops the Y and raycasts for the floor,
+-- so only X and Z matter here.
+--
+-- IT ONLY FITS BECAUSE THE PLINTH IS GONE. The rig's measured footprint is 10.5 x 9.6, i.e.
+-- x 285.8..296.3 centred -- and `GrottoPlinth` spanned x 285..297. 34.61 switched the shrine off in
+-- `MapWaterfall`; if `SHOW_SHRINE` is ever turned back on, this offset has to move with it or the
+-- dummy stands inside a stone disc.
+local SEAT_OFFSET = Vector3.new(0, 0, 0)
 
 -- Looking at +Z, i.e. out through the mouth at whoever walks in -- and the `biceps` Decal she put on
 -- it is on `Face = Front`, so this is the yaw that shows it. A part's LookVector is -Z by default,

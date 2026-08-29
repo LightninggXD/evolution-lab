@@ -914,6 +914,32 @@ local STONE_RADIUS = 5.8
 
 -- `base` is the grotto's floor-level centre and `reward` is the secret's own `rewardName`, so the
 -- shrine is built from what the secret PAYS rather than from a second copy of that decision.
+-- ===== THE SHRINE IS OFF, AND IT IS ONE LINE TO PUT BACK (34.61) =====
+--
+-- The owner, on a capture of this room: *"ovaj zlatni deo u portalu ne treba da postoji, samo mi
+-- dummy treba na sredini"*, and when the choice was put to her again with the chest already
+-- standing here: *"dummy treba biti u vodopadu, gde je sad, samo na sredini te spilje, a chest iza
+-- vodopada tj iza te spilje"*. Twice, in the same direction.
+--
+-- WHAT IS ACTUALLY BEING SWITCHED OFF, because it is not dressing: `RelicGem` (a 5-stud Neon gold
+-- cube turning on its corner, with the room's warm key light on it), the eight `RelicStone` blocks
+-- ringing it, the Godly aura hung on the anchor, and `GrottoPlinth` further down this file. It was
+-- 33.19's answer to *"tu cemo ubaciti nesto"* on a pedestal 33.18 left bare.
+--
+-- WHY IT IS A FLAG AND NOT A DELETION. Every one of those pieces carries a measurement in its own
+-- comment -- why the gem is one shape and not five, why the ring is eight blocks and not a
+-- cylinder, why the key light casts no shadow, why the aura hangs on its own anchor. Deleting the
+-- code would delete the reasoning with it, and this is a LOOK decision that could be reversed
+-- tomorrow. `SHOW_SHRINE = true` puts all of it back exactly as it was.
+--
+-- `RelicAnchor` IS STILL BUILT EITHER WAY, and that is load-bearing: `ChestService` seats the
+-- grotto chest off it (it is the only reader of that part in `src/`), so switching the shrine off
+-- must not take the chest's own reference point with it.
+--
+-- The room does not go dark: `GrottoGlow` -- the blue ceiling ball, built beside the plinth below --
+-- is a separate light and stays.
+local SHOW_SHRINE = false
+
 local function buildRelic(folder, base, reward)
 	local built = 0
 	local centre = base + RELIC_OFFSET
@@ -946,6 +972,7 @@ local function buildRelic(folder, base, reward)
 	-- rgb(255, 240, 150) draws at very nearly full white and the relic photographs as a bare bulb.
 	-- The gem is the same hue two steps down in value; the aura around it, which IS drawn at the
 	-- mutation's colour, is what carries the exact promise.
+	if SHOW_SHRINE then
 	local gem = newPart({
 		Name = "RelicGem",
 		Size = Vector3.new(GEM_SIZE, GEM_SIZE, GEM_SIZE),
@@ -987,6 +1014,7 @@ local function buildRelic(folder, base, reward)
 			return CFrame.new(heart) * CFrame.Angles(0, math.rad(deg), 0) * CFrame.new(STONE_RADIUS, 0, 0)
 		end, i * (360 / STONE_COUNT), 360 / STONE_COUNT, 11)
 	end
+	end -- SHOW_SHRINE
 
 	-- ===== AND THE AURA IS THE REWARD ITSELF, NOT A COSTUME FOR IT =====
 	--
@@ -1017,13 +1045,15 @@ local function buildRelic(folder, base, reward)
 		-- the gem instead, which is what a relic standing in a column of wind looks like.
 		Position = centre + Vector3.new(0, PLINTH_TOP + 0.2, 0),
 	})
-	local okAura, aura = pcall(function()
-		local EvolutionVisuals = require(script.Parent.Parent.Systems.EvolutionVisuals)
-		return EvolutionVisuals.AttachMutationAura(anchor, reward, 1)
-	end)
-	if not (okAura and aura) then
-		warn(("[MapWaterfall] the grotto relic has no aura -- %q is not a mutation this build draws")
-			:format(tostring(reward)))
+	if SHOW_SHRINE then
+		local okAura, aura = pcall(function()
+			local EvolutionVisuals = require(script.Parent.Parent.Systems.EvolutionVisuals)
+			return EvolutionVisuals.AttachMutationAura(anchor, reward, 1)
+		end)
+		if not (okAura and aura) then
+			warn(("[MapWaterfall] the grotto relic has no aura -- %q is not a mutation this build draws")
+				:format(tostring(reward)))
+		end
 	end
 
 	return built
@@ -1393,6 +1423,12 @@ function MapWaterfall.Build(zoneKey, cx, map)
 			-- THE PEDESTAL. It was left bare by 33.18 -- *"tu cemo ubaciti nesto"* -- and 33.19
 			-- filled it: see the comment block over `RELIC_GOLD` for what stands on it and why the
 			-- colour was read out of `GameConfig` rather than chosen.
+			-- OFF WITH THE REST OF THE SHRINE (34.61) -- see the block over `buildRelic`. It is
+			-- guarded rather than deleted for the same reason, and there is a second one here: a
+			-- 12-stud disc at the room's centre is what BLOCKS the dummy from standing in the
+			-- middle. Centred, the rig's 10.5 x 9.6 footprint runs from x 285.8 to 296.3, straight
+			-- through a plinth spanning x 285..297.
+			if SHOW_SHRINE then
 			local plinth = Instance.new("Part")
 			plinth.Name = "GrottoPlinth"
 			plinth.Anchored = true
@@ -1405,6 +1441,7 @@ function MapWaterfall.Build(zoneKey, cx, map)
 			plinth.Color = rock:Lerp(Color3.new(0, 0, 0), 0.2)
 			plinth.Parent = folder
 			built += 1
+			end -- SHOW_SHRINE
 
 			local glow = Instance.new("Part")
 			glow.Name = "GrottoGlow"

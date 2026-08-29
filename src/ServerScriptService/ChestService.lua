@@ -167,7 +167,7 @@ local MIN_SCALE, MAX_SCALE = 0.05, 40   -- a sane band, so a degenerate AABB can
 --
 -- The arithmetic is not the authority -- `assertClearOfSecret` below re-runs the engine's own box
 -- test after the build and warns by name if it is wrong.
-local SEAT_OFFSET = Vector3.new(15, 0, 2)
+local SEAT_OFFSET = Vector3.new(9, 0, -9)
 
 -- Facing +Z, out through the mouth at whoever walks in. A part's LookVector is -Z by default, hence
 -- the half turn rather than a quarter ([[roblox-yaw-lowers-atan2-bearing]] is the standing note on
