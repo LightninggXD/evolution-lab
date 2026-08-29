@@ -825,7 +825,7 @@ function PlayerDataService.UpdateLeaderstats(player)
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if leaderstats then
 		leaderstats.DNA.Value = math.floor(data.DNA)
-		leaderstats.Stage.Value = GameConfig.Stages[data.StageIndex].name
+		leaderstats.Rebirths.Value = data.Rebirths or 0
 	end
 end
 
@@ -866,10 +866,23 @@ function PlayerDataService.Init()
 		dnaStat.Value = data.DNA
 		dnaStat.Parent = leaderstats
 
-		local stageStat = Instance.new("StringValue")
-		stageStat.Name = "Stage"
-		stageStat.Value = GameConfig.Stages[data.StageIndex].name
-		stageStat.Parent = leaderstats
+		-- ===== THE SECOND COLUMN IS REBIRTHS, NOT THE STAGE NAME (34.59) =====
+		-- The owner, on a capture of the Roblox player list: *"ovde umesto stage nek bude broj
+		-- rebirtha"*. It used to be `GameConfig.Stages[data.StageIndex].name` -- "Wolf", "Dragon" --
+		-- and the stage is already the loudest thing on her own HUD (the title pill top-left, the
+		-- evolve bar bottom-centre, the nameplate over every body), so the one place that could
+		-- have shown the number nobody else shows was spending itself on a repeat.
+		--
+		-- RENAMED AS WELL AS RE-VALUED, and that is not tidiness: a column headed `Stage` reading
+		-- `7` is worse than either half on its own. Nothing outside this file ever read
+		-- `leaderstats.Stage` (grepped across `src/`), so the rename costs no caller.
+		--
+		-- `IntValue`, not the `StringValue` it replaces. Roblox's own list right-aligns a numeric
+		-- stat and formats it; handing it a string of digits gives up both.
+		local rebirthStat = Instance.new("IntValue")
+		rebirthStat.Name = "Rebirths"
+		rebirthStat.Value = data.Rebirths or 0
+		rebirthStat.Parent = leaderstats
 
 		-- THE JOIN PUSH IS A RACE AND IT IS ONE THE CLIENT CANNOT WIN RELIABLY. Every client script
 		-- that draws from `data` -- MainUI, FirstJoin, the panels -- has to have reached its

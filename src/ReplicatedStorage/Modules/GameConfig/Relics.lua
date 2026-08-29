@@ -300,18 +300,30 @@ end
 -- Two sources and no shop shelf. `ROADMAP.md` 17.6 records the owner's intent that relics be FOUND
 -- rather than bought -- "mozemo na par mapa dodati skriveni prolaz koji otkljucava ... neke relice"
 -- -- so a rack of relics on the Robux store would contradict a decision already on record. What is
--- sold is the CHEST, which is a roll and not an outcome, and the free timer is always the baseline.
-GameConfig.RelicChestSeconds = 900          -- the free one: fifteen minutes
+-- sold is the CHEST, which is a roll and not an outcome.
+--
+-- ===== THE FREE TIMER IS GONE (34.55) =====
+--
+-- It used to be the baseline: `RelicChestSeconds = 900` and a `GetRelicChestReady(data, now)` the
+-- panel drew as a `14m 56s` countdown. The owner deleted the idea outright -- *"ovde ne treba ici
+-- free relic svakih malo, ne treba biti free uopste, napravicemo da se mogu dobiti samo u chestu"*.
+--
+-- **A relic now has exactly two doors, and both of them are a CHEST**: one the world hands over
+-- (`RelicService.GiveChest` -- the grotto behind the waterfall in 34.53, the lucky wheel's relic
+-- wedge in 34.54, and every future boss drop or season reward) and one bought for diamonds. The
+-- banking seam already existed for precisely this, which is why removing the faucet costs no new
+-- API: `GiveChest` puts a chest in `data.RelicChests` and the player opens it themselves.
+--
+-- WHAT THIS TAKES OUT OF THE ECONOMY, said plainly rather than discovered later: a player who
+-- never spends a diamond used to gain four relics an hour by standing still. That number is now
+-- ZERO until a chest source pays them, so the two chest doors are not decoration -- they are the
+-- entire faucet, and the roll rate they set has to be measured before this is called finished.
+--
+-- `data.LastRelicChest` STAYS in the save defaults. It costs one number, it keeps the shape stable
+-- for every save that already holds it, and nothing reads it -- the same call `PlayerDataService`
+-- makes about `AudioVolumes` after 34.38 deleted the panel that wrote it.
 GameConfig.RelicChestDiamondCost = 40
 GameConfig.RelicChestDiamondBias = 60       -- a bought chest rolls as if the player had +60 luck
-
-function GameConfig.GetRelicChestReady(data, now)
-	if not data then return false, 0 end
-	local last = tonumber(data.LastRelicChest) or 0
-	local remaining = (last + GameConfig.RelicChestSeconds) - (now or os.time())
-	if remaining <= 0 then return true, 0 end
-	return false, remaining
-end
 
 -- ===== AGGREGATION =====
 --

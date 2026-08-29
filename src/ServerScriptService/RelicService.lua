@@ -98,7 +98,8 @@ function RelicService.HandleOpenChest(player, source)
 	if not data then return end
 	if not forgeOpen(player, data) then return end
 
-	local now = os.time()
+	-- `local now = os.time()` stood here and died with the free timer (34.55): the only thing that
+	-- ever read it was the cooldown stamp. Nothing in this function is time-dependent any more.
 	local bias = 0
 
 	if source == "diamonds" then
@@ -122,15 +123,19 @@ function RelicService.HandleOpenChest(player, source)
 		data.RelicChests -= 1
 
 	else
-		-- the free timer, and the default: an unrecognised `source` lands here rather than erroring,
-		-- so a stale client cannot get a free diamond chest by sending a word this file has not heard
-		local ready, remaining = GameConfig.GetRelicChestReady(data, now)
-		if not ready then
-			refuse(player, ("Next free Relic Chest in %dm %02ds"):format(remaining // 60, remaining % 60))
-			return
-		end
-		-- STAMPED BEFORE THE GRANT, the rule every timed reward in this game follows.
-		data.LastRelicChest = now
+		-- ===== THE DEFAULT IS A REFUSAL NOW, AND THAT IS THE HALF THAT MATTERS (34.55) =====
+		--
+		-- This branch used to be the FREE TIMER, and it doubled as the catch-all: an unrecognised
+		-- `source` landed here rather than erroring, deliberately, so a stale client could not win a
+		-- diamond chest by sending a word this file had not heard. Deleting the free timer without
+		-- replacing that catch-all would have inverted the guard -- every unknown string would then
+		-- fall through to the roll below and pay a chest for nothing, which is a worse faucet than
+		-- the one being removed.
+		--
+		-- So the closed set is now exactly two: "diamonds" and "banked". Everything else, including
+		-- the old "free", is refused here.
+		refuse(player, "Relic Chests are found in the world or bought with Diamonds!")
+		return
 	end
 
 	-- Luck bends the tier table exactly the way it bends an egg roll, and it is the SAME luck --

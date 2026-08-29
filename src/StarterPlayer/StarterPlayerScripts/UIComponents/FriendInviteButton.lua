@@ -13,9 +13,43 @@ function FriendInviteButton.Init(screenGui)
 
 	-- Rebuild using UITheme standard kit
 	btn = UITheme.Button(screenGui, { name = "FriendInviteButton", text = "Invite\nFriends", icon = "🤝" })
-		btn.Size = UDim2.new(0, 72, 0, 72)
-	btn.Position = UDim2.new(0, 20, 1, -90) -- Middle bottom, above hotbar
-	
+	btn.Size = UDim2.new(0, 72, 0, 72)
+	-- ===== IT WAS SITTING UNDERNEATH THE WALLET (34.60) =====
+	--
+	-- The owner, on a capture of the diamond and gift capsules: *"ovaj invite ili trade sta je vec
+	-- stoji iza ovoga i ne vidi se"*. It was not partly covered -- it was ENTIRELY covered.
+	-- Measured on the running client at 1576 x 793:
+	--
+	--     FriendInviteButton   x  20.. 92   y 645..717     <- every pixel of it
+	--     CurrencyStack        x  20..244   y 503..713     <- inside this
+	--
+	-- `1, -90` was authored as *"middle bottom, above hotbar"*, and there is no hotbar there any
+	-- more: `CurrencyStack` grew to 210 tall when `HUD/DamageStat` hung a fourth capsule on it
+	-- (33.26), and 210 reaches up past this button's whole height.
+	--
+	-- FIXED BY MOVING IT, NOT BY RAISING ITS ZIndex. A button drawn on top of a currency readout is
+	-- the same fault seen from the other side, and the wallet is the thing a player checks most.
+	--
+	-- WHERE THE ROOM ACTUALLY IS, measured rather than guessed -- the left column ends and the
+	-- wallet begins, and nothing at all is drawn between them:
+	--
+	--     EmotesButton (last tile in the left column)   y 279..361
+	--     >>>>  the empty band                          y 361..503   (142 px)
+	--     CurrencyStack (top edge)                      y 503
+	--
+	-- 248 px up from where it was puts it at y 397..469: 36 px clear of the tiles above and 34 clear
+	-- of the wallet below. Both read tighter than the number says -- a 5 px stroke draws OUTSIDE the
+	-- frame, so a gap of N shows as roughly N - 15 -- which is why the band is split rather than
+	-- hugging either edge.
+	--
+	-- STILL BOTTOM-ANCHORED (`1, ...`), and that is the half that has to survive a resize. The
+	-- wallet is anchored to the viewport's bottom too, so the 34 px gap below is constant at every
+	-- height; the tile column above is TOP-anchored and `TileColumnFit` SHRINKS its tiles on a short
+	-- viewport, so the gap above can only ever grow. Anchoring to the top instead would hold the
+	-- wrong end.
+	btn.Position = UDim2.new(0, 20, 1, -338)
+
+
 	-- The pill for showing live count and bonus percentage
 	local badge = Instance.new("TextLabel")
 	badge.Name = "Badge"

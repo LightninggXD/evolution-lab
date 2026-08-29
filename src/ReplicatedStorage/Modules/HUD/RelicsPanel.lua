@@ -242,6 +242,9 @@ return function(hud)
 	chestRow.Parent = panel
 
 	local FREE_READY = { Color3.fromRGB(120, 255, 170), Color3.fromRGB(20, 200, 100) }
+	-- The grey the button wears when there is nothing to open. It is no longer a COUNTDOWN state --
+	-- 34.55 deleted the free timer -- it is "you have no chest", which is a different sentence and
+	-- has to read as one.
 	local FREE_WAIT = { Color3.fromRGB(178, 184, 204), Color3.fromRGB(120, 126, 150) }
 	local DIAMOND_BUY = { Color3.fromRGB(175, 245, 255), Color3.fromRGB(30, 170, 215) }
 	-- Gold, because a banked chest is something already won rather than something being waited for,
@@ -252,16 +255,22 @@ return function(hud)
 	-- truth for which remote to send -- a caption is a picture of the state, not the state.
 	local bankedChests = 0
 
+	-- ===== ONE BUTTON, ONE SOURCE (34.55) =====
+	-- It used to send "banked" when the player had a chest and "free" when they did not, so the same
+	-- press meant two different transactions. `"free"` is refused by the server now, so sending it
+	-- would just draw a refusal toast on a button the player was invited to press. The button is
+	-- simply dark until a chest exists to open.
 	local _, freeChest = CardKit.Button(chestRow, {
-		name = "FreeChest",
-		text = "FREE CHEST",
+		name = "OpenChest",
+		text = "OPEN CHEST",
 		size = UDim2.new(0.62, -6, 1, 0),
 		position = UDim2.new(0, 0, 0, 0),
 		colors = FREE_READY,
 		textSize = 22,
 		zIndex = baseZ + 1,
 		callback = function()
-			Remotes.OpenRelicChest:FireServer(bankedChests > 0 and "banked" or "free")
+			if bankedChests <= 0 then return end
+			Remotes.OpenRelicChest:FireServer("banked")
 		end,
 	})
 
@@ -772,20 +781,22 @@ return function(hud)
 	-- only the visible one is written -- so the work here is bounded by what is on the screen rather
 	-- than by the 215 relics that exist.
 	local function refreshChest(data)
-		local ready, remaining = GameConfig.GetRelicChestReady(data, os.time())
 		bankedChests = tonumber(data.RelicChests) or 0
 		if bankedChests > 0 then
-			-- The count is in the caption rather than on a pill: this button is already carrying a
-			-- countdown in the other state, so a number in the same place is the one thing a player
-			-- is used to reading off it.
+			-- The count is in the caption rather than on a pill, because the caption is where a
+			-- player already looks on this button.
 			freeChest.SetEnabled(true, BANKED)
 			freeChest.SetText(bankedChests > 1
 				and ("OPEN CHEST (%d)"):format(bankedChests)
 				or "OPEN CHEST")
 		else
-			freeChest.SetEnabled(ready, FREE_READY)
-			freeChest.SetText(ready and "FREE CHEST" or ("%dm %02ds"):format(remaining // 60, remaining % 60))
-			if not ready then freeChest.SetColors(FREE_WAIT) end
+			-- ===== NO COUNTDOWN (34.55) =====
+			-- This slot used to tick `14m 56s` toward a free chest. There is no free chest, so the
+			-- empty state has to say where one COMES from instead of when -- a dark button with no
+			-- sentence on it is the state players ask about rather than act on.
+			freeChest.SetEnabled(false, FREE_WAIT)
+			freeChest.SetText("NO CHESTS")
+			freeChest.SetColors(FREE_WAIT)
 		end
 		buyChest.SetEnabled((data.Diamonds or 0) >= GameConfig.RelicChestDiamondCost, DIAMOND_BUY)
 	end
