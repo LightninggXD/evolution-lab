@@ -39,7 +39,7 @@
 
 local WorldApron = {}
 
-local APRON_VERSION = 2
+local APRON_VERSION = 3
 
 local FOLDER_NAME = "WorldApron"
 
@@ -62,7 +62,43 @@ local SHELF_BOTTOM = -14   -- clears MapHorizon's SINK of 15: a hill's foot ends
 
 local HALF_X = 950   -- ZoneSpacing / 2: adjacent aprons meet, so the strip has no seams
 
--- tier = { half-depth in Z, the Y its underside reaches }
+-- ===== 2026-08-28 [34.45] THE SILENT 2048 CLAMP =====
+--
+-- She looked again the next day: "sad je bolje ali ovde i dalje malo lebdi, ne treba da ih kivis,
+-- mogu i ravni da budu samo da ne lebde" -- better, but here it STILL floats a bit; you don't
+-- need to TILT them, they can be flat, just so long as they don't float. So: no `CFrame.Angles`
+-- anywhere in this file, ever. The only allowed move is bringing ground up under the thing.
+--
+-- And v2 was short. It asked for a shelf 2200 studs deep (halfZ 1100, doubled). Roblox caps
+-- `BasePart.Size` at 2048 per axis and does it SILENTLY -- no error, no warning, `Size.Z` simply
+-- comes back 2048. So the shelf and the first tier stopped at z +-1024, seventy-six studs short
+-- of the 1100 this file believed it had, on both sides. Measured 2026-08-28: 30 `HorizonHill`
+-- mesh parts and 2 `PassShoulder` parts hang past that lip, worst 89 studs, flat undersides at
+-- y = -15 in open air. That is the "malo" in "malo lebdi".
+--
+-- Anything deeper than this cap has to be laid down as several parts. Never assume the Size you
+-- asked for is the Size you got.
+local MAX_SPAN = 2000   -- 48 studs under the 2048 hard cap, so no layer is ever clamped again
+
+-- ===== WHY THE KEEL IS LONGER TO THE SOUTH =====
+--
+-- North (z+) is the Colosseum's side, and 1100 is a deliberate number v2 chose so the land stops
+-- short of the arena and the arena reads as an island just off the coast. Left exactly as it was.
+-- South (z-) faces nothing at all, and the horizon ring reaches z = -1113 there, so the keel just
+-- runs on until it is under the hills. Asymmetric on purpose: land is not a tile.
+local SOUTH_EXTRA = 60
+
+-- ===== AND WHY THE TWO OUTER ENDS GET A CAP =====
+--
+-- HALF_X is ZoneSpacing/2 so every apron meets its neighbour -- but the first and last zone have
+-- no neighbour on one side. Forest is westernmost and its horizon hills reach x = -1186, which is
+-- 236 studs past the apron's west edge at -950; those were the worst floaters in the whole sweep.
+-- The cap is its own part rather than a wider slab because 1900 + 300 = 2200 is over the clamp.
+-- The east end gets the same cap even though nothing hangs off it: a landmass that tapers at one
+-- end and is sliced flat at the other looks like a bug, and eight parts is nothing.
+local END_CAP = 300
+
+-- tier = { half-depth in Z northward (south gets SOUTH_EXTRA more), the Y its underside reaches }
 local TIERS = {
 	{ halfZ = 1100, bottom = -170 },
 	{ halfZ = 1000, bottom = -260 },
@@ -96,6 +132,24 @@ local function slab(model, name, cx, cz, sx, sy, sz, cy, colour, material)
 	return p
 end
 
+-- 2026-08-28 [34.45] One horizontal layer, laid as however many parts it takes to reach from
+-- zSouth to zNorth without any of them exceeding MAX_SPAN. Segments abut exactly -- they share a
+-- plane but face opposite ways, so there is nothing for the depth buffer to fight over, unlike
+-- the coplanar TOP faces that SHELF_TOP = -0.5 exists to avoid.
+local function band(model, name, cx, sx, yTop, yBottom, zNorth, zSouth, colour, material)
+	local depth = zNorth - zSouth
+	local n = math.ceil(depth / MAX_SPAN)
+	local seg = depth / n
+	local height = yTop - yBottom
+	for i = 1, n do
+		local z0 = zSouth + seg * (i - 1)
+		slab(model, name, cx, z0 + seg * 0.5,
+			sx, height, seg,
+			yTop - height * 0.5, colour, material)
+	end
+	return n
+end
+
 function WorldApron.Build()
 	local shell = workspace:FindFirstChild("WorldShell")
 	if not shell then
@@ -118,34 +172,49 @@ function WorldApron.Build()
 	model.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
 	model:SetAttribute("ApronVersion", APRON_VERSION)
 
+	-- One column of ground -- grass shelf on top wearing the zone's own floor colour AND material,
+	-- three rock tiers under it. Used for the zone strips and for the two end caps alike, so an
+	-- end cap can never drift out of step with the strip it continues.
+	local function column(cx, sx, colour, material)
+		local n = band(model, "ApronShelf", cx, sx, SHELF_TOP, SHELF_BOTTOM,
+			TIERS[1].halfZ, -(TIERS[1].halfZ + SOUTH_EXTRA), colour, material)
+		local rock = darken(colour)
+		local top = SHELF_BOTTOM
+		for i, tier in ipairs(TIERS) do
+			n += band(model, "ApronTier" .. i, cx, sx, top, tier.bottom,
+				tier.halfZ, -(tier.halfZ + SOUTH_EXTRA), rock)
+			top = tier.bottom
+		end
+		return n
+	end
+
 	local floors, parts = 0, 0
+	local west, east
 	for _, floor in ipairs(shell:GetChildren()) do
 		if floor:IsA("BasePart") and floor.Name == "Floor" then
 			floors += 1
-			local cx = floor.Position.X
-			local colour = darken(floor.Color)
-			local shelfH = SHELF_TOP - SHELF_BOTTOM
-			slab(model, "ApronShelf", cx, 0,
-				HALF_X * 2, shelfH, TIERS[1].halfZ * 2,
-				SHELF_TOP - shelfH * 0.5, floor.Color, floor.Material)
-			parts += 1
-
-			local top = SHELF_BOTTOM
-			for i, tier in ipairs(TIERS) do
-				local height = top - tier.bottom
-				slab(model, "ApronTier" .. i, cx, 0,
-					HALF_X * 2, height, tier.halfZ * 2,
-					top - height * 0.5, colour)
-				parts += 1
-				top = tier.bottom
-			end
+			parts += column(floor.Position.X, HALF_X * 2, floor.Color, floor.Material)
+			if not west or floor.Position.X < west.Position.X then west = floor end
+			if not east or floor.Position.X > east.Position.X then east = floor end
 		end
+	end
+
+	-- The open ends. Each wears its own end zone's ground, read off the part exactly as the strips
+	-- are, so the cap is the same landmass and not a grey lid stuck on it.
+	if west then
+		parts += column(west.Position.X - HALF_X - END_CAP * 0.5, END_CAP, west.Color, west.Material)
+	end
+	if east then
+		parts += column(east.Position.X + HALF_X + END_CAP * 0.5, END_CAP, east.Color, east.Material)
 	end
 
 	model.Parent = workspace
 
-	print(("[WorldApron] built v%d: %d parts under %d zone floors, x half %d, z reach %d, keel y %d")
-		:format(APRON_VERSION, parts, floors, HALF_X, TIERS[1].halfZ, TIERS[#TIERS].bottom))
+	print(("[WorldApron] built v%d: %d parts under %d zone floors, x %d..%d, z %d..%d, keel y %d")
+		:format(APRON_VERSION, parts, floors,
+			(west and west.Position.X or 0) - HALF_X - END_CAP,
+			(east and east.Position.X or 0) + HALF_X + END_CAP,
+			-(TIERS[1].halfZ + SOUTH_EXTRA), TIERS[1].halfZ, TIERS[#TIERS].bottom))
 
 	return model
 end

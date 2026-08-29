@@ -23,9 +23,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local updateStreak
 local UserInputService = game:GetService("UserInputService")
-
 local Debris = game:GetService("Debris")
 local RS = game:GetService("ReplicatedStorage")
 
@@ -1710,7 +1708,16 @@ end
 local streakCount = 0
 local lastKillTime = 0
 
-updateStreak = function()
+-- THE POSITION, NOT THE PART. `popNumber` takes a Vector3 and hands it straight to `CFrame.new`,
+-- so passing `PrimaryPart` itself threw `invalid argument #1 to 'new' (Vector3 expected, got
+-- Instance)` -- once per kill for the whole of every streak. The pop never drew a single time and
+-- the error was the most frequent line in the output window (measured 2026-08-29, live play).
+--
+-- Declared with `local function` rather than assigned into a forward `local` at the top of the
+-- file: its only caller is the CombatFx handler two hundred lines BELOW this, so the forward
+-- declaration bought nothing and put a bare `local updateStreak` in the middle of the service
+-- requires, where the next reader has to go looking for what fills it in.
+local function updateStreak()
 	local now = tick()
 	-- Decays after 3 seconds of no kills
 	if now - lastKillTime < 3.0 then
@@ -1719,11 +1726,11 @@ updateStreak = function()
 		streakCount = 1
 	end
 	lastKillTime = now
-	
+
 	if streakCount > 1 then
 		local char = player.Character
 		if char and char.PrimaryPart then
-			popNumber(char.PrimaryPart, "\u{1F525} " .. streakCount .. "x COMBO!", UITheme.Color.Red, true)
+			popNumber(char.PrimaryPart.Position, "\u{1F525} " .. streakCount .. "x COMBO!", UITheme.Color.Red, true)
 		end
 	end
 end

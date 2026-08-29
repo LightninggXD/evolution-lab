@@ -1213,19 +1213,7 @@ do
 		checkGlyph(("egg tier %s"):format(tostring(tier.suffix)), tier.emoji)
 	end
 
-	-- S29: The Invite Reward pet
-GameConfig.InviteRewardPetKey = "Amicus"
-local inviteRewardDef = {
-	key = "Amicus",
-	name = "Amicus",
-	emoji = "🤝",
-	color = Color3.fromRGB(150, 255, 150),
-	zone = "Forest",
-	rarity = "Legendary",
-	exclusive = true,
-}
-table.insert(GameConfig.Pets, inviteRewardDef)
-if #shared > 0 then
+	if #shared > 0 then
 		-- `pairs` gives no order, so sort before printing or the line churns between boots and
 		-- two runs of the same file look like two different faults.
 		table.sort(shared)
@@ -1233,5 +1221,31 @@ if #shared > 0 then
 			:format(#shared, table.concat(shared, ", ")))
 	end
 end
+
+-- ===== THE INVITE PET =====
+--
+-- One species, handed over rather than hatched: `InviteRewardService` pays it to both ends of a
+-- game invite. It is a full entry in `GameConfig.Pets` because that is the list `GetPetDef`, the
+-- Journal and the HUD's `petDisplayInfo` all walk -- a pet that is not in it draws as a blank row.
+--
+-- `exclusive = true` is what keeps it out of eggs, and it is load-bearing rather than decorative:
+-- `GameConfig.EggablePets` is the fallback pool for a malformed egg and it is built from exactly
+-- the entries that carry neither `exclusive` nor `secret`.
+--
+-- APPENDED AFTER THE GLYPH CHECK ABOVE, and it should not be. It was written INSIDE that `do`
+-- block, between the check loops and their report, where the next reader would have to work out
+-- whether a diagnostics block was also defining a species. The check itself is unaffected -- it
+-- walks the zone tables, not this list -- and U+1F91D is inside its U+1F300..U+1F9FF band, so
+-- nothing about the move changes what loads.
+GameConfig.InviteRewardPetKey = "Amicus"
+table.insert(GameConfig.Pets, {
+	key = "Amicus",
+	name = "Amicus",
+	emoji = "🤝",
+	color = Color3.fromRGB(150, 255, 150),
+	zone = "Forest",
+	rarity = "Legendary",
+	exclusive = true,
+})
 
 end

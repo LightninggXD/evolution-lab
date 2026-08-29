@@ -381,8 +381,20 @@ end
 -- `kind` is a key of `WeatherLibrary.Kinds` (rain / ash / dust / motes) and `color` (optional)
 -- replaces that kind's own tint. Five zones wear `motes` and they would otherwise be the same
 -- gold in every one; the tint is what makes the Nebula's drift read as the Nebula's.
+-- ===== FOREST HAS NO WEATHER, AND THAT IS DELIBERATE (34.45, 2026-08-28) =====
+--
+-- The owner, on a Play capture of the village road: *"i ova kisa ne znam sto pada stalno"*. It fell
+-- because `Forest = { kind = "rain" }` sat here and Forest is the ONE zone a player never leaves --
+-- it is the spawn, the hub, the shops, the egg plaza and both Secrets. Every other zone is somewhere
+-- you travel TO, so its weather is a change of scene; Forest's was simply the permanent state of the
+-- game, 420 particles a second of diagonal streaks over every screenshot and every new player's
+-- first minute. Removing the row (nil = clear sky, which `GetZoneWeather` already returns) costs
+-- nothing anywhere else: the other eleven rows are untouched, so ash still falls on the Volcano and
+-- dust still blows over Mars.
+--
+-- If it should ever come back, it wants to come back as a CYCLE rather than a constant -- weather
+-- that starts and stops is atmosphere, weather that never stops is a filter over the lens.
 GameConfig.ZoneWeather = {
-	Forest          = { kind = "rain" },
 	Desert          = { kind = "dust" },
 	Ocean           = { kind = "rain",  color = Color3.fromRGB(120, 185, 220) },  -- a squall off the water
 	Volcano         = { kind = "ash" },

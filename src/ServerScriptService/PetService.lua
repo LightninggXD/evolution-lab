@@ -291,6 +291,33 @@ function PetService.GrantSecretPet(data, zoneKey)
 	return def
 end
 
+-- ===== A NAMED PET, HANDED OVER RATHER THAN ROLLED =====
+--
+-- The door for every path that already knows WHICH species it owes -- today that is
+-- `InviteRewardService` and its `Amicus`. That file used to write two raw
+-- `table.insert(data.Pets, { id = ..., key = ..., tier = "Normal" })` calls of its own, which is
+-- the exact thing the note over `GrantWheelPet` says must not happen: `insertPet` is the only
+-- place in the game a pet is created, and a second literal is a second definition of what a pet
+-- IS the first time the entry shape gains a field. It also skipped `MAX_PETS` entirely, so an
+-- invite could push a full bag past the cap and leave `TrimCollection` to decide what to throw
+-- away.
+--
+-- The key is looked up rather than trusted: `GetPetDef` is what the Journal and the HUD read, so a
+-- species that is not in it is one nothing can draw, and handing out an entry the client renders
+-- as a blank row is worse than handing out nothing.
+--
+-- Returns the def, or nil plus a reason -- "nosuch" for a key that is not a species, "full" for a
+-- bag with no room. A full bag REFUSES rather than dropping the pet silently: unlike a terrace
+-- drop, nothing has been paid for by the time this is called, so the caller can leave the grant
+-- unrecorded and pay it on the next join.
+function PetService.GrantPetByKey(data, key)
+	if not data then return nil, "nodata" end
+	local def = GameConfig.GetPetDef(key)
+	if not def then return nil, "nosuch" end
+	if #data.Pets >= MAX_PETS then return nil, "full" end
+	return insertPet(data, def)
+end
+
 local EGG_INTERVAL = 0.35   -- comfortably faster than the hatch animation, far slower than a loop
 local lastEgg = {}          -- [userId] = os.clock()
 

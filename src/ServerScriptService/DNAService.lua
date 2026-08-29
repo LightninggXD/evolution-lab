@@ -479,7 +479,7 @@ function DNAService.HandleEvolve(player)
 	-- This flag used to be set in `ServerMain`'s `DNAService.OnEvolve` hook, which is only called
 	-- when `step.advancesStage` is true. That was correct when it was written and 9.5 quietly broke
 	-- it: every skin is its own evolve now, so a stage advance is every FIFTH press. A new player
-	-- was therefore told "â­ You are ready! Press EVOLVE", pressed it, evolved -- and the banner and
+	-- was therefore told "⭐ You are ready! Press EVOLVE", pressed it, evolved -- and the banner and
 	-- the arrow stayed on screen telling them to press it again, four more times. That is the
 	-- reported "the tutorial does not properly disappear", and it is a granularity bug rather than a
 	-- persistence one: the save field, the migration and the client gate were all already right.

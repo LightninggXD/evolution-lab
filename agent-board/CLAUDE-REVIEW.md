@@ -2123,3 +2123,143 @@ it currently describes a rule the code no longer follows.
 apply **before any new work**, and S30 was three steps below them. The rule exists because a fix can
 invalidate work you are about to do -- and in this case R12 names a defect in code you wrote that is
 still on disk making the wallet show a stale number. Do those three first.
+
+
+## S24 | VERIFIED | 2026-08-29T03:45 | R39
+
+**Closed by Claude, nothing owed back -- the fixes below are already on disk and in Studio.**
+
+**Verdict:** The streak assignment is there and the board is right that S24's own check passes --
+`updateStreak` is assigned, `luastruct`/`luaremotes` are clean. It has never once drawn. The line
+inside it reads `popNumber(char.PrimaryPart, ...)` and `popNumber`'s first parameter is a **Vector3**
+that it hands straight to `CFrame.new`. Every kill in a streak threw, from the owner's live session,
+pulled out of her Output window:
+
+```
+Players.OGLightninggXD.PlayerScripts.CombatClient:702: invalid argument #1 to 'new' (Vector3 expected, got Instance)
+Stack Begin
+Script 'Players.OGLightninggXD.PlayerScripts.CombatClient', Line 702 - function popNumber
+Script 'Players.OGLightninggXD.PlayerScripts.CombatClient', Line 1726
+Script 'Players.OGLightninggXD.PlayerScripts.CombatClient', Line 1801
+Stack End
+```
+
+It repeated **fifteen times in one console dump** -- the single most frequent line in the log.
+
+**This is the check the step asked for and it is why a grep is not evidence.** `grep -n
+"updateStreak"` returning an assignment says the local is filled in; it says nothing about whether
+the body runs. The step's own wording -- "the kill streak is a local nothing assigns" -- was answered
+literally, and the feature is still dead.
+
+**Already applied, so this is a NOTE on method rather than work owed:**
+
+- `popNumber(char.PrimaryPart.Position, ...)` in `CombatClient.client.lua`.
+- The forward `local updateStreak` between `TweenService` and `UserInputService` is gone with it.
+  Its only caller is two hundred lines below the definition, so it bought nothing and put a bare
+  declaration in the middle of the service requires.
+- Verified live: three synthetic `CombatFx` kill payloads fired at the player from the Server
+  datamodel, `LogService:GetLogHistory()` on the client afterwards -- `errors in last 60 log lines: 0`.
+
+## S28 | VERIFIED | 2026-08-29T03:46 | R40
+
+**Closed by Claude, nothing owed back -- the fix below is already on disk and in Studio.**
+
+**Verdict:** The bonus is wired end to end and pays **nothing**. `DNAService.GetIncomeMult` looks the
+count up with `FriendBonusService.GetFriendCount(data.UserId)` -- and the save table has no `UserId`
+field. `grep -n "UserId" src/ServerScriptService/PlayerDataService.lua` returns eighteen lines and
+every one of them is `player.UserId`; the only thing ever written onto the row is
+`data.__sessionUserId`, added in the same pass and read by nobody. So the argument is `nil`,
+`friendGraph[nil]` is `nil`, and `GetFriendCount` returns `0` for every player in the game.
+
+**The half that DOES work is what makes it a bug rather than a no-op.** `DNAService.Init` stamps
+`data.__friendCount` once a second with the correct `player.UserId`, and `FriendInviteButton` draws
+its badge off that. The HUD therefore advertises `+15%` beside an income multiplier of exactly 1.00.
+
+**Already applied:** `data.UserId = player.UserId` is stamped where the row enters
+`PlayerDataService.Cache`, so `GetIncomeMult(data)` works as written. Verified live off the
+`DataUpdate` payload on the client:
+
+```
+DNA=145351070.74292058
+UserId=5746881443
+__friendCount=0
+DailyPlaytime=day=20694 seconds=2851
+```
+
+**The rule this broke:** a reader that only ever sees `data` cannot ask a `Player` for anything. If a
+function takes the row, everything it needs has to be on the row.
+
+## S29 | VERIFIED | 2026-08-29T03:47 | R41
+
+**Closed by Claude, nothing owed back -- the fixes below are already on disk and in Studio.**
+
+**Verdict:** Three defects, one of them silent data loss.
+
+1. **`table.insert(data.Pets, { id = ..., key = ..., tier = "Normal" })`, twice.** `PetService`'s own
+   note over `GrantWheelPet` says `insertPet` is deliberately local because a second literal
+   elsewhere is a second definition of what a pet IS. Both copies also skipped `MAX_PETS`, so an
+   invite could push a full bag past the cap and leave `TrimCollection` to pick what to throw away.
+2. **The inbox was cleared unconditionally.** `InviteInbox:RemoveAsync` ran at the end of the branch
+   whatever happened above it, so a player whose bag was full lost every pending invite permanently.
+3. **`Init` connected `PlayerAdded` and nothing else.** It is called from `ServerMain` line ~207,
+   after `ZoneBuilder.Build()` -- seconds of work -- so the first player on every server and the solo
+   player in every Studio test was already in the game and never had their launch data read.
+
+**Already applied:** `PetService.GrantPetByKey(data, key)` is the one door (looks the species up
+through `GetPetDef`, checks `MAX_PETS`, returns nil plus a reason); both call sites go through it; a
+refused grant is left in the inbox and re-tried on the next join; `Init` sweeps
+`Players:GetPlayers()` behind a `handled` set so an overlap between the connect and the sweep cannot
+pay twice. The joiner branch also got the `PushToClient` it was missing -- the pet was in the save
+and not on the client, which for a player who has just been told they were given one reads as the
+reward not arriving.
+
+## S25 | NOTE | 2026-08-29T03:48 | R42
+
+**Verdict:** The count-up works. What came with it was an encoding fault across the whole pass, and
+it is the third time it has cost review time.
+
+**Every literal emoji these passes touched shipped double-encoded** -- read as cp1252 and re-written
+as UTF-8. It compiles, no lint sees it, and only a screenshot finds it. The owner's, 2026-08-29:
+the error toast drew as `â Œ Keep playing! Not ready yet.` Eighteen runs across two files:
+
+```
+MainUI.client.lua:215   "â­ Cell"                    -> "⭐ Cell"
+MainUI.client.lua:1245  columnTile("R", 7, "â°", ...) -> "⏰"
+MainUI.client.lua:1484  "âœ“ Mastered"                -> "✓ Mastered"
+MainUI.client.lua:1709  emoji = "â“"                 -> "❓"
+MainUI.client.lua:4363  "â¬†ï¸ " .. def.displayName    -> "⬆️ "
+MainUI.client.lua:4435  "FUSED â†’ "                  -> "FUSED → "
+MainUI.client.lua:4697  "âŒ " .. payload.message      -> "❌ "
+DNAService.lua:482      (comment) "â­ You are ready"  -> "⭐ You are ready"
+```
+
+plus `â™»ï¸` (♻️), `Â·` (·) and the rest. **All repaired and pushed.**
+
+**Do this on every pass from here:** after you write a file, decode each run of high characters as
+cp1252 and then as UTF-8; if it round-trips, you have mangled it. It is the same class as the BOM in
+R11 and the BOM in the root `GEMINI-LOG.md`, and it is now three consecutive sessions.
+
+## S24-S30 | NOTE | 2026-08-29T03:49 | R43
+
+**Two things the board did not know, found while reviewing the above.**
+
+**1. `src/` and Studio had drifted, in Studio's favour, and a push would have deleted 54 KB of your
+work.** A whole-place manifest sweep (`tools/_disk_manifest.py` on disk, the same rolling hash
+computed over every `LuaSourceContainer` in the Edit datamodel and POSTed back) found:
+
+```
+DIFFERENT content
+  ReplicatedStorage.Modules.GameConfig.Zones     disk=41178 studio=42151
+  ServerScriptService.MapProps.MapEggs           disk=19379 studio=22123
+  ServerScriptService.WorldApron                 disk=6423  studio=10486
+  ServerScriptService.ServerMain                 disk=29448 studio=30747
+IN STUDIO, NOT IN src/
+  ServerScriptService.WaterfallParkour           54244 bytes
+```
+
+All four were pulled back into `src/` before anything was pushed. **A step that edits the place is
+not finished until the file is on disk too** -- `WaterfallParkour` existed only inside Studio, one
+`push_files.py --changed` away from being gone.
+
+**2. `ReplicatedFirst.LoadingScreen` is in `src/` and NOT in Studio.** The other direction of the
+same fault. Nobody has decided which way that one should go; flagging it rather than acting on it.

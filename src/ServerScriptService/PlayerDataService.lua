@@ -773,6 +773,17 @@ function PlayerDataService.Load(player)
 	end
 
 
+	-- WHO THIS ROW BELONGS TO, ON THE ROW. Stamped here rather than left to the caller because
+	-- several readers only ever see the `data` table and have no player to ask -- `DNAService.
+	-- GetIncomeMult(data)` is the one that found this: it looks up the friends-in-server bonus with
+	-- `FriendBonusService.GetFriendCount(data.UserId)`, and with no such field that was
+	-- `GetFriendCount(nil)` = 0 for everybody. The HUD pill next to it reads `data.__friendCount`,
+	-- which IS stamped correctly, so the badge advertised "+15%" beside an income paying nothing.
+	--
+	-- Not `__`-prefixed: the double underscore in this file marks a field the SERVER recomputes
+	-- every session (`__sessionJobId`, `__autoPerSec`), and this one is a fact about the save that
+	-- is true for as long as the save exists.
+	data.UserId = player.UserId
 	PlayerDataService.Cache[player.UserId] = data
 	return data
 end

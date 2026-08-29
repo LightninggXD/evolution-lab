@@ -37,6 +37,7 @@ local EventService = require(ServerScriptService.EventService)
 local HubPlaza = require(ServerScriptService.HubPlaza)
 
 local WorldApron = require(ServerScriptService.WorldApron)
+local WaterfallParkour = require(ServerScriptService.WaterfallParkour)
 local TradeService = require(ServerScriptService.TradeService)
 local MinigameService = require(ServerScriptService.MinigameService)
 local ExpeditionService = require(ServerScriptService.ExpeditionService)
@@ -226,7 +227,9 @@ RebirthService.Init()
 -- ZoneBuilder.Build() above, which is what puts the Forest decor the plaza has to clear back
 RebirthShrine.Init()
 SecretsService.Init()
-	InviteRewardService.Init()
+-- ANYWHERE AFTER PlayerDataService: it reads a save and a DataStore and no world furniture at
+-- all. Its Init also sweeps the players already in the server -- see the note there.
+InviteRewardService.Init()
 -- AFTER SecretsService, and the order is load-bearing in one direction only: the dummy is seated by
 -- RAYCAST onto the grotto floor (`TrainingDummyModel.floorAt`), so the room has to be built before
 -- this runs or the cast finds the world floor 0.2 studs lower and the dummy sinks into the slab.
@@ -288,6 +291,22 @@ HubPlaza.Init()
 -- learn where the twenty zones are and what colour each one's ground is. Its own stamp, so it
 -- never drags BUILD_VERSION and its 105,000 parts along with a scenery change.
 WorldApron.Init()
+-- Beside the apron, and for the same reason it is here rather than in ZoneBuilder: its own stamp,
+-- so the climb up the falls never drags BUILD_VERSION and its 105,000 parts along with it, and it
+-- lives at the top of Workspace rather than under `Zones` so a zone rebuild cannot take it.
+--
+-- ITS ONE REAL ORDERING CONSTRAINT IS `ForestMapService.Init()` FAR ABOVE, which is what runs
+-- `MapWaterfall` and puts `Decorations.Waterfall` in the world. Every ledge above the shore is
+-- seated by a raycast into that model's rock, and with it absent the whole route would fall back
+-- to one default Z and build a ladder in open air -- so it warns and skips instead, the same shape
+-- of guard as WorldApron's missing WorldShell. Anywhere after ForestMapService would do; it is
+-- here so the two version-stamped scenery builds read as one block.
+--
+-- It is deliberately AFTER `SecretsService.Init()` as well, though nothing would break the other
+-- way round: that service prints the UNREACHABLE warning for a blocked secret, and the Hidden Egg
+-- at the top of these falls is the secret this route exists to reach. If the two ever disagree,
+-- the log should show the world the player actually gets.
+WaterfallParkour.Init()
 -- LAST, and after DNAService in particular: the offline payout is DNAService.GetAutoCollectAmount
 -- multiplied by a bounded number of seconds, so it has to run once the income stack it reads is
 -- fully wired. It hooks PlayerAdded itself rather than being called from the block below, because

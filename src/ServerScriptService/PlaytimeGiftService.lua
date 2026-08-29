@@ -202,17 +202,52 @@ function PlaytimeGiftService.HandleClaim(player, milestoneIndex, ladder)
 	pushStatus(player)
 end
 
+--- Everything the join does, for one player. Pulled out of the `PlayerAdded` handler so the
+--- already-here sweep below can run the SAME code -- see the note over that loop for why a second,
+--- shorter copy of it was the bug.
+local function beginSession(player)
+	sessionStart[player.UserId] = os.time()
+	-- BEFORE the wait, and before the save is necessarily loaded. Whatever the load costs is
+	-- time the player spent in the game, and the first accrue that finds a save banks it.
+	lastTick[player.UserId] = os.time()
+	-- the save may still be loading; pushStatus reads it and simply reports nothing claimed
+	-- until it is there, and the client re-reads on its next DataUpdate
+	task.wait(0.5)
+	pushStatus(player)
+end
+
 function PlaytimeGiftService.Init()
-	Players.PlayerAdded:Connect(function(player)
-		sessionStart[player.UserId] = os.time()
-		-- BEFORE the wait, and before the save is necessarily loaded. Whatever the load costs is
-		-- time the player spent in the game, and the first accrue that finds a save banks it.
-		lastTick[player.UserId] = os.time()
-		-- the save may still be loading; pushStatus reads it and simply reports nothing claimed
-		-- until it is there, and the client re-reads on its next DataUpdate
-		task.wait(0.5)
-		pushStatus(player)
-	end)
+	Players.PlayerAdded:Connect(beginSession)
+
+	-- ===== THE PLAYERS WHO WERE ALREADY HERE, AND THE WHOLE OF THE "CLAIM DOES NOTHING" BUG =====
+	--
+	-- `PlayerAdded` does not fire retroactively, and this Init is line ~257 of ServerMain -- AFTER
+	-- `ZoneBuilder.Build()` puts the entire map down, which is seconds of work. In Studio the solo
+	-- player is in the game long before that finishes, and on a live server so is the first wave.
+	-- For every one of them `sessionStart` stayed nil, and nil is not inert here: `HandleClaim`
+	-- reads `sessionStart[uid] or os.time()`, so their session measured **zero minutes long, for
+	-- ever**.
+	--
+	-- What that looked like, and it is exactly what was reported: the panel keeps its own clock
+	-- (`ladders[i].start = os.time()` at HUD build, only overwritten by a payload that never
+	-- arrived), so after ten minutes the 10m card turned green, said "Ready to claim", and every
+	-- press came back "Keep playing! Not ready yet." A ladder that can never be claimed by the one
+	-- player in a Studio test and by whoever loads in first on a real server.
+	--
+	-- The same nil is why the "TODAY IN TOTAL" banner read the session's own length: `pushStatus`
+	-- is what sends `dailyStart`, and it only ran from the handler above.
+	--
+	-- THROUGH `beginSession`, not a two-line copy: this path has to bank `lastTick` and push the
+	-- status too, and a shorter version that only set `sessionStart` would leave the daily ladder
+	-- exactly as broken as it found it.
+	for _, player in ipairs(Players:GetPlayers()) do
+		-- Guarded, because `PlayerAdded` is already connected one line up: a player who joins
+		-- between the connect and this loop is in BOTH, and re-stamping their start would move
+		-- their clock backwards by however long the sweep took.
+		if sessionStart[player.UserId] == nil then
+			task.spawn(beginSession, player)
+		end
+	end
 
 	Players.PlayerRemoving:Connect(function(player)
 		sessionStart[player.UserId] = nil

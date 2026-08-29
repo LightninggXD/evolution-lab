@@ -208,7 +208,39 @@ local ADOPT = { PriceCardAnchor = true, EggOddsAnchor = true }
 -- named constant rather than being deleted along with the code, because 30.24 put the eggs inside
 -- that pen on her own instruction and `false` is how the pen comes back in one line. Radius 45
 -- about the fountain anchor.
-local DROP_PLAZA_FENCE = true
+--
+-- ===== 👤 AND SHE REVERSED IT THREE DAYS LATER, ON A PLAY CAPTURE (34.45, 2026-08-28) =====
+-- *"ove ogradice su u editu drugacije, detaljno pregledaj edit i kopiraj da tako bude i u play"*
+-- -- a Play screenshot of the dirt road past the egg podiums. The Edit world is the reference now,
+-- not the generator, and the whole complaint is THIS LINE.
+--
+-- WHY IT IS THIS LINE AND NOT THE FENCE ART. Measured before changing anything, because "the
+-- fences look different" reads as an art fault and is not one:
+--   * There is exactly ONE fence asset anywhere near the Forest village -- `Fence1`, twenty-four
+--     of them in `ServerStorage.Maps.ForestVillage`. Six MeshParts off one asset pack (two chunky
+--     posts, two planks, a capping rail and a wire), and the map brings its own, so Edit and Play
+--     draw the SAME model from the SAME source. Nothing recolours or rescales it on either side.
+--   * ZoneBuilder's own street fence -- `FenceRun`, the `Vill_Fence` mesh -- is not the answer
+--     either: `ForestMapService.DROP_PREFIX` carries "Fence", so a mapped zone drops every one of
+--     them. Counted live in Edit: 1,292 `FenceRun` in the world, none of them inside Forest.
+--   * Placed the template at `ScaleTo(1.15)` and seated it the way `ForestMapService` does, then
+--     compared against the live Edit world: every surviving `Fence1` lands within a stud of where
+--     the generator puts it. Same art, same scale, same spots.
+-- What is NOT the same is how many of them there are round the eggs. `Workspace.Zones` is stamped
+-- BuildVersion 138 and the code is at 140 -- so Edit is a snapshot taken BEFORE 2026-08-25, with
+-- the pen still standing, and Play is the world this constant has been emptying ever since. Four of
+-- the six pen fences are still there in Edit at (-45, -2), (7.8, -2), (-46.7, 8.8) and (9.7, 8.8),
+-- ringing the three egg podiums beside the dirt road. That is what she photographed the absence of.
+--
+-- THE EGGS STILL FIT, AND EDIT IS THE PROOF RATHER THAN THE ARITHMETIC. The worry with putting the
+-- pen back is `EGG_SLOTS`: it opened out to +/-24 in 32.x, when there was no pen to stay inside of,
+-- and the header above says `EGG_RING` was 18 for exactly that reason. But the eggs in the Edit
+-- snapshot stand at (-43, 4.3), (-19, 8.3) and (5, 4.3) -- which IS `fountain.pos` + this file's
+-- current +/-24 slots -- with the pen around them and nothing intersecting. The podium is sized off
+-- the egg's SHELL (7.3 studs, so radius 4.7), not off the model's 11-stud box, and the nearest
+-- fence is 6.3 studs away. So the slots do NOT have to come back in with the fence, and moving them
+-- would be inventing a third arrangement rather than copying the one she asked for.
+local DROP_PLAZA_FENCE = false
 
 local function adoptStrays(shop, claimed, slots)
 	if #slots == 0 then return 0 end
