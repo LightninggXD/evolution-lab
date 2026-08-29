@@ -23,6 +23,18 @@
 -- allowed to be a few frames out; it can never decide a par bonus.
 --
 -- =====================================================================================
+-- IT IS A STRIP AND NOT A CARD, AND THAT IS 34.49
+-- =====================================================================================
+-- The first version stacked five things down a 340 x 158 column -- title, step, bar, a 28 px timer
+-- and a 160 x 36 LEAVE button -- and the owner photographed it covering the course she was trying
+-- to run: *"ovaj tajmer je prevelik, znaci pola ekrana zauzme"*. The block above is the reason that
+-- was wrong rather than merely large: a card is something you STOP to read, and everything here is
+-- read at a sprint. So the same five fields are laid out ACROSS instead of down -- route and
+-- checkpoint in a left column, the clock and its par right-aligned beside them, a small LEAVE at
+-- the end and the progress bar as a 3 px rule along the bottom edge. 392 x 46, which is 29% of the
+-- pixels and leaves the top of the screen to the course.
+--
+-- =====================================================================================
 -- PAR IS A TARGET AND THE COLOUR SAYS SO
 -- =====================================================================================
 -- Mint under, amber over -- and it goes amber rather than red, because missing par still finishes
@@ -48,15 +60,21 @@ local capsule = nil
 local titleLine = nil
 local stepLine = nil
 local timeLine = nil
+local parLine = nil
 local barFill = nil
 local state = nil
+
+-- One strip, laid out in pixels rather than scale so it reads the same on every window. The two
+-- columns are 12..176 (route) and 180..328 (clock); LEAVE takes 334..380 and the bar is the rule
+-- underneath all of it.
+local STRIP_W, STRIP_H = 392, 46
 
 local function build(screenGui)
 	capsule = Instance.new("Frame")
 	capsule.Name = "AdventureRun"
 	capsule.AnchorPoint = Vector2.new(0.5, 0)
 	capsule.Position = UDim2.new(0.5, 0, 0, 148)
-	capsule.Size = UDim2.new(0, 340, 0, 158)
+	capsule.Size = UDim2.new(0, STRIP_W, 0, STRIP_H)
 	capsule.BackgroundColor3 = Color3.fromRGB(26, 24, 40)
 	capsule.BackgroundTransparency = 0.15
 	capsule.BorderSizePixel = 0
@@ -69,7 +87,7 @@ local function build(screenGui)
 	capsule.Parent = screenGui
 
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 16)
+	corner.CornerRadius = UDim.new(0, 12)
 	corner.Parent = capsule
 
 	local stroke = Instance.new("UIStroke")
@@ -79,25 +97,56 @@ local function build(screenGui)
 
 	titleLine = Common.Line(capsule, {
 		name = "Route",
-		size = UDim2.new(1, -16, 0, 28),
-		position = UDim2.new(0, 8, 0, 8),
-		textSize = 24,
+		size = UDim2.new(0, 164, 0, 19),
+		position = UDim2.new(0, 12, 0, 5),
+		textSize = 16,
+		xAlign = Enum.TextXAlignment.Left,
+		strokeThickness = 2,
 		zIndex = 42,
 	})
 
 	stepLine = Common.Line(capsule, {
 		name = "Step",
-		size = UDim2.new(1, -16, 0, 22),
-		position = UDim2.new(0, 8, 0, 38),
-		textSize = 20,
+		size = UDim2.new(0, 164, 0, 16),
+		position = UDim2.new(0, 12, 0, 24),
+		textSize = 13,
+		xAlign = Enum.TextXAlignment.Left,
 		color = Color3.fromRGB(214, 214, 240),
+		strokeThickness = 2,
 		zIndex = 42,
 	})
 
+	timeLine = Common.Line(capsule, {
+		name = "Timer",
+		size = UDim2.new(0, 148, 0, 21),
+		position = UDim2.new(0, 180, 0, 4),
+		textSize = 18,
+		xAlign = Enum.TextXAlignment.Right,
+		color = UNDER,
+		strokeThickness = 2,
+		zIndex = 42,
+	})
+
+	-- Par on its own line rather than in the clock's string. At this size "0:06.3  /  par 2:08" is
+	-- 19 characters in a 148 px column and `TextTruncate` would eat the end of it -- and the end is
+	-- the half that says what you are chasing.
+	parLine = Common.Line(capsule, {
+		name = "Par",
+		size = UDim2.new(0, 148, 0, 15),
+		position = UDim2.new(0, 180, 0, 25),
+		textSize = 12,
+		xAlign = Enum.TextXAlignment.Right,
+		color = Color3.fromRGB(190, 190, 216),
+		strokeThickness = 2,
+		zIndex = 42,
+	})
+
+	-- The bar is the strip's bottom edge, not a widget in the middle of it. Three pixels is enough
+	-- to read a quarter-full bar at a glance, which is all this number ever has to say.
 	local barTrack = Instance.new("Frame")
 	barTrack.Name = "Bar"
-	barTrack.Size = UDim2.new(1, -32, 0, 12)
-	barTrack.Position = UDim2.new(0, 16, 0, 64)
+	barTrack.Size = UDim2.new(0, STRIP_W - 24, 0, 3)
+	barTrack.Position = UDim2.new(0, 12, 0, STRIP_H - 8)
 	barTrack.BackgroundColor3 = Color3.fromRGB(52, 48, 72)
 	barTrack.BorderSizePixel = 0
 	barTrack.ZIndex = 41
@@ -119,23 +168,14 @@ local function build(screenGui)
 	fillCorner.CornerRadius = UDim.new(1, 0)
 	fillCorner.Parent = barFill
 
-	timeLine = Common.Line(capsule, {
-		name = "Timer",
-		size = UDim2.new(1, -16, 0, 32),
-		position = UDim2.new(0, 8, 0, 82),
-		textSize = 28,
-		color = UNDER,
-		zIndex = 42,
-	})
-
 	local leave = Common.Button(capsule, {
 		name = "Leave",
 		text = "LEAVE",
-		size = UDim2.new(0, 160, 0, 36),
-		position = UDim2.new(0.5, 0, 0, 116),
-		anchorPoint = Vector2.new(0.5, 0),
+		size = UDim2.new(0, 50, 0, 24),
+		position = UDim2.new(0, 334, 0, 11),
 		colors = Common.Color.Leave,
-		textSize = 22,
+		textSize = 13,
+		radius = 5,
 		zIndex = 43,
 	})
 	-- LEAVING IS A DOOR AND NOT DECORATION. A course has a `PortalGate` you can walk back into, but
@@ -155,8 +195,9 @@ local function build(screenGui)
 		local par = route and route.parSeconds or 0
 		local elapsed = workspace:GetServerTimeNow() - (state.startedAt or 0)
 		local over = par > 0 and elapsed > par
-		timeLine.Text = ("%s  /  par %s"):format(Common.ClockTenths(elapsed), Common.Clock(par))
+		timeLine.Text = Common.ClockTenths(elapsed)
 		timeLine.TextColor3 = over and OVER or UNDER
+		parLine.Text = "par " .. Common.Clock(par)
 		barFill.BackgroundColor3 = over and OVER or UNDER
 	end)
 end

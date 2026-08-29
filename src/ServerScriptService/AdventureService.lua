@@ -66,6 +66,13 @@ local runs = {}
 -- rather than a key, because the gate is "is anybody on THIS course" and a rebuilt course is a
 -- different model -- one that must not leave the old one still being driven.
 local animated = {}
+-- ===== THE CURTAINS, INDEXED BY THE COURSE THEY STAND ON (34.50) =====
+-- Keyed by MODEL rather than kept in one flat list, because the hit test below runs per player per
+-- frame and a player can only ever be zapped by a laser on the course they are standing on. A
+-- rebuilt course is a different model, so the entry is replaced wholesale and any model that has
+-- been destroyed is dropped at the next registration -- the same "the model is the identity" rule
+-- `animated` is written to.
+local hazardsByModel = {}
 
 local folder -- workspace.Adventures
 
@@ -209,6 +216,66 @@ local function registerAnimated(model)
 	end
 end
 
+-- Every curtain on one course, gathered at build time exactly as the movers are. The blink is
+-- driven from `AdventureMap`'s three attributes rather than recomputed here, so a re-tuned cadence
+-- is one edit in the file that draws the thing.
+local function registerHazards(model)
+	for m in pairs(hazardsByModel) do
+		if not m.Parent then hazardsByModel[m] = nil end
+	end
+	local list = {}
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") and part.Name == "Laser" then
+			table.insert(list, {
+				part = part,
+				-- `math.max(.., 0.4)` so a mis-authored zero period cannot divide by nothing and
+				-- strobe the whole course at frame rate.
+				period = math.max(part:GetAttribute("LaserPeriod") or 2.5, 0.4),
+				phase = part:GetAttribute("LaserPhase") or 0,
+				duty = math.clamp(part:GetAttribute("LaserDuty") or 0.45, 0.05, 0.9),
+				light = part:FindFirstChildOfClass("PointLight"),
+				lit = false,
+			})
+		end
+	end
+	if #list > 0 then hazardsByModel[model] = list end
+end
+
+-- ===== IS THIS BODY STANDING IN A LIT CURTAIN =====
+--
+-- THE TEST IS THE ROOT PART, NOT THE CHARACTER'S BOX, and that is measured rather than convenient.
+-- Every spatial query in this game reports open air where the visible body is -- the skin limbs are
+-- `CanQuery = false` (`roblox-skinmesh-limbs-are-canquery-false`) -- so `GetPartBoundsInBox` is not
+-- available here at all. `GetExtentsSize` is available and is the wrong shape: it swells with
+-- accessories and outstretched arms, so a curtain would zap a player whose sleeve entered it.
+--
+-- The `HumanoidRootPart` scales with the body and is roughly its torso column: measured live on a
+-- low-stage character, HRP 3.54 x 2.67 x 1.77 inside extents of 7.3 x 9.1 x 8.1. That is the part
+-- of a player that is unambiguously "in the beam" at both ends of a body ladder that runs from
+-- about 5 studs across to 45.
+--
+-- The vertical band is generous on purpose: the curtain spans deck+1 to deck+35 and a small body's
+-- root sits ~3 studs up while a stage-twenty one sits ~20, so both are inside it, and so is either
+-- of them at the top of a 13.9-stud jump. There is no height at which a player is over the beam.
+local function laserHit(run, hrp)
+	local list = hazardsByModel[run.map]
+	if not list then return nil end
+	local pos, size = hrp.Position, hrp.Size
+	local r = math.max(size.X, size.Z) / 2
+	local hy = size.Y / 2 + 2
+	for _, hz in ipairs(list) do
+		if hz.lit and hz.part.Parent then
+			local c, sz = hz.part.Position, hz.part.Size
+			if math.abs(pos.X - c.X) < sz.X / 2 + r
+				and math.abs(pos.Z - c.Z) < sz.Z / 2 + r
+				and math.abs(pos.Y - c.Y) < sz.Y / 2 + hy then
+				return hz
+			end
+		end
+	end
+	return nil
+end
+
 local function wireMap(model)
 	for _, part in ipairs(model:GetDescendants()) do
 		if part:IsA("BasePart") then
@@ -270,6 +337,7 @@ function AdventureService.EnsureMap(route)
 	if built then
 		registerAnimated(model)
 		wireMap(model)
+		registerHazards(model)
 		print(("[AdventureService] built %s (tier %d, %d sections, %d parts)")
 			:format(model.Name, route.tier, route.sections, #model:GetDescendants()))
 	end
@@ -546,22 +614,63 @@ function AdventureService.Init()
 			end
 		end
 
+		-- ===== THE CURTAINS BLINK IN THE SAME PASS (34.50) =====
+		-- One phase computation per laser and a property write ONLY on the frame the state actually
+		-- flips -- a curtain is lit for a second at a time, so writing `Transparency` every frame
+		-- would be sixty replicated property changes a second per laser for no visible difference.
+		-- A course nobody is on goes dark and stays dark: `live` gates this exactly as it gates the
+		-- movers, and a dark curtain is still visible (`AdventureMap.LASER_DARK`), so a player
+		-- arriving on a quiet course can still see where the beams are.
+		for model, list in pairs(hazardsByModel) do
+			local running = live[model] or false
+			for _, hz in ipairs(list) do
+				if hz.part.Parent then
+					local lit = running and ((t / hz.period + hz.phase) % 1) < hz.duty
+					if lit ~= hz.lit then
+						hz.lit = lit
+						hz.part.Transparency = lit and AdventureMap.LASER_LIT or AdventureMap.LASER_DARK
+						if hz.light then hz.light.Enabled = lit end
+					end
+				end
+			end
+		end
+
 		-- ...and the fall catch, in the same pass. There are no kill bricks on a course: the drop is
 		-- open air, and this is what turns it into a checkpoint respawn rather than a death at the
-		-- game's single SpawnLocation 4,000 studs away.
+		-- game's single SpawnLocation 4,000 studs away. A laser is the SAME failure with a different
+		-- sentence on it -- 34.50's whole point is that "ubije te" cannot mean a real death here.
 		for player, run in pairs(runs) do
 			local character = player.Character
 			local hrp = character and character:FindFirstChild("HumanoidRootPart")
-			if hrp and hrp.Position.Y < run.voidY then
+			local fell = hrp and hrp.Position.Y < run.voidY
+			-- THE COOLDOWN IS WHAT STOPS A CURTAIN EATING A RUN. `placeAt` moves the body inside
+			-- the same frame, but the checkpoint pad can itself be inside a beam's reach on a
+			-- short beat, and a player put back into one would be zapped again before they could
+			-- move. One second is longer than any curtain's lit half at any tier.
+			local zapped = false
+			if hrp and not fell and os.clock() - (run.zappedAt or 0) > 1 then
+				zapped = laserHit(run, hrp) ~= nil
+			end
+			if hrp and (fell or zapped) then
 				local cf = checkpointCFrame(run)
 				if cf then
 					placeAt(player, cf)
+					if zapped then
+						run.zappedAt = os.clock()
+						-- The pad lights up the way it does when it is claimed: the standing rule
+						-- on this project is that a thing that happened somewhere is drawn there,
+						-- and where you have been put back is the thing worth pointing at.
+						if run.checkpoint and run.checkpoint.Parent then
+							flashPad(run.checkpoint)
+						end
+					end
 					-- `error` is the one kind in `MainUI`'s handler that draws a plain toast with
-					-- the message it is given, and a fall IS the failure it reads as. Every other
-					-- kind carries its own fixed wording.
+					-- the message it is given, and both of these ARE the failure it reads as. Every
+					-- other kind carries its own fixed wording.
 					Remotes.Notify:FireClient(player, {
 						kind = "error",
-						message = ("Fell \u{2014} back to checkpoint %d"):format(run.index),
+						message = (zapped and "Zapped \u{2014} back to checkpoint %d"
+							or "Fell \u{2014} back to checkpoint %d"):format(run.index),
 					})
 				else
 					-- The map went away underneath a live run (a version bump mid-session). Nothing

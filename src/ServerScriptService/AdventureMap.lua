@@ -58,6 +58,30 @@
 -- catches anyone below `GetVoidY()` and puts them back on their checkpoint.
 --
 -- =====================================================================================
+-- ...AND SO IS BEING ZAPPED (34.50)
+-- =====================================================================================
+-- The owner, on a capture of route 12: *"ovaj lobby prelak, tj sve jedno je prelak, ovo sve to
+-- plavo moze biti kao laser ako ga pipnes ubije te"*. She is right about the shape of the problem:
+-- until this row every obstacle on a course was a GAP or a PUSH, and against the fixed profile
+-- above the biggest gap in the game is 42 studs of a 60-stud reach. Nothing could fail you except
+-- walking off an edge, so a course was a scenic walk with a clock on it.
+--
+-- "Ubije te" cannot be a kill brick, for exactly the reason written directly above: the death would
+-- eject the player to Forest, 4,000 studs down the strip. So a laser does what the void already
+-- does -- puts you back on your last checkpoint -- and it is the SAME code path in
+-- `AdventureService`'s Heartbeat, one loop further down.
+--
+-- THE CURTAIN IS TIMED AND NEVER JUMPED, and that is what makes it fair at both ends of the body
+-- ladder. It spans the beat wall to wall and stands 34 studs tall against a 13.9-stud apex, so
+-- there is no route round it and no route over it -- there is only waiting for it to go dark. That
+-- is the one obstacle shape whose difficulty does not depend on how big the player is, which is
+-- the property the whole file is built around.
+--
+-- AND IT IS VISIBLE WHILE IT IS HARMLESS. A curtain that vanishes when it is off is a trap you can
+-- only learn by dying in it; dark is `Transparency = 0.72` with its light out -- a ghost of where
+-- the beam will be -- and lit is 0.1 with the light on.
+--
+-- =====================================================================================
 -- WHERE IT SITS
 -- =====================================================================================
 -- The zone strip runs +Z from Forest at `ZoneSpacing` 1900 and is 1250 studs wide about x = 0; the
@@ -75,7 +99,7 @@ local AdventureMap = {}
 
 -- Bump when the SHAPE changes. `AdventureService` compares this against the model's own attribute
 -- and rebuilds that ONE course, leaving the other nineteen and the twenty-one zones untouched.
-AdventureMap.MAP_VERSION = 1
+AdventureMap.MAP_VERSION = 2
 
 -- ===== THE MOVEMENT PROFILE (see the header -- this is not a preference) =====
 AdventureMap.WALK_SPEED = 80
@@ -258,6 +282,68 @@ local function spinner(ctx, x, y, z, length, degPerSecond)
 	return bar
 end
 
+-- ===== A LASER CURTAIN (34.50) =====
+--
+-- Neon in the route's own accent, spanning the beat it stands on, blinking on a cadence the route's
+-- tier sets. Nothing here moves and nothing here collides: the part is a marker, and
+-- `AdventureService` owns both the blink and the hit test, in the Heartbeat it already runs.
+--
+-- IT IS NOT DRIVEN BY `Touched`, and that is a decision rather than an oversight. A curtain that
+-- lights up around a player who is standing still fires no `Touched` at all -- the contact is not
+-- new -- so the one case the timing puzzle is built to punish is the one case the event misses.
+-- `CanTouch = false` says so out loud rather than leaving a live event nobody reads.
+--
+-- 34 STUDS TALL, STARTING ONE STUD OFF THE DECK, and both numbers are the same measurement the
+-- `spinner` bar records: the bodies on a course run from about 5 studs to 45, so an obstacle sized
+-- for either one is nothing at all to the other. A curtain that reaches from the deck to above the
+-- tallest body's root, on a course whose jump apex is 13.9, cannot be cleared by anybody.
+local LASER_H = 34
+local LASER_T = 3
+AdventureMap.LASER_LIT = 0.1
+AdventureMap.LASER_DARK = 0.72
+
+-- Period and duty from the tier, as one function, because the two placements below must not drift
+-- into two different difficulty curves. `duty` is the share of the cycle the beam is LIT -- under a
+-- half at every tier, so the gap is always the longer half of the cycle.
+--   tier 1  -> 2.84 s, 41% lit (1.68 s of gap)      tier 20 -> 2.00 s, 52% lit (0.96 s of gap)
+function AdventureMap.LaserCadence(tier)
+	return 2.9 - math.min(tier, 15) * 0.06, 0.40 + math.min(tier, 20) * 0.006
+end
+
+local function laser(ctx, x, y, z, width, period, phase, duty)
+	local bar = newPart({
+		Name = "Laser",
+		Size = Vector3.new(width, LASER_H, LASER_T),
+		Position = Vector3.new(x, y + 1 + LASER_H / 2, z),
+		Color = vivid(ctx.accent),
+		Material = Enum.Material.Neon,
+		Transparency = AdventureMap.LASER_DARK,
+		CanCollide = false,
+		CanTouch = false,
+		Parent = ctx.model,
+	})
+	bar:SetAttribute("LaserPeriod", period)
+	bar:SetAttribute("LaserPhase", phase)
+	bar:SetAttribute("LaserDuty", duty)
+	local light = addLight(bar, ctx.accent, 52, 2.4)
+	light.Enabled = false
+
+	-- The two emitters it hangs between. Without them the beam is a coloured sheet floating over the
+	-- deck with nothing to explain it -- the same "flat sticker" fault the `Lip` under every slab is
+	-- there to answer, and the posts are what make a dark curtain readable as a thing that is off.
+	for _, side in ipairs({ -1, 1 }) do
+		newPart({
+			Name = "LaserPost",
+			Size = Vector3.new(8, LASER_H + 8, 8),
+			Position = Vector3.new(x + side * (width / 2 + 4), y + (LASER_H + 8) / 2, z),
+			Color = darken(ctx.accent, 0.45),
+			Material = Enum.Material.Metal,
+			Parent = ctx.model,
+		})
+	end
+	return bar
+end
+
 -- ===== THE BEATS =====
 --
 -- Five of them, and each one takes the far edge of what came before and returns the far edge of
@@ -298,6 +384,23 @@ function BEATS.beam(ctx, z)
 		CanCollide = false,
 		Parent = ctx.model,
 	})
+
+	-- ===== THE CURTAINS, AND THE PHASE STEP IS THE WHOLE PUZZLE (34.50) =====
+	-- Two to four gates evenly along the bridge, each one a whole phase-step behind the last, so the
+	-- dark half travels down the bridge at about the speed a player crosses it: at WalkSpeed 80 a
+	-- (gates + 1) spacing of ~66 studs is 0.83 s and the step at tier 12 is 0.73 s. A player who
+	-- keeps moving threads all of them; one who stops has to re-time from a standstill, which is
+	-- this beat costing par time rather than lives.
+	--
+	-- ON THE BEAM RATHER THAN OVER A GAP, and that is the fairness rule for placing any of these: a
+	-- curtain you meet in mid-air is a coin toss, because a jump cannot be aborted. Every laser in
+	-- this file stands on ground the player can stop on.
+	local gates = 2 + math.min(math.floor(ctx.tier / 7), 2)
+	local period, duty = AdventureMap.LaserCadence(ctx.tier)
+	for i = 1, gates do
+		laser(ctx, ctx.x, ctx.y, cz - length / 2 + length * i / (gates + 1),
+			BEAM_W + 16, period, (i - 1) / gates, duty)
+	end
 	return cz + length / 2
 end
 
@@ -330,9 +433,17 @@ end
 -- margin a player needs when they are 45 studs wide and the step is 56.
 function BEATS.climb(ctx, z)
 	local rises = { 9, 18, 9, 0 }
+	local period, duty = AdventureMap.LaserCadence(ctx.tier)
 	for i, rise in ipairs(rises) do
 		local cz = z + (i == 1 and GAP_EASY or 22) + 28
 		slab(ctx, "Step", ctx.x, ctx.y + rise, cz, 56, 56, lighten(ctx.ground, 0.08 * i))
+		-- ONE curtain, on the TOP step, and it is the only obstacle in the beat. The step is 56
+		-- square, so there is somewhere to stand and wait -- the fairness rule from `beam` -- and
+		-- it turns the climb from four hops into a hold at the summit. A second curtain lower down
+		-- was refused for the same reason: two waits in one beat is a corridor, not a climb.
+		if i == 2 then
+			laser(ctx, ctx.x, ctx.y + rise, cz, 56 + 16, period, 0.5, duty)
+		end
 		z = cz + 28
 	end
 	return z
