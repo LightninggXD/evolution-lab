@@ -94,11 +94,34 @@ local ChestService = {}
 -- Failing all four the service warns and builds nothing. It never errors: a missing prop must not
 -- take `ServerMain` down with it, because a dangling require aborts the rest of the boot silently
 -- ([[evolution-lab-pushing-into-another-lane]]).
+-- ===== WHAT THE OWNER ACTUALLY INSERTED, MEASURED ON THE LIVE SERVER (34.58) =====
+--
+-- She wrote *"ubacila sam i 2d i 3d za chest"*, and the first boot of this file printed
+-- `no chest art found`. The reason, read off the running datamodel rather than guessed:
+--
+--     Workspace["coin chest"]  is a **Decal**, texture rbxassetid://79295568252541
+--       └─ chest               is a **Decal**, texture rbxassetid://8281320680
+--
+-- Both halves of what landed are 2D. There is no inserted MODEL, so the first four paths below can
+-- never resolve and the row's 3D half had no art at all. The two texture ids are kept here because
+-- they are the only record of them anywhere in `src/`, and 34.58's icon half wants one of them.
+--
+-- `Workspace.GroupChest` IS a real chest and it is ours: `Base` / `Trim` / `Lid` / `Lock`, 4.2 x 3.6
+-- x 3.4 studs, standing at (48, 3, 335) as the group-reward prop. It is the fallback rather than the
+-- first choice -- if she parks a model of her own at `ServerStorage.SourceProps.RelicChest` it wins
+-- on the next boot with no edit here -- but a grotto with a working chest in the game's own art
+-- beats a grotto with a warning in the log. It also happens to carry a part literally named `Lid`,
+-- which is what the hinge below looks for, so the open animation works on it without a guess.
+-- PUBLISHED rather than kept local, so the icon half of 34.58 has one place to read them from
+-- and they are not two dead strings a lint has to forgive.
+ChestService.Icon2D = "rbxassetid://8281320680"          -- hers; the inner `chest` decal
+ChestService.Icon2DAlt = "rbxassetid://79295568252541"   -- hers; the outer `coin chest` decal
 local SOURCE_PATHS = {
 	{ "ServerStorage", "SourceProps", "RelicChest" },
 	{ "ServerStorage", "SourceProps", "coin chest", "chest" },
 	{ "Workspace", "coin chest", "chest" },
 	{ "Workspace", "coin chest" },
+	{ "Workspace", "GroupChest" },
 }
 
 local FOLDER_NAME = "Chests"
@@ -153,7 +176,7 @@ local YAW = math.pi
 
 -- ===== THE PROMPT'S REACH, SET SECOND =====
 -- `Model:ScaleTo()` multiplies `ProximityPrompt.MaxActivationDistance` along with everything else
--- ([[roblox-scaleto-scales-prompt-reach`]] -- 18 silently becomes 9 at ScaleTo(0.5)). The prompt
+-- ([[roblox-scaleto-scales-prompt-reach]] -- 18 silently becomes 9 at ScaleTo(0.5)). The prompt
 -- below is therefore CREATED AFTER the scale, so this number is literal studs and stays literal.
 local PROMPT_REACH = 14
 local PROMPT_HOLD = 0.35
@@ -178,6 +201,7 @@ local lidPart = nil        -- the hinging piece, or nil if her art does not name
 local lidBaseCF = nil      -- its closed pose, so a re-open cannot stack on a half-open one
 local lidHinge = nil       -- the world-space hinge, computed once at build time
 local chestPivot = nil     -- the model's closed pivot, same reason as lidBaseCF
+local chestTop = nil       -- where the floating word is drawn; measured once, at build
 local animating = false
 local lastTrigger = {}     -- UserId -> os.clock(), the double-fire debounce
 
@@ -236,7 +260,27 @@ end
 local function sanitise(model)
 	for _, d in ipairs(model:GetDescendants()) do
 		if d:IsA("LuaSourceContainer") or d:IsA("ProximityPrompt") or d:IsA("ClickDetector")
-			or d:IsA("SpawnLocation") or d:IsA("Humanoid") then
+			or d:IsA("SpawnLocation") or d:IsA("Humanoid")
+			-- ===== AND ITS SIGN, WHICH IS THE ONE THE FIRST LIVE TEST CAUGHT (34.58) =====
+			-- The art this falls back to is `Workspace.GroupChest`, and a chest model does not
+			-- arrive as bare geometry -- it arrives wearing whatever it was built to advertise.
+			-- Measured on the running server: the seated grotto chest was drawing
+			-- `👥 GROUP REWARDS` and `+10% DNA & Daily Chest` over itself, because the clone
+			-- carried the source's `ChestLabel` BillboardGui with it. A relic chest telling players
+			-- it pays a group bonus is worse than a chest with no sign at all, and no amount of
+			-- reading the code would have found it -- only pressing the thing did
+			-- ([[evolution-lab-press-the-button]]).
+			--
+			-- Both Gui classes go, not just the one seen: a `SurfaceGui` on the lid is the same
+			-- fault with a different class name. This file draws its own floating word at open time
+			-- and the prompt carries the chest's name, so nothing here loses anything a borrowed
+			-- sign was providing.
+			--
+			-- `Decal` and `Texture` are deliberately KEPT. They carry no words -- they are the wood
+			-- grain and the metal banding a chest is made of -- and stripping them would strip the
+			-- look off the next model the owner parks at `SourceProps.RelicChest`, which is the
+			-- whole point of adopting her art rather than building our own.
+			or d:IsA("BillboardGui") or d:IsA("SurfaceGui") then
 			d:Destroy()
 		end
 	end
@@ -450,17 +494,14 @@ local function playOpen()
 end
 
 -- Where the floating word is drawn: over the chest, in the room, never on the middle of the screen.
-local function fxPoint()
-	if not chest then return nil end
-	local lo, hi = worldBox(chest)
-	if not lo then return nil end
-	return Vector3.new((lo.X + hi.X) / 2, hi.Y + 1.6, (lo.Z + hi.Z) / 2)
-end
-
+--
+-- MEASURED ONCE AT BUILD, not per press. Two reasons and the second is the real one: a full AABB
+-- sweep of the model on every trigger is work nobody needs, and while the POP is playing the model
+-- is a third of a stud off its seat -- so a box taken mid-animation would put the word somewhere
+-- slightly different every time it is read.
 local function tell(player, text, colour, big)
-	local p = fxPoint()
-	if not p then return end
-	ChestFx:FireClient(player, { p = p, text = text, color = colour, big = big == true })
+	if not chestTop then return end
+	ChestFx:FireClient(player, { p = chestTop, text = text, color = colour, big = big == true })
 end
 
 -- ===== THE ONE HANDLER =====
@@ -545,14 +586,20 @@ local function build()
 	if existing then existing:Destroy() end
 
 	-- A COPY. Her original stays exactly where she put it -- see the SOURCE_PATHS block.
+	--
+	-- `Clone()` RETURNS NIL ON A NON-ARCHIVABLE INSTANCE, silently, and that is the one failure here
+	-- that would otherwise surface as "attempt to index nil" fifteen lines down rather than as a
+	-- sentence naming the prop.
 	local model
 	if source:IsA("BasePart") then
-		model = Instance.new("Model")
 		local part = source:Clone()
+		if not part then return nil, ("%s is not Archivable -- Clone() returned nil"):format(sourcePath) end
+		model = Instance.new("Model")
 		part.Parent = model
 		model.PrimaryPart = part
 	else
 		model = source:Clone()
+		if not model then return nil, ("%s is not Archivable -- Clone() returned nil"):format(sourcePath) end
 	end
 	model.Name = MODEL_NAME
 	sanitise(model)
@@ -579,10 +626,18 @@ local function build()
 	-- ===== SCALE FIRST, DRESS SECOND =====
 	-- [[roblox-scaleto-scales-prompt-reach]]. Every prompt, light and emitter below is created AFTER
 	-- this line, so none of their numbers is silently multiplied.
+	--
+	-- `ScaleTo` IS ABSOLUTE, NOT A MULTIPLIER. It sets `Model.Scale`, so a source she had already
+	-- scaled in Studio would be RESET by a bare `ScaleTo(ratio)` rather than adjusted by it. The
+	-- ratio is measured against the box as it stands and then applied on top of whatever scale the
+	-- clone arrived carrying.
 	local height = hi.Y - lo.Y
 	if height > 0.01 then
-		local scale = math.clamp(TARGET_HEIGHT / height, MIN_SCALE, MAX_SCALE)
-		model:ScaleTo(scale)
+		local ratio = math.clamp(TARGET_HEIGHT / height, MIN_SCALE, MAX_SCALE)
+		local ok = pcall(function()
+			model:ScaleTo(model:GetScale() * ratio)
+		end)
+		if not ok then model:ScaleTo(ratio) end
 	end
 
 	-- Seat it: pose at the offset, then settle onto the MEASURED floor rather than an assumed y.
@@ -697,6 +752,8 @@ local function build()
 	assertClearOfSecret()
 
 	local flo, fhi = worldBox(model)
+	chestTop = Vector3.new((flo.X + fhi.X) / 2, fhi.Y + 1.6, (flo.Z + fhi.Z) / 2)
+
 	return model, nil, {
 		seat = Vector3.new((flo.X + fhi.X) / 2, flo.Y, (flo.Z + fhi.Z) / 2),
 		size = fhi - flo,
@@ -715,25 +772,68 @@ end
 -- grotto floor, so it must run after `ForestMapService.Init` (which is what runs `MapWaterfall`) --
 -- i.e. after `ZoneBuilder.Build()`. It sits beside `TrainingDummyService.Init()` because that call
 -- has the identical constraint for the identical reason. It reads no other service's state.
-function ChestService.Init()
-	local model, why, seated = build()
-	if not model then
-		-- A WARN AND NOTHING BUILT, never an error. A missing prop must not take the rest of
-		-- `ServerMain` down with it ([[evolution-lab-pushing-into-another-lane]]: a dangling require
-		-- aborts the rest of the boot silently, and this is one line below that in the same file).
-		warn(("[ChestService] no grotto chest this boot -- %s"):format(tostring(why)))
-		return
-	end
+-- ===== THE ART CAN ARRIVE AFTER THIS SERVICE DOES, AND IT DOES (34.58) =====
+--
+-- The first two boots both printed `no chest art found`, and the second one printed it while
+-- listing `Workspace.GroupChest` -- a model that a probe found sitting in the running workspace a
+-- few seconds later. So the lookup was not wrong, it was EARLY: `ChestService.Init` is
+-- `ServerMain:254` and that prop is not parented until something further down finishes.
+--
+-- This is [[evolution-lab-placement-search-ordering]] with the roles reversed. The usual failure is
+-- a search that cannot see what is built after it; here it is a search that gives up on art that is
+-- about to appear. A one-shot lookup at Init can only ever be right for props that exist before
+-- `ServerMain` line 254, which is a promise no hand-placed model makes and no future source
+-- (a boss drop's prop, a season prop, a model the owner parks mid-session) will keep either.
+--
+-- So the lookup RETRIES on a bounded clock rather than being reordered: moving the `Init` call down
+-- ServerMain would fix this one prop and break the next one, and the ordering constraint in this
+-- file's own header (the grotto must exist first) is a LOWER bound, not an upper one. 15 seconds at
+-- half-second steps is 30 tries -- long past the whole boot, and short enough that a genuinely
+-- missing prop still says so while a player is reading the loading screen.
+--
+-- IT NEVER ERRORS AND IT NEVER YIELDS `Init`. The retry runs in its own `task.spawn`, so a missing
+-- prop cannot take the rest of `ServerMain` down with it and cannot delay a single line below it
+-- ([[evolution-lab-pushing-into-another-lane]]: a dangling require aborts the rest of the boot
+-- silently, and this is one line under that in the same file).
+local WAIT_FOR_ART = 15
+local WAIT_STEP = 0.5
 
-	Players.PlayerRemoving:Connect(function(player)
-		lastTrigger[player.UserId] = nil
-	end)
-
+local function announce(seated)
 	print(("[ChestService] grotto chest from %s seated at (%.0f, %.1f, %.0f), %.1f x %.1f x %.1f, "
 		.. "lid %s, prompt reach %d, cooldown %ds (%.1f chests/hour)")
 		:format(tostring(seated.source), seated.seat.X, seated.seat.Y, seated.seat.Z,
 			seated.size.X, seated.size.Y, seated.size.Z, tostring(seated.lid or "none -- pop only"),
 			PROMPT_REACH, CHEST_COOLDOWN, 3600 / CHEST_COOLDOWN))
+end
+
+function ChestService.Init()
+	-- Connected once, whether or not the art ever turns up: it costs nothing and it must not be
+	-- inside the retry, or a chest that arrives late would leave stale trigger stamps behind it.
+	Players.PlayerRemoving:Connect(function(player)
+		lastTrigger[player.UserId] = nil
+	end)
+
+	local model, why, seated = build()
+	if model then
+		announce(seated)
+		return
+	end
+
+	task.spawn(function()
+		local waited = 0
+		while waited < WAIT_FOR_ART do
+			task.wait(WAIT_STEP)
+			waited += WAIT_STEP
+			local m, w, s = build()
+			if m then
+				announce(s)
+				print(("[ChestService] ...the art turned up %.1fs after Init, not at it"):format(waited))
+				return
+			end
+			why = w
+		end
+		warn(("[ChestService] no grotto chest after %ds -- %s"):format(WAIT_FOR_ART, tostring(why)))
+	end)
 end
 
 return ChestService

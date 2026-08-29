@@ -206,7 +206,7 @@ return function(hud)
 
 	-- "2/4" in the corner the diamond leaves empty. The four slots sit on the compass points, so all
 	-- four corners of the 212 px square are free and this costs no geometry.
-	local wornPill, wornLabel = CardKit.Pill(field, {
+	local _, wornLabel = CardKit.Pill(field, {
 		name = "Worn",
 		text = "0/4",
 		size = UDim2.new(0, 46, 0, 20),
@@ -214,7 +214,6 @@ return function(hud)
 		textSize = 13,
 		zIndex = baseZ + 3,
 	})
-	wornPill.Name = "Worn"
 
 	-- centre of each slot inside the 212 px field, in the order described above
 	local SLOT_SPOTS = {
@@ -229,7 +228,12 @@ return function(hud)
 		local spot = SLOT_SPOTS[i]
 		local tile, setTileColors = CardKit.Card(field, {
 			name = "Socket" .. i,
-			size = UDim2.new(0, 58, 0, 58),
+			-- 62, NOT 58: the locked slot has to carry "Rebirth 1" along its bottom edge, which at
+			-- 10 px FredokaOne measures about 52 px, and a 58 px tile leaves 54 px inside its own
+			-- padding. Four pixels of slack is not a margin. At 62 the diamond still clears the
+			-- field: a slot centred at x = 38 spans 7..69 and its outline draws to 3..73, inside the
+			-- 212 px card, and the orb at the centre still has 9 px of air around it.
+			size = UDim2.new(0, 62, 0, 62),
 			position = UDim2.new(0, spot[1], 0, spot[2]),
 			anchorPoint = Vector2.new(0.5, 0.5),
 			colors = EMPTY_SOCKET,
@@ -274,9 +278,9 @@ return function(hud)
 		local costLine = CardKit.Text(tile, {
 			name = "Cost",
 			text = "",
-			size = UDim2.new(1, -4, 0, 14),
-			position = UDim2.new(0, 2, 1, -16),
-			textSize = 11,
+			size = UDim2.new(1, -4, 0, 13),
+			position = UDim2.new(0, 2, 1, -15),
+			textSize = 10,
 			color = Color3.fromRGB(232, 234, 250),
 			xAlign = "Center",
 			zIndex = baseZ + 3,
@@ -757,17 +761,29 @@ return function(hud)
 		})
 		tick.Visible = false
 
-		-- The selection ring. The tile can already be a rarity colour, a ghost and a tick, so being
-		-- SELECTED is drawn as a second stroke rather than as another colour swap -- otherwise the
-		-- action row above would be acting on a tile with no mark on it, which is what makes a
-		-- two-step control feel like it fired on the wrong thing.
-		local ring = Instance.new("UIStroke")
+		-- ===== THE SELECTION RING =====
+		--
+		-- The tile can already be a rarity colour, a ghost and a tick, so being SELECTED is drawn as
+		-- a ring rather than as another colour swap -- otherwise the action row above would be acting
+		-- on a tile carrying no mark at all, which is what makes a two-step control feel like it
+		-- fired on the wrong thing.
+		--
+		-- IT IS ITS OWN FRAME, NOT A UISTROKE ON THE TILE. `CardKit.Card` already puts a stroke on
+		-- this instance and `CardKit.Button` stacks two on its own -- a THIRD on one object is a
+		-- rendering order this kit has never asked for, and a stroke that quietly does not draw is
+		-- exactly the class of fault that only a capture finds. A transparent frame 3 px proud of the
+		-- tile carries its own single stroke and cannot collide with anything.
+		local ring = Instance.new("Frame")
 		ring.Name = "SelectRing"
-		ring.Color = Color3.fromRGB(255, 255, 255)
-		ring.Thickness = 3
-		ring.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-		ring.Enabled = false
+		ring.Size = UDim2.new(1, 6, 1, 6)
+		ring.Position = UDim2.new(0, -3, 0, -3)
+		ring.BackgroundTransparency = 1
+		ring.BorderSizePixel = 0
+		ring.Visible = false
+		ring.ZIndex = baseZ + 4
 		ring.Parent = tile
+		CardKit.Corner(ring, 14)
+		CardKit.Stroke(ring, Color3.fromRGB(255, 255, 255), 3)
 
 		local hit = Instance.new("TextButton")
 		hit.Name = "Hit"
@@ -995,19 +1011,24 @@ return function(hud)
 	local detailName = CardKit.Text(detailCard, {
 		name = "Name",
 		text = "",
-		size = UDim2.new(1, -60, 0, 20),
-		position = UDim2.new(0, 54, 0, 5),
-		textSize = 16,
+		size = UDim2.new(1, -60, 0, 18),
+		position = UDim2.new(0, 54, 0, 4),
+		textSize = 15,
 		zIndex = baseZ + 8,
 		strokeThickness = 3,
 	})
 
+	-- THREE LINES AT 11 px, MEASURED AGAINST THE BOX RATHER THAN AGAINST `TextFits`. The strip has
+	-- 204 px of width here; at 11 px FredokaOne that is roughly 34 characters a line, so 32 px of
+	-- height buys about a hundred characters -- which is a collection relic's blurb plus its rarity,
+	-- its copy count and its set progress with a little room left. A label that overflows still
+	-- reports `TextFits = true` and returns bounds that fit, so the flag could never have said so.
 	local detailEffect = CardKit.Text(detailCard, {
 		name = "Effect",
 		text = "",
-		size = UDim2.new(1, -60, 0, 28),
-		position = UDim2.new(0, 54, 0, 25),
-		textSize = 12,
+		size = UDim2.new(1, -60, 0, 32),
+		position = UDim2.new(0, 54, 0, 22),
+		textSize = 11,
 		color = Color3.fromRGB(244, 247, 255),
 		wrapped = true,
 		yAlign = "Top",
@@ -1257,7 +1278,7 @@ return function(hud)
 				-- a collection relic has no level and is never worn, so neither mark can ever show
 				refs.levelPip.Visible = false
 				refs.tick.Visible = false
-				refs.ring.Enabled = (selectedKey == key)
+				refs.ring.Visible = (selectedKey == key)
 			end
 		elseif entry then
 			for key, refs in pairs(entry.tiles) do
@@ -1274,7 +1295,7 @@ return function(hud)
 				refs.levelPip.Visible = level > 1
 				refs.levelLabel.Text = ("Lv.%d"):format(level)
 				refs.tick.Visible = equippedLookup[key] == true
-				refs.ring.Enabled = (selectedKey == key)
+				refs.ring.Visible = (selectedKey == key)
 			end
 		end
 
@@ -1304,12 +1325,14 @@ return function(hud)
 				detailArt.ImageColor3 = def.tint
 				detailName.Text = def.name
 				local have, total = GameConfig.CountSetRelicsOwned(data, def.zoneKey)
+				-- The blurb stays -- it is the only flavour these two hundred have -- and the rarity
+				-- joins it here, because it came off the NAME line above where it was overflowing.
 				if copies > 0 then
-					detailEffect.Text = ("%s \u{00B7} x%d held \u{00B7} %s set %d/%d"):format(
-						def.rarity, copies, def.zoneName, have, total)
+					detailEffect.Text = ("%s\n%s \u{00B7} x%d held \u{00B7} %s set %d/%d"):format(
+						def.blurb, def.rarity, copies, def.zoneName, have, total)
 				else
-					detailEffect.Text = ("%s \u{00B7} not found yet \u{00B7} %s set %d/%d"):format(
-						def.rarity, def.zoneName, have, total)
+					detailEffect.Text = ("%s\n%s \u{00B7} not found yet \u{00B7} %s set %d/%d"):format(
+						def.blurb, def.rarity, def.zoneName, have, total)
 				end
 			end
 			-- A COLLECTION RELIC IS NOT WORN AND NOT FORGED, and the panel now SAYS so instead of

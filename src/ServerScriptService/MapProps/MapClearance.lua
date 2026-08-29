@@ -382,18 +382,34 @@ function MapClearance.Open(zoneKey, cx, map, protected, spec)
 					inst = c,
 					pos = pos,
 					size = size,
-					movable = not (protected and protected[c])
-						and (MapCut.IsFoliage(c) or MapCut.IsBlankWall(c)),
+						-- FOLIAGE ONLY, and `MapCut.IsBlankWall` is deliberately NOT on this line even
+					-- though every road cut in this map treats the two the same. A blank wall is 60
+					-- to 96 studs long (measured, in that file's own note): carrying one ten studs
+					-- sideways moves a backdrop into open view and fixes nothing. It falls through
+					-- to `held` below and gets named, which is the honest outcome for it.
+					movable = not (protected and protected[c]) and MapCut.IsFoliage(c),
 				}
 			end
 		end
+	end
+
+	-- ===== FURNITURE IS NEVER IN FURNITURE'S WAY =====
+	-- Eight leaderboard boards stand in a row and every one of them is inside its neighbour's
+	-- corridor; a signpost is TWO instances, a `Sign1` pole with a `ThreeDTextObject` floating 7.3
+	-- studs over it and under one stud away in plan, so each is permanently in the other's. Counting
+	-- those would fill `held` with the map's own arrangement and make the tightest-clearance number
+	-- report a sign standing on its own post forever. The author arranged this furniture and
+	-- `MapSquare` rearranges it; this pass clears what has grown up AROUND it.
+	local isFront = {}
+	for _, front in ipairs(fronts) do
+		isFront[front.inst] = true
 	end
 
 	-- What is in the way, and which frontage objects loudest. A prop can block three frontages; the
 	-- one it is DEEPEST into is the one its move opens away from.
 	local jobs, held = {}, {}
 	for _, p in ipairs(props) do
-		if p.size.Y >= MIN_HEIGHT then
+		if p.size.Y >= MIN_HEIGHT and not isFront[p.inst] then
 			local worst, worstNear = nil, math.huge
 			for _, front in ipairs(fronts) do
 				if front.inst ~= p.inst then
@@ -441,9 +457,25 @@ function MapClearance.Open(zoneKey, cx, map, protected, spec)
 				p.pos, p.size = np, ns
 				moved += 1
 			else
-				droppedNames[p.inst.Name] = (droppedNames[p.inst.Name] or 0) + 1
-				p.inst:Destroy()
-				p.pos = nil
+				-- ===== NOTHING IS EVER DELETED HERE, AND THE FIRST BOOT IS WHY =====
+				--
+				-- This branch used to `Destroy()` a prop the ring search could not place, as a last
+				-- resort. On the very first live boot the last resort was not the exception, it was
+				-- the RULE: `moved 3, dropped 18` -- eighteen of the artist's props deleted to open
+				-- twenty-one sight lines, including twelve unnamed `Model`s and two `Pine Tree 02`.
+				--
+				-- That is precisely the fault 34.47 is the record of, and the owner objected to it in
+				-- her own words: the trees are to be RELOCATED, not felled. A pass whose search
+				-- fails four times out of five has a search problem; answering it with a delete
+				-- turns a weak pass into a destructive one, and the map is the one thing here that
+				-- cannot be regenerated.
+				--
+				-- So a prop that cannot be placed is LEFT STANDING and named in the boot line, which
+				-- is the same contract `MapCut.Lane`'s `stay` return has and what `held` already
+				-- does for buildings. The line then reports honestly that the pass could not do its
+				-- job for that prop, instead of reporting a success it bought by deleting the
+				-- evidence.
+				held[p.inst.Name] = (held[p.inst.Name] or 0) + 1
 				dropped += 1
 			end
 		end
@@ -456,7 +488,7 @@ function MapClearance.Open(zoneKey, cx, map, protected, spec)
 	local tightest, tightFront, tightProp = math.huge, "-", "-"
 	for _, front in ipairs(fronts) do
 		for _, p in ipairs(props) do
-			if p.pos and p.inst ~= front.inst and p.size.Y >= MIN_HEIGHT then
+			if p.pos and p.size.Y >= MIN_HEIGHT and not isFront[p.inst] then
 				local gap = corridorGap(front, p.pos, p.size)
 				if gap and gap < tightest then
 					tightest, tightFront, tightProp = gap, front.name, p.inst.Name
@@ -478,10 +510,13 @@ function MapClearance.Open(zoneKey, cx, map, protected, spec)
 		capped = capped,
 	}
 
+	-- `could not place` rather than `dropped`, because nothing is dropped any more (see the branch
+	-- above). It is the pass's own failure count and it is printed FIRST among the failures, so a
+	-- search that stops working is visible in the line rather than hidden behind a move count.
 	print(("[MapClearance] %s: %d frontages, %d props considered, %d in the way, moved %d, "
-		.. "dropped %d (%s), left standing %s, tightest %s%s")
+		.. "could not place %d%s, left standing %s, tightest %s%s")
 		:format(zoneKey, summary.fronts, summary.considered, summary.inTheWay, moved, dropped,
-			tally(droppedNames), tally(held),
+			next(droppedNames) and (" (" .. tally(droppedNames) .. ")") or "", tally(held),
 			tightest == math.huge and ("clear to %d studs"):format(SIGHT_FAR)
 				or ("%.1f studs at %s (%s)"):format(tightest, tightFront, tightProp),
 			capped and (" -- STOPPED AT THE %d-PROP CAP"):format(MAX_MOVES) or ""))

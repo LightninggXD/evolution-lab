@@ -494,9 +494,10 @@ function BEATS.beam(ctx, z)
 	-- keeps moving threads all of them; one who stops has to re-time from a standstill, which is
 	-- this beat costing par time rather than lives.
 	--
-	-- ON THE BEAM RATHER THAN OVER A GAP, and that is the fairness rule for placing any of these: a
-	-- curtain you meet in mid-air is a coin toss, because a jump cannot be aborted. Every laser in
-	-- this file stands on ground the player can stop on.
+	-- ON THE BEAM RATHER THAN OVER A GAP, and the reason is rule 1 in the header: a 200-stud bridge
+	-- is 200 studs of somewhere to stand, so wherever a gate falls there is floor behind it to wait
+	-- on. 34.51 stated that rule properly and gated two more beats under it; this placement did not
+	-- have to move to satisfy it, which is the check that it is the same rule and not a new one.
 	local gates = 2 + math.min(math.floor(ctx.tier / 7), 2)
 	local period, duty = AdventureMap.LaserCadence(ctx.tier)
 	for i = 1, gates do
@@ -580,10 +581,15 @@ function BEATS.climb(ctx, z)
 	for i, rise in ipairs(rises) do
 		local cz = z + (i == 1 and GAP_EASY or 22) + 28
 		slab(ctx, "Step", ctx.x, ctx.y + rise, cz, 56, 56, lighten(ctx.ground, 0.08 * i))
-		-- ONE curtain, on the TOP step, and it is the only obstacle in the beat. The step is 56
-		-- square, so there is somewhere to stand and wait -- the fairness rule from `beam` -- and
-		-- it turns the climb from four hops into a hold at the summit. A second curtain lower down
-		-- was refused for the same reason: two waits in one beat is a corridor, not a climb.
+		-- ONE curtain, on the TOP step, and it is the only obstacle in the beat. It turns the climb
+		-- from four hops into a hold at the summit. A second curtain lower down was refused: two
+		-- waits in one beat is a corridor, not a climb.
+		--
+		-- WHERE THE WAITING HAPPENS, re-checked against rule 1 in the header (34.51). The step is
+		-- 56 deep and the band is 26 of them, so only 15 studs of the top step are clear on the
+		-- approach side -- which is enough for a root part but not much. The real waiting room is
+		-- the step BELOW: it ends 50 studs short of the beam plane, well outside the band, so a
+		-- player can stand on it at rest and watch the whole cycle before making the last hop.
 		if i == 2 then
 			laser(ctx, ctx.x, ctx.y + rise, cz, 56 + 16, period, 0.5, duty)
 		end

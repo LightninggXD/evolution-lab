@@ -73,6 +73,22 @@ local animated = {}
 -- been destroyed is dropped at the next registration -- the same "the model is the identity" rule
 -- `animated` is written to.
 local hazardsByModel = {}
+-- ===== HOW LONG A ZAPPED PLAYER IS IMMUNE (34.50, RE-DERIVED IN 34.51) =====
+-- This is not a taste number: it has to be LONGER THAN THE LONGEST LIT HALF OF ANY CURTAIN IN THE
+-- GAME, or a player put back onto a checkpoint that happens to sit inside a beam's reach is zapped
+-- again the moment it expires, forever, with no input that can help them.
+--
+-- 34.50 wrote 1 second and said "longer than any curtain's lit half at any tier", which was already
+-- wrong by 0.15 s -- the old curve's lit half peaked at 1.15 s on route 1, the tier where the beam
+-- is slowest. 34.51's curve peaks at **1.16 s**, also at tier 1 (`AdventureMap.LaserCadence`: lit
+-- time is period * duty, and the period falls faster than the duty climbs, so the LONGEST lit half
+-- is at the BOTTOM of the ladder even though the tightest dark half is at the top). 1.5 clears that
+-- by a third of a second.
+--
+-- A LONGER COOLDOWN COSTS NOTHING, which is why the margin is generous rather than exact: a zap has
+-- already teleported the player back to their checkpoint, and there is no course in the game where
+-- they could run back to any beam inside a second and a half. Immunity they cannot reach is free.
+local ZAP_COOLDOWN = 1.5
 
 local folder -- workspace.Adventures
 
@@ -257,6 +273,16 @@ end
 -- The vertical band is generous on purpose: the curtain spans deck+1 to deck+35 and a small body's
 -- root sits ~3 studs up while a stage-twenty one sits ~20, so both are inside it, and so is either
 -- of them at the top of a 13.9-stud jump. There is no height at which a player is over the beam.
+--
+-- ===== THIS TEST IS WHAT `AdventureMap.LASER_REACH` MEASURES, AND THE TWO MUST NOT DRIFT (34.51) =====
+-- `r` below is `math.max(size.X, size.Z) / 2` -- the LARGER of the root's two horizontal sides, so
+-- that a player who turns sideways cannot slip through a beam edge-on. The cost is that a curtain
+-- reaches about seven studs further in z than the body is actually deep at the top of the body
+-- ladder, and 34.51 places every gate against that inflated figure (`LASER_REACH` = 13 studs =
+-- `sz.Z / 2` + a 45-stud body's root radius) rather than against the 3-stud sheet you can see.
+-- CHANGING THIS TEST MOVES EVERY CLEARANCE IN `AdventureMap`: the stepping-stone gates have 8 and
+-- 16 studs of standing room behind them, and they are 8 and 16 studs of room only because of the
+-- line below. It was left exactly as 34.50 shipped and proved it for that reason.
 local function laserHit(run, hrp)
 	local list = hazardsByModel[run.map]
 	if not list then return nil end
@@ -646,9 +672,10 @@ function AdventureService.Init()
 			-- THE COOLDOWN IS WHAT STOPS A CURTAIN EATING A RUN. `placeAt` moves the body inside
 			-- the same frame, but the checkpoint pad can itself be inside a beam's reach on a
 			-- short beat, and a player put back into one would be zapped again before they could
-			-- move. One second is longer than any curtain's lit half at any tier.
+			-- move. See `ZAP_COOLDOWN` at the top of the file for why the number is what it is --
+			-- it is derived from `AdventureMap.LaserCadence`, not chosen.
 			local zapped = false
-			if hrp and not fell and os.clock() - (run.zappedAt or 0) > 1 then
+			if hrp and not fell and os.clock() - (run.zappedAt or 0) > ZAP_COOLDOWN then
 				zapped = laserHit(run, hrp) ~= nil
 			end
 			if hrp and (fell or zapped) then
