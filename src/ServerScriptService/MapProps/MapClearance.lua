@@ -99,14 +99,70 @@ local MIN_HEIGHT = 4
 
 -- The ring search, in the shape `MapGates.relocate` uses: radius first (the nearest spot that works
 -- wins), then angle, opening straight out of the corridor on the side the prop already stands.
+--
+-- ===== THE FIRST BOOT'S NUMBERS ARE WHY THESE ARE NOT 7 AND 12 ANY MORE =====
+-- The ring was 7 x 12 studs and 7 arcs: **91 candidates**, reaching 82 studs. The pass then reported
+-- `could not place 18` and the refusal line reported **1638 candidates refused over 18 props** --
+-- which is 18 x 91 exactly. Not one prop had a candidate left over: the search was not choosing
+-- badly, it was RUNNING OUT.
+--
+-- And 82 studs is the wrong distance for this village on the geometry this file already computes.
+-- Every frontage's corridor points at the square's centre, so the free ground is BEHIND the ring of
+-- furniture -- the furniture stands about 100 studs out from (-19, 8) and the village floor reaches
+-- 270 x 230. A prop standing in the middle of the square therefore has to be carried past the whole
+-- ring before it is out of everyone's way, and 82 studs does not reach it. 180 does, and the ring
+-- order still hands back the NEAREST spot that works, so nothing is carried further than it needs.
 local MIN_MOVE = 10
-local MOVE_STEP = 12
-local MOVE_RINGS = 7          -- so the furthest a prop is ever carried is 10 + 6*12 = 82 studs
-local MOVE_ARCS = 7           -- +/- 6 steps of pi/7 either side of straight out, i.e. the full half-plane
+local MOVE_STEP = 10
+local MOVE_RINGS = 18         -- so the furthest a prop is ever carried is 10 + 17*10 = 180 studs
+
+-- ===== A FIXED NUMBER OF BEARINGS IS A SEARCH THAT GETS BLINDER THE FURTHER OUT IT LOOKS =====
+-- It was 23 bearings on every ring. At 10 studs out that is a candidate every 1.4 studs; at 180 it
+-- is a candidate every **47 studs** -- wider than most of this village's props, so whole clearings
+-- were being stepped straight over. The bearing count is derived from an arc LENGTH instead, so the
+-- candidates stay about a body's width apart at every radius: 7 bearings on the inner ring, 121 on
+-- the outer one. `MAX_ARCS` is only there to bound the cost.
+local ARC_STEP = 9
+local MAX_ARCS = 60
 
 -- Daylight between two props after a move. This is the owner's own sentence as a number: nothing
 -- lands touching anything.
 local GAP = 3
+
+-- ===== AND A GRID, BECAUSE THE OVERLAP TEST IS NOW THE WHOLE COST OF THE PASS =====
+-- Every candidate has to be checked against every prop that could be standing on it, and the ring
+-- above offers about 1,200 candidates per prop. Walked as a flat list of 400 that is ~500k box
+-- tests for a single unplaced tree, and this pass runs twice a boot. The map is indexed once into
+-- 40-stud cells and a candidate only ever reads the handful of cells its own box covers.
+--
+-- A prop is inserted into every cell its box (plus the gap) touches, so a 400-stud ground union
+-- appears in many cells and a bush in one. When a prop MOVES it is re-inserted rather than removed:
+-- the entry is the same table `props` holds, so every listing reads its live position, and a stale
+-- listing can only cost a repeated test -- never a missed one.
+local CELL = 40
+
+local function cellKey(gx, gz)
+	return gx * 100000 + gz
+end
+
+local function gridInsert(grid, entry)
+	local p, sz = entry.pos, entry.size
+	local x0 = math.floor((p.X - sz.X / 2 - GAP) / CELL)
+	local x1 = math.floor((p.X + sz.X / 2 + GAP) / CELL)
+	local z0 = math.floor((p.Z - sz.Z / 2 - GAP) / CELL)
+	local z1 = math.floor((p.Z + sz.Z / 2 + GAP) / CELL)
+	for gx = x0, x1 do
+		for gz = z0, z1 do
+			local key = cellKey(gx, gz)
+			local list = grid[key]
+			if not list then
+				list = {}
+				grid[key] = list
+			end
+			list[#list + 1] = entry
+		end
+	end
+end
 
 -- The destination has to have ground under it, and the prop lands ON that ground -- but it is only
 -- ever DROPPED, never lifted, which is `MapSettle`'s rule and for its reason: half of this map's
@@ -134,16 +190,42 @@ local function isDoorway(name)
 	return false
 end
 
--- A prop's world-axis box. `GetBoundingBox` is PIVOT-frame
--- (`roblox-model-box-getters-are-pivot-frame`) and every cut in this map family measures with it
--- anyway; a second, truer measurement here would put this pass and `MapCut` on different geometry,
--- which is the fault `evolution-lab-zone-geometry-constants` is about.
+-- ===== A PROP'S WORLD-AXIS BOX, AND IT REALLY HAS TO BE THE WORLD'S AXES =====
+--
+-- This used to hand back `Part.Size` and `GetBoundingBox`'s size unchanged, which are both in the
+-- part's OWN frame (`roblox-part-size-is-in-its-own-frame`,
+-- `roblox-model-box-getters-are-pivot-frame`), and the note here argued that measuring truer than
+-- `MapCut` would put the two files on different geometry. **The village says otherwise, and it says
+-- it in numbers:** 177 of this map's 394 top-level children read more than 5 studs different once
+-- the rotation is applied, and the three worst are the square's own FLOOR --
+--
+--     Union at (-18, 0, 9)    own 1 x 144 x 144   ->   world 144 x 1 x 144
+--     Part  at (-193, 0, 14)  own 1 x 106 x 97    ->   world 106 x 1 x 97
+--     Union at (-37, 0, -28)  own 255 x 1 x 398   ->   world 419 x 1 x 288
+--
+-- -- flat paving, authored standing up and rotated flat. Read in its own frame, the paving in the
+-- middle of the square is a **144-stud tower** standing at (-18, 9): it passes `MIN_HEIGHT`, it
+-- stands in every frontage's corridor, it is what the `tightest` line has been naming (`-67.5 studs
+-- at Upgrades (Union)` is a floor), and in the overlap test it makes a 144 x 144 stud block of the
+-- village unreachable to any prop this pass is trying to place. The two rules that care most about
+-- a box -- *is it taller than the frontage it hides* and *is something already standing there* --
+-- were both being answered about a shape that does not exist.
+--
+-- The rotation is applied the standard way: each world extent is the row of |R| against the size.
+local function worldSize(cf, size)
+	local r, u, l = cf.RightVector, cf.UpVector, cf.LookVector
+	return Vector3.new(
+		math.abs(r.X) * size.X + math.abs(u.X) * size.Y + math.abs(l.X) * size.Z,
+		math.abs(r.Y) * size.X + math.abs(u.Y) * size.Y + math.abs(l.Y) * size.Z,
+		math.abs(r.Z) * size.X + math.abs(u.Z) * size.Y + math.abs(l.Z) * size.Z)
+end
+
 local function boxOf(inst)
 	if inst:IsA("Model") then
 		local cf, size = inst:GetBoundingBox()
-		return cf.Position, size
+		return cf.Position, worldSize(cf, size)
 	elseif inst:IsA("BasePart") then
-		return inst.Position, inst.Size
+		return inst.Position, worldSize(inst.CFrame, inst.Size)
 	end
 	return nil, nil
 end
@@ -225,6 +307,11 @@ local function frontagesFor(zoneKey, map, cx, protected)
 	end
 
 	local function add(inst)
+		-- A SECOND CALL RUNS AFTER `MapSquare` HAS FELLED PROPS, and `protected` is the set the
+		-- build censused: an instance in it may have been destroyed since. A destroyed Model still
+		-- answers `GetBoundingBox` with its last box, so without this the second pass would clear
+		-- the approach to a shop that is no longer there.
+		if not inst.Parent then return end
 		local pos, size = boxOf(inst)
 		if not pos then return end
 		local dir = faceOf[inst]
@@ -288,14 +375,37 @@ local function inEntrance(entrance, rx, tz, hw)
 	return math.abs(rx) - hw <= half
 end
 
--- Everything a destination has to satisfy. Returns the Y shift to apply, or nil.
-local function fits(job, tx, tz, fronts, props, cx, entrance)
+-- ===== WHY A CANDIDATE WAS REFUSED =====
+-- The first live boot reported `moved 3, could not place 18` and the line could not say WHICH of the
+-- six rules was doing the refusing -- so the fix for it would have been a guess. `why` is a plain
+-- count per rule over every candidate the ring offered, kept only for the props whose search FAILED
+-- (a search that succeeded on ring 0 rejects nothing worth reading). It is what turns "the search
+-- does not work" into a name.
+local function note(why, reason)
+	if why then why[reason] = (why[reason] or 0) + 1 end
+end
+
+-- ===== THE TWO STANDARDS A DESTINATION CAN BE HELD TO =====
+--
+-- `relaxed = false` is the one this file was written with: the spot has to be clear of EVERY
+-- frontage, both zones. `relaxed = true` keeps every hard rule -- no road, no entrance funnel, no
+-- landing inside another prop, and never in anybody's WALK-UP -- and gives up only the sight line.
+--
+-- It exists because of what the first two boots measured. The ring offers 414 spots and all 414
+-- were refused for 8 of the props, which is the pass saying there is nowhere in this village that
+-- satisfies 45 converging view cones at once. The choice then is between leaving a pine standing
+-- across a shop door and standing it somewhere that is out of every doorway but still in somebody's
+-- distant view -- and the first is the fault the owner reported. A tier that is *strictly better
+-- than not moving it* is not a compromise of the rule, it is the rule applied to a village that
+-- cannot satisfy it, and the boot line says how many were placed that way so it can never quietly
+-- become the normal path (which is exactly how the deleting version of this pass went wrong).
+local function fits(job, tx, tz, fronts, grid, cx, entrance, why, relaxed)
 	local size = job.size
 	local hw = math.max(size.X, size.Z) / 2
 
 	local rx = tx - cx
-	if onRoad(rx, tz, hw) then return nil end
-	if inEntrance(entrance, rx, tz, hw) then return nil end
+	if onRoad(rx, tz, hw) then note(why, "in a road") return nil end
+	if inEntrance(entrance, rx, tz, hw) then note(why, "in the entrance funnel") return nil end
 
 	-- Ground first, because the height it lands at is what the overlap test below has to use.
 	local params = RaycastParams.new()
@@ -304,25 +414,46 @@ local function fits(job, tx, tz, fronts, props, cx, entrance)
 	local foot = job.pos.Y - size.Y / 2
 	local hit = workspace:Raycast(Vector3.new(tx, foot + GROUND_UP, tz),
 		Vector3.new(0, -GROUND_DOWN, 0), params)
-	if not hit then return nil end
+	if not hit then note(why, "no ground under it") return nil end
 	-- only ever down -- see the note over GROUND_UP
 	local dy = math.min(hit.Position.Y - foot, 0)
-	if dy < -GROUND_MAX then return nil end
+	if dy < -GROUND_MAX then note(why, "ground drops away") return nil end
 
 	local ty = job.pos.Y + dy
 	local at = Vector3.new(tx, ty, tz)
 	for _, front in ipairs(fronts) do
-		if front.inst ~= job.inst and inTheWay(front, at, size) then return nil end
+		if front.inst ~= job.inst then
+			local near = inTheWay(front, at, size)
+			-- On the relaxed tier only the walk-up counts: `inTheWay` returns the gap to the front
+			-- face, and a gap over `CLEAR_NEAR` is the sight-line half of the rule.
+			if near and (not relaxed or near <= CLEAR_NEAR) then
+				note(why, "in front of " .. front.name)
+				return nil
+			end
+		end
 	end
 
-	-- ...and nothing already standing there. `props` carries every top-level prop's CURRENT box and
-	-- is rewritten the instant one moves, which is the whole of the re-measure rule.
-	for _, other in ipairs(props) do
-		if other ~= job and other.pos then
-			if math.abs(other.pos.X - tx) < (other.size.X + size.X) / 2 + GAP
-				and math.abs(other.pos.Z - tz) < (other.size.Z + size.Z) / 2 + GAP
-				and math.abs(other.pos.Y - ty) < (other.size.Y + size.Y) / 2 then
-				return nil
+	-- ...and nothing already standing there. Every entry carries its CURRENT box and is rewritten
+	-- the instant one moves, which is the whole of the re-measure rule; the grid only decides which
+	-- entries are worth asking.
+	local x0 = math.floor((tx - size.X / 2 - GAP) / CELL)
+	local x1 = math.floor((tx + size.X / 2 + GAP) / CELL)
+	local z0 = math.floor((tz - size.Z / 2 - GAP) / CELL)
+	local z1 = math.floor((tz + size.Z / 2 + GAP) / CELL)
+	for gx = x0, x1 do
+		for gz = z0, z1 do
+			local list = grid[cellKey(gx, gz)]
+			if list then
+				for _, other in ipairs(list) do
+					if other ~= job and other.pos then
+						if math.abs(other.pos.X - tx) < (other.size.X + size.X) / 2 + GAP
+							and math.abs(other.pos.Z - tz) < (other.size.Z + size.Z) / 2 + GAP
+							and math.abs(other.pos.Y - ty) < (other.size.Y + size.Y) / 2 then
+							note(why, "another prop is there")
+							return nil
+						end
+					end
+				end
 			end
 		end
 	end
@@ -333,19 +464,20 @@ end
 -- The ring, opening straight out of the corridor on the side the prop is already on: the shortest
 -- move that could possibly clear it, which is `MapGates.relocate`'s own opening bid. Everything past
 -- that is tried in growing rings so the NEAREST spot that works wins, whichever way it lies.
-local function findSpot(job, front, fronts, props, cx, entrance)
+local function findSpot(job, front, fronts, grid, cx, entrance, why, relaxed)
 	local px, pz = job.pos.X - front.ox, job.pos.Z - front.oz
 	local side = (-px * front.dz + pz * front.dx) >= 0 and 1 or -1
 	local base = math.atan2(front.dx * side, -front.dz * side)
 
 	for ring = 0, MOVE_RINGS - 1 do
 		local r = MIN_MOVE + ring * MOVE_STEP
-		for k = 0, MOVE_ARCS - 1 do
+		local arcs = math.clamp(math.floor(math.pi * r / ARC_STEP), 1, MAX_ARCS)
+		for k = 0, arcs do
 			for _, sgn in ipairs(k == 0 and { 1 } or { 1, -1 }) do
-				local ang = base + sgn * k * (math.pi / MOVE_ARCS)
+				local ang = base + sgn * k * (math.pi / arcs)
 				local tx = job.pos.X + math.cos(ang) * r
 				local tz = job.pos.Z + math.sin(ang) * r
-				local dy = fits(job, tx, tz, fronts, props, cx, entrance)
+				local dy = fits(job, tx, tz, fronts, grid, cx, entrance, why, relaxed)
 				if dy then return tx, tz, dy end
 			end
 		end
@@ -391,6 +523,11 @@ function MapClearance.Open(zoneKey, cx, map, protected, spec)
 				}
 			end
 		end
+	end
+
+	local grid = {}
+	for _, p in ipairs(props) do
+		gridInsert(grid, p)
 	end
 
 	-- ===== FURNITURE IS NEVER IN FURNITURE'S WAY =====
@@ -440,6 +577,14 @@ function MapClearance.Open(zoneKey, cx, map, protected, spec)
 
 	local moved, dropped, capped = 0, 0, false
 	local droppedNames = {}
+	-- Placed on the second tier: out of every doorway, still in somebody's distant view. See `fits`.
+	local relaxedMoves = 0
+	-- How far the pass actually carried things. The ring hands back the nearest spot that works, so
+	-- a long carry is the search reporting that the near ground was taken -- and a pass that quietly
+	-- posts the village's trees to the far edge is a thing the line has to be able to say.
+	local carriedFar, carriedSum = 0, 0
+	-- Every rule that refused a candidate, over the props whose search failed. See `note`.
+	local refused, refusedCandidates = {}, 0
 	for _, job in ipairs(jobs) do
 		if moved + dropped >= MAX_MOVES then
 			capped = true
@@ -447,15 +592,27 @@ function MapClearance.Open(zoneKey, cx, map, protected, spec)
 		end
 		local p = job.prop
 		if p.inst.Parent then
-			local tx, tz, dy = findSpot(p, job.front, fronts, props, cx, entrance)
+			local why = {}
+			local tx, tz, dy = findSpot(p, job.front, fronts, grid, cx, entrance, why)
+			local onSightLine = false
+			if not tx then
+				-- Second tier, and it is only ever reached when the first found nothing at all.
+				tx, tz, dy = findSpot(p, job.front, fronts, grid, cx, entrance, nil, true)
+				onSightLine = tx ~= nil
+			end
 			if tx then
 				p.inst:PivotTo(p.inst:GetPivot() + Vector3.new(tx - p.pos.X, dy, tz - p.pos.Z))
 				-- RE-MEASURED FROM THE INSTANCE, not assumed from the shift: a Model's box is
 				-- pivot-frame and reading it back is the only thing that makes the next prop's
 				-- overlap test true (`probe-restore-must-be-read-back`, one scale down).
 				local np, ns = boxOf(p.inst)
+				local carried = math.sqrt((tx - job.prop.pos.X) ^ 2 + (tz - job.prop.pos.Z) ^ 2)
 				p.pos, p.size = np, ns
+				gridInsert(grid, p)
 				moved += 1
+				if onSightLine then relaxedMoves += 1 end
+				carriedSum += carried
+				if carried > carriedFar then carriedFar = carried end
 			else
 				-- ===== NOTHING IS EVER DELETED HERE, AND THE FIRST BOOT IS WHY =====
 				--
@@ -475,8 +632,49 @@ function MapClearance.Open(zoneKey, cx, map, protected, spec)
 				-- does for buildings. The line then reports honestly that the pass could not do its
 				-- job for that prop, instead of reporting a success it bought by deleting the
 				-- evidence.
-				held[p.inst.Name] = (held[p.inst.Name] or 0) + 1
+				-- NAMED, and it was not before: `droppedNames` was written by the `Destroy()` branch
+				-- this replaced and nothing has filled it since, so the boot line's own
+				-- "could not place N (...)" parenthetical has never once printed a name
+				-- (`optional-arg-nothing-passes`, one scale down). The unplaced are the pass's own
+				-- failures and they are the list worth reading; `held` is the list it refused to
+				-- touch on purpose, and mixing the two hid both.
+				droppedNames[p.inst.Name] = (droppedNames[p.inst.Name] or 0) + 1
 				dropped += 1
+				for reason, n in pairs(why) do
+					refused[reason] = (refused[reason] or 0) + n
+					refusedCandidates += n
+				end
+			end
+		end
+	end
+
+	-- ===== WHAT IS STILL IN THE WAY, WHICH IS THE PASS'S OWN SCORE =====
+	-- The same rule the jobs were chosen with, run again over the finished world. `24 in the way ->
+	-- 5 still in the way` is the sentence this pass exists to be able to say.
+	--
+	-- MOVABLE PROPS ONLY, so the two halves of that sentence count the same thing. The first cut
+	-- counted every prop and reported `27 in the way -> 50 still in the way`, which reads as a pass
+	-- that made the village worse and was really two different questions: `#jobs` is what this pass
+	-- may move, while the 50 included all the architecture it has never been allowed to touch (ten
+	-- `Fence1`, the shop's own `Meshes/Sell*` stall pieces, three `Barrel1`). That list is worth
+	-- printing -- it is `held`, on the same line -- but not as this number.
+	--
+	-- It is also a different question from `tightest` below: that one is the closest anything STANDS
+	-- to a frontage and is dominated by the size of the box (a 90-stud canopy centred 20 studs away
+	-- reports a large negative and is not necessarily hiding anything).
+	--
+	-- Its interesting failure is not the unplaced. It is a prop that was clear and got BLOCKED by a
+	-- later move in the same pass -- the search tests a candidate against every frontage, so that
+	-- should never happen, and this is the number that would say so.
+	local residual, residualNames = 0, {}
+	for _, p in ipairs(props) do
+		if p.pos and p.movable and p.size.Y >= MIN_HEIGHT and not isFront[p.inst] and p.inst.Parent then
+			for _, front in ipairs(fronts) do
+				if front.inst ~= p.inst and inTheWay(front, p.pos, p.size) then
+					residual += 1
+					residualNames[p.inst.Name] = (residualNames[p.inst.Name] or 0) + 1
+					break
+				end
 			end
 		end
 	end
@@ -498,6 +696,8 @@ function MapClearance.Open(zoneKey, cx, map, protected, spec)
 	end
 
 	local summary = {
+		residual = residual,
+		relaxed = relaxedMoves,
 		fronts = #fronts,
 		considered = #props,
 		inTheWay = #jobs,
@@ -513,13 +713,43 @@ function MapClearance.Open(zoneKey, cx, map, protected, spec)
 	-- `could not place` rather than `dropped`, because nothing is dropped any more (see the branch
 	-- above). It is the pass's own failure count and it is printed FIRST among the failures, so a
 	-- search that stops working is visible in the line rather than hidden behind a move count.
-	print(("[MapClearance] %s: %d frontages, %d props considered, %d in the way, moved %d, "
-		.. "could not place %d%s, left standing %s, tightest %s%s")
-		:format(zoneKey, summary.fronts, summary.considered, summary.inTheWay, moved, dropped,
+	print(("[MapClearance] %s: %d frontages, %d props considered, %d in the way -> %d still in the "
+		.. "way (%s), moved %d, could not place %d%s, left standing %s, tightest %s%s")
+		:format(zoneKey, summary.fronts, summary.considered, summary.inTheWay, residual,
+			tally(residualNames), moved, dropped,
 			next(droppedNames) and (" (" .. tally(droppedNames) .. ")") or "", tally(held),
 			tightest == math.huge and ("clear to %d studs"):format(SIGHT_FAR)
 				or ("%.1f studs at %s (%s)"):format(tightest, tightFront, tightProp),
 			capped and (" -- STOPPED AT THE %d-PROP CAP"):format(MAX_MOVES) or ""))
+
+	if moved > 0 then
+		print(("[MapClearance] %s: carried a mean %.1f studs, furthest %.1f of a possible %d; "
+			.. "%d of the %d placed had to give up a sight line")
+			:format(zoneKey, carriedSum / moved, carriedFar, MIN_MOVE + (MOVE_RINGS - 1) * MOVE_STEP,
+				relaxedMoves, moved))
+	end
+
+	-- ===== AND WHY THE SEARCH FAILED, WHEN IT FAILED =====
+	-- Printed only when something could not be placed, and it is the line the fix is read off: the
+	-- rules are named in the order they refused, biggest first, so the binding constraint is the
+	-- first thing on it rather than something to be inferred from six numbers.
+	if dropped > 0 then
+		local rows = {}
+		for reason, n in pairs(refused) do
+			rows[#rows + 1] = { reason = reason, n = n }
+		end
+		table.sort(rows, function(a, b)
+			if a.n ~= b.n then return a.n > b.n end
+			return a.reason < b.reason
+		end)
+		local parts = {}
+		for i = 1, math.min(#rows, 8) do
+			parts[#parts + 1] = ("%s x%d"):format(rows[i].reason, rows[i].n)
+		end
+		print(("[MapClearance] %s: %d candidates refused over %d unplaced props -- %s")
+			:format(zoneKey, refusedCandidates, dropped, table.concat(parts, ", ")))
+	end
+	summary.refused = refused
 
 	return summary
 end

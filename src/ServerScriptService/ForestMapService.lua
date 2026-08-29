@@ -450,6 +450,27 @@ function ForestMapService.GetSpec(zoneKey)
 	return MAPS[zoneKey]
 end
 
+-- ===== WHAT THE CLEARANCE PASS NEEDS, KEPT SO A SECOND RUN DOES NOT RE-DERIVE IT (34.51) =====
+-- `MapClearance.Open` takes the zone's centre line, the placed map and the CENSUSED furniture set.
+-- The first two a caller could work out; the third it could not, and re-running `MapAnchors.Collect`
+-- to get it is not free -- the census is what holds the `fountain` entry alive after `MapEggs` has
+-- destroyed the instance, and `MapSquare` and `MapAdventureBoard` both key off that entry. So the
+-- build hands its own three values over here instead.
+local BUILT = {}
+
+-- Run the approach clearance again over the finished world. `ServerMain` calls this at the true end
+-- of the map block, for exactly the reason `MapSettle` is called twice there: `MapEggs.Reseat`,
+-- `MapSquare.Arrange` and `MapSigns.Init` all run after `Init` has returned, and the square's
+-- arrange carries whole shop groups across the village -- a frontage this pass cleared during the
+-- build can be somewhere else entirely by then (`evolution-lab-placement-search-ordering`).
+-- Idempotent by construction: it reads the live map every time and a finished world moves 0.
+function ForestMapService.OpenApproaches(zoneKey)
+	local built = BUILT[zoneKey]
+	if not built then return nil end
+	if not built.map or not built.map.Parent then return nil end
+	return MapClearance.Open(zoneKey, built.cx, built.map, built.protected, MAPS[zoneKey])
+end
+
 function ForestMapService.Init()
 	local source = ServerStorage:FindFirstChild("Maps")
 	if not source then
@@ -655,6 +676,7 @@ function ForestMapService.Init()
 				-- own `[MapClearance]` line because it has five numbers and a name in it, and this
 				-- service's own line is already the longest format string in the file.
 				MapClearance.Open(zoneKey, cx, map, protected, spec)
+				BUILT[zoneKey] = { cx = cx, map = map, protected = protected }
 
 				-- ===== AND LAST OF ALL, PUT BACK ANYTHING LEFT IN MID-AIR (32.21) =====
 				--

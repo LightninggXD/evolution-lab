@@ -139,6 +139,20 @@ do
 		-- one with a pad. Aim before those and the sign points where the target used to be, which
 		-- is exactly the fault this row opened on.
 		MapSigns.Init("Forest", forestZone)
+		-- ===== AND THE APPROACHES AGAIN, FOR THE SAME REASON THE SETTLE IS RUN TWICE (34.51) =====
+		-- `MapClearance` clears the walk-up and the sight line in front of every piece of furniture,
+		-- and it runs inside `ForestMapService.Init` -- before the four lines above, which move the
+		-- furniture. `MapSquare` alone carried three shop groups across the village on this boot
+		-- (potions (-55, -55) -> (70, 42), 95 studs), so half of what that pass cleared was cleared
+		-- in front of a shop that is now somewhere else, and the trees at the shop's new address
+		-- were never asked about. It is idempotent and reports 0 moved on a village that is already
+		-- open, so a quiet line here is the assertion that the two runs agree.
+		--
+		-- BEFORE the settle below, deliberately: this pass carries props sideways onto ground it
+		-- measured by raycast, and the settle is what catches anything it put down on a surface that
+		-- has since left.
+		ForestMapService.OpenApproaches("Forest")
+
 		-- ===== AND THE SETTLE AGAIN, BECAUSE THIS BLOCK IS THE REAL END OF THE BUILD (34.47) =====
 		-- `ForestMapService.Init` finishes on `MapSettle.Forest`, and that file calls itself the pass
 		-- that runs LAST and measures the FINISHED world. It was -- until these four lines. `MapEggs`
