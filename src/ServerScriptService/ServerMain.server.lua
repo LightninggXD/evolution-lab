@@ -21,6 +21,7 @@ local RebirthShrine = require(ServerScriptService.RebirthShrine)
 local SecretsService = require(ServerScriptService.SecretsService)
 local InviteRewardService = require(ServerScriptService.InviteRewardService)
 local TrainingDummyService = require(ServerScriptService.Training.TrainingDummyService)
+local ChestService = require(ServerScriptService.ChestService)
 local SplicerService = require(ServerScriptService.SplicerService)
 local RewardService = require(ServerScriptService.RewardService)
 local PotionService = require(ServerScriptService.PotionService)
@@ -241,6 +242,16 @@ InviteRewardService.Init()
 -- UNREACHABLE warning for a blocked secret, and if the dummy were ever mis-seated into the trigger
 -- the warning should name the state the world ends up in, not an intermediate one.
 TrainingDummyService.Init()
+-- ===== THE CHEST AT THE BACK OF THE SAME ROOM (34.53 / 34.58) =====
+-- Here for exactly the constraint above it: it seats a copy of the owner's chest off
+-- `WaterfallGrotto.RelicAnchor` and settles it by raycast onto the grotto floor, so `MapWaterfall`
+-- (inside `ForestMapService.Init`, which `ZoneBuilder.Build()` has already run) must have built the
+-- room first. It is AFTER `TrainingDummyService` and after `SecretsService` for the same softer
+-- reason both of those state: those two also stand props in this 44 x 40 room, and the boot log
+-- should show the world the player actually ends up in -- `ChestService` re-runs
+-- `SecretsService.reportBlocked`'s own box test after seating and names itself if it is the thing in
+-- the way. It reads no other service's state and warns rather than errors when the art is absent.
+ChestService.Init()
 -- The five counters the map's leaderboard boards read (31.5). ANYWHERE AFTER PlayerDataService:
 -- it connects PlayerAdded/PlayerRemoving and starts one 60-second banking loop, and reads no world
 -- furniture at all. It has to be before any player can join, which everything in this file is.

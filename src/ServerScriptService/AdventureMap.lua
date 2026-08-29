@@ -82,6 +82,31 @@
 -- the beam will be -- and lit is 0.1 with the light on.
 --
 -- =====================================================================================
+-- WHERE A CURTAIN MAY STAND -- THE FAIRNESS RULE, STATED PROPERLY (34.51)
+-- =====================================================================================
+-- 34.50 placed curtains on `beam` and `climb` only, under the rule "every laser stands on ground the
+-- player can stop on". That rule is right about the failure it names and wrong about the reason, and
+-- following it literally leaves `stones` and `slide` -- the two beats the owner asked for next --
+-- with nowhere to put anything. The reason a mid-air curtain is unfair is not the air. It is that
+-- the player is not the thing that decided when to be there. So the rule this file now places
+-- against, and every number below is checked against it:
+--
+--   1. THE APPROACH SIDE MUST HOLD A STANDING BODY, CLEAR OF THE BEAM'S REACH. Somewhere on the
+--      approach the player can stop, at rest, and watch the beam cycle for as long as they like.
+--   2. THE PLAYER'S OWN INPUT MUST BE THE ONLY THING THAT MOVES THEM INTO IT. Nothing may carry
+--      them in -- not a conveyor, not a platform, not a drift they did not ask for.
+--   3. THE CROSSING MUST FIT INSIDE THE DARK HALF, with room over. The crossing is the width of the
+--      HIT BAND, not the 3-stud sheet: `AdventureService.laserHit` zaps a root part within
+--      `LASER_T/2 + max(HRP.X, HRP.Z)/2` of the beam plane, which is `LASER_REACH` below at the top
+--      of the body ladder. A 26-stud band at WalkSpeed 80 is 0.33 s; the tightest dark half in the
+--      game is 0.81 s at tier 20.
+--
+-- A gap between two stepping stones passes all three: the launch stone is a 48-stud island the
+-- player can stand still on, the jump is theirs to start, and the beam is crossed in a third of a
+-- second. THE MOVING PLATFORM FAILS RULE 2 AND CANNOT BE FIXED -- see `BEATS.slide`, where the
+-- measurement that killed it is written down.
+--
+-- =====================================================================================
 -- WHERE IT SITS
 -- =====================================================================================
 -- The zone strip runs +Z from Forest at `ZoneSpacing` 1900 and is 1250 studs wide about x = 0; the
@@ -99,7 +124,7 @@ local AdventureMap = {}
 
 -- Bump when the SHAPE changes. `AdventureService` compares this against the model's own attribute
 -- and rebuilds that ONE course, leaving the other nineteen and the twenty-one zones untouched.
-AdventureMap.MAP_VERSION = 2
+AdventureMap.MAP_VERSION = 3
 
 -- ===== THE MOVEMENT PROFILE (see the header -- this is not a preference) =====
 AdventureMap.WALK_SPEED = 80
@@ -302,12 +327,43 @@ local LASER_T = 3
 AdventureMap.LASER_LIT = 0.1
 AdventureMap.LASER_DARK = 0.72
 
--- Period and duty from the tier, as one function, because the two placements below must not drift
--- into two different difficulty curves. `duty` is the share of the cycle the beam is LIT -- under a
--- half at every tier, so the gap is always the longer half of the cycle.
---   tier 1  -> 2.84 s, 41% lit (1.68 s of gap)      tier 20 -> 2.00 s, 52% lit (0.96 s of gap)
+-- ===== HOW FAR A CURTAIN REACHES, AND IT IS NOT ITS THICKNESS (34.51) =====
+-- Every placement below is measured against THIS, not against `LASER_T`. `AdventureService.laserHit`
+-- zaps a root part whose centre is within `LASER_T / 2 + math.max(HRP.X, HRP.Z) / 2` of the beam
+-- plane, and that second term is the whole number: the biggest body in the game is 45 studs across,
+-- and against the measured 3.54-wide root of a 7.3-wide body that scales to a root about 21.8 wide,
+-- i.e. 10.9 of radius. 1.5 + 10.9 = 12.4, rounded up to 13 so the arithmetic is never optimistic.
+--
+-- IT IS DELIBERATELY WIDER THAN THE BODY IS DEEP (a 45-stud body is about 7.6 through the root, not
+-- 21.8), because `laserHit` takes the LARGER of the root's two horizontal sides -- a player who
+-- turns sideways must not step through a beam edge-on. So a curtain reaches about seven studs
+-- further than it looks at the top of the ladder, and the clearances below all pay for that.
+local LASER_REACH = 13
+
+-- Period and duty from the tier, as one function, because the placements below must not drift into
+-- four different difficulty curves. `duty` is the share of the cycle the beam is LIT.
+--
+-- ===== 34.51 MADE THE TOP END FASTER, AND THE FLOOR IS SET BY THE STEPPING STONES =====
+-- The old curve capped its period at tier 15 and left tiers 15-20 identical, which is the opposite
+-- of what a twenty-rung ladder is for. It now falls all the way to tier 20 and the lit share climbs
+-- further with it. What it may NOT do is squeeze the dark half below the time a committed crossing
+-- takes: a stepping-stone gate is entered from a standstill, and the body has to cover its own
+-- 26-stud hit band (0.33 s at WalkSpeed 80) plus the run-up it needs to make the jump at all --
+-- about 0.5 s of true commitment. 0.81 s is a 1.6x margin on that and is the floor this curve lands
+-- on; anything near half a second would be a dice roll rather than a puzzle.
+--
+--   tier  1 -> 2.845 s, 40.8% lit -> 1.16 s lit, **1.69 s of gap** (unchanged: route 1 is the tutorial)
+--   tier 10 -> 2.350 s, 47.5% lit -> 1.12 s lit, **1.23 s of gap**
+--   tier 20 -> 1.800 s, 55.0% lit -> 0.99 s lit, **0.81 s of gap** (was 0.96 s)
+--
+-- The gap is tighter than the old curve's at EVERY tier above 1 -- 1.48 vs 1.48 at tier 5, 1.23 vs
+-- 1.24 at 10, 1.01 vs 1.02 at 15 -- so nothing on the ladder got easier on the way to making 20 hard.
+--
+-- The longest LIT half is 1.16 s, at tier 1, and it is a number `AdventureService` depends on: the
+-- post-zap cooldown there has to outlast it. See `ZAP_COOLDOWN`.
 function AdventureMap.LaserCadence(tier)
-	return 2.9 - math.min(tier, 15) * 0.06, 0.40 + math.min(tier, 20) * 0.006
+	local t = math.min(tier, 20)
+	return 2.90 - t * 0.055, 0.40 + t * 0.0075
 end
 
 local function laser(ctx, x, y, z, width, period, phase, duty)
@@ -354,7 +410,45 @@ local BEATS = {}
 
 -- Four stepping stones, stepped left and right of the centre line so the run is not a straight
 -- sprint.
+--
+-- ===== THE GATES OVER THE GAPS (34.51), AND THIS IS THE BEAT THE FAIRNESS RULE WAS REWRITTEN FOR =====
+-- A curtain cannot stand ON a stepping stone: a stone is 48 square and the biggest body in the game
+-- is 45 across, so a beam across it leaves no square inch of the stone outside its own reach --
+-- the player would be standing in it the instant they landed, with nothing to do about it. That is
+-- the beat's whole geometry refusing, and it is why 34.50 skipped this beat.
+--
+-- SO THE GATE HANGS OVER THE GAP, AND THE STONE BEHIND IT IS THE WAITING ROOM. Checked against the
+-- three rules in the header, with the numbers this loop actually produces (z relative to the beat's
+-- entry, and `LASER_REACH` = 13 is the conservative band for a 45-stud body):
+--
+--   stone 1  34..82     stone 2  116..164     stone 3  198..246     stone 4  288..336
+--   gate before stone 2 -> beam at 103, band 90..116 -- 8 studs clear of stone 1's launch lip
+--   gate before stone 4 -> beam at 275, band 262..288 -- 16 studs clear of stone 3's launch lip
+--
+--   1. Somewhere to stand: 40 of stone 1's 48 studs and 32 of stone 3's are outside the band, at
+--      rest, for as long as the player wants to watch the beam.
+--   2. Nothing carries them in: a stepping stone is anchored floor, and the only way off it is a
+--      jump the player presses for.
+--   3. The crossing fits: 26 studs of band is 0.33 s at WalkSpeed 80, inside a 0.81 s dark half at
+--      the very hardest tier. The jump itself is 0.43 s of air over 34 studs and 0.53 s over 42, and
+--      the beam is crossed in the middle of it, not at the end.
+--
+-- THE BAND IS PUSHED AGAINST THE LANDING STONE'S LIP, NOT CENTRED IN THE GAP, and that asymmetry is
+-- the point: the approach side is where a body has to STAND, so it gets all the clearance, while
+-- the landing side is only ever flown through and needs none. Centring the gate in the 34-stud gap
+-- would leave 4.6 studs on the launch lip -- a big body leaning over the edge would be zapped while
+-- standing still, which is rule 1 broken by four studs.
+--
+-- THE LAST GAP IS THE ONE THAT IS ALWAYS GATED, and the first gated gap is the SECOND one -- the
+-- opening hop is never timed, so the beat still starts as a beat and not as a wait. Two gates only
+-- from tier 10, and they blink in phase with each other rather than staggered: stones 2 and 3 sit
+-- entirely outside both bands, so a player who misses the second window has an island to stand on
+-- and try again, and a staggered pair would have taken that away for no gain.
 function BEATS.stones(ctx, z)
+	local period, duty = AdventureMap.LaserCadence(ctx.tier)
+	-- Alternated per beat so two `stones` on one course are not the same metronome; both gates in
+	-- ONE beat share it, for the reason above.
+	local phase = (ctx.beat % 2) * 0.5
 	for i = 1, 4 do
 		-- The last one is the only `GAP_HARD` in the game: 42 studs against a 60-stud reach. Every
 		-- other gap here is 26 or 34, so a stepping-stone run ends on a jump the player has to
@@ -362,6 +456,14 @@ function BEATS.stones(ctx, z)
 		local cz = z + (i == 4 and GAP_HARD or GAP_MED) + STONE / 2
 		local dx = (i % 2 == 0) and 26 or -26
 		slab(ctx, "Stone", ctx.x + dx, ctx.y, cz, STONE, STONE, ctx.ground)
+		if i == 4 or (i == 2 and ctx.tier >= 10) then
+			-- WIDE ENOUGH THAT THERE IS NO DIAGONAL ROUND IT. The stones are offset 26 either side
+			-- of the lane and are 48 across, so every trajectory between two of them lives inside
+			-- x = -50..+50; the curtain covers -58..+58 and `laserHit` adds the body's own radius on
+			-- top of that. There is no line through this gap that misses the beam.
+			laser(ctx, ctx.x, ctx.y, cz - STONE / 2 - LASER_REACH,
+				26 * 2 + STONE + 16, period, phase, duty)
+		end
 		z = cz + STONE / 2
 	end
 	return z
@@ -416,6 +518,42 @@ end
 
 -- A gap nothing can jump, crossed by a platform that comes to fetch you. The only beat in the set
 -- with a wait in it, which is what makes it the one that costs par time rather than lives.
+--
+-- ===== THE PLATFORM ITSELF CANNOT CARRY A CURTAIN, AND THE NUMBER THAT SETTLES IT IS THE DRIFT (34.51) =====
+-- The owner asked for a laser on the mover and it was designed twice and refused twice. Both
+-- refusals are rule 2 in the header -- the player's own input must be the only thing that moves
+-- them into a beam -- and both are worth writing down so nobody re-derives them:
+--
+--   A STATIC CURTAIN IN THE SWEEP. The platform sweeps its centre from z+54 to z+136, so its deck
+--   occupies z+10 to z+180 -- 170 of the gap's 190 studs. A beam anywhere in there is ridden into.
+--   The rider cannot step off (there is nothing under them), cannot go round it (it spans the beat)
+--   and cannot go over it (34 studs against a 13.9-stud apex). The whole obstacle would be whether
+--   the mover's period and the beam's period happen to beat against each other, which is a dice
+--   roll dressed as a puzzle.
+--
+--   A CURTAIN WELDED TO THE MOVER, splitting the 88-stud deck in half so the rider has to cross it
+--   once during a 3-to-3.75 s ride, with solid deck on both sides and unlimited retries. That one
+--   is genuinely fair on paper and it is beaten by the measurement in `mover` above: a rider drifts
+--   up to **12.4 studs** at each reversal, because the conveyor velocity has to re-grip them. A beam
+--   down the middle has a band 26 studs wide; each half-deck is 31.6 studs; so a rider standing
+--   still 20 studs from the beam is moved to within 8 of it by the platform reversing under them.
+--   The platform would put the player in the beam. That is the exact sentence rule 2 forbids.
+--
+-- SO THE GATE STANDS ON THE LANDING, AND THE LANDING GREW 60 STUDS TO HOLD IT. A 72-stud pad cannot
+-- take a curtain: the rider arrives with the platform's momentum and lands 5-25 studs in, the band
+-- is 26 studs wide, and there is no room to both stop short of it and stand beyond it. `LAND_D` 132
+-- gives the beat a proper apron -- and the deeper pad is worth having on its own, because a 45-stud
+-- body dismounting a moving platform onto a 72-stud pad was already the tightest landing out here.
+--
+--   landing 190..322     beam at 274, band 261..287
+--   1. Somewhere to stand: 71 studs of apron before the band -- the player lands, brakes, and waits.
+--   2. Nothing carries them in: the platform's furthest reach is z+180, **81 studs short of the
+--      band**, so the ride is never through the beam and the drift above cannot touch it. Every
+--      stud from the apron to the gate is walked.
+--   3. The crossing fits: 26 studs, 0.33 s, against 0.81 s of dark at the worst tier -- and 35
+--      studs of pad beyond the band to stop on, so it is a walk-through and not a leap.
+local LAND_D = 132 -- the landing pad's depth: apron, gate, and standing room past it
+local LAND_GATE = 84 -- how far onto that pad the curtain stands
 function BEATS.slide(ctx, z)
 	local gap = 190
 	local far = z + gap
@@ -424,9 +562,14 @@ function BEATS.slide(ctx, z)
 	-- platform at 43 studs/s -- the speed the 12.4-stud drift above was measured at.
 	mover(ctx, ctx.x, ctx.y, z + gap / 2, gap - MOVER - 20,
 		7.5 - math.min(ctx.tier, 15) * 0.10, (ctx.beat % 2) * 0.5)
-	local cz = far + PAD / 2
-	slab(ctx, "Landing", ctx.x, ctx.y, cz, PAD, PAD, ctx.ground)
-	return cz + PAD / 2
+	local cz = far + LAND_D / 2
+	slab(ctx, "Landing", ctx.x, ctx.y, cz, PAD, LAND_D, ctx.ground)
+	local period, duty = AdventureMap.LaserCadence(ctx.tier)
+	-- A quarter-cycle off the phase the `stones` gates use, so a course does not read as one server
+	-- metronome; the beat is a hold either way, and which quarter it lands on is arbitrary.
+	laser(ctx, ctx.x, ctx.y, far + LAND_GATE, PAD + 16, period,
+		(ctx.beat % 2) * 0.5 + 0.25, duty)
+	return cz + LAND_D / 2
 end
 
 -- Up two steps and down two. Nine studs a step against a 13.9-stud apex -- a real climb with the

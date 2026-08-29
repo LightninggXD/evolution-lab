@@ -106,6 +106,10 @@ local MapGates = require(script.Parent.MapProps.MapGates)
 local MapRidge = require(script.Parent.MapProps.MapRidge)
 local MapHorizon = require(script.Parent.MapProps.MapHorizon)
 local MapWaterfall = require(script.Parent.MapProps.MapWaterfall)
+-- 34.51: the walk-up and the sight line in front of every declared piece of furniture. It runs after
+-- the roads exist and before the settle, and it MOVES rather than deletes -- see that file's header
+-- for both, and for the one ordering debt it cannot pay from inside this file.
+local MapClearance = require(script.Parent.MapProps.MapClearance)
 local MapSettle = require(script.Parent.MapProps.MapSettle)
 -- 32.28: the pass cut runs between Build and Plant below, and MapPortalArt disarms her inserted
 -- ad-portal template and seats its island at the same gate.
@@ -634,6 +638,23 @@ function ForestMapService.Init()
 				-- the hills have to be raised first, or the seat has nothing to be measured against.
 				-- `evolution-lab-placement-search-ordering`: a pass only knows the world that ran before it.
 				local _wf, wfCut, wfGrotto = MapWaterfall.Build(zoneKey, cx, map)
+
+				-- ===== THEN OPEN THE APPROACHES (34.51) =====
+				--
+				-- The owner: *"stvari ne smiju biti tako jedne u drugima, moraju biti dostupne i
+				-- vidljive ... da ima prostora"*. AFTER every cut and every relocation above it, for
+				-- the reason each of those carries in turn -- a clearance measured before the roads
+				-- are cut and before `MapGates` has moved the stalls is a clearance measured against
+				-- a village that does not exist yet
+				-- (`evolution-lab-placement-search-ordering`).
+				--
+				-- BEFORE `MapSettle`, and that is the other half of the placement: this pass carries
+				-- props sideways onto ground it measured by raycast, and the settle immediately below
+				-- is what catches anything it put down on a surface that later left.
+				-- Called bare, like `MapRidge.Clear` and `MapPortalArt.Init` above it: it prints its
+				-- own `[MapClearance]` line because it has five numbers and a name in it, and this
+				-- service's own line is already the longest format string in the file.
+				MapClearance.Open(zoneKey, cx, map, protected, spec)
 
 				-- ===== AND LAST OF ALL, PUT BACK ANYTHING LEFT IN MID-AIR (32.21) =====
 				--
