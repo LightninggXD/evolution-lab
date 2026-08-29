@@ -465,9 +465,53 @@ end
 --
 -- ZoneBuilder.Build() runs before CreatureService.Init (see ServerMain), so by the time anything
 -- here spawns, the world it has to fit into is already standing and can simply be asked.
+--
+-- ===== 34.52: WHAT IS STANDING WHEN THIS RUNS, AND WHAT IS NOT ================
+-- A placement search only knows the world that existed when it ran, so the list is written down
+-- rather than assumed. `CreatureService.Init()` is ServerMain:217. ALREADY BUILT above it:
+-- `ZoneBuilder.Build()` (:87 -- valley floor, terraces, ramparts, boulders, biome props),
+-- `ForestMapService.Init()` (:98 -- the village map, the roads and gates, the waterfall, and
+-- `MapForest`, which is what plants the 4,445-trunk wood and hands `MapSolids` its colliders),
+-- `MapCounters`/`MapPortals`/`MapSigns` (:104-:140), `ExpeditionService` (:206), `ZoneService`
+-- (:207). NOT YET BUILT, and therefore invisible to every query below at boot: `BossService`
+-- (:218), `RebirthShrine` (:228), the training dummies (:243), `SplicerService` (:283),
+-- `HubPlaza` (:288), `WorldApron` (:293), `WaterfallParkour` (:309), `MinigameService` (:321),
+-- `MapArcade` (:330), `MapAdventureBoard` (:356). A creature that RESPAWNS later does see all of
+-- those -- which is exactly why `refreshSceneryFilter` is called a second time inside Init and not
+-- only at require time.
+--
+-- ===== 34.52: THE TREES ARE NOT IN THIS QUERY, AND THEY NEVER WERE ============
+-- The owner photographed a Brute standing waist-deep in a trunk. The reason the search below kept
+-- choosing that spot while looking perfectly correct in code is `MapForest:161-162` and
+-- `MapForest:301-302`: every tree and every rock this pipeline plants is written
+-- `CanCollide = false` AND `CanQuery = false`. A part with `CanQuery = false` is not returned by
+-- `GetPartBoundsInBox` at all, so this box query reads OPEN AIR through the whole wood. That is
+-- deliberate on MapForest's side -- eight later services hunt for clear ground with a box query or
+-- a down-ray, and a queryable wood over the whole platform would starve all of them.
+--
+-- The one query-visible thing standing where a trunk is, is the collider box `MapSolids` builds
+-- for the PLAYER (`MapSolids:192-207`). It carries `CanQuery = false` too, but it is
+-- `CanCollide = true`, and MapSolids' own measurement at its line 177 records that the engine
+-- ignores `CanQuery` on a colliding part -- so these boxes ARE returned here. They are the set to
+-- ask, and they are named: `HuntTreeCollider`, `HuntRockCollider` (MapSolids), `JungleRockCollider`
+-- (MapJungle:164), `HorizonHillCollider` (MapSolids:396, MapPass:75).
+local SOLID_COLLIDER_NAMES = {
+	HuntTreeCollider = true,
+	HuntRockCollider = true,
+	JungleRockCollider = true,
+	HorizonHillCollider = true,
+}
+
 local sceneryParams = OverlapParams.new()
 sceneryParams.FilterType = Enum.RaycastFilterType.Exclude
-sceneryParams.MaxParts = 12
+-- WAS 12, AND 12 IS A SECOND WAY TO MISS A TRUNK. `MaxParts` truncates the result to the first N
+-- the broadphase reaches, in no defined order, and the caller cannot tell a truncated answer from
+-- an empty one. A Brute's probe box is 46 x 41 x 46 studs; over a camp floor that already holds
+-- road slabs, ground patches and terrace treads -- all `CanCollide = true` and all correctly
+-- DISCARDED by the height test below -- twelve slots can be spent before the one tree collider in
+-- the box is ever handed back. 96 is well clear of anything a 46-stud box has been measured to
+-- hold, and the cost of a bigger array is nothing next to the broadphase that already ran.
+sceneryParams.MaxParts = 96
 
 -- ===== HOW HIGH THE GROUND ACTUALLY IS AT A POINT =============================
 --
@@ -508,10 +552,36 @@ refreshSceneryFilter()
 -- Returns WHAT it landed on as well as how high. Every caller but one ignores the second value;
 -- the one that does not is raisedSpots, which has to tell a terrace shelf apart from the top of a
 -- rock spire, and no height on its own can say which of those a surface is.
+--
+-- ===== 34.52: A TREE COLLIDER IS NOT THE GROUND ===============================
+-- This ray honours `CanCollide`, and a `HuntTreeCollider` is the one piece of scenery in the wood
+-- that IS colliding -- so a point over a trunk used to answer with the TOP OF THE TREE'S BOX,
+-- which stands 10 to 40 studs up. `spawnCreature` then set the rig's body at `floorY + size*0.56`
+-- and the creature was built standing on an invisible box in the middle of the canopy: the photo.
+-- MapSolids' own header (its line 186) states the rule this was breaking -- *anything in this file
+-- that asks the world where the ground is must EXCLUDE the boxes it has already built, or it
+-- measures the top of a tree collider* -- and CreatureService is simply another such caller.
+--
+-- Excluded by RE-CASTING rather than by a filter list, because a filter would need the boxes'
+-- parents and this file must not learn what MapForest calls its folders. Four passes: a single
+-- point out in the horizon band can stand under a tree box, a rock box and a hill box at once, and
+-- four is one more than that. A ray that runs out of passes falls back exactly as an unhit ray
+-- does -- the caller's own guess -- because "the ground here is a tree" is not an answer.
 local function floorAt(x, z, fallback)
-	local hit = workspace:Raycast(Vector3.new(x, 300, z), Vector3.new(0, -320, 0), groundParams)
-	if not hit then return (fallback or 0), nil end
-	return hit.Position.Y, hit.Instance
+	local top = 300
+	for _ = 1, 4 do
+		local hit = workspace:Raycast(Vector3.new(x, top, z), Vector3.new(0, -(top + 20), 0), groundParams)
+		if not hit then return (fallback or 0), nil end
+		if not SOLID_COLLIDER_NAMES[hit.Instance.Name] then
+			return hit.Position.Y, hit.Instance
+		end
+		-- restart from just under the box's underside. Every one of these boxes is built with a yaw
+		-- and nothing else (MapSolids:196, MapJungle:170), so its world-axis height is its own Size.Y
+		-- and the arithmetic is exact rather than an approximation of a tilted extent.
+		top = hit.Instance.Position.Y - hit.Instance.Size.Y * 0.5 - 0.05
+		if top <= -20 then return (fallback or 0), nil end
+	end
+	return (fallback or 0), nil
 end
 
 -- The box is measured in tier size, which is the rig's UNIT and not its extents: a Critter is 10
@@ -528,7 +598,15 @@ local function blockedAt(x, y, z, size)
 	for _, p in ipairs(hits) do
 		-- only things you could walk into. Every one of these queries catches the zone floor and it
 		-- is never in the way: its top surface is at the creature's feet, not through its body.
-		if p.CanCollide and (p.Position.Y + p.Size.Y * 0.5) > feet + 2 then
+		--
+		-- THE NAME TEST IS THE POSITIVE HALF AND IT IS NOT REDUNDANT (34.52). A `HuntTreeCollider`
+		-- is `CanCollide = true` today, so it already satisfies the left branch -- but nothing in
+		-- this file SAID that a tree was what it was looking for, and the day MapSolids' written
+		-- intent comes true and a box is made non-colliding, the tree silently leaves this test and
+		-- the creatures walk back into the wood with no error anywhere. Naming the set is what makes
+		-- this row's fix survive that.
+		if (SOLID_COLLIDER_NAMES[p.Name] or p.CanCollide)
+			and (p.Position.Y + p.Size.Y * 0.5) > feet + 2 then
 			return true
 		end
 	end
@@ -538,6 +616,20 @@ end
 -- Walks a point out of whatever it landed in, in rings of eight. Gives up after six rings and
 -- returns the original: a creature standing in a rock is still better than a creature that does
 -- not exist, and the zone it belongs to would otherwise be one spawn short for the whole session.
+--
+-- ===== THE BUDGET, STATED (34.52) =============================================
+-- 53 candidate points at most, and never more: the start point, then 6 rings x 8 bearings at
+-- 16-stud steps (so the furthest ring is `size*0.9 + 96` studs out -- 110 for a Brute), then 5
+-- steps of the inward walk. Every one of them is one `GetPartBoundsInBox`, so a creature costs at
+-- most 53 box queries once at spawn and once per respawn, which is why the search is a fixed
+-- ladder and not a spiral that runs until it succeeds.
+--
+-- THE FALLBACK IS THE ORIGINAL POINT, AND THAT IS A DELIBERATE CHOICE, NOT AN OVERSIGHT. This row
+-- may not change a creature count -- the camp rosters in `JungleLayout` are counted against
+-- `JungleLayout.Describe` at boot -- so the two answers available on total failure are "put it
+-- where it was asked for" and "put it somewhere the rules forbid". A creature in a trunk is
+-- visible and wrong; a creature in the street or in the boss arena is wrong AND breaks a rule
+-- something else depends on. So the point stands.
 local function clearOfScenery(position, size, zoneX)
 	if not blockedAt(position.X, position.Y, position.Z, size) then return position end
 	for ring = 1, 6 do
@@ -2707,6 +2799,16 @@ local function driveCreatures(dt)
 						-- straight into a boulder or the boundary rampart on the way to it. Probed
 						-- four times a second per MOVING rig near a player, not per frame: the step is
 						-- a couple of studs and the things it can hit are tens of studs across.
+						--
+						-- THIS IS THE WHOLE COLLISION SYSTEM FOR A CREATURE (34.52). The rigs are
+						-- anchored and walked by hand, so the engine never resolves a contact for one,
+						-- and `CanCollide` on a trunk would not stop it even if the art carried it.
+						-- `blockedAt` is the only thing standing between a creature and a tree, which is
+						-- why the trunk half of "prolaze kroz objekte" is fixed at that function and not
+						-- here. The 0.25 s throttle is safe against it: the probe box is `size * 1.8`
+						-- wide -- 18 studs for the smallest tier -- and the step it guards is a couple of
+						-- studs, so a trunk is inside the box for several probes before the body reaches
+						-- it.
 						local solid = false
 						if now >= (rig.probeAt or 0) then
 							rig.probeAt = now + 0.25
