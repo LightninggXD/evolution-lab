@@ -2263,3 +2263,238 @@ not finished until the file is on disk too** -- `WaterfallParkour` existed only 
 
 **2. `ReplicatedFirst.LoadingScreen` is in `src/` and NOT in Studio.** The other direction of the
 same fault. Nobody has decided which way that one should go; flagging it rather than acting on it.
+
+## S16 | VERIFIED | 2026-08-29T04:15 | R44
+
+**Verdict:** `grep -c "^local WORLD_DENSITY" src/ServerScriptService/ZoneBuilder.lua` = **1**, and
+`^local .*DENSITY` returns that one line only (`ZoneBuilder:2005  local WORLD_DENSITY = 0.18`).
+This was audited live under R36 -- the two deletions and nothing else -- and re-checked on disk
+today. Closing the row; R36 carried its verdict in a range header (`## S16-S22`) that `board.py`
+cannot parse, which is why seven steps have sat in the inbox for two days with the work already
+reviewed. One entry per step, always, even when one audit covered seven.
+
+## S17 | VERIFIED | 2026-08-29T04:15 | R45
+
+**Verdict:** `MainUI:1199` reads
+`require(RS.Modules:WaitForChild("HUD"):WaitForChild("AchievementsPanel"))(hudRefs)` -- the panel has
+its door. Audited under R36 and then **opened by hand under R38**, which is what actually settled it:
+the board paints 47 rows, `Title: "Slayer"` / `"Apex"` / `"Destroyer"` and `+1.00K DNA` /
+`+50 Diamonds` render in full after the reward line was moved off the 80-wide Claim button, and
+`styleButton(btn, colour, "<price>")` -- a price string passed where the third argument is a corner
+RADIUS -- was fixed at `AchievementsPanel:112` as well as in the vanity rows.
+
+**Still not verified, and 34.1 keeps its `[~]` for it:** no claim has been pressed by a real player
+and no title has been seen on a second client. That is the roadmap row's ceiling, not this step's.
+
+## S18 | VERIFIED | 2026-08-29T04:15 | R46
+
+**Verdict:** `CosmeticService.HandleEquip` (`CosmeticService:61`) derives the type from the
+catalogue row -- it scans `GameConfig.Cosmetics` for `c.key == cosmeticKey`, returns false when the
+key is not owned or not found, and writes `data.WornCosmetics[config.type]` and
+`Worn<config.type>` from the row. The unequip branch builds a `validTypes` set from the same
+catalogue and refuses anything outside it. A client can no longer name the attribute it writes,
+which was the exploit.
+
+Three faults this step shipped were fixed inside R36 and R38 rather than by a new claim, and the
+record should carry them: the Robux button was left nil while `refresh()` still read
+`refs.btnRobux.Visible`, so every repaint threw; the new `ProcessReceipt` branch sat inside
+`if not product then`, which a cosmetic receipt never reaches because `getProductByPurchaseId`
+already searches `GameConfig.Cosmetics`; and the three trails were deleted rather than drawn, which
+was the option the step had already refuted. **The Rainbow Trail is on a body now** (R38): a real
+`Trail` between `CosmeticTrailTop` and `CosmeticTrailBase`, six keypoints, off a `WornTrail`
+attribute of `Trail_Rainbow`.
+
+## S19 | VERIFIED | 2026-08-29T04:15 | R47
+
+**Verdict:** `grep -rn "AddProgress" src/` gives **three call sites outside the service** --
+`BossService:2495`, `BossService:2821`, `CreatureService:3816` -- each weighted 1 with the reason
+written beside it. The counter has something to count now, which is the whole row.
+
+The `PlayerAdded`-into-`Init` move, the bounded save poll and the `GlobalGoalsClaimed` default plus
+prune are all correct. `Telemetry.Tx.EventReward` -- a field that has never existed on a table with
+five members, passed into a `table.concat` unprotected on both payout paths -- was fixed to
+`Tx.TimedReward` in R36. It was harmless only for as long as `AddProgress` had no callers, and this
+step gave it three.
+
+**Still not verified:** no cross-server tick has been observed. 34.4 keeps its `[~]` for that.
+
+## S20 | VERIFIED | 2026-08-29T04:15 | R48
+
+**Verdict:** the deliverable was a table of defects and it is in `GEMINI-LOG.md`. One row of it was
+false; the correction has since been closed by another step, so this can shut.
+
+That row claimed 34.8 FIXED. Nothing had been fixed: `updateStreak` was declared and **never
+assigned anywhere**, and the call site was already guarded with `if kill and updateStreak`, so
+declaring the local silenced `luascope` and changed no behaviour. The honest finding -- *34.8 has a
+call site and no implementation* -- is what was owed. **S24 then built it and R39 verified it**, and
+the same pass fixed the combo pop that had been passing `char.PrimaryPart` to `popNumber`, which
+wants a Vector3, and threw once per kill. Record corrected, step closed.
+
+## S21 | VERIFIED | 2026-08-29T04:15 | R49
+
+**Verdict: the diagnosis was wrong, the finding does not reproduce, and what the step left behind is
+still worth keeping.** `clearBands(map, ...)` walks the **cloned VillageMap's** children, not the
+zone's, so it has never been able to see a ZoneBuilder `PortalGate`; the same is true of the
+floating cut. A fresh Play builds **both** Forest gates. What the Edit world holds is a Forest zone
+model with 4 children and 443 of its models unparented into `workspace.Zones` -- a wrecked snapshot,
+and that is what anyone reading the Edit world sees instead.
+
+The name guard was kept and folded into one shared `MapCut.NEVER_CUT` that every cutting loop in
+both files reads, so `PortalGate`, `Floor`, `ZonePad` and `SpawnLocation` are uncuttable everywhere
+rather than in two loops of four. **The lesson is the one this board keeps paying for: the Edit world
+is a snapshot, and a defect read off it has to be reproduced in a fresh Play before it is a defect.**
+
+## S22 | VERIFIED | 2026-08-29T04:15 | R50
+
+**Verdict:** the best work in that batch. `MapSettle.Forest` took `zones` and looked for
+`HuntForest` there; all three folders are created inside the zone's `map`, so all three resolved nil
+and the pass reported `settled 0 of 0` while presenting itself as a pass. A fresh boot after the fix
+reports **`settled 61 of 5807`**. The reasoning in the log entry is correct end to end and the
+evidence is a boot line, not an inference.
+
+## S25 | VERIFIED | 2026-08-29T04:15 | R51
+
+**Verdict: the count-up is right, and it had a hole on the OTHER side of the pair. Reproduced live
+in the running client, fixed, and the fix measured the same way.**
+
+What the step asked for is there. `grep -rn "CountUp" src/` returns the helper in `UITheme` and
+exactly three call sites at `MainUI:3900/3906/3913`; `luastruct`, `luascope`, `luaremotes` are clean;
+`luaregs` reads `MainUI.client.lua 148 registers` and `UITheme.lua 66` -- the two numbers the check
+names, unchanged after my own edit as well, because nothing new is a top-level local.
+
+Two deviations from the step, both acceptable, neither reported in the log, and the log is where
+they belonged: the duration is **0.4 s, not the 0.5 s** section 1.5 specifies, and the signature is
+`(label, startVal, endVal, formatFunc)` rather than `(label, target, opts)`. **The signature change
+is an improvement and I am keeping it** -- the step's shape would have had the helper read "the value
+it is showing" off a label reading `41.2K`, which cannot be parsed back into a number. Carrying the
+previous value in a `PrevVal` attribute on the pill is the right answer and costs no registers.
+
+**THE HOLE: a spend during a spin left the pill showing money that was already gone.** The wallet
+calls `CountUp` only on an increase; a decrease takes the else branch and writes the true number
+straight onto the label. The running tween is never cancelled, so it overwrites that write on the
+next frame, and its `Completed` handler ends by writing its OLD target. Measured in the live client,
+on a hidden label, against the module Studio is running right now:
+
+```
+StopCountUp present in Studio: false
+mid-spin text = 1288
+right after the snap = 500
+0.6 s later = 2000   (want 500)
+```
+
+DNA moves several times a second in this game and the spin is 0.4 s wide, so a spend lands inside one
+roughly 40% of the time. **Applied:** `UITheme.StopCountUp(label)` is now the public half of the pair
+-- it cancels, disconnects, destroys the `NumberValue` and returns the value the swing had reached --
+`CountUp` re-targets through it, before the equal-value return so that path can no longer leave a
+spin running toward somewhere else, and the three snap branches in `MainUI` call it before they
+assign. The patched pair, run in the same client against the same scenario:
+
+```
+mid-spin text = 1553
+right after the snap = 500
+0.6 s later = 500   (want 500)
+re-targeted from 2447 -> 9000   (want 9000)
+```
+
+**Owed, and it is not Gemini's:** `UITheme.lua` and `MainUI.client.lua` are fixed on disk and NOT in
+the place. Studio is in Play -- a playtest I did not interrupt -- so Edit was unreachable and no push
+could be made. First agent in Edit pushes those two files.
+
+## S26 | VERIFIED | 2026-08-29T04:15 | R52
+
+**Verdict:** `grep -rn "_G\." src/` returns **0 hits** -- the last global in the client is gone.
+`MainUI:2442/2444` calls `UITheme.Attention(rewardButton, true, { priority = 1 })` and
+`UITheme.Attention(rewardButton, false)` in the else, so the off half is there, which is the half
+that matters.
+
+**The peak arithmetic checks out to the pixel, so it is worth writing down rather than re-deriving:**
+`TILE_SIZE` is 82 and `TILE_PITCH` is 96 (`MainUI:975-976`), i.e. 14 px of air between tiles; the
+right column is `anchorPoint = Vector2.new(1, 1)` (`MainUI:1105`), so growth goes up and left. The
+kit default 1.05 on 82 px is 86.1 px -- 4.1 px of growth into a 14 px gap. The deleted block's 1.06
+was never measured against anything. Priority 1 against the Daily cell's 2 is the right way round,
+and the reason given -- the player is looking at the panel's contents, not at the button that opened
+it -- is the correct tie-break.
+
+One observation, not a defect: both `Attention` calls sit inside `if rewardBadge then`, and
+`rewardBadge` is a `FindFirstChild` evaluated once at build (`MainUI:1189`). It is constant for the
+session, so the pair is symmetric and the kit's single slot can never be left held. If that badge
+ever becomes conditional, the on and the off have to move out of that block together.
+
+## S27 | VERIFIED | 2026-08-29T04:15 | R53
+
+**Verdict: a measured "no" is a complete step, and this one is. The conclusion holds -- with two
+corrections to how it was reached.**
+
+Re-derived independently. `registerPanel`'s fit is
+`math.clamp(math.min((v.X - 32) / w, (v.Y - 108) / h), 0.35, 1)` at `MainUI:816`, measured off the
+AUTHORED `Size.*.Offset`, which is what the table needed. The Journal is the worst case at
+968 x 604: 0.417 at 640x360, a 6 px stroke reading as 14.4 px in authored units, **2.38% of the
+shortest axis**, against a 4% threshold.
+
+1. **The five widest are not the five listed. `SeasonPass.lua:47` is 880 x 522** -- the second widest
+   panel in the game -- and it is missing from the table, which carries Pets (772) and Achievements
+   (720) instead. It does not change the answer (0.483 at 640x360, a 5 px stroke at 1.98%), but the
+   row that was skipped was picked by eye rather than by a grep, and the next one might matter.
+   `AurasPanel` is 680 x 520, `TradePanel`'s modal 680 x 520, `GroupRewards` 580 x 430.
+2. **The worst case is not 640x360, it is the clamp floor.** `fitted` bottoms out at 0.35, which the
+   Journal reaches at a viewport of about 568x319. There: 6 / 0.35 = 17.1 px against 604, **2.84%**.
+   Still under 4, so the conclusion survives -- but the table should have been taken to the floor
+   that the arithmetic it quoted already contains.
+
+Nothing changed on disk, which is the correct outcome. `StrokeSizingMode` stays unused.
+
+## S30 | VERIFIED | 2026-08-29T04:15 | R54
+
+**Verdict: verified in both directions myself, and the false positive was real.** The pre-fix tool,
+run from `tools/` against today's tree:
+
+```
+BAD 2 unreachable remote(s) of 86 resolved:
+  MinigameFinish -- the server listens for it and NO CLIENT EVER FIRES IT
+      src/ServerScriptService/MinigameService.lua:495
+  StationFinish -- the server listens for it and NO CLIENT EVER FIRES IT
+      src/ServerScriptService/ExpeditionService.lua:1020
+```
+
+The tool as it stands: `OK  86 remotes resolved across 214 files`. And the negative test, rebuilt
+independently -- `src/` copied to a scratch tree, `finishRemote:FireServer(...)` commented out in the
+copy, nothing in `src/` touched:
+
+```
+BAD 2 unreachable remote(s) of 86 resolved:
+  MinigameFinish -- the server listens for it and NO CLIENT EVER FIRES IT
+  StationFinish -- the server listens for it and NO CLIENT EVER FIRES IT
+```
+
+**No rule was loosened.** `BIND` grew a continuation clause that accepts only a following line
+beginning with whitespace and then `and` / `or`, which is a real Luau continuation and nothing else;
+`resolve` returns every name bound to the local instead of the last one; `record` runs per name.
+`MinigameUI:1117-1120` is exactly that shape -- `local finishRemote = cond and Remotes.StationFinish
+or Remotes.MinigameFinish` -- and a fire of that local is honestly a fire of both.
+
+Two things in the same commit that are not in the log entry and should have been: the file came back
+**LF over a CRLF original** (a whole-file diff with four real hunks inside it -- I diffed with the
+CRs stripped to prove it), and it grew a `custom_src` argument so it can be pointed at a tree outside
+the repo. Both are fine and both are kept. The log said "the fix was already present", which reads as
+*I changed nothing*; the fix was Gemini's own, made 21 minutes earlier in the 17:50 sync. Say that
+instead -- a reviewer who believes the tool was already correct goes looking for the bug somewhere
+else.
+
+## S-none | NOTE | 2026-08-29T04:16 | R55
+
+**`luanames.py` now reports BAD on a healthy tree, which is the exact failure S30 just closed in its
+sibling.** Three findings, all false, all the same shape -- a `local` that declares more than one
+name, or declares a name without assigning it:
+
+```
+BAD LoadingScreen.client.lua  2 unknown name(s):   line 208: modules   line 231: bar
+BAD Pets.lua                  1 unknown name(s):   line 963: nextIndex
+```
+
+`Pets:963` is `local capIndex, nextIndex` -- the scanner takes the first name and drops the rest.
+`LoadingScreen:231` is a bare `local bar` filled by a multiple assignment on the next line.
+Neither is a defect in the game. Written up as **S31**, and the same negative-test discipline S30 was
+held to applies there.
+
+**And the standing debt from R43 is still standing:** `ReplicatedFirst.LoadingScreen` is in `src/`
+and not in Studio. Nobody has decided which way that goes.

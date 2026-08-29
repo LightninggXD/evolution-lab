@@ -1463,3 +1463,65 @@ for it. Reverting a temporary edit is exactly how an unrelated change ships.
 
 Both tool outputs verbatim, the negative test and how you built it without touching `src/`, and the
 scope sentence you added to the docstring.
+
+## S31 | `luanames.py` cries wolf on a healthy tree, one lint after we fixed the same thing next door
+- **Owner:** Gemini
+- **Depends:** none
+- **Check:** `C:/Python313/python.exe tools/luanames.py` reports **OK over the whole tree** with no
+  rule loosened -- proven by a negative test built the way S30's was, on a scratch copy, that still
+  catches a genuinely undeclared name
+
+**DISK ONLY. Tool file only -- do not touch `src/` for this, not even to "clean up" the three lines
+it currently trips on.** They are correct Luau and the tool is what is wrong.
+
+### What it reports today, and why every line of it is false
+
+```
+BAD LoadingScreen.client.lua        2 unknown name(s):
+      line 208: modules
+      line 231: bar
+BAD Pets.lua                        1 unknown name(s):
+      line 963: nextIndex
+```
+
+* `Pets:963` -- `local capIndex, nextIndex`. **The scanner takes the first name of a `local` and
+  drops the rest**, so the second one is read as a global that nobody declared. Every
+  `local a, b` in this repo is a candidate for the same false positive; that one surfaced only
+  because `nextIndex` is then read three lines down.
+* `LoadingScreen:231` -- a bare `local bar` on its own line, filled by
+  `bar, barFill, barLabel = UITheme.ProgressBar(...)` on the next. **A declaration with no `=` is not
+  counted as a declaration.**
+* `LoadingScreen:208` -- `local modules = ReplicatedStorage:WaitForChild("Modules", 5)` inside a
+  `do ... end`, read on the very next line. Work out which of the two shapes above is really biting
+  here before you change anything; do not guess, and do not fix it by widening the pattern until the
+  message goes away.
+
+### Why this is worth a step at all
+
+S30 was not about two remotes. It was about what a lint costs once it is wrong: **`luaremotes` had
+been printing BAD on a healthy game, so the only rational response to it became "ignore it", and the
+day it reported a real dead remote nobody would have looked.** `luanames` is now in that state, and
+it is one of the four this board runs before every sync. A tool that is always red is a tool that has
+stopped being read.
+
+### The rule that governs the fix
+
+The same one S30 was held to, and its header already says it: **a lint that resolves too much is
+worse than one that resolves too little.** Widen the declaration scan to cover the two shapes above
+and nothing else. Do not start parsing Luau. Do not silence a whole file, a whole rule or a whole
+directory. Anything the scanner cannot resolve stays reported.
+
+### Prove it still bites
+
+1. Run it on the tree and paste the OK line.
+2. On a **scratch copy of `src/`** (not `src/` itself -- S30's log shows how), introduce a genuinely
+   undeclared name: take a real local out of a function that reads it, and show `luanames` naming
+   that file and that line.
+3. Paste both outputs.
+
+### What to report in `GEMINI-LOG.md`
+
+Both outputs verbatim; the negative test and how you built it without touching `src/`; the exact
+declaration shapes you added, each with the one-line reason; and the scope sentence you added to the
+tool's own docstring. If one of the three findings turns out to be a real defect after all, say so
+and stop -- that is a better outcome than a fix.

@@ -3065,17 +3065,37 @@ end
 -- ============================================================================
 local activeCountUps = setmetatable({}, {__mode = "k"})
 
+-- STOPPING THE SPIN IS THE HALF THE CALLER NEEDED, AND IT DID NOT EXIST (S25 review).
+--
+-- `CountUp` cancels its own spin when it re-targets, so a rising number is safe. But the three
+-- wallet pills only call it on an INCREASE -- a spend takes the else branch and writes the new
+-- text straight onto the label. With a spin still running, that assignment is overwritten on the
+-- very next Value change and the tween ends by writing its OLD target: the pill goes back to
+-- showing money the player has already spent, and stays wrong until some later refresh happens to
+-- repaint it. Every straight write to a label that CountUp can be driving has to stop it first.
+--
+-- Returns the value the swing had reached, so a re-target can start from there instead of from a
+-- number the label has already left behind.
+function UITheme.StopCountUp(label)
+	local current = label and activeCountUps[label]
+	if not current then return nil end
+	local at = current.val.Value
+	current.tween:Cancel()
+	current.conn:Disconnect()
+	current.val:Destroy()
+	activeCountUps[label] = nil
+	return at
+end
+
 function UITheme.CountUp(label, startVal, endVal, formatFunc)
 	if not label or not RunService:IsClient() then return end
-	if startVal == endVal then return end
-	
-	local current = activeCountUps[label]
-	if current then
-		startVal = current.val.Value
-		current.tween:Cancel()
-		current.conn:Disconnect()
-		current.val:Destroy()
-		activeCountUps[label] = nil
+
+	-- Re-target, never queue. This runs BEFORE the equal-value return so that call can never leave a
+	-- spin running that is heading somewhere else.
+	startVal = UITheme.StopCountUp(label) or startVal
+	if startVal == endVal then
+		label.Text = formatFunc and formatFunc(endVal) or tostring(endVal)
+		return
 	end
 
 	-- Snaps on decrease or small delta to avoid vibration. Respects ReducedMotion.

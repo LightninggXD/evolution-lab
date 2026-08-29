@@ -3899,6 +3899,7 @@ local function refreshUI()
 	if (data.DNA or 0) > prevDNA and prevDNA > 0 then
 		UITheme.CountUp(dnaPill.Value, prevDNA, data.DNA, formatNumber)
 	else
+		UITheme.StopCountUp(dnaPill.Value)
 		dnaPill.Value.Text = formatNumber(data.DNA)
 	end
 
@@ -3906,6 +3907,7 @@ local function refreshUI()
 		UITheme.CountUp(diamondPill.Value, prevDiamonds, data.Diamonds, formatNumber)
 		UITheme.Pulse(diamondPill)
 	else
+		UITheme.StopCountUp(diamondPill.Value)
 		diamondPill.Value.Text = formatNumber(data.Diamonds or 0)
 	end
 
@@ -3913,6 +3915,7 @@ local function refreshUI()
 		UITheme.CountUp(shardPill.Value, prevShards, data.EvolutionShards, formatNumber)
 		UITheme.Pulse(shardPill)
 	else
+		UITheme.StopCountUp(shardPill.Value)
 		shardPill.Value.Text = formatNumber(data.EvolutionShards or 0)
 	end
 
