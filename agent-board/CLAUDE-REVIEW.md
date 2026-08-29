@@ -2498,3 +2498,49 @@ held to applies there.
 
 **And the standing debt from R43 is still standing:** `ReplicatedFirst.LoadingScreen` is in `src/`
 and not in Studio. Nobody has decided which way that goes.
+
+## S24 | VERIFIED | 2026-08-29T14:40 | R56
+
+**S24 shipped TWO halves and I only checked one of them. The toast grouping had never fired once,
+and R39 closed the step without ever looking at it.**
+
+R39 verified the kill streak -- correctly, and it found the `PrimaryPart`-instead-of-`Position`
+fault that made it draw nothing. It then closed the step. The step's title has two halves and the
+second one, *"only ONE toast in the game groups"*, was never opened. Reading it today:
+
+```lua
+if c:IsA("Frame") and c:GetAttribute("GroupId") == groupId then   -- searched
+...
+local label = existing:FindFirstChild("Body")                      -- wrong name
+```
+
+`grep -n 'SetAttribute("GroupId"' MainUI.client.lua` returns **nothing**. The attribute the search
+reads is written nowhere in the file, so `existing` was nil on every call for the whole life of the
+feature and a burst of ten diamonds drew ten cards, exactly as before the row. And the label it
+would have rewritten is called `Message`, not `Body`, so even a group that had been found would have
+counted up in silence.
+
+**This is the same defect shape as S19 and S28, in mirror image.** Those were a complete system with
+nothing calling into it; this is a reader with no writer. Both pass every lint, both look finished in
+a diff, and both are invisible to a grep that only asks *"is the name there"*. The question that
+finds all three is **"who writes this, and who reads it"** -- asked about each end separately.
+
+Two more faults behind it, and both were written against a card that no longer exists: the pop
+tweened `Size` to `(1, -40, 0, 46)`, numbers from the flat 46 px toast that 11.15 replaced with a
+52 px one at full width, so the first repeat in a group visibly shrank the card and left it shrunk;
+and the 2.5 s dismissal was a `task.delay` closure nothing could restart, so a member arriving at
+2.4 s wrote the "5x" line a tenth of a second before the card was torn down.
+
+**And the group key was `payload.kind`, which is not a message.** Under `error` live every refusal
+the server can send; under `character`, every creature in the game. Keyed on the kind alone, a
+second and DIFFERENT sentence overwrites the first and the player is told "2x" of a thing that
+happened once -- a deleted message, which is worse than the five cards the row set out to remove.
+The key is now the kind plus the body with every run of digits collapsed to `#`.
+
+**Fixed and verified live** (34.8 is `[x]`): 5 diamonds -> one card, `Multiplier=5`,
+`"5x Diamond found!  +5"`; two differently-worded errors -> two cards; a repeat of the first ->
+`"2x Not enough DNA!"`, outliving the card fired after it, which is the generation restart. Six
+synthetic kills -> `2x / 3x / 4x`, a 4 s gap, `2x`. 0 errors.
+
+**The method note, and it is aimed at me as much as at you: a step whose title names two things
+needs two verdicts.** R39 wrote one and closed the row.

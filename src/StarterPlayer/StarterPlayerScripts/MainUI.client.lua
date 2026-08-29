@@ -3428,35 +3428,126 @@ local NOTIF_MAX = 4
 --      message was the one reliably destroyed. Rank decides both who dies and who sits on top.
 local function showNotification(text, color, rank, groupId)
 	rank = rank or 1
-	
-	-- Toast Grouping (34.8)
-	if groupId then
-		local existing = nil
-		for _, c in ipairs(notifFrame:GetChildren()) do
-			if c:IsA("Frame") and c:GetAttribute("GroupId") == groupId then
-				existing = c
-				break
-			end
+
+	-- Split a leading emoji off the message. Roblox emoji are multi-byte, so this takes
+	-- everything up to the first space and only treats it as an icon if it is NOT plain ASCII --
+	-- that keeps "Not enough DNA!" whole while lifting the 💎 off "💎 Diamond found!".
+	--
+	-- IT RUNS BEFORE THE GROUPING BRANCH because a regrouped line is rewritten from the WORDS.
+	-- Rewriting it from `text` would put the emoji back into the sentence beside the chip that is
+	-- already drawing it -- "3x 💎 Diamond found!" next to a 💎 badge.
+	local icon, body = nil, text
+	local head, rest = text:match("^(%S+)%s+(.*)$")
+	if head and #head <= 8 and not head:match("^[%w%p]+$") then
+		icon, body = head, rest
+	end
+
+	-- THE CLOCK IS A GENERATION, NOT A CLOSURE (34.8). A grouped toast has to live its full 2.5 s
+	-- from its LAST member and not from its first, or the "5x" line the burst exists to draw is
+	-- written a tenth of a second before the card is torn down. Every restart bumps `Gen` and the
+	-- delayed body returns unless it is still the newest -- which is the way to do this, because a
+	-- `task.delay` cannot be cancelled once it is scheduled.
+	--
+	-- `Exiting` is set the moment the fade starts, so the search below can never regroup onto a card
+	-- whose every descendant is already tweening to transparent: it would print the count on a toast
+	-- that is on its way out and never comes back.
+	local function restartTimer(card)
+		local gen = (card:GetAttribute("Gen") or 0) + 1
+		card:SetAttribute("Gen", gen)
+
+		local bar = card:FindFirstChild("Timer")
+		if bar then
+			bar.Size = UDim2.new(1, -22, 0, 3)
+			TweenService:Create(bar, TweenInfo.new(2.5, Enum.EasingStyle.Linear),
+				{ Size = UDim2.new(0, 0, 0, 3) }):Play()
 		end
-		
-		if existing then
-			local mult = (existing:GetAttribute("Multiplier") or 1) + 1
-			existing:SetAttribute("Multiplier", mult)
-			
-			local label = existing:FindFirstChild("Body")
-			if label then
-				label.Text = tostring(mult) .. "x " .. text
+
+		task.delay(2.5, function()
+			if not (card and card.Parent) then return end
+			if card:GetAttribute("Gen") ~= gen then return end
+			card:SetAttribute("Exiting", true)
+			-- OUT IS A MOVE AS WELL AS A FADE. Shrinking away on Back/In mirrors the entrance, so a
+			-- toast leaving is as readable as one arriving -- a pure alpha fade on a busy background
+			-- simply looks like the card was always half there.
+			local info = TweenInfo.new(0.32)
+			local scale = card:FindFirstChildOfClass("UIScale")
+			if scale then
+				TweenService:Create(scale, TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.In),
+					{ Scale = 0.7 }):Play()
 			end
-			
-			-- Pop animation to show it updated
-			local pop = TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-			TweenService:Create(existing, pop, { Size = UDim2.new(1, -40, 0, 50) }):Play()
-			task.delay(0.15, function()
-				if existing and existing.Parent then
-					TweenService:Create(existing, pop, { Size = UDim2.new(1, -40, 0, 46) }):Play()
+			-- a chunky toast is a whole stack of parts, so fade shell, lip, gloss, outline and
+			-- the outlined text together instead of just the one label the flat version had.
+			local shellTween = TweenService:Create(card, info, { BackgroundTransparency = 1 })
+			for _, d in ipairs(card:GetDescendants()) do
+				if d:IsA("TextLabel") then
+					TweenService:Create(d, info, { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
+				elseif d:IsA("ImageLabel") then
+					-- AN IMAGE DOES NOT FADE ON BackgroundTransparency, and 11.15 is what makes this
+					-- branch necessary: before the icon chip carried a drawing there were no ImageLabels
+					-- in a toast, so the generic GuiObject arm below covered everything. Without this the
+					-- card, its outline and its words fade out and the icon stays at full opacity until
+					-- Destroy blinks it away -- the one element left behind by its own exit animation.
+					-- IconShadow is an ImageLabel too and is caught by the same line.
+					TweenService:Create(d, info, { ImageTransparency = 1, BackgroundTransparency = 1 }):Play()
+				elseif d:IsA("GuiObject") then
+					TweenService:Create(d, info, { BackgroundTransparency = 1 }):Play()
+				elseif d:IsA("UIStroke") then
+					TweenService:Create(d, info, { Transparency = 1 }):Play()
 				end
-			end)
-			return
+			end
+			shellTween:Play()
+			shellTween.Completed:Wait()
+			card:Destroy()
+		end)
+	end
+
+	-- TOAST GROUPING (34.8) -- AND THE VERSION THAT SHIPPED HAD NEVER ONCE FIRED. It searched the
+	-- stack for a card carrying `GroupId` and NOTHING HAS EVER WRITTEN THAT ATTRIBUTE, so `existing`
+	-- was nil on every call and a burst of ten diamonds drew ten toasts, exactly as before the row.
+	-- The same block then wrote its count into a child called `Body`; the message label in this
+	-- toast is called `Message`, so even a group that had been found would have counted up in
+	-- silence with the words unchanged. A reader with no writer, and a writer aimed at a name that
+	-- does not exist -- both halves were written against a card that was never built.
+	--
+	-- The pop is on the card's own UIScale, not on `Size`. Tweening Size here shrank the toast to
+	-- `(1, -40, 0, 46)` -- numbers from the flat 46 px card that 11.15 replaced with a 52 px one at
+	-- full width -- so the first repeat in a group visibly shrank the card and left it shrunk.
+	--
+	-- AND THE KEY IS NOT THE KIND ALONE, because almost every call site passes `payload.kind` and a
+	-- kind is not a message. Under `trade` live both "\u{2714} Trade complete" and every refusal the
+	-- server can send; under `character` lives every creature in the game. Keyed on the kind alone a
+	-- second, DIFFERENT sentence overwrites the first and the player is told "2x" of a thing that
+	-- happened once -- the earlier message deleted, which is worse than the five cards this row set
+	-- out to remove.
+	--
+	-- So the second half of the key is the body with every run of digits collapsed to `#`. That is
+	-- exactly the distinction the row wants: "Diamond found!  +1" and "+5" share a skeleton and are
+	-- one burst, while "Not enough DNA!" and "Bag is full" do not and stay two cards. The card keeps
+	-- the NEWEST wording, which for a counted burst is the largest number in it.
+	local skel = (body:gsub("%d+", "#"))
+	if groupId then
+		for _, c in ipairs(notifFrame:GetChildren()) do
+			if c:IsA("Frame") and c:GetAttribute("GroupId") == groupId
+				and c:GetAttribute("GroupSkel") == skel and not c:GetAttribute("Exiting") then
+				local mult = (c:GetAttribute("Multiplier") or 1) + 1
+				c:SetAttribute("Multiplier", mult)
+
+				local label = c:FindFirstChild("Message")
+				if label then
+					label.Text = mult .. "x " .. body
+				end
+
+				local scale = c:FindFirstChildOfClass("UIScale")
+				if scale then
+					scale.Scale = 1.12
+					TweenService:Create(scale,
+						TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+						{ Scale = 1 }):Play()
+				end
+
+				restartTimer(c)
+				return
+			end
 		end
 	end
 
@@ -3488,15 +3579,6 @@ local function showNotification(text, color, rank, groupId)
 	local h, s, v = Color3.toHSV(base)
 	local vivid = Color3.fromHSV(h, math.max(s, 0.55), math.max(v, 0.92))
 
-	-- Split a leading emoji off the message. Roblox emoji are multi-byte, so this takes
-	-- everything up to the first space and only treats it as an icon if it is NOT plain ASCII --
-	-- that keeps "Not enough DNA!" whole while lifting the 💎 off "💎 Diamond found!".
-	local icon, body = nil, text
-	local head, rest = text:match("^(%S+)%s+(.*)$")
-	if head and #head <= 8 and not head:match("^[%w%p]+$") then
-		icon, body = head, rest
-	end
-
 	local notif = Instance.new("Frame")
 	-- unique, so the layout has a defined order to fall back on -- see `seq` above
 	notif.Name = "Notif" .. seq
@@ -3510,6 +3592,13 @@ local function showNotification(text, color, rank, groupId)
 	notif.LayoutOrder = -rank * 100000 + seq
 	notif:SetAttribute("Rank", rank)
 	notif:SetAttribute("Seq", seq)
+	-- THE WRITE THE GROUPING BRANCH ABOVE HAS ALWAYS BEEN LOOKING FOR. Without this line the
+	-- search matches nothing, for ever, and every repeat draws its own card.
+	if groupId then
+		notif:SetAttribute("GroupId", groupId)
+		notif:SetAttribute("GroupSkel", skel)
+		notif:SetAttribute("Multiplier", 1)
+	end
 	notif.Parent = notifFrame
 	styleCard(notif, vivid, UDim.new(1, 0), 3)
 
@@ -3579,40 +3668,11 @@ local function showNotification(text, color, rank, groupId)
 	timer.ZIndex = notif.ZIndex + UITheme.Z.Content
 	timer.Parent = notif
 	corner(timer, UDim.new(1, 0))
-	TweenService:Create(timer, TweenInfo.new(2.5, Enum.EasingStyle.Linear), { Size = UDim2.new(0, 0, 0, 3) }):Play()
 
-	task.delay(2.5, function()
-		if not (notif and notif.Parent) then return end
-		-- OUT IS A MOVE AS WELL AS A FADE. Shrinking away on Back/In mirrors the entrance, so a
-		-- toast leaving is as readable as one arriving -- a pure alpha fade on a busy background
-		-- simply looks like the card was always half there.
-		local info = TweenInfo.new(0.32)
-		TweenService:Create(pop, TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.In),
-			{ Scale = 0.7 }):Play()
-		-- a chunky toast is a whole stack of parts, so fade shell, lip, gloss, outline and
-		-- the outlined text together instead of just the one label the flat version had.
-		local shellTween = TweenService:Create(notif, info, { BackgroundTransparency = 1 })
-		for _, d in ipairs(notif:GetDescendants()) do
-			if d:IsA("TextLabel") then
-				TweenService:Create(d, info, { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
-			elseif d:IsA("ImageLabel") then
-				-- AN IMAGE DOES NOT FADE ON BackgroundTransparency, and 11.15 is what makes this
-				-- branch necessary: before the icon chip carried a drawing there were no ImageLabels
-				-- in a toast, so the generic GuiObject arm below covered everything. Without this the
-				-- card, its outline and its words fade out and the icon stays at full opacity until
-				-- Destroy blinks it away -- the one element left behind by its own exit animation.
-				-- IconShadow is an ImageLabel too and is caught by the same line.
-				TweenService:Create(d, info, { ImageTransparency = 1, BackgroundTransparency = 1 }):Play()
-			elseif d:IsA("GuiObject") then
-				TweenService:Create(d, info, { BackgroundTransparency = 1 }):Play()
-			elseif d:IsA("UIStroke") then
-				TweenService:Create(d, info, { Transparency = 1 }):Play()
-			end
-		end
-		shellTween:Play()
-		shellTween.Completed:Wait()
-		notif:Destroy()
-	end)
+	-- ONE CLOCK, DRIVEN FROM ONE PLACE. The drain and the tear-down used to be written out here and
+	-- nowhere else, which is why a regrouped toast could not extend its own life: there was nothing
+	-- to call. Both paths go through `restartTimer` now.
+	restartTimer(notif)
 end
 hudRefs.showNotification = showNotification
 

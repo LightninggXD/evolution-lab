@@ -32,7 +32,7 @@ Rendered by `python tools/board.py render` from `STEPS.md`, `GEMINI-LOG.md` and
 | [x] | **S21** 34.11 (Missing Forest PortalGate) | `VERIFIED` | Gemini | CLAIMED 2026-08-27T23:05 | R49 VERIFIED 2026-08-29T04:15 |
 | [x] | **S22** 34.12 (ForestMapService Floating Props) | `VERIFIED` | Gemini | CLAIMED 2026-08-27T23:05 | R50 VERIFIED 2026-08-29T04:15 |
 | [x] | **S23** The cosmetics screen splits into three places the owner asked for | `VERIFIED` | Gemini | - | R9 VERIFIED 2026-08-28T13:43 |
-| [x] | **S24** DONE | 34.8 -- the kill streak is a local nothing assigns, and only ONE toast in the game groups | `VERIFIED` | Gemini | CLAIMED 2026-08-28T18:44 | R39 VERIFIED 2026-08-29T03:45 |
+| [x] | **S24** DONE | 34.8 -- the kill streak is a local nothing assigns, and only ONE toast in the game groups | `VERIFIED` | Gemini | CLAIMED 2026-08-28T18:44 | R56 VERIFIED 2026-08-29T14:40 |
 | [x] | **S25** 33.11 (1.5) -- the currency readouts SNAP, and the count-up half was never built | `VERIFIED` | Gemini | CLAIMED 2026-08-28T18:27 | R51 VERIFIED 2026-08-29T04:15 |
 | [x] | **S26** DONE | 33.11 (2.5) -- there are TWO idle-pulse implementations fighting over one UIScale, and one of them is a global | `VERIFIED` | Gemini | CLAIMED 2026-08-28T18:29 | R52 VERIFIED 2026-08-29T04:15 |
 | [x] | **S27** DONE | 33.11 (5.3) -- MEASURE FIRST: does a shrunk panel actually swamp itself with its own outline | `VERIFIED` | Gemini | CLAIMED 2026-08-28T18:32 | R53 VERIFIED 2026-08-29T04:15 |
