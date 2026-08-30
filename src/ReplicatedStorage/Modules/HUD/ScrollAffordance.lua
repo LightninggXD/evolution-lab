@@ -137,6 +137,23 @@ return function(hud)
 
 		if scroll.ScrollBarThickness < 10 then scroll.ScrollBarThickness = 12 end
 
+		-- ===== AND THE BAR IS NO LONGER DRAWN ON TOP OF THE LIST (research 4.3) =====
+		--
+		-- `VerticalScrollBarInset` "defaults to `ScrollBarInset.None`", which means the scrollbar is
+		-- painted OVER the content rather than beside it. That was survivable at the 6 px this pass
+		-- replaced and is not survivable at 12: the line above tripled the width of a grip that sits
+		-- on top of whatever occupies the right-hand column -- a price chip, a count, a lock badge.
+		-- The fattening and the inset are one decision and must never be shipped apart.
+		--
+		-- `Always`, not `ScrollBar`. `ScrollBar` reserves the gutter only while the list is actually
+		-- scrollable, so a list that crosses that threshold -- one more pet, one more relic -- gets
+		-- 12 px narrower mid-session and re-flows under the player. `Always` costs the same 12 px on
+		-- a short list and never moves.
+		--
+		-- The cost is real and is why the check for this row counts cells: every list is now 12 px
+		-- narrower, and a `UIGridLayout` with a fixed `CellSize` can lose a column to that.
+		scroll.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+
 		-- Trailing space has to be bought differently depending on who owns the canvas. Padding on
 		-- an AutomaticCanvasSize scroll grows the canvas with it; on a fixed canvas it would only
 		-- push the content up and clip the last row harder, so that case buys the space on the

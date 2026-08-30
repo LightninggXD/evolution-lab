@@ -39,7 +39,10 @@ local PRESS_DOWN_INFO  = TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingD
 -- already moved on. §2.3's split is 0.06 s down / 0.12 s back, and 0.06 was already what
 -- PRESS_DOWN_INFO shipped with, so this is the one half that was wrong.
 local PRESS_UP_INFO    = TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-local PULSE_TWEEN_INFO = TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+-- The currency bounce, as two halves (research 1.5, NumberSpinnerV2's shipped defaults). Quad, not
+-- Back: an overshoot on the RETURN leg dips the pill under 1.0 and the change reads as a flinch.
+local PULSE_OUT_INFO   = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local PULSE_BACK_INFO  = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 -- ============================================================================
 -- ACCESSIBILITY: THE MOTION KILL-SWITCH (18.1, research §2.6)
@@ -162,6 +165,24 @@ end
 -- is 0.45 at the default setting and 0 at the fully-opaque end.
 function UITheme.ScrimTransparency(base)
 	return math.clamp((base or 0.45) * preferredTransparency, 0, 1)
+end
+
+-- THE THIRD DOOR, AND THE ONLY ONE A CALL SITE THAT KEEPS ITS TWEEN CAN USE.
+--
+-- `UITheme.Tween` creates AND plays, which is right for the fire-and-forget majority and wrong for
+-- the handful that hold the Tween to `:Cancel()` it or to hang a `.Completed` on: routing those
+-- through it moves the `Play()` to BEFORE the connect, i.e. it changes the order of the call site's
+-- own statements to buy one property. This takes the TweenInfo instead and hands back the one to
+-- use, so `TweenService:Create(x, UITheme.MotionInfo(INFO), goal)` is a change of one ARGUMENT and
+-- nothing else -- every `Cancel`, `Completed` and `Play` in the caller stays exactly where it was.
+--
+-- Same rewrite as `Tween`: time, repeat and delay all removed, curve kept. A repeat of -1 at zero
+-- time would spin the scheduler forever, which is why this cannot simply zero the duration.
+function UITheme.MotionInfo(info)
+	if not reducedMotion or not info then
+		return info
+	end
+	return TweenInfo.new(0, info.EasingStyle, info.EasingDirection, 0, false, 0)
 end
 
 function UITheme.PreferredTransparency()
@@ -1815,14 +1836,14 @@ local function pressMotion(inst, opts)
 			entry.lip.Position = entry.rest
 		end
 		if RunService:IsClient() then
-			TweenService:Create(scale, PRESS_UP_INFO, { Scale = hovered and hoverScale or 1.0 }):Play()
+			UITheme.Tween(scale, PRESS_UP_INFO, { Scale = hovered and hoverScale or 1.0 })
 		end
 	end
 
 	local function enter()
 		hovered = true
 		if not pressed and RunService:IsClient() and inst.Active and inst.Selectable ~= false then
-			TweenService:Create(scale, HOVER_TWEEN_INFO, { Scale = hoverScale }):Play()
+			UITheme.Tween(scale, HOVER_TWEEN_INFO, { Scale = hoverScale })
 		end
 	end
 
@@ -1835,7 +1856,7 @@ local function pressMotion(inst, opts)
 			up()
 		end
 		if RunService:IsClient() then
-			TweenService:Create(scale, LEAVE_TWEEN_INFO, { Scale = 1.0 }):Play()
+			UITheme.Tween(scale, LEAVE_TWEEN_INFO, { Scale = 1.0 })
 		end
 	end
 
@@ -2511,7 +2532,7 @@ function UITheme.Modal(parent, opts)
 		dim.Visible = modal.Visible
 		if modal.Visible and RunService:IsClient() then
 			modalScale.Scale = 0.88
-			TweenService:Create(modalScale, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1.0 }):Play()
+			UITheme.Tween(modalScale, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1.0 })
 		end
 	end)
 	modal.Destroying:Connect(function()
@@ -3113,7 +3134,12 @@ function UITheme.CountUp(label, startVal, endVal, formatFunc)
 		label.Text = formatFunc and formatFunc(math.floor(val.Value)) or tostring(math.floor(val.Value))
 	end)
 	
-	local t = TweenService:Create(val, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Value = endVal})
+	-- 0.5, not 0.4 (research 1.5). NumberSpinnerV2 -- the module the whole genre copies this from --
+	-- ships `Duration = 0.5` with Quad/Out, and 0.4 was a number nobody had sourced. The cap matters
+	-- more than the exact value: a count-up whose length grew with the delta would leave the readout
+	-- permanently behind the truth in a clicker, so this is a FIXED 0.5 regardless of how far it has
+	-- to travel, and `StopCountUp` above re-targets a running spin instead of queueing a second one.
+	local t = TweenService:Create(val, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Value = endVal})
 	local conn
 	conn = t.Completed:Connect(function()
 		if conn then conn:Disconnect() end
@@ -3154,8 +3180,42 @@ function UITheme.Pulse(inst, maxScale)
 		scale.Scale = 1
 		scale.Parent = inst
 	end
-	scale.Scale = maxScale or 1.15
-	TweenService:Create(scale, PULSE_TWEEN_INFO, { Scale = 1.0 }):Play()
+	-- ===== THE BOUNCE IS TWO STAGES AND 1.08, NOT A SNAP TO 1.15 (research 1.5) =====
+	--
+	-- What stood here set `Scale` to the peak in one frame and eased back over 0.24 s Back/Out. That
+	-- is not a bounce, it is a POP: the growth -- the half a player actually reads as "that number
+	-- just went up" -- happened between two frames and could not be seen at all, and `Back/Out`
+	-- overshot BELOW 1.0 on the way home, so the pill finished by shrinking. NumberSpinnerV2's
+	-- shipped numbers are a symmetrical pair: 0.12 s out, 0.14 s back, both Quad/Out, peak 1.08.
+	--
+	-- 1.08 rather than 1.15 also restores an ordering the idle pulse depends on. `UITheme.Attention`
+	-- runs claimable tiles at 1.03 deliberately "below the 1.08 the currency readout uses for a real
+	-- event" -- with a real event at 1.15 the gap was nearly five times the idle nudge, and the two
+	-- were no longer on one scale.
+	local peak = maxScale or 1.08
+	if reducedMotion then
+		scale.Scale = 1
+		return
+	end
+	-- Cancelled and restarted rather than layered: a second currency change arriving mid-bounce
+	-- otherwise leaves two tweens writing one `Scale`, and the pill settles wherever the loser
+	-- stopped -- the same fault `animatePanel` keeps a `live` table for.
+	local running = scale:FindFirstChild("PulseTween")
+	if running then
+		running:Destroy()
+	end
+	local marker = Instance.new("BoolValue")
+	marker.Name = "PulseTween"
+	marker.Parent = scale
+	scale.Scale = 1
+	local up = TweenService:Create(scale, PULSE_OUT_INFO, { Scale = peak })
+	up.Completed:Connect(function()
+		if marker.Parent then
+			TweenService:Create(scale, PULSE_BACK_INFO, { Scale = 1.0 }):Play()
+			marker:Destroy()
+		end
+	end)
+	up:Play()
 end
 
 function UITheme.SetProgress(bar, progress, animated)
@@ -3171,9 +3231,12 @@ function UITheme.SetProgress(bar, progress, animated)
 	end
 	local target = math.clamp(progress or 0, 0, 1)
 	if animated ~= false and RunService:IsClient() then
-		TweenService:Create(fill, TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		-- `UITheme.Tween` plays it; the trailing `:Play()` this line used to carry would have
+		-- restarted the tween a second time, which under ReducedMotion is a zero-length tween
+		-- played twice in one frame.
+		UITheme.Tween(fill, TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 			Size = UDim2.new(target, 0, 1, 0)
-		}):Play()
+		})
 	else
 		fill.Size = UDim2.new(target, 0, 1, 0)
 	end

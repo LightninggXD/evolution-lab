@@ -804,6 +804,37 @@ local function registerPanel(panel)
 	local w, h = panel.Size.X.Offset, panel.Size.Y.Offset
 	if w <= 0 or h <= 0 then return end
 
+	-- ===== THE OUTLINE HAS TO SHRINK WITH THE PANEL (research 5.3) =====
+	--
+	-- The `UIScale` built two lines down is what makes a 968-wide Journal reachable on a phone, and
+	-- it takes the panel down to as little as 0.35. It does NOT take the outline down with it: a
+	-- `UIStroke` at the default `FixedSize` is a pixel thickness, so a 6 px rim stays 6 px on a
+	-- panel that is now 339 px wide. What separates our near-white panels from a bright map is the
+	-- stroke and nothing else (that is the whole finding of 5.3), so on a phone the one element
+	-- carrying the separation was drawn nearly three times too heavy -- 6 px of near-black around a
+	-- third-size card reads as a black border with a panel inside it.
+	--
+	-- `StrokeSizingMode = ScaledSize` (engine 0.736, shipped 4 Dec 2025) makes `Thickness` a
+	-- FRACTION of the parent's shortest axis instead of a pixel count, so the rim scales with
+	-- everything else it is drawn around.
+	--
+	-- THE FRACTION IS DERIVED, NEVER TYPED. It is the thickness the stroke already has divided by
+	-- the panel's own shortest AUTHORED axis -- so at full size the panel looks byte-identical to
+	-- what shipped, and every panel keeps its own weight (the near-white ones were set to 6 just
+	-- above; anything coloured still carries styleCard's 5). Authored, not `AbsoluteSize`, for the
+	-- same reason `fit()` below measures authored: AbsoluteSize is the RESULT of the scale we are
+	-- about to apply, and reading it here is a feedback loop.
+	--
+	-- Applied to any panel that gets a UIScale, not only the near-white ones: the swamping is a
+	-- consequence of the FIT, and a coloured panel is fitted by exactly the same number.
+	if shellStroke and shellStroke.Thickness > 0 then
+		local shortest = math.min(w, h)
+		if shortest > 0 then
+			shellStroke.StrokeSizingMode = Enum.StrokeSizingMode.ScaledSize
+			shellStroke.Thickness = shellStroke.Thickness / shortest
+		end
+	end
+
 	local scale = Instance.new("UIScale")
 	scale.Parent = panel
 
@@ -892,7 +923,7 @@ do
 			rewindScrolls(panel)
 			panel.Visible = true
 			scale.Scale = fit * 0.86
-			local tween = TweenService:Create(scale, OPEN, { Scale = fit })
+			local tween = TweenService:Create(scale, UITheme.MotionInfo(OPEN), { Scale = fit })
 			live[panel] = tween
 			tween.Completed:Connect(function()
 				live[panel] = nil
@@ -900,7 +931,7 @@ do
 			tween:Play()
 		else
 			if not panel.Visible then return end
-			local tween = TweenService:Create(scale, SHUT, { Scale = fit * 0.9 })
+			local tween = TweenService:Create(scale, UITheme.MotionInfo(SHUT), { Scale = fit * 0.9 })
 			live[panel] = tween
 			tween.Completed:Connect(function(state)
 				live[panel] = nil
@@ -1937,10 +1968,10 @@ rewardPanel:GetPropertyChangedSignal("Visible"):Connect(function()
 	if rewardPanel.Visible then
 		rewardDim.BackgroundTransparency = 1
 		rewardDim.Visible = true
-		TweenService:Create(rewardDim, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		TweenService:Create(rewardDim, UITheme.MotionInfo(TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)),
 			{ BackgroundTransparency = 0.38 }):Play()
 	else
-		local fade = TweenService:Create(rewardDim, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		local fade = TweenService:Create(rewardDim, UITheme.MotionInfo(TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In)),
 			{ BackgroundTransparency = 1 })
 		fade.Completed:Connect(function()
 			-- guarded: the player may have reopened the board inside those 0.12 seconds, and hiding
@@ -3458,6 +3489,13 @@ local function showNotification(text, color, rank, groupId)
 		local bar = card:FindFirstChild("Timer")
 		if bar then
 			bar.Size = UDim2.new(1, -22, 0, 3)
+			-- ===== THE ONE TWEEN IN THIS FILE NOT WRAPPED IN `MotionInfo` (research 2.6) =====
+			-- The other 23 all go through it, because they are decoration -- a pop, a fade, a slide --
+			-- and Roblox's own accessibility remedy for decoration is literally to set the TweenInfo
+			-- time to 0. This bar is not decoration: it is the toast's countdown, and its LENGTH is the
+			-- information. Zeroed it drains in one frame and then sits empty for the 2.5 s the toast is
+			-- still on screen, telling the player the opposite of the truth. ReducedMotion asks for less
+			-- motion, not for a readout that lies.
 			TweenService:Create(bar, TweenInfo.new(2.5, Enum.EasingStyle.Linear),
 				{ Size = UDim2.new(0, 0, 0, 3) }):Play()
 		end
@@ -3472,15 +3510,15 @@ local function showNotification(text, color, rank, groupId)
 			local info = TweenInfo.new(0.32)
 			local scale = card:FindFirstChildOfClass("UIScale")
 			if scale then
-				TweenService:Create(scale, TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.In),
+				TweenService:Create(scale, UITheme.MotionInfo(TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.In)),
 					{ Scale = 0.7 }):Play()
 			end
 			-- a chunky toast is a whole stack of parts, so fade shell, lip, gloss, outline and
 			-- the outlined text together instead of just the one label the flat version had.
-			local shellTween = TweenService:Create(card, info, { BackgroundTransparency = 1 })
+			local shellTween = TweenService:Create(card, UITheme.MotionInfo(info), { BackgroundTransparency = 1 })
 			for _, d in ipairs(card:GetDescendants()) do
 				if d:IsA("TextLabel") then
-					TweenService:Create(d, info, { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
+					TweenService:Create(d, UITheme.MotionInfo(info), { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
 				elseif d:IsA("ImageLabel") then
 					-- AN IMAGE DOES NOT FADE ON BackgroundTransparency, and 11.15 is what makes this
 					-- branch necessary: before the icon chip carried a drawing there were no ImageLabels
@@ -3488,11 +3526,11 @@ local function showNotification(text, color, rank, groupId)
 					-- card, its outline and its words fade out and the icon stays at full opacity until
 					-- Destroy blinks it away -- the one element left behind by its own exit animation.
 					-- IconShadow is an ImageLabel too and is caught by the same line.
-					TweenService:Create(d, info, { ImageTransparency = 1, BackgroundTransparency = 1 }):Play()
+					TweenService:Create(d, UITheme.MotionInfo(info), { ImageTransparency = 1, BackgroundTransparency = 1 }):Play()
 				elseif d:IsA("GuiObject") then
-					TweenService:Create(d, info, { BackgroundTransparency = 1 }):Play()
+					TweenService:Create(d, UITheme.MotionInfo(info), { BackgroundTransparency = 1 }):Play()
 				elseif d:IsA("UIStroke") then
-					TweenService:Create(d, info, { Transparency = 1 }):Play()
+					TweenService:Create(d, UITheme.MotionInfo(info), { Transparency = 1 }):Play()
 				end
 			end
 			shellTween:Play()
@@ -3541,7 +3579,7 @@ local function showNotification(text, color, rank, groupId)
 				if scale then
 					scale.Scale = 1.12
 					TweenService:Create(scale,
-						TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+						UITheme.MotionInfo(TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out)),
 						{ Scale = 1 }):Play()
 				end
 
@@ -3609,7 +3647,7 @@ local function showNotification(text, color, rank, groupId)
 	local pop = Instance.new("UIScale")
 	pop.Scale = 0.55
 	pop.Parent = notif
-	TweenService:Create(pop, TweenInfo.new(0.34, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+	TweenService:Create(pop, UITheme.MotionInfo(TweenInfo.new(0.34, Enum.EasingStyle.Back, Enum.EasingDirection.Out)),
 		{ Scale = 1 }):Play()
 
 	if icon then
@@ -3844,13 +3882,13 @@ local function celebratePurchase(text, color)
 
 	-- Back easing overshoots on purpose. An element that simply appears at its final size has no
 	-- arrival, and the arrival IS the message.
-	TweenService:Create(card, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+	TweenService:Create(card, UITheme.MotionInfo(TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out)), {
 		Size = UDim2.new(1, 0, 1, 0),
 	}):Play()
-	TweenService:Create(ring, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+	TweenService:Create(ring, UITheme.MotionInfo(TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)), {
 		Size = UDim2.new(1.6, 0, 2.6, 0),
 	}):Play()
-	TweenService:Create(ringStroke, TweenInfo.new(0.5), { Transparency = 1 }):Play()
+	TweenService:Create(ringStroke, UITheme.MotionInfo(TweenInfo.new(0.5)), { Transparency = 1 }):Play()
 
 	local character = player.Character
 	local hrp = character and character:FindFirstChild("HumanoidRootPart")
@@ -3905,14 +3943,14 @@ local function celebratePurchase(text, color)
 	task.delay(1.25, function()
 		if not holder.Parent then return end
 		local info = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-		TweenService:Create(holder, info, { Position = UDim2.new(0.5, 0, 0.17, 0) }):Play()
+		TweenService:Create(holder, UITheme.MotionInfo(info), { Position = UDim2.new(0.5, 0, 0.17, 0) }):Play()
 		for _, d in ipairs(holder:GetDescendants()) do
 			if d:IsA("TextLabel") then
-				TweenService:Create(d, info, { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
+				TweenService:Create(d, UITheme.MotionInfo(info), { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
 			elseif d:IsA("GuiObject") then
-				TweenService:Create(d, info, { BackgroundTransparency = 1 }):Play()
+				TweenService:Create(d, UITheme.MotionInfo(info), { BackgroundTransparency = 1 }):Play()
 			elseif d:IsA("UIStroke") then
-				TweenService:Create(d, info, { Transparency = 1 }):Play()
+				TweenService:Create(d, UITheme.MotionInfo(info), { Transparency = 1 }):Play()
 			end
 		end
 		task.delay(0.4, function()
@@ -3958,6 +3996,19 @@ local function refreshUI()
 
 	if (data.DNA or 0) > prevDNA and prevDNA > 0 then
 		UITheme.CountUp(dnaPill.Value, prevDNA, data.DNA, formatNumber)
+		-- ===== DNA BOUNCES TOO (research 1.5) =====
+		-- Diamonds and shards have called `Pulse` here since the count-up landed and DNA never did,
+		-- so the ONE currency the whole game is about was the one capsule that did not react to
+		-- earning any.
+		--
+		-- The research's own worry -- "a 60-clicks/minute drip makes the number vibrate forever" --
+		-- does not apply, and the reason is the CADENCE OF THIS FUNCTION, not the size of the delta.
+		-- `refreshUI` runs off the save push and nothing else; the note 250 lines down records that
+		-- "the server sends one about every three seconds". So the fastest this can bounce is once
+		-- per push, whatever the click rate -- a heartbeat on the wallet, not a jitter. (The 2 %
+		-- threshold inside `CountUp` is a separate guard and it governs the count-up alone: a drip
+		-- still pulses, it just snaps the digits instead of rolling them.)
+		UITheme.Pulse(dnaPill)
 	else
 		UITheme.StopCountUp(dnaPill.Value)
 		dnaPill.Value.Text = formatNumber(data.DNA)
@@ -4275,9 +4326,9 @@ do
 
 		local scale = refs.button:FindFirstChildOfClass("UIScale")
 		if scale then
-			local up = TweenService:Create(scale, PUNCH_UP, { Scale = 1.12 })
+			local up = TweenService:Create(scale, UITheme.MotionInfo(PUNCH_UP), { Scale = 1.12 })
 			up.Completed:Connect(function()
-				TweenService:Create(scale, PUNCH_DOWN, { Scale = 1 }):Play()
+				TweenService:Create(scale, UITheme.MotionInfo(PUNCH_DOWN), { Scale = 1 }):Play()
 			end)
 			up:Play()
 		end
@@ -4301,14 +4352,14 @@ do
 		pop.Parent = badge
 		themeLabel(pop, 22, UITheme.Color.Green)
 
-		local rise = TweenService:Create(pop, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		local rise = TweenService:Create(pop, UITheme.MotionInfo(TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)),
 			{ Position = UDim2.new(0.5, 0, 0, -32), TextTransparency = 1 })
 		-- the outline has to fade WITH the glyph. themeLabel gives every label a UIStroke, and a stroke
 		-- left at Transparency 0 while its text fades out leaves a "+1" written in outline hanging in
 		-- the air -- the same trap the notification fade already documents.
 		local popStroke = pop:FindFirstChildOfClass("UIStroke")
 		if popStroke then
-			TweenService:Create(popStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			TweenService:Create(popStroke, UITheme.MotionInfo(TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)),
 				{ Transparency = 1 }):Play()
 		end
 		rise.Completed:Connect(function() pop:Destroy() end)
