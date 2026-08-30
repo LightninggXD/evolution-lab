@@ -212,23 +212,16 @@ end
 -- were both being answered about a shape that does not exist.
 --
 -- The rotation is applied the standard way: each world extent is the row of |R| against the size.
-local function worldSize(cf, size)
-	local r, u, l = cf.RightVector, cf.UpVector, cf.LookVector
-	return Vector3.new(
-		math.abs(r.X) * size.X + math.abs(u.X) * size.Y + math.abs(l.X) * size.Z,
-		math.abs(r.Y) * size.X + math.abs(u.Y) * size.Y + math.abs(l.Y) * size.Z,
-		math.abs(r.Z) * size.X + math.abs(u.Z) * size.Y + math.abs(l.Z) * size.Z)
-end
-
-local function boxOf(inst)
-	if inst:IsA("Model") then
-		local cf, size = inst:GetBoundingBox()
-		return cf.Position, worldSize(cf, size)
-	elseif inst:IsA("BasePart") then
-		return inst.Position, worldSize(inst.CFrame, inst.Size)
-	end
-	return nil, nil
-end
+-- 34.62 MOVED THIS INTO `MapCut` AND THIS FILE CALLS IT. `MapCut` had three readers of its own that
+-- each took `Part.Size` and `GetBoundingBox()`'s size straight -- the prop's own frame -- and on a
+-- live Forest build that made four flat floors read as blank walls, which is a class a road cut is
+-- allowed to delete. One implementation is the fix; two that agree today are the same bug waiting.
+-- The long note about what a rotated box does to a frontage test stays above, because this is the
+-- file that paid for it.
+-- Only the box getter is aliased. `MapCut.WorldSize` is the piece underneath it and this file has
+-- no caller for it on its own, so it is left where it lives -- an unused local is one more name a
+-- future reader has to decide is harmless.
+local boxOf = MapCut.WorldBox
 
 -- The half-width of the corridor `near` studs out from the front face.
 local function halfAt(near)

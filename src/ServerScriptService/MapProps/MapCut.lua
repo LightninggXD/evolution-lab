@@ -72,12 +72,55 @@ function MapCut.IsFoliage(c)
 	return leafy > 0 and other == 0
 end
 
+-- ===== EVERY BOX IN THIS FILE IS A WORLD BOX NOW (34.62) =====
+--
+-- `Part.Size` is in the PART'S OWN FRAME and `Model:GetBoundingBox()` returns its size in the
+-- PIVOT'S frame -- neither is world axes, and this whole file's questions are about world axes:
+-- *is this thin and tall*, *is it taller than five studs*, *how far does it reach across the lane*.
+-- A prop authored lying down reads as a wall; a flat floor authored on its side reads as a floor
+-- that is 144 studs tall.
+--
+-- MEASURED ON A LIVE BUILD OF THE FOREST VILLAGE, and the reason this is a row rather than a
+-- tidy-up: `IsBlankWall` returned true for FOUR parts and every one of them was a flat floor -- the
+-- square's paving (1 x 144 x 144 at (-18, 9)), the portal plaza (1 x 106 x 97 at (-193, 14)),
+-- 0 x 78 x 95 at (122, 5) and 1 x 37 x 110 at (-134, 7). In world axes the count is ZERO. A blank
+-- wall is in the class a lane is allowed to MOVE OR DELETE, so a road laid across the square would
+-- have taken its floor out. `MIN_HEIGHT >= 5` disagreed on three more props for the same reason
+-- (260 own-frame against 257 world).
+--
+-- Nothing had gone wrong yet, because no lane crosses those four today. That is exactly the kind of
+-- fault worth fixing before it is a bug report: it is one wrong axis away from deleting the ground.
+--
+-- The rotation is applied the standard way -- each world extent is the row of |R| against the size.
+-- `MapClearance` worked this out first and carries the longer note; it calls this one now, so there
+-- is a single implementation rather than two that can drift.
+function MapCut.WorldSize(cf, size)
+	local r, u, l = cf.RightVector, cf.UpVector, cf.LookVector
+	return Vector3.new(
+		math.abs(r.X) * size.X + math.abs(u.X) * size.Y + math.abs(l.X) * size.Z,
+		math.abs(r.Y) * size.X + math.abs(u.Y) * size.Y + math.abs(l.Y) * size.Z,
+		math.abs(r.Z) * size.X + math.abs(u.Z) * size.Y + math.abs(l.Z) * size.Z)
+end
+
+-- Position and WORLD size for either shape, or nil for anything that is neither. The three readers
+-- below all went through their own four-line copy of this and all three had the same bug.
+function MapCut.WorldBox(inst)
+	if inst:IsA("Model") then
+		local cf, size = inst:GetBoundingBox()
+		return cf.Position, MapCut.WorldSize(cf, size)
+	elseif inst:IsA("BasePart") then
+		return inst.Position, MapCut.WorldSize(inst.CFrame, inst.Size)
+	end
+	return nil, nil
+end
+
 -- See note 2 above. Thin on one horizontal axis, long on the other, and tall enough to stop a
 -- player: that is a backdrop, not a building. Measured on this map's three: 0.49 / 0.71 studs thick
--- against 60 / 95 / 96 studs long.
+-- against 60 / 95 / 96 studs long -- and those three are still the three, in world axes.
 function MapCut.IsBlankWall(c)
 	if not c:IsA("BasePart") then return false end
-	local s = c.Size
+	local _, s = MapCut.WorldBox(c)
+	if not s then return false end
 	local thin = math.min(s.X, s.Z)
 	local long = math.max(s.X, s.Z)
 	return thin <= 1.5 and long >= 40 and s.Y >= 20
@@ -109,17 +152,10 @@ function MapCut.Lane(map, cx, lane, protected)
 
 	for _, c in ipairs(map:GetChildren()) do
 		if not MapCut.NEVER_CUT[c.Name] then
-			-- Initialised, not forward-declared. A bare `local a, b` is the exact shape
-			-- `tools/luanames.py` documents nine false positives of, and `JungleLayout` carries
-			-- the same note for the same reason: one more line a future reader has to decide is
-			-- harmless is one line too many.
-			local pos, size = nil, nil
-			if c:IsA("Model") then
-				local cf, s = c:GetBoundingBox()
-				pos, size = cf.Position, s
-			elseif c:IsA("BasePart") then
-				pos, size = c.Position, c.Size
-			end
+			-- WORLD AXES since 34.62 -- see the note over `MapCut.WorldBox`. This read used to be
+			-- four lines of `GetBoundingBox()` / `.Size` taken straight, which is the prop's own
+			-- frame, so `size.Y` was the prop's own height and not how tall it stands.
+			local pos, size = MapCut.WorldBox(c)
 			if pos and size.Y >= MapCut.MIN_HEIGHT then
 				local rx, rz = pos.X - cx, pos.Z
 				local t = ((rx - lane.x1) * dx + (rz - lane.z1) * dz) / len2
@@ -199,13 +235,10 @@ function MapCut.LaneFootprint(map, cx, lane, clearHalf, protected, minHeight)
 	for _, c in ipairs(map:GetChildren()) do
 		if not MapCut.NEVER_CUT[c.Name] and not (protected and protected[c])
 			and MapCut.IsFoliage(c) then
-			local pos, size = nil, nil
-			if c:IsA("Model") then
-				local cf, sz = c:GetBoundingBox()
-				pos, size = cf.Position, sz
-			elseif c:IsA("BasePart") then
-				pos, size = c.Position, c.Size
-			end
+			-- WORLD AXES (34.62). It matters twice here: the height gate below, and `reach`, which
+			-- projects the box onto the lane's normal -- a canopy measured in its own frame reaches
+			-- the wrong way the moment the tree was placed at an angle, which most of them are.
+			local pos, size = MapCut.WorldBox(c)
 			if pos and size and size.Y >= (minHeight or MapCut.MIN_HEIGHT) then
 				local rx, rz = pos.X - cx, pos.Z
 				-- CLAMPED here, unlike `Lane`: the question is "does this canopy touch the
