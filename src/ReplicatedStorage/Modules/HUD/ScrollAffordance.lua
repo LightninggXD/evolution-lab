@@ -66,13 +66,37 @@ return function(hud)
 
 		-- Show it only when something is actually below the fold, or a short list wears a permanent
 		-- smudge along its bottom edge for no reason.
+		--
+		-- ===== AND ONLY WHILE THE SCROLL ITSELF IS ON SCREEN (34.57) =====
+		--
+		-- The fade is a SIBLING of the scroll, not a child of it -- it has to be, because
+		-- ZIndexBehavior is Sibling here and a child could not cover the scroll's own contents. The
+		-- cost of that is the one this guard pays: hiding the scroll does NOT hide the fade, because
+		-- the fade is not inside it. On a panel with one list that never showed, since the panel and
+		-- its list are hidden together and the panel's own `Visible` is watched below.
+		--
+		-- MEASURED ON THE RELICS PANEL, which swaps between TWENTY-ONE sibling `ScrollingFrame`s in
+		-- one parent: after opening the Forge tab and then Forest, `Page_forgeFade` and
+		-- `Page_ForestFade` were BOTH visible at exactly (768, 470.5), 264 x 30, ZIndex 25 -- two
+		-- gradients stacked on the same pixels, so the darkening doubled. Walk all twenty-one tabs
+		-- and the bottom of that list wears twenty-one of them, which is not a fade any more, it is
+		-- a bar.
+		--
+		-- The guard is on the SCROLL rather than a rule in the panel, because it is true of every
+		-- caller: a fade over a list nobody can see is never right, and a panel that swaps lists
+		-- should not have to know this module exists.
 		local function refresh()
+			if not scroll.Visible then
+				fade.Visible = false
+				return
+			end
 			local below = scroll.AbsoluteCanvasSize.Y - (scroll.CanvasPosition.Y + scroll.AbsoluteWindowSize.Y)
 			fade.Visible = below > 4
 		end
 		scroll:GetPropertyChangedSignal("CanvasPosition"):Connect(refresh)
 		scroll:GetPropertyChangedSignal("AbsoluteCanvasSize"):Connect(refresh)
 		scroll:GetPropertyChangedSignal("AbsoluteWindowSize"):Connect(refresh)
+		scroll:GetPropertyChangedSignal("Visible"):Connect(refresh)
 		panel:GetPropertyChangedSignal("Visible"):Connect(function()
 			if panel.Visible then task.defer(refresh) end
 		end)

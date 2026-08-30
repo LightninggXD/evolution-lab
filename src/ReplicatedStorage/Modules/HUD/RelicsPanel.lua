@@ -29,9 +29,9 @@
 --
 --   RIGHT  action row     98 .. 132   (EQUIP / FORGE -- they act on the selected tile)
 --          set tabs      140 .. 180
---          the list      186 .. 426
---          detail        434 .. 492
---          backpack      496 .. 514
+--          the list      186 .. 410
+--          detail        418 .. 488   (70 tall: MEASURED, see the strip's own note)
+--          backpack      492 .. 510
 --
 -- ===== WHAT MOVED, AND WHERE IT WENT (nothing was dropped) =====
 --
@@ -641,7 +641,11 @@ return function(hud)
 	-- flicker the Pets panel carries its own note about -- and would throw away the lazy build the
 	-- moment a player looked at two sets.
 	local PAGE_POS = UDim2.new(0, RIGHT_X, 0, 186)
-	local PAGE_SIZE = UDim2.new(0, RIGHT_W, 0, 240)
+	-- 240 -> 224. The fourteen pixels went to the detail strip below, which was clipping the one
+	-- line on it that carried facts rather than flavour -- see the note over `detailEffect`. A list
+	-- that is one tile-row shorter loses nothing: it scrolls, and it already clipped its last row
+	-- mid-tile at 240.
+	local PAGE_SIZE = UDim2.new(0, RIGHT_W, 0, 224)
 
 	-- 3 x 74 + 2 x 8 = 238 against the 242 the column leaves once the 12 px scrollbar inset and the
 	-- padding are taken off. Three columns puts the fifteen in five rows and a zone's ten in four,
@@ -982,8 +986,8 @@ return function(hud)
 	-- appear and disappear under the player's cursor.
 	local detail = Instance.new("Frame")
 	detail.Name = "Detail"
-	detail.Size = UDim2.new(0, RIGHT_W, 0, 58)
-	detail.Position = UDim2.new(0, RIGHT_X, 0, 434)
+	detail.Size = UDim2.new(0, RIGHT_W, 0, 70)
+	detail.Position = UDim2.new(0, RIGHT_X, 0, 418)
 	detail.BackgroundTransparency = 1
 	detail.ZIndex = baseZ + 6
 	detail.Visible = false
@@ -1020,15 +1024,31 @@ return function(hud)
 		strokeThickness = 3,
 	})
 
-	-- THREE LINES AT 11 px, MEASURED AGAINST THE BOX RATHER THAN AGAINST `TextFits`. The strip has
-	-- 204 px of width here; at 11 px FredokaOne that is roughly 34 characters a line, so 32 px of
-	-- height buys about a hundred characters -- which is a collection relic's blurb plus its rarity,
-	-- its copy count and its set progress with a little room left. A label that overflows still
-	-- reports `TextFits = true` and returns bounds that fit, so the flag could never have said so.
+	-- ===== FOUR LINES AT 11 px, AND THE ARITHMETIC THAT SAID THREE WAS THE BUG =====
+	--
+	-- 34.57 shipped this at 32 px on the reasoning that 204 px of width is about 34 characters a
+	-- line and 32 px is three lines. Both halves were wrong by one. Measured live with
+	-- `TextService:GetTextBoundsAsync` at width 204, FredokaOne 11, on the real strings this label
+	-- is handed:
+	--
+	--     blurb 52 chars + "Legendary . x99 held . Antimatter Zone set 10/10"  ->  203 x 44  (4 lines)
+	--     blurb 48 chars + "Rare . x1 held . Forest set 8/10"                  ->  202 x 33  (3 lines)
+	--     a forge relic's one-line effect                                      ->  161 x 11  (1 line)
+	--
+	-- A collection relic's blurb wraps to two lines on its own, and so does the stat line behind
+	-- it. At 32 px the box held TWO, `TextTruncate.AtEnd` cut the rest, and what got cut was always
+	-- the SECOND line -- the rarity, the copy count and the set progress. The flavour survived and
+	-- the facts did not, which is the wrong way round: measured on the live panel, `Forest Rune`
+	-- rendered as "One mark, cut deep enough to outlast the tablet..." and nothing else at all.
+	--
+	-- `TextFits` DID report false here, and it is still not the thing to size against: it says a
+	-- box is too small, never by how much, and `TextBounds` comes back describing the TRUNCATED
+	-- render ([[roblox-textbounds-reports-the-truncation]]) -- 202 x 22 for text that needs 33.
+	-- The only honest measurement is the one taken off the STRING, before it is put in a label.
 	local detailEffect = CardKit.Text(detailCard, {
 		name = "Effect",
 		text = "",
-		size = UDim2.new(1, -60, 0, 32),
+		size = UDim2.new(1, -60, 0, 44),
 		position = UDim2.new(0, 54, 0, 22),
 		textSize = 11,
 		color = Color3.fromRGB(244, 247, 255),
@@ -1047,7 +1067,7 @@ return function(hud)
 	local backpack = Instance.new("Frame")
 	backpack.Name = "Backpack"
 	backpack.Size = UDim2.new(0, RIGHT_W, 0, 18)
-	backpack.Position = UDim2.new(0, RIGHT_X, 0, 496)
+	backpack.Position = UDim2.new(0, RIGHT_X, 0, 492)
 	backpack.BackgroundTransparency = 1
 	backpack.ZIndex = baseZ
 	backpack.Parent = panel
