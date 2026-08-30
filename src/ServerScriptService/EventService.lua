@@ -555,11 +555,20 @@ function EventService.DrawBoard()
 		if live.event.key == "GlobalGoal" then
 			local progressVal = RS:FindFirstChild("GlobalKillsProgress")
 			if progressVal then
-				local current = progressVal.Value
 				local targetGoal = live.event.target or 5000000
-				local formattedCurrent = GameConfig.FormatNumber and GameConfig.FormatNumber(current) or tostring(current)
-				local formattedTarget = GameConfig.FormatNumber and GameConfig.FormatNumber(targetGoal) or tostring(targetGoal)
-				blurbText = ("%s\n\n\u{1F3AF} Community Progress: %s / %s"):format(blurbText, formattedCurrent, formattedTarget)
+				-- ===== `GameConfig.FormatNumber` HAS NEVER EXISTED (34.4) =====
+				-- It was written as `GameConfig.FormatNumber and GameConfig.FormatNumber(n) or
+				-- tostring(n)`, so the missing half fell through to the fallback and the one number
+				-- on this board printed as `5000001 / 5000000` -- a raw seven-digit integer beside
+				-- a HUD where every other figure in the game is abbreviated. Caught by reading the
+				-- board's own text on a live build, never by a lint: a guarded call to a function
+				-- that is not there is not an error, it is a quieter answer.
+				-- `UITheme.FormatNumber` is the real one and this file already requires UITheme.
+				-- Clamped, because the counter overshoots by design -- the sync tick adds a whole
+				-- server's delta at once, and `5.00M / 5.00M` is what a finished goal should say.
+				blurbText = ("%s\n\n\u{1F3AF} Community Progress: %s / %s"):format(blurbText,
+					UITheme.FormatNumber(math.min(progressVal.Value, targetGoal)),
+					UITheme.FormatNumber(targetGoal))
 			end
 		end
 

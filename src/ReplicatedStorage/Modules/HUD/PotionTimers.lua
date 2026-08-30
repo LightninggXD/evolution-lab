@@ -391,25 +391,46 @@ return function(hud)
 	themeLabel(eventName, 12)
 	eventName.TextWrapped = false
 
+	-- ===== THE COMMUNITY GOAL'S OWN LINE ON THIS CARD (34.4) =====
+	-- A 2-stud-tall bar across the foot of the card, and nothing else: this card is 168 x 32 and
+	-- already carries a badge, a name and a clock, so the only room left is the edge. It is drawn
+	-- ONLY for the one event that has a counter -- an empty bar under `Weekend Rush` would read as
+	-- a progress bar that is stuck.
+	--
+	-- It was built by an earlier pass and NOTHING EVER SET IT VISIBLE OR SIZED IT: created hidden,
+	-- never named again anywhere in the file. Same shape as 34.5's transfer and 34.42's expedition
+	-- exit -- a complete-looking half that no code path can reach -- and it is invisible to every
+	-- lint, because a Frame that is never touched again is not an error.
+	--
+	-- ===== AND IT WAS AUTHORED AT THE CARD'S SQUARE BOUNDS, ON A PILL =====
+	-- This card's visible surface is the kit's `InnerBody`, a full pill (corner radius 1,0 = 16 px
+	-- on a 32-tall card) that clips its own children -- and the bar was a SIBLING of it at the
+	-- card's outer rectangle, so a full-width bar at `(0, 0, 1, -2)` would have hung its two square
+	-- ends out past the rounded bottom corners. Inset instead of re-parented: the kit lifts the
+	-- card's own children to the content layer and a frame moved inside `InnerBody` would drop out
+	-- of that. 17 px clears the curve at the bar's lowest pixel (16 - sqrt(16^2 - 11^2) = 10.4 at
+	-- y = 31, and 17 has room to spare), and the round ends are the same corner the card has.
 	local eventProgressBg = Instance.new("Frame")
-eventProgressBg.Name = "ProgressBg"
-eventProgressBg.Size = UDim2.new(1, 0, 0, 2)
-eventProgressBg.Position = UDim2.new(0, 0, 1, -2)
-eventProgressBg.BackgroundColor3 = Color3.fromRGB(20, 24, 38)
-eventProgressBg.BorderSizePixel = 0
-eventProgressBg.ZIndex = eventCard.ZIndex + 1
-eventProgressBg.Visible = false
-eventProgressBg.Parent = eventCard
+	eventProgressBg.Name = "ProgressBg"
+	eventProgressBg.Size = UDim2.new(1, -34, 0, 2)
+	eventProgressBg.Position = UDim2.new(0, 17, 1, -5)
+	eventProgressBg.BackgroundColor3 = Color3.fromRGB(20, 24, 38)
+	eventProgressBg.BorderSizePixel = 0
+	eventProgressBg.ZIndex = eventCard.ZIndex + 1
+	eventProgressBg.Visible = false
+	eventProgressBg.Parent = eventCard
+	corner(eventProgressBg, UDim.new(0.5, 0))
 
-local eventProgressFill = Instance.new("Frame")
-eventProgressFill.Name = "ProgressFill"
-eventProgressFill.Size = UDim2.new(0, 0, 1, 0)
-eventProgressFill.BackgroundColor3 = UITheme.Color.Gold
-eventProgressFill.BorderSizePixel = 0
-eventProgressFill.ZIndex = eventProgressBg.ZIndex + 1
-eventProgressFill.Parent = eventProgressBg
+	local eventProgressFill = Instance.new("Frame")
+	eventProgressFill.Name = "ProgressFill"
+	eventProgressFill.Size = UDim2.new(0, 0, 1, 0)
+	eventProgressFill.BackgroundColor3 = UITheme.Color.Gold
+	eventProgressFill.BorderSizePixel = 0
+	eventProgressFill.ZIndex = eventProgressBg.ZIndex + 1
+	eventProgressFill.Parent = eventProgressBg
+	corner(eventProgressFill, UDim.new(0.5, 0))
 
-local eventClock = Instance.new("TextLabel")
+	local eventClock = Instance.new("TextLabel")
 	eventClock.Name = "Clock"
 	eventClock.Size = UDim2.new(0, 46, 0, 20)
 	eventClock.Position = UDim2.new(1, -50, 0.5, -10)
@@ -417,7 +438,13 @@ local eventClock = Instance.new("TextLabel")
 	eventClock.TextXAlignment = Enum.TextXAlignment.Right
 	eventClock.ZIndex = eventCard.ZIndex + 1
 	eventClock.Parent = eventCard
-	themeLabel(eventClock, 14)
+	-- 12 AND NOT 14, MEASURED OFF THE LIVE CARD. `Global Challenge` is the longest event name in
+	-- the table and renders 85 px into a 90 px box; the clock at 14 renders `11h 54m` 53 px wide
+	-- into a 46 px box, so it overflowed LEFT (it is right-aligned) and the two ran together as
+	-- `Global Challenge11h 54m`. The card has 136 px between the badge and its edge and the two
+	-- labels wanted 138. The clock was also the largest text on a card where it is the secondary
+	-- figure; at 12 it matches the name, needs ~45 px, and there are 6 px of daylight between them.
+	themeLabel(eventClock, 12)
 	eventClock.TextWrapped = false
 
 	-- ============================================================================
@@ -548,6 +575,21 @@ local eventClock = Instance.new("TextLabel")
 				eventBadge.BackgroundColor3 = live.event.color
 				eventName.Text = live.event.name
 				eventClock.Text = GameConfig.FormatDuration(left)
+
+				-- The community counter, off the NumberValue the server publishes. A plain
+				-- replicated value and not a remote: `CommunityGoalService` writes it on every sync
+				-- tick, so the client is at most one tick behind by construction and nothing here
+				-- has to subscribe to anything. Hidden for every event that has no `target` -- an
+				-- empty bar is a broken bar.
+				local target = live.event.target
+				local progressVal = target and RS:FindFirstChild("GlobalKillsProgress")
+				if progressVal and target > 0 then
+					eventProgressBg.Visible = true
+					eventProgressFill.Size = UDim2.new(
+						math.clamp(progressVal.Value / target, 0, 1), 0, 1, 0)
+				else
+					eventProgressBg.Visible = false
+				end
 			else
 				eventCard.Visible = false
 			end
