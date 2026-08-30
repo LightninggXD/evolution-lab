@@ -278,8 +278,28 @@ local function refresh()
 		if ladder.repeats and ladder.repeatRow then
 			local m = GameConfig.GetDailyPlaytimeGift(repeatIndexFor(ladder))
 			if m then
-				ladder.repeatRow.card.SetTitle(durationText(m.minutes))
-				ladder.repeatRow.card.SetSubtitle(rewardLine(m) .. "  \u{2022}  every hour from here")
+				-- ===== THE CADENCE BELONGS ON THE TITLE, AND THE SUBTITLE WAS BEING CUT (33.36) =====
+				--
+				-- This row was the only one asking its subtitle to carry two things: what the rung
+				-- pays AND that it repeats. `TextTruncate` is `AtEnd`, so it did not look broken --
+				-- it looked like a sentence that stops. Measured across every milestone
+				-- `GetDailyPlaytimeGift` can return, at the label's own size 22 in its 282 px box:
+				--
+				--   reward + "every hour from here"   worst 491 px   OVERFLOWS   (by 209)
+				--   reward + "every hour"             worst 395 px   OVERFLOWS
+				--   reward + "hourly"                 worst 353 px   OVERFLOWS
+				--   reward line ALONE                 worst 266 px   FITS
+				--
+				-- i.e. no wording of the suffix fits, because the payout line alone already uses 266
+				-- of the 282 on "150.00K DNA  •  🧪 x1  •  💎 x2". The row the sweep caught was the
+				-- MILD case at 335 px; the worst is nearly twice the box.
+				--
+				-- So the suffix moves to the title, which is nearly empty -- `durationText` produces
+				-- "30m" / "5h" / "5h 30m", worst 88 px of 282 -- and the pair measures 270 of 282
+				-- there. The subtitle then says exactly what the other eleven rows' subtitles say,
+				-- which is the shape it should have had: one line, one job.
+				ladder.repeatRow.card.SetTitle(durationText(m.minutes) .. "  \u{2022}  every hour")
+				ladder.repeatRow.card.SetSubtitle(rewardLine(m))
 				paintRow(ladder.repeatRow, m, elapsed, false)
 			end
 		end

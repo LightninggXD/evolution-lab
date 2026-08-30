@@ -209,8 +209,22 @@ function PetTile.Build(parent, opts)
 	if opts.away then
 		local badge = Instance.new("TextLabel")
 		badge.Name = "AwayBadge"
-		badge.Size = UDim2.new(0, 62, 0, 18)
-		badge.Position = UDim2.new(0.5, 0, 0, 72)
+		-- ===== 20 TALL, NOT 18, AND THE TEXT IS NOT WHAT IS WRONG (33.36) =====
+		--
+		-- `themeLabel(badge, 13, ...)` lands in `UITheme.AutoSize(label, math.min(14, 13), 13)`, so
+		-- this caption's `UITextSizeConstraint` FLOORS it at 13 px -- it is `TextScaled` and it is
+		-- already as small as it is allowed to get. `styleCard` then mirrors the caption into a
+		-- `Label` child inset by 3 px top and bottom, so an 18-tall badge gives that child a **12 px
+		-- box for 13 px of text** and `TextFits` is false with the cap-height shaved off.
+		--
+		-- Measured, not guessed: box 52x12, `TextBounds` 44x13. The fix is the BOX, because the text
+		-- has nowhere left to shrink to. 20 gives the child 14 and a pixel of slack.
+		--
+		-- AND IT MOVES UP BY THE 2 IT GAINS. `ValueLabel` starts at y 92 and this badge ended at 90;
+		-- growing downward would have put a rarity chip through the damage number on every secret
+		-- pet in the bag. 70..90 keeps the gap exactly where it was.
+		badge.Size = UDim2.new(0, 62, 0, 20)
+		badge.Position = UDim2.new(0.5, 0, 0, 70)
 		badge.AnchorPoint = Vector2.new(0.5, 0)
 		badge.ZIndex = preview.ZIndex + 3
 		badge.Text = "AWAY"
@@ -223,8 +237,12 @@ function PetTile.Build(parent, opts)
 	elseif info.secret then
 		local badge = Instance.new("TextLabel")
 		badge.Name = "SecretBadge"
-		badge.Size = UDim2.new(0, 62, 0, 18)
-		badge.Position = UDim2.new(0.5, 0, 0, 72)
+		-- Same 20/70 as `AwayBadge` above and for the same measured reason -- these two share the
+		-- foot-of-the-disc slot and must stay the same size, or the tile changes shape depending on
+		-- which of them is showing. SECRET is the one the sweep actually caught; AWAY has the
+		-- identical defect and was simply not on screen, because it needs a pet out on an adventure.
+		badge.Size = UDim2.new(0, 62, 0, 20)
+		badge.Position = UDim2.new(0.5, 0, 0, 70)
 		badge.AnchorPoint = Vector2.new(0.5, 0)
 		badge.ZIndex = preview.ZIndex + 3
 		badge.Text = "SECRET"

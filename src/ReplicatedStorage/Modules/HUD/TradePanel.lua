@@ -639,19 +639,32 @@ return function(hud)
 		refreshTradeUI()
 	end
 
+	-- ===== 28 TALL, NOT 24, AND IT GROWS UPWARDS (33.36) =====
+	--
+	-- `fontSize = 14` reaches `UITheme.AutoSize(label, math.min(14, 14), 26)`, so these captions are
+	-- FLOORED at 14 px -- `TextScaled` cannot take them any smaller. The button's own label child is
+	-- inset 6 px top and bottom, so a 24-tall button gave it a **12 px box for 14 px of text**:
+	-- measured box 90x12 against `TextBounds` 26x14 for "Pets" and 34x14 for "Relics", both with
+	-- `TextFits` false. Four characters overflowing a 90 px-wide box is the giveaway that the width
+	-- was never the problem.
+	--
+	-- 28 gives the label 16 and two pixels of slack. THE POSITION MOVES UP BY THE FOUR IT GAINS:
+	-- `InvPickerScroll` starts at `topY + 232` and shares this row's right-hand edge, so growing
+	-- downward would have laid both tabs over the top of the list. 202..230 keeps the bottom edge
+	-- where it was and still clears the two 200-tall offer columns above at `topY`.
 	petTabBtn = UITheme.Button(tradeModal, {
 		text = "Pets",
 		color = UITheme.Color.Blue,
-		size = UDim2.new(0, 106, 0, 24),
-		position = UDim2.new(1, -232, 0, topY + 206),
+		size = UDim2.new(0, 106, 0, 28),
+		position = UDim2.new(1, -232, 0, topY + 202),
 		fontSize = 14,
 		zIndex = 43,
 	})
 	relicTabBtn = UITheme.Button(tradeModal, {
 		text = "Relics",
 		color = UITheme.Color.Locked,
-		size = UDim2.new(0, 106, 0, 24),
-		position = UDim2.new(1, -122, 0, topY + 206),
+		size = UDim2.new(0, 106, 0, 28),
+		position = UDim2.new(1, -122, 0, topY + 202),
 		fontSize = 14,
 		zIndex = 43,
 	})
