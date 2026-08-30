@@ -103,8 +103,7 @@ local ChestService = {}
 --       └─ chest               is a **Decal**, texture rbxassetid://8281320680
 --
 -- Both halves of what landed are 2D. There is no inserted MODEL, so the first four paths below can
--- never resolve and the row's 3D half had no art at all. The two texture ids are kept here because
--- they are the only record of them anywhere in `src/`, and 34.58's icon half wants one of them.
+-- never resolve and the row's 3D half had no art at all.
 --
 -- `Workspace.GroupChest` IS a real chest and it is ours: `Base` / `Trim` / `Lid` / `Lock`, 4.2 x 3.6
 -- x 3.4 studs, standing at (48, 3, 335) as the group-reward prop. It is the fallback rather than the
@@ -112,10 +111,19 @@ local ChestService = {}
 -- on the next boot with no edit here -- but a grotto with a working chest in the game's own art
 -- beats a grotto with a warning in the log. It also happens to carry a part literally named `Lid`,
 -- which is what the hinge below looks for, so the open animation works on it without a guess.
--- PUBLISHED rather than kept local, so the icon half of 34.58 has one place to read them from
--- and they are not two dead strings a lint has to forgive.
-ChestService.Icon2D = "rbxassetid://8281320680"          -- hers; the inner `chest` decal
-ChestService.Icon2DAlt = "rbxassetid://79295568252541"   -- hers; the outer `coin chest` decal
+--
+-- ===== THE TWO TEXTURE IDS MOVED TO `GameConfig` (34.54) =====
+--
+-- They were declared here as literals, on the grounds that this was the only record of them in
+-- `src/`. That stopped being true the moment a CLIENT needed to draw one: 34.54 puts a chest on the
+-- lucky wheel that the player presses, and a client cannot require a module in `ServerScriptService`
+-- -- so keeping them here would have meant a second copy of the same two strings on the far side,
+-- which is exactly the shape that lets the grotto chest and the wheel chest drift into two different
+-- pictures of one object. They live on `GameConfig.RelicChestIcon` now, which both sides already
+-- read. The two fields below are kept as ALIASES rather than deleted: 34.58 published them by name
+-- and this file is still the place a reader looks for "what art does the chest use".
+ChestService.Icon2D = GameConfig.RelicChestIcon
+ChestService.Icon2DAlt = GameConfig.RelicChestIconAlt
 local SOURCE_PATHS = {
 	{ "ServerStorage", "SourceProps", "RelicChest" },
 	{ "ServerStorage", "SourceProps", "coin chest", "chest" },

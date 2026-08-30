@@ -415,14 +415,17 @@ return function(hud)
 	-- arrives from a CHEST or from the diamond buy, and nothing else. `"free"` is refused by the
 	-- server now, so the left button sends `"banked"` or is simply dark.
 	--
-	-- ===== AND THIS IS WHERE THE 2D CHEST GOES (34.58) =====
+	-- ===== AND THIS IS WHERE THE 2D CHEST GOES (34.58, wired in 34.54) =====
 	--
-	-- She has inserted a gold/red chest icon and wants it drawn on an items-style tab. This card is
-	-- the natural home for it -- it is the only place in the game where a chest is opened from a
-	-- screen -- and the icon is one `ImageLabel` named `ChestIcon`. `IconLibrary` has no `chest`
-	-- entry yet, so it resolves the GIFT emoji today; when 34.58 adds the art, ONE LINE below
-	-- changes and nothing else moves. Resolved through the library rather than a raw id, because an
-	-- unmapped name gives `Image = ""` which is a hole rather than a blank.
+	-- She inserted a gold/red chest icon and wanted it drawn on an items-style tab. This card is the
+	-- natural home for it -- it is the only place in the game where a chest is opened from a screen
+	-- -- and the icon is one `ImageLabel` named `ChestIcon`. It drew the GIFT emoji through
+	-- `IconLibrary` as a placeholder until her art had somewhere CLIENT-READABLE to live; 34.54 put
+	-- the two decal ids on `GameConfig.RelicChestIcon` (a client cannot require `ChestService`, where
+	-- they used to sit) and this is the one line that note was promising.
+	--
+	-- THE GIFT GLYPH IS STILL THE FALLBACK, not a raw id with no net: an id that fails to resolve
+	-- gives an empty Image, which is a HOLE in the middle of a card rather than a blank.
 	local chestCard = CardKit.Card(panel, {
 		name = "ChestCard",
 		size = UDim2.new(0, LEFT_W, 0, 104),
@@ -438,8 +441,7 @@ return function(hud)
 	chestIcon.Size = UDim2.new(0, 40, 0, 40)
 	chestIcon.Position = UDim2.new(0, 10, 0, 8)
 	chestIcon.BackgroundTransparency = 1
-	-- 34.58 REPOINTS THIS LINE to `IconLibrary.Id.chest` once the chest art is in the library.
-	chestIcon.Image = IconLibrary.Resolve("\u{1F381}") or ""
+	chestIcon.Image = GameConfig.RelicChestIcon or IconLibrary.Resolve("\u{1F381}") or ""
 	chestIcon.ScaleType = Enum.ScaleType.Fit
 	chestIcon.ZIndex = baseZ + 2
 	chestIcon.Parent = chestCard

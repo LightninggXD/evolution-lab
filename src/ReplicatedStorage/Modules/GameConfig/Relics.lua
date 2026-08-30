@@ -325,6 +325,22 @@ end
 GameConfig.RelicChestDiamondCost = 40
 GameConfig.RelicChestDiamondBias = 60       -- a bought chest rolls as if the player had +60 luck
 
+-- ===== THE CHEST'S PICTURE, PUBLISHED WHERE BOTH SIDES CAN SEE IT (34.54) =====
+--
+-- These are the owner's own two decals, inserted for 34.58 (`Workspace["coin chest"]` and its child
+-- `chest`). They lived as `ChestService.Icon2D` / `.Icon2DAlt` -- fields on a SERVER module, which
+-- no client can require -- and 34.54 needs a chest DRAWN ON A SCREEN: the lucky wheel's relic wedge
+-- now hands the player a chest they press rather than a sentence telling them to go and find the
+-- forge. A texture id is a fact about the art, not about the server, so it belongs on the same
+-- config both sides already read; `ChestService` points at these rather than holding its own copy,
+-- which is what keeps the chest in the grotto and the chest on the wheel the same object.
+--
+-- NOT ROUTED THROUGH `IconLibrary`. That layer is keyed BY EMOJI and maps the game's own drawn
+-- glyph set; these two are a specific pair of decals the owner inserted, and giving them an emoji
+-- key would mean every gift emoji in the HUD silently became a treasure chest.
+GameConfig.RelicChestIcon = "rbxassetid://8281320680"          -- hers; the inner `chest` decal
+GameConfig.RelicChestIconAlt = "rbxassetid://79295568252541"   -- hers; the outer `coin chest` decal
+
 -- ===== AGGREGATION =====
 --
 -- The two functions the rest of the game calls, and the ONLY place relic maths happens. They live

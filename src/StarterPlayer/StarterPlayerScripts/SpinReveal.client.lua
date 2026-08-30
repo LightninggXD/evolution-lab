@@ -41,6 +41,7 @@ local SoundLibrary = require(Modules:WaitForChild("SoundLibrary"))
 local HUD = Modules:WaitForChild("HUD")
 local Art = require(HUD:WaitForChild("SpinWheelArt"))
 local SpinLobby = require(HUD:WaitForChild("SpinLobby"))
+local ChestReveal = require(HUD:WaitForChild("ChestReveal"))
 
 local player = Players.LocalPlayer
 local Remotes = RS:WaitForChild("Remotes")
@@ -58,6 +59,22 @@ local BIG_WINS = {
 local SPIN_WATCHDOG = math.max(24, (GameConfig.SpinMaxChain or 12) * 5.6)
 local MAX_QUEUE = 3
 local PRIZE_HOLD = 2.6
+
+-- ===== THE CHEST REVEAL (34.54) =====
+--
+-- How long the chest stands there waiting to be pressed before the wheel gives up and goes back to
+-- idle. It is not a deadline on the PRIZE -- the chest is already banked in the save the moment the
+-- wedge lands, so a player who walks away has lost nothing and opens it in the Relics panel later.
+-- It is a fuse on the SHELL: `animating` is true while the chest is up, so a reveal nobody ever
+-- answers would leave the SPIN button reading "SPINNING" until `SPIN_WATCHDOG` (67 s) fired.
+local CHEST_WAIT = 25
+
+-- After the press: how long to wait for the save to come back with the chest SPENT, and then for the
+-- server's own relic message to land. Two separate waits because they are two separate facts -- the
+-- data push proves the chest opened, the `Notify` says what was in it -- and folding them into one
+-- timer means a slow second message reads as a failed open.
+local CHEST_SPEND_WAIT = 5
+local CHEST_NOTICE_WAIT = 1.4
 
 -- 0.30 -> 0.08, measured against the live HUD (34.46) rather than chosen. The lobby's two status
 -- lines sit across the bottom of the screen and so do the damage stat (y 545..625) and the evolve
@@ -79,8 +96,17 @@ local function detailText(spin)
 	if d.diamonds then table.insert(bits, ("+%d \u{1F48E}"):format(d.diamonds)) end
 	if d.shards then table.insert(bits, ("+%d \u{1F31F}"):format(d.shards)) end
 	if d.potion then table.insert(bits, ("%dx %s"):format(d.potions or 1, d.potion)) end
+	-- ===== THE RELIC LINE IS THE FALLBACK NOW, NOT THE ANSWER (34.54) =====
+	--
+	-- This used to be the whole prize: the pod stopped on the purple wedge and the lobby printed
+	-- *"1 Relic Chest -- open it in the Forge"*, which is a homework assignment rather than a reward.
+	-- The owner's note -- *"nek player otvori chest pa koji relic dobije"* -- is about SEEING a chest
+	-- and opening it, so `revealChest` below draws one and the relic is announced from the server's
+	-- own message afterwards. This string still exists because `playChain`'s pcall falls back to
+	-- `detailText` for the last segment when the sequence throws, and in that state there is no chest
+	-- on the screen -- so it has to tell the player where the thing they won actually went.
 	if d.relicChests then
-		table.insert(bits, ("%d Relic Chest -- open it in the Forge"):format(d.relicChests))
+		table.insert(bits, ("%d Relic Chest -- open it in the Relics panel"):format(d.relicChests))
 	end
 	if d.petName then
 		table.insert(bits, ("%s %s%s"):format(d.petEmoji or "\u{1F43E}", d.petName,
@@ -261,6 +287,146 @@ local function returnToIdle(s)
 	end
 end
 
+-- ============================================================================
+-- THE CHEST (34.54)
+-- ============================================================================
+--
+-- ===== WHAT THIS ROW TURNED OUT TO BE =====
+--
+-- The owner, over the wheel: *"i na weelu isto kad stane na relic opciju nek player otvori chest pa
+-- koji relic dobije"*. The row was written believing the wheel handed a relic over directly and had
+-- to be re-plumbed onto the chest roll. It does not and never did: `GameConfig.SpinWheel`'s `relic`
+-- wedge calls `RelicService.GiveChest`, which BANKS an unopened chest, and 34.55 made a banked chest
+-- one of only two doors a relic can arrive through. So the grant was already right, and everything
+-- this row needed was on this side of the wire -- what the player SAW was a sentence telling them to
+-- go and find the forge.
+--
+-- ===== THE ONE RULE THIS CODE MUST NOT BREAK =====
+--
+-- **It must not add a second grant.** Pressing OPEN fires the same `OpenRelicChest` remote the Relics
+-- panel's own button fires, with the same `"banked"` source, so the wheel's chest, the grotto's chest
+-- and the 40-diamond buy are provably one roll -- the luck bend, the collection relic, the auto-equip
+-- and the telemetry all stay inside `RelicService.HandleOpenChest`. Nothing here learns what the
+-- relic was except by being told, and it is told by the server.
+--
+-- ===== WHY THE PRIZE IS RE-DRAWN HERE RATHER THAN LEFT TO THE HUD =====
+--
+-- `RelicService` already announces the relic through `Notify` and MainUI draws it properly -- a big
+-- card for a first Legendary or Mythic, a toast for everything else, pitched by rarity. But MainUI is
+-- DisplayOrder 0 and this shell is 95 over a scrim at 0.08 transparency, so that announcement lands
+-- UNDERNEATH a nearly solid black sheet: a player opening a chest in here would watch it burst and
+-- then be told nothing at all. So the lobby repeats it -- using the server's own `message` string and
+-- never a sentence composed on this side.
+local relicNotices = {}
+local capturingRelics = false
+
+-- Yields until the chest is opened, skipped, or the fuse burns out. Called from inside `playChain`'s
+-- pcall, so a throw in here is caught exactly the way a throw in the wheel animation is.
+--
+-- THE RELIC WEDGE IS ALWAYS THE LAST SEGMENT OF A CHAIN, and that is what makes blocking here safe:
+-- only `respin` chains, so nothing can follow a `relic`. If a future segment ever chained as well,
+-- this call would have to move after the loop rather than sit inside it.
+local function revealChest(s)
+	if s.done then return end
+
+	local remote = Remotes:FindFirstChild("OpenRelicChest")
+	-- THE GATE IS READ OFF THE SAVE, NOT ASSUMED. `IsRelicForgeUnlocked` is the same test the server
+	-- runs, and it is a STICKY FLAG as well as a stage check -- so a rebirthed player back at stage 1
+	-- still opens chests, and a check that only compared `StageIndex` would call this shut and be
+	-- wrong (the trap 34.53 already records).
+	local canOpen = remote ~= nil and GameConfig.IsRelicForgeUnlocked(latestData)
+	local before = tonumber(latestData and latestData.RelicChests) or 0
+
+	local pressed, skipped = false, false
+	local reveal = ChestReveal.Build(s.gui, {
+		zIndex = 60,
+		-- A PLAIN WORD. The crystal ball drew as a grey-purple blob beside the chest on the first
+		-- live capture -- an emoji typed into a label is whatever glyph the platform happens to ship
+		-- ([[evolution-lab-icon-system]]), and here it was a SECOND, different picture of the very
+		-- prize the chest underneath it is already drawing. Same fault 34.20 fixed on the Sword
+		-- panel's title, one screen over.
+		title = "RELIC CHEST",
+		hint = canOpen and "You won a chest -- open it!"
+			or ("Banked \u{00B7} the Relic Forge opens at stage %d")
+				:format(GameConfig.RelicUnlockStage),
+		locked = not canOpen,
+		onOpen = function() pressed = true end,
+		onSkip = function() skipped = true end,
+	})
+
+	local deadline = os.clock() + CHEST_WAIT
+	while not pressed and not skipped and not s.done and os.clock() < deadline do
+		task.wait(0.1)
+	end
+
+	if pressed and not s.done then
+		reveal.SetBusy(true)
+		reveal.SetHint("Opening...")
+
+		-- The capture window opens BEFORE the remote is fired. The server grants, pushes and notifies
+		-- inside one synchronous block, so the reply can be on the wire before this thread resumes.
+		relicNotices = {}
+		capturingRelics = true
+		remote:FireServer("banked")
+
+		-- THE PROOF THE CHEST OPENED IS THE SAVE, NOT THE MESSAGE. `HandleOpenChest` decrements
+		-- `data.RelicChests` and pushes; if it refused -- a stale client whose forge is not actually
+		-- open, a save that lost the chest -- the count does not move, and nothing here pretends it
+		-- did.
+		local until1 = os.clock() + CHEST_SPEND_WAIT
+		local spent = false
+		while os.clock() < until1 and not s.done do
+			if (tonumber(latestData and latestData.RelicChests) or 0) < before then
+				spent = true
+				break
+			end
+			task.wait(0.1)
+		end
+
+		if spent then
+			SoundLibrary.PlayLocal("open", { volume = 0.5 })
+			reveal.PlayOpen()
+
+			-- The relic's own sting is MainUI's (`PlayHatch`, pitched by rarity) and it has already
+			-- played by the time the lid goes. Nothing here plays a second one over it.
+			local until2 = os.clock() + CHEST_NOTICE_WAIT
+			while os.clock() < until2 and #relicNotices == 0 and not s.done do
+				task.wait(0.05)
+			end
+			capturingRelics = false
+
+			-- TWO MESSAGES CAN ARRIVE FROM ONE CHEST and they arrive in this order: the equippable
+			-- relic, then the collection relic 30.2 pays beside it. The first is the headline, the
+			-- second is the detail line -- folding them into one string would hide whichever lost.
+			local first, second = relicNotices[1], relicNotices[2]
+			if first and not s.done and s.lobby then
+				local big = first.rarity == "Legendary" or first.rarity == "Mythic"
+				s.lobby.ShowPrize("\u{1F52E} " .. tostring(first.message or "Relic"),
+					(second and tostring(second.message))
+						or (first.equipped and "equipped" or "in your Relics panel"),
+					big)
+			elseif not s.done and s.lobby then
+				-- It opened, but the message never arrived. Say the half that is true rather than
+				-- inventing the half that is not.
+				s.lobby.ShowPrize("\u{1F52E} RELIC CHEST", "opened -- check your Relics panel", true)
+			end
+		else
+			capturingRelics = false
+			if not s.done and s.lobby then
+				s.lobby.ShowPrize("\u{1F381} Chest banked", "open it in the Relics panel", false)
+			end
+		end
+	elseif not s.done and s.lobby then
+		-- Skipped, or nobody answered. The chest is in the save either way, so this is not a loss and
+		-- the line does not read as one.
+		s.lobby.ShowPrize("\u{1F381} Relic Chest banked",
+			"open it any time in the Relics panel", false)
+	end
+
+	capturingRelics = false
+	reveal.Destroy()
+end
+
 local function openLobby()
 	-- ===== A SHELL IS ONLY OPEN IF ITS GUI IS STILL ON THE SCREEN (34.46) =====
 	--
@@ -407,6 +573,23 @@ local function playChain(payload)
 				TweenService:Create(s.uiScale,
 					TweenInfo.new(0.40, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
 					{ Scale = big and 1.08 or 1.04 }):Play()
+
+				-- ===== THE RELIC WEDGE HANDS OVER A CHEST, AND NOW YOU OPEN IT (34.54) =====
+				--
+				-- Placed AFTER the pod reveal on purpose: the wheel has to finish saying what you
+				-- landed on before the chest covers it, or the chest reads as having come from
+				-- nowhere. `revealChest` yields until the player answers it or its fuse burns out,
+				-- and it is the one thing in this loop that does -- which is safe only because a
+				-- `relic` segment can never be followed by another (see its own header).
+				--
+				-- GATED ON `detail.relicChests`, NOT ON THE KEY. The key names the WEDGE; the detail
+				-- is what the server says it actually paid, and a future wedge that also banks a
+				-- chest should get the same screen without a second condition being remembered here.
+				if type(spin.detail) == "table" and spin.detail.relicChests then
+					task.wait(0.7)
+					if s.done then return end
+					revealChest(s)
+				end
 			end
 		end
 	end)
@@ -496,6 +679,26 @@ if not openLocal then
 	openLocal.Parent = Remotes
 end
 openLocal.Event:Connect(openLobby)
+
+-- ===== THE RELIC MESSAGES, CAUGHT ON THEIR WAY PAST (34.54) =====
+--
+-- A SECOND LISTENER ON A REMOTE MainUI ALREADY OWNS, and that is deliberate rather than a shortcut:
+-- `Notify` is a RemoteEvent, every connection gets every payload, and MainUI's handler is untouched
+-- -- it still draws the toast and plays the rarity-pitched sting. This one only remembers, and only
+-- while a chest is actually open on the screen.
+--
+-- `capturingRelics` IS THE WHOLE GUARD. Without it this table would fill with every relic the player
+-- ever got -- a forge press, the grotto chest, a diamond buy -- and the next wheel chest would
+-- announce a relic won ten minutes earlier. It is set immediately before the remote is fired and
+-- cleared on every exit from `revealChest`, including the failure ones.
+Remotes:WaitForChild("Notify").OnClientEvent:Connect(function(payload)
+	if not capturingRelics then return end
+	if type(payload) ~= "table" or payload.kind ~= "relic" then return end
+	-- A merge fires the same kind and is not a chest opening. It cannot happen inside the capture
+	-- window (the forge panel is behind the wheel's own scrim) but the field is free to check.
+	if payload.merged then return end
+	table.insert(relicNotices, payload)
+end)
 
 Remotes:WaitForChild("DataUpdate").OnClientEvent:Connect(function(data)
 	if type(data) ~= "table" then return end
