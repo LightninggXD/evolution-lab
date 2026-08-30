@@ -1,4 +1,5 @@
 local PathSplines = require(script.Parent.PathSplines)
+local MapPaint = require(script.Parent.MapPaint)
 -- MapProps/JungleTrails -- the roads that actually reach the camps. Data only; nothing here builds
 -- or paints anything. `JungleLayout` owns WHERE the camps are and calls this to work out how a
 -- player gets to them; `MapJungle` paints what comes back and `MapForest` keeps its wood out of it.
@@ -76,6 +77,48 @@ JungleTrails.WIDTH = 30
 -- top, so this is clearance between the paint and the village floor rather than centre lines.
 local VILLAGE_MARGIN = 10
 
+-- ===== A TRAIL MAY NOT BE PAINTED ON TOP OF A GATE LANE (34.36) =====
+-- Her capture of the village's south mouth: *"ovde se putevi se preklapaju i vode u zid"*. Measured
+-- on a live build, three road systems draw 320 sheets of paint on this platform and **54 pairs of
+-- them overlap across systems -- 50 of those a trail lying over a `MapGates` lane**, with a 0.23 to
+-- 0.35 stud step between the two surfaces. Each system is on its own height ladder and every rung
+-- of it is deliberate (`MapPaint.STEP` is what stops two coplanar sheets z-fighting), so what the
+-- player sees is not a shimmer: it is one road's dark rim standing proud across another road, which
+-- is exactly what "the roads overlap" means from eye height.
+--
+-- The lanes cannot move -- both flanks are at z = -100 because the portal hall and the leaderboard
+-- hall stand where z = 0 would run, and the south lane is the village's front door -- so the TRAILS
+-- have to know where the lanes are. `MapGates.PaintKeepOut()` is the one published answer to how
+-- much ground a lane's paint covers, derived in the file that draws it.
+--
+-- ===== A JUNCTION IS A TUCK, NOT A GAP =====
+-- The first build of this rule refused every intrusion outright, and it was measurably worse than
+-- the fault: mean walk 132 -> 187 studs, worst 244 -> 448, because the south mouth is exactly where
+-- the camps nearest the village wanted to hang their trails. It also leaves a stripe of bare grass
+-- between two roads wherever a trail does stop beside a lane, which reads as badly as the overlap.
+--
+-- A lane is painted at 0.72 / 0.80 and a trail at 0.45 / 0.49, so THE LANE DRAWS OVER THE TRAIL.
+-- A trail that reaches a few studs under the lane's rim is therefore invisible under it, and that
+-- is what a junction looks like: the two sheets meet with nothing between them and nothing proud.
+-- `MapGates` publishes how far that is (`tuck`, its own rim width) beside the keep-out, because it
+-- is the file that decides both. It is `SPUR_OVERSHOOT` at the other kind of join -- a trail ends
+-- 14 studs inside a camp floor because `MapJungle` draws the floor above it.
+--
+-- So: an anchor may sit ON the lane's edge, tucked one rim under it, and a link is refused only
+-- when it reaches DEEPER than the tuck -- which a trail crossing a lane always does, by the whole
+-- width of the lane. Three rules: the anchor slide along the cross, a lane-edge anchor of its own
+-- so a camp by the mouth still gets a short road, and the refusal. The bend is covered too -- the
+-- lanes go into `PathSplines`' obstacle list as a chain of circles, which is a capsule the route
+-- can be pushed around, and `info.blocked` then says so honestly if it cannot be.
+--
+-- CIRCLES AND NOT RECTS, deliberately: `PathSplines`' rect is axis-aligned, so the box around a
+-- lane leg reaches past the leg's own rounded end at the corners -- and a trail that legitimately
+-- starts one stud outside the lane's cap would begin INSIDE that box, where no amount of bending
+-- can help it.
+local ANCHOR_STEP = 6      -- how far the anchor slides per try, along the road it is sliding on
+local ANCHOR_TRIES = 6     -- and how far off a lane's edge a junction may be pushed before it is
+                           -- not a junction with that lane any more
+
 -- ===== GEOMETRY =====
 
 local function distToSegment(px, pz, x1, z1, x2, z2)
@@ -87,6 +130,60 @@ local function distToSegment(px, pz, x1, z1, x2, z2)
 	end
 	local qx, qz = x1 + dx * t, z1 + dz * t
 	return math.sqrt((px - qx) ^ 2 + (pz - qz) ^ 2), qx, qz
+end
+
+-- The closest the two segments come to each other in XZ. Crossing counts as zero, which is the
+-- case that matters here: a trail laid straight across a lane has both its endpoints far from the
+-- lane's centre line, so a test built only on endpoint distances calls the worst overlap in the
+-- build the widest gap.
+local function segSegDist(ax, az, bx, bz, cx, cz, dx, dz)
+	local rx, rz = bx - ax, bz - az
+	local sx, sz = dx - cx, dz - cz
+	local denom = rx * sz - rz * sx
+	if math.abs(denom) > 1e-9 then
+		local qx, qz = cx - ax, cz - az
+		local t = (qx * sz - qz * sx) / denom
+		local u = (qx * rz - qz * rx) / denom
+		if t >= 0 and t <= 1 and u >= 0 and u <= 1 then return 0 end
+	end
+	return math.min(
+		(distToSegment(ax, az, cx, cz, dx, dz)),
+		(distToSegment(bx, bz, cx, cz, dx, dz)),
+		(distToSegment(cx, cz, ax, az, bx, bz)),
+		(distToSegment(dx, dz, ax, az, bx, bz)))
+end
+
+-- How far apart two roads' centre lines have to be for their paint not to touch: both rims, added.
+local function laneClear(lane, o)
+	return lane.half + o.width / 2 + MapPaint.EDGE_W
+end
+
+-- The nearest point on a lane's centre line to `(px, pz)`, and how far away it is.
+local function nearestOnLane(px, pz, lane)
+	local bd, bx, bz = math.huge, nil, nil
+	for i = 1, #lane.pts - 1 do
+		local p, q = lane.pts[i], lane.pts[i + 1]
+		local d, qx, qz = distToSegment(px, pz, p.x, p.z, q.x, q.z)
+		if d < bd then bd, bx, bz = d, qx, qz end
+	end
+	return bd, bx, bz
+end
+
+-- How much DEEPER than the allowed tuck a trail drawn along this segment would reach into the
+-- nearest gate lane. Zero is a junction -- the trail's rim ends under the lane's rim and the lane
+-- covers it -- and anything positive is a trail painted out the far side of that border. Negative
+-- is daylight. Both roads are measured at their RIM, because the rim is the wider sheet.
+local function laneExcess(sx, sz, ex, ez, o)
+	local worst = -math.huge
+	for _, lane in ipairs(o.lanes) do
+		local limit = laneClear(lane, o) - (lane.tuck or 0)
+		for i = 1, #lane.pts - 1 do
+			local p, q = lane.pts[i], lane.pts[i + 1]
+			local d = segSegDist(sx, sz, ex, ez, p.x, p.z, q.x, q.z)
+			if limit - d > worst then worst = limit - d end
+		end
+	end
+	return worst
 end
 
 -- Does the segment touch the axis-aligned box `|x| <= hx, |z| <= hz`? Liang-Barsky, so it is exact
@@ -150,13 +247,108 @@ local function usable(sx, sz, ex, ez, aId, bId, camps, o)
 		o.villageHalfZ + VILLAGE_MARGIN + o.width / 2) then
 		return false
 	end
-	--   3. it must stay on the platform. Both ends is enough -- the keep-out is convex, so a
+	--   3. it must not be painted over a gate lane (34.36). The lanes are the village's three
+	--      doors and they are drawn 0.31..0.43 studs higher than the jungle's paint, so a trail
+	--      crossing one puts its dark rim proud across the busiest road in the zone. A trail joins
+	--      a lane at its edge -- which is what the anchor slide below arranges -- or it does not
+	--      touch it at all.
+	if #o.lanes > 0 and laneExcess(sx, sz, ex, ez, o) > 0 then
+		JungleTrails.LaneRefusals += 1
+		return false
+	end
+	--   4. it must stay on the platform. Both ends is enough -- the keep-out is convex, so a
 	--      segment with both ends inside it is inside it.
 	if math.abs(sx) > o.edgeX or math.abs(ex) > o.edgeX
 		or math.abs(sz) > o.edgeZ or math.abs(ez) > o.edgeZ then
 		return false
 	end
 	return true
+end
+
+-- ===== WHERE ON THE CROSS A TRAIL IS ALLOWED TO START (34.36) =====
+-- The nearest point on a trunk to the camp, then PUSHED ALONG THAT TRUNK until a trail beginning
+-- there can be drawn clear of every gate lane. That push is the row's fix in one line: the trunks
+-- and the lanes deliberately overlap where they meet (`MapGates`' south lane runs 22 studs past the
+-- head of the jungle's main lane so the two networks join rather than stopping short of each
+-- other), so the geometric nearest point on the cross is very often INSIDE a lane -- and every
+-- trail hung off it began by crossing the lane's paint.
+--
+-- It slides BOTH WAYS from the nearest point and takes the first clear one, rather than walking
+-- outward from the village end. The cross is authored village-end-first today and that is the kind
+-- of fact a table edit changes silently; a search that does not depend on it cannot be broken by
+-- one.
+--
+-- ===== IT TESTS THE ROAD, NOT THE SPOT, AND THAT IS WORTH 365 STUDS =====
+-- The first build asked only whether the ANCHOR was clear of the lanes. `SE5` stands at (299, -8),
+-- north of the east lane and just outside the village keep-out, so its road leaves the east trunk
+-- and immediately ANGLES BACK toward the lane's tip: the anchor at (329, -100) was clear and the
+-- road it started passed **40.8 studs** from the lane where 41 is asked -- refused by two tenths of
+-- a stud. The tree then hung `SE5` off `NE3` on the far side of the map and its walk went from 83
+-- studs to **448**. A slide that cannot see the road it is starting is answering a different
+-- question from the one `usable` asks.
+--
+-- `nil` when no point on the trunk starts a legal road, which is not an error: `Build` simply has
+-- one fewer anchor to choose from, and a camp that ends up with none at all is already named by
+-- `Unreachable`.
+local function anchorOn(p, camp, o)
+	local _, qx, qz = distToSegment(camp.x, camp.z, p.x1, p.z1, p.x2, p.z2)
+	if #o.lanes == 0 then return qx, qz end
+	local dx, dz = p.x2 - p.x1, p.z2 - p.z1
+	local len = math.sqrt(dx * dx + dz * dz)
+	if len < 1 then return qx, qz end
+	local ux, uz = dx / len, dz / len
+	local t0 = (qx - p.x1) * ux + (qz - p.z1) * uz
+	for step = 0, math.ceil(len / ANCHOR_STEP) do
+		for _, sgn in ipairs({ 1, -1 }) do
+			local t = t0 + sgn * step * ANCHOR_STEP
+			if t >= 0 and t <= len then
+				local ax, az = p.x1 + ux * t, p.z1 + uz * t
+				local sx, sz, ex, ez = link(ax, az, nil, camp, o)
+				if laneExcess(sx, sz, ex, ez, o) <= 0 then return ax, az end
+			end
+			if step == 0 then break end
+		end
+	end
+	return nil
+end
+
+-- ===== A DOOR ON THE SIDE OF A LANE (34.36) =====
+-- The point on each lane's edge closest to the camp, tucked one rim under the lane so the two
+-- sheets meet with nothing between them. This is what keeps the walk short once the crossing rule
+-- goes in: `SE5` and its neighbours stand by the village's south mouth, and every road they had ran
+-- across the lane there. A lane is a road the player is already standing on, so joining it is worth
+-- exactly what joining the cross is worth -- `base = 0`, the same as a plaza head.
+--
+-- Pushed PERPENDICULAR, from the nearest point toward the camp. A camp lying along the lane's own
+-- axis pushes past the end cap instead, which is the same junction seen end-on. A camp that is
+-- already further off than the tuck gets no anchor from this lane at all -- the geometric nearest
+-- point is then simply where the trail would have started anyway, and pulling it in to the lane
+-- would lengthen the road to reach a door it does not need.
+local function laneAnchors(camp, o, out)
+	for _, lane in ipairs(o.lanes) do
+		local d, qx, qz = nearestOnLane(camp.x, camp.z, lane)
+		if qx then
+			local vx, vz = camp.x - qx, camp.z - qz
+			local m = math.sqrt(vx * vx + vz * vz)
+			local reach = laneClear(lane, o) - (lane.tuck or 0)
+			if m > 1e-3 and d > reach then
+				-- Walked out along the same ray until the ROAD is legal and not just the spot, for
+				-- the reason written over `anchorOn`. The first try is the tuck itself, which is
+				-- the junction the row asked for; a second lane in the way is what moves it.
+				local ux, uz = vx / m, vz / m
+				for step = 0, ANCHOR_TRIES do
+					local at = reach + step * ANCHOR_STEP
+					if at >= d then break end
+					local ax, az = qx + ux * at, qz + uz * at
+					local sx, sz, ex, ez = link(ax, az, nil, camp, o)
+					if laneExcess(sx, sz, ex, ez, o) <= 0 then
+						out[#out + 1] = { x = ax, z = az, from = nil, base = 0 }
+						break
+					end
+				end
+			end
+		end
+	end
 end
 
 -- ===== THE NETWORK =====
@@ -181,6 +373,9 @@ function JungleTrails.Build(camps, cross, opts)
 		villageHalfZ = opts.villageHalfZ,
 		edgeX = opts.edgeX,
 		edgeZ = opts.edgeZ,
+		-- `MapGates.PaintKeepOut()`, handed in rather than required, for the same reason every
+		-- other constant on this table is: one file decides how wide a gate lane is painted.
+		lanes = opts.lanes or {},
 	}
 
 	local cost, connected, out = {}, {}, {}
@@ -188,6 +383,7 @@ function JungleTrails.Build(camps, cross, opts)
 	-- Reset per build, like `Unreachable`. A list that accumulates across calls reports the last
 	-- five boots at once, which is how a fixed fault goes on being printed.
 	JungleTrails.Crossing = {}
+	JungleTrails.LaneRefusals = 0
 
 	while left > 0 do
 		local best = nil
@@ -197,12 +393,15 @@ function JungleTrails.Build(camps, cross, opts)
 				-- already on the network
 				local anchors = {}
 				for _, p in ipairs(cross) do
-					local _, qx, qz = distToSegment(camp.x, camp.z, p.x1, p.z1, p.x2, p.z2)
-					anchors[#anchors + 1] = { x = qx, z = qz, from = nil, base = 0 }
+					local ax, az = anchorOn(p, camp, o)
+					if ax then anchors[#anchors + 1] = { x = ax, z = az, from = nil, base = 0 } end
 				end
 				for _, h in ipairs(JungleTrails.HEADS) do
-					anchors[#anchors + 1] = { x = h.x, z = h.z, from = nil, base = 0 }
+					if laneExcess(h.x, h.z, h.x, h.z, o) <= 0 then
+						anchors[#anchors + 1] = { x = h.x, z = h.z, from = nil, base = 0 }
+					end
 				end
+				laneAnchors(camp, o, anchors)
 				for _, c in ipairs(camps) do
 					if connected[c.id] then
 						anchors[#anchors + 1] = { x = c.x, z = c.z, from = c, base = cost[c.id] + o.campRadius }
@@ -247,10 +446,33 @@ function JungleTrails.Build(camps, cross, opts)
 		local obs = {}
 		for _, c in ipairs(camps) do
 			if c.id ~= best.camp.id and (not best.from or c.id ~= best.from.id) then
-				table.insert(obs, { type="circle", x = c.x, z = c.z, r = o.campRadius + 5 })
+				-- ===== THE BEND IS HELD TO THE SAME RULE AS THE CHORD (34.36) =====
+				-- This was `campRadius + 5`, which is a CENTRE LINE five studs off a floor -- and a
+				-- trail is painted 18 studs wide to its rim, so a route the search called clear put
+				-- 13 studs of road on the clearing. `usable` has always refused that on the chord;
+				-- the bend was measured against a different number, and the first build of the lane
+				-- rule pushed three trails onto `SE1` through exactly this gap.
+				table.insert(obs, { type="circle", x = c.x, z = c.z,
+					r = o.campRadius + o.width / 2 + MapPaint.EDGE_W })
 			end
 		end
 		table.insert(obs, { type="rect", x = 0, z = 0, hx = o.villageHalfX + 15, hz = o.villageHalfZ + 15 })
+		-- The lane keep-out as a chain of circles -- a capsule the bend can be pushed around. The
+		-- chord was already refused if it intruded, so this is only here to stop a 15-stud jitter
+		-- putting a legal trail back on top of a lane.
+		for _, lane in ipairs(o.lanes) do
+			local r = laneClear(lane, o) - (lane.tuck or 0)
+			for i = 1, #lane.pts - 1 do
+				local a, b = lane.pts[i], lane.pts[i + 1]
+				local segLen = math.sqrt((b.x - a.x) ^ 2 + (b.z - a.z) ^ 2)
+				local n = math.max(1, math.ceil(segLen / (r / 2)))
+				for k = 0, n do
+					local f = k / n
+					table.insert(obs, { type = "circle",
+						x = a.x + (b.x - a.x) * f, z = a.z + (b.z - a.z) * f, r = r })
+				end
+			end
+		end
 		
 		local rng = opts.rng or Random.new(math.floor(math.abs(best.sx + best.sz)))
 		local pts, info = PathSplines.Route(startPos, endPos, rng, { maxJitter = 15 }, obs)
@@ -330,8 +552,13 @@ function JungleTrails.Describe(segments)
 		end
 	end
 	local crossing = JungleTrails.Crossing or {}
-	return ("%d trails (%d legs), walk to a camp: mean %.0f studs, worst %s at %.0f%s%s")
+	-- `laneRefusals` is printed even at zero. It is the only number that says whether 34.36's rule
+	-- is still reaching anything: at zero on a build whose lanes moved, the keep-out is being
+	-- derived from the wrong place and every trail is legal by accident.
+	return ("%d trails (%d legs), walk to a camp: mean %.0f studs, worst %s at %.0f"
+		.. " (%d link(s) refused for lying on a gate lane)%s%s")
 		:format(n, legs, n > 0 and total / n or 0, worstId, worst,
+			JungleTrails.LaneRefusals or 0,
 			#crossing > 0
 				and ("  <-- COULD NOT BEND CLEAR: " .. table.concat(crossing, ", ")) or "",
 			#JungleTrails.Unreachable > 0

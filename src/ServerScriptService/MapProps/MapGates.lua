@@ -55,10 +55,29 @@ local FOLDER_NAME = "VillageGates"
 -- is about z = -22, and paint run under a solid prop is paint nobody sees. It ends at z = -262,
 -- past the village floor edge (-230) and overlapping the head of `JungleLayout`'s main lane at
 -- -240, so the two networks meet rather than stopping short of each other.
+--
+-- ===== `join`: THE TAIL THAT IS A JUNCTION AND NOT AN END (34.36) =====
+-- Her capture of this mouth: *"ovde se putevi se preklapaju i vode u zid"*. The south lane runs 22
+-- studs past the head of the jungle's main trunk on purpose, so that the two networks MEET instead
+-- of stopping short of each other -- and for 22 studs both of them were drawn in full. A lane is
+-- painted at 0.72 / 0.80 and a trunk at 0.37 / 0.41, so the lane wins every pixel of that overlap;
+-- what the player sees is not the double paint but its BORDER, a dark rim slab and a 64-stud rim
+-- CAP lying across the road at the far end of it. Photographed from the lane: a dark curved band
+-- straight across an otherwise continuous road.
+--
+-- So over its last `join` studs a lane draws no rim and no terminal cap. The trunk underneath is
+-- wider than the lane's dirt (56 against 52) and carries its own rim, so the border the eye follows
+-- simply becomes the trunk's -- which is what a road running into another road looks like. The
+-- flanks meet their trunks exactly at |x| = 286 and so need no tail at all; killing the terminal
+-- cap is the whole of it there.
+--
+-- The cap is dropped on the last leg of EVERY lane regardless, which `MapPaint`'s own note asks
+-- for: a disc the width of the road on the end of the road is a lollipop, and it is the most
+-- visible thing in any picture that contains it.
 local LANES = {
-	{ id = "South", x1 = 0, z1 = -30, x2 = 0, z2 = -262, halfA = 32, halfB = 34, wA = 56, wB = 52 },
-	{ id = "West", x1 = 0, z1 = -100, x2 = -286, z2 = -100, halfA = 30, halfB = 30, wA = 46, wB = 44 },
-	{ id = "East", x1 = 0, z1 = -100, x2 = 286, z2 = -100, halfA = 30, halfB = 30, wA = 46, wB = 44 },
+	{ id = "South", x1 = 0, z1 = -30, x2 = 0, z2 = -262, halfA = 32, halfB = 34, wA = 56, wB = 52, join = 22 },
+	{ id = "West", x1 = 0, z1 = -100, x2 = -286, z2 = -100, halfA = 30, halfB = 30, wA = 46, wB = 44, join = 0 },
+	{ id = "East", x1 = 0, z1 = -100, x2 = 286, z2 = -100, halfA = 30, halfB = 30, wA = 46, wB = 44, join = 0 },
 }
 
 -- The DRIVING LINE: what has to be actually empty, as opposed to what the cut clears. A prop the
@@ -365,6 +384,15 @@ function MapGates.Build(zoneKey, cx, map, protected)
 		-- halves of this file came to disagree in the first place.
 		local pts = lane.path
 		if #pts >= 2 then
+			-- Where the junction starts, as an arc-length fraction. `t` is already arc length (see
+			-- below), so the lane's own length is the only extra thing needed and it is measured
+			-- off the route rather than off the chord -- the route is 8 to 10 studs longer.
+			local laneLen = 0
+			for i = 1, #pts - 1 do
+				laneLen += math.sqrt((pts[i+1].x - pts[i].x) ^ 2 + (pts[i+1].z - pts[i].z) ^ 2)
+			end
+			local joinFrom = (laneLen > 0 and (lane.join or 0) > 0)
+				and (1 - lane.join / laneLen) or 1.1
 			for i = 1, #pts - 1 do
 				local p1 = pts[i]
 				local p2 = pts[i+1]
@@ -376,9 +404,16 @@ function MapGates.Build(zoneKey, cx, map, protected)
 				local w1 = lane.wA + (lane.wB - lane.wA) * t1
 				local w2 = lane.wA + (lane.wB - lane.wA) * t2
 				local wMid = (w1 + w2) / 2
+				local last = (i == #pts - 1)
 				local cap = (i == 1) and "both" or "b"
-				local segEdge = { x1 = p1.x, z1 = p1.z, x2 = p2.x, z2 = p2.z, w = wMid + EDGE_W * 2 }
-				MapPaint.Segment(segEdge, folder, cx, edge, EDGE_TOP - THICK / 2, THICK, cap)
+				if last then cap = (i == 1) and "a" or "none" end
+				-- A leg that reaches into the junction draws no border. Whole legs only: the road
+				-- is decimated by curvature and cutting one in half here would put a second seam
+				-- exactly where this is removing the first.
+				if t2 <= joinFrom then
+					local segEdge = { x1 = p1.x, z1 = p1.z, x2 = p2.x, z2 = p2.z, w = wMid + EDGE_W * 2 }
+					MapPaint.Segment(segEdge, folder, cx, edge, EDGE_TOP - THICK / 2, THICK, cap)
+				end
 				local segDirt = { x1 = p1.x, z1 = p1.z, x2 = p2.x, z2 = p2.z, w = wMid }
 				MapPaint.Segment(segDirt, folder, cx, dirt, TOP - THICK / 2, THICK, cap)
 			end
@@ -409,6 +444,52 @@ function MapGates.Build(zoneKey, cx, map, protected)
 			:format(zoneKey, #stuck, table.concat(stuck, ", ")))
 	end
 	return painted
+end
+
+-- ===== WHAT THIS PAINT COVERS, FOR EVERY OTHER ROAD SYSTEM (34.36) =====
+-- Three road systems draw on this platform -- these lanes, `MapRoad`'s approach and the jungle's
+-- trunks and trails -- and each is on its own height ladder, deliberately. Measured on a live
+-- build: 54 cross-system pairs of paint OVERLAPPING, 50 of them a jungle TRAIL crossing a gate
+-- lane at the village's south mouth with a 0.23..0.35 stud step between the two surfaces. That is
+-- the seam the owner photographed: not a colour and not a width, but one road's dark rim drawn
+-- proud across another road.
+--
+-- The lanes cannot move -- z = -100 for both flanks is measured against the two halls inside the
+-- village, and the south lane is the village's only front door -- so the trails have to know where
+-- they are. This is the ONE published answer to "how much ground does a gate lane's paint cover",
+-- and it is published from the file that draws that paint rather than copied into the file that
+-- avoids it: `evolution-lab-zone-geometry-constants` is the standing note about a single decision
+-- written down in two files, and a keep-out is only ever as correct as the width it was derived
+-- from.
+--
+-- The half-width is the RIM's, not the road's -- the rim is the wider of the two sheets and the
+-- one that reads as a border -- and the route is the lane's own curve, so a keep-out measured
+-- against it bends with the road (33.35's whole argument). Point-to-segment distance rounds the
+-- ends, which is exactly the terminal cap: a disc of the local width centred on the last point.
+function MapGates.PaintKeepOut()
+	local out = {}
+	for _, lane in ipairs(LANES) do
+		local pts = lane.path
+		if not pts or #pts < 2 then
+			pts = { { x = lane.x1, z = lane.z1 }, { x = lane.x2, z = lane.z2 } }
+		end
+		out[#out + 1] = {
+			id = lane.id,
+			pts = pts,
+			half = math.max(lane.wA, lane.wB) / 2 + EDGE_W,
+			-- ===== HOW FAR A LOWER ROAD MAY REACH UNDER THIS ONE =====
+			-- A lane is painted at 0.72 / 0.80 and the jungle's trails at 0.45 / 0.49, so a lane
+			-- DRAWS OVER a trail wherever the two meet. That is the whole difference between a
+			-- junction and a seam: paint that stops short of a lane leaves a stripe of grass
+			-- between two roads, and paint that runs a few studs under the lane's rim disappears
+			-- beneath it. `SPUR_OVERSHOOT` is the same trick at the other kind of join -- a trail
+			-- ends 14 studs inside a camp floor because the floor is drawn above it.
+			-- The rim's own width is the honest limit: reach further and the tuck comes out the
+			-- far side of the border it was hiding under.
+			tuck = EDGE_W,
+		}
+	end
+	return out
 end
 
 return MapGates

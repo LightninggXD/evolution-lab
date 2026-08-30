@@ -36,6 +36,15 @@ MapPaint.THICK = 0.4
 -- under the 0.95 ceiling `MapPaint.Y` was chosen against.
 MapPaint.STEP = 0.04
 
+-- ===== THE RIM IS A PAINT CONSTANT, BECAUSE TWO FILES NOW HAVE TO AGREE ON IT (34.36) =====
+-- Every road here is drawn twice: a dark sheet `EDGE_W` wider on each side, and the dirt inside it.
+-- The rim is therefore the widest thing a road covers, and "how much ground does this road cover"
+-- is the question `JungleTrails` has to answer to keep a trail out of a gate lane. `MapJungle` drew
+-- it and only `MapJungle` knew the number, so a keep-out derived anywhere else was a second copy of
+-- it -- `evolution-lab-zone-geometry-constants`, exactly. `MapGates` keeps its own wider rim: the
+-- village lanes are the widest roads on the platform and they are authored, not derived.
+MapPaint.EDGE_W = 3
+
 -- The colour of the village's ground path, read off the map. A flat, wide UnionOperation is what
 -- that asset uses for its dirt; anything thicker than two studs is a building and anything narrower
 -- than eighty is a plank.

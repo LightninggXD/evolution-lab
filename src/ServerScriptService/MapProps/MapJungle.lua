@@ -311,7 +311,7 @@ function MapJungle.Build(zoneKey, cx, map)
 	local colour = MapPaint.DirtColour(map)
 	local EDGE_SHADE = 0.42
 	local edgeColour = MapPaint.Shade(colour, EDGE_SHADE)
-	local EDGE_W = 3
+	local EDGE_W = MapPaint.EDGE_W
 
 	local Y_RIM = MapPaint.Y - MapPaint.STEP * 3
 	local Y_TRUNK_EDGE = MapPaint.Y - MapPaint.STEP * 2

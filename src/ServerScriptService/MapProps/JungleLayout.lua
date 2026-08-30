@@ -49,6 +49,10 @@
 -- day somebody changes it.
 
 local JungleTrails = require(script.Parent.JungleTrails)
+-- 34.36: the trails have to know where the village's three gate lanes are painted, or they cross
+-- them. `MapGates` requires nothing that reaches back here, and both files decide their geometry at
+-- module load off constants on their own page, so the lanes are already routed when this runs.
+local MapGates = require(script.Parent.MapGates)
 
 local JungleLayout = {}
 
@@ -597,6 +601,7 @@ local trails = JungleTrails.Build(CAMPS_FOREST, PATHS_FOREST, {
 	villageHalfZ = VILLAGE_HALF_Z,
 	edgeX = 575,
 	edgeZ = 500,
+	lanes = MapGates.PaintKeepOut(),
 })
 for _, t in ipairs(trails) do
 	PATHS_FOREST[#PATHS_FOREST + 1] = t
