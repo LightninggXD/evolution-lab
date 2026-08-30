@@ -2071,7 +2071,7 @@ local function applyDistanceFog()
 	Lighting.GlobalShadows = true
 	if atmosphere then
 		atmosphere.Haze = WORLD_HAZE
-	atmosphere.Density = WORLD_DENSITY
+		atmosphere.Density = WORLD_DENSITY
 	end
 	-- The grade is created if it is missing, so a place that lost it still comes up looking right.
 	local grade = Lighting:FindFirstChild("ToonPunch")
