@@ -31,6 +31,10 @@
 local ServerStorage = game:GetService("ServerStorage")
 
 local ZoneKit = require(script.Parent.ZoneKit)
+-- 33.10. Every water surface this file builds is a still slab; `WaterFlow` is the one thing that
+-- makes one move, and it is a separate module because the Beam-orientation rule it encodes is worth
+-- more than the six calls that use it. See its header before touching a width or a speed.
+local WaterFlow = require(script.Parent.WaterFlow)
 
 local newPart, groundColorOf, vivid = ZoneKit.newPart, ZoneKit.groundColorOf, ZoneKit.vivid
 local lighten, darken, addLight = ZoneKit.lighten, ZoneKit.darken, ZoneKit.addLight
@@ -1010,6 +1014,11 @@ local function buildValleySide(model, zone, cx, side, p, groundMaterial)
 			Position = Vector3.new(poolX, 1.9, poolZ), Color = Color3.fromRGB(96, 210, 240),
 			Material = Enum.Material.Glass, Transparency = 0.35, CanCollide = false, CastShadow = false, Parent = model })
 		addLight(water, Color3.fromRGB(120, 220, 250), 30, 0.7)
+		-- ===== AND THE SURFACE MOVES (33.10) =====
+		-- Along the pool's long axis, slowly -- a pond has a drift, not a current. Everything else
+		-- laid on this slab below (ripples, lilies, foam) sits at 3.15 and the sheet at 3.3, so it
+		-- passes UNDER the lilies and over the water, which is where a film of moving water belongs.
+		WaterFlow.Surface(water, { speed = 0.22, transparency = 0.66 })
 		-- a stone rim, so the water is held by something instead of lying on the grass
 		for _, dx in ipairs({ -26.5, 26.5 }) do
 			newPart({ Name = "PoolRim", Size = Vector3.new(6, 3, poolLen + 12),
@@ -1190,6 +1199,12 @@ local function buildValleySide(model, zone, cx, side, p, groundMaterial)
 					Position = Vector3.new(fx, foot + sheetH / 2 - 3.5, fz), Color = Color3.fromRGB(150, 230, 250),
 					Material = Enum.Material.Glass, Transparency = 0.25, CanCollide = false, CastShadow = false, Parent = model })
 
+				-- ===== THE CURTAIN THAT ACTUALLY FALLS (33.10) =====
+				-- Three scrolling ribbons hung on the front face of the sheet. `-side` is the front:
+				-- `FallStreak` two lines down uses the same sign for the same reason, and a curtain
+				-- hung on `+side` is inside the cliff and photographs as nothing at all.
+				WaterFlow.Fall(sheet, -side, Color3.fromRGB(206, 244, 255))
+
 				-- WATER THAT IS ACTUALLY MOVING. Everything else here is static geometry, and static
 				-- geometry is why the falls read as a striped pane of glass rather than as a waterfall --
 				-- the streaks, the lip, the foam and the basin all describe the SHAPE of falling water
@@ -1325,10 +1340,19 @@ local function buildValleySide(model, zone, cx, side, p, groundMaterial)
 				-- Vertical banding down the face of the sheet. One flat pane of glass reads as a window,
 				-- however blue it is; what actually says "falling water" is streaks running the whole
 				-- drop, and they cost three parts.
+				--
+				-- ===== 0.62, NOT 0.45 -- THE STREAKS STAND DOWN NOW THAT SOMETHING MOVES (33.10) =====
+				-- These exist to FAKE motion on a still pane, and at 0.45 they are three hard neon bars
+				-- that dominate the face. Photographed against the new scrolling curtain they won: the
+				-- eye read the bars, which do not move, and the fall looked exactly as it did before the
+				-- beams existed. Backed off, they go back to being what they were meant to be -- the
+				-- vertical structure the moving water is read against -- and the plume is what carries
+				-- the frame. Deleting them was tried too and is worse: the fall loses its edges and
+				-- reads as haze, which is off-style for a world built out of hard shapes.
 				for k = -1, 1 do
 					newPart({ Name = "FallStreak", Size = Vector3.new(2.4, sheetH * 0.94, wide * 0.15),
 						Position = Vector3.new(fx - side * 2.6, foot + sheetH / 2 - 4, fz + k * wide * 0.3),
-						Color = Color3.fromRGB(226, 250, 255), Material = Enum.Material.Neon, Transparency = 0.45,
+						Color = Color3.fromRGB(226, 250, 255), Material = Enum.Material.Neon, Transparency = 0.62,
 						CanCollide = false, CastShadow = false, Parent = model })
 				end
 				-- The lip it pours over: a small block sitting ON the edge, half on the tread and half
@@ -1352,10 +1376,15 @@ local function buildValleySide(model, zone, cx, side, p, groundMaterial)
 					newPart({ Name = "FallHeadBank", Size = Vector3.new(headLen + 8, 3.4, wide + 16),
 						Position = Vector3.new(cx + side * (innerX + 4 + headLen / 2), top - 0.8, fz),
 						Color = rockDark, Material = Enum.Material.Rock, CanCollide = false, Parent = model })
-					newPart({ Name = "FallHead", Size = Vector3.new(headLen, 1.6, wide * 0.8),
+					local head = newPart({ Name = "FallHead", Size = Vector3.new(headLen, 1.6, wide * 0.8),
 						Position = Vector3.new(cx + side * (innerX + 4 + headLen / 2), top + 0.1, fz),
 						Color = Color3.fromRGB(120, 220, 245), Material = Enum.Material.Glass,
 						Transparency = 0.3, CanCollide = false, CastShadow = false, Parent = model })
+					-- ===== THE HEADER RUNS TOWARDS THE LIP, NOT AWAY FROM IT (33.10) =====
+					-- The stream is laid out from `innerX + 4` OUTWARD, so its +X end is the far end
+					-- and the lip is at its `-side` end. A sheet scrolling the other way is water
+					-- running uphill out of the drop, which is worse than water that does not move.
+					WaterFlow.Surface(head, { axis = "X", sign = -side, speed = 0.9, transparency = 0.6 })
 				end
 				-- The basin it lands in. On tier 1 that is the pool itself, so only the upper steps get
 				-- one: a second sheet of water lying on top of the pool would z-fight with it, which is
@@ -1375,9 +1404,14 @@ local function buildValleySide(model, zone, cx, side, p, groundMaterial)
 					newPart({ Name = "FallBasinRim", Size = Vector3.new(runLen + 10, 3.4, wide + 22),
 						Position = Vector3.new(midX, foot + 1.1, fz), Color = rockDark,
 						Material = Enum.Material.Rock, CanCollide = false, Parent = model })
-					newPart({ Name = "FallBasin", Size = Vector3.new(runLen, 1.6, wide + 14),
+					local basin = newPart({ Name = "FallBasin", Size = Vector3.new(runLen, 1.6, wide + 14),
 						Position = Vector3.new(midX, foot + 1.9, fz), Color = Color3.fromRGB(120, 220, 245),
 						Material = Enum.Material.Glass, Transparency = 0.3, CanCollide = false, CastShadow = false, Parent = model })
+					-- ===== THE BASIN HAS A DOWNHILL AND IT IS `-side` (33.10) =====
+					-- It runs from `nearX` (under this drop) out to `belowX` (the lip of the step
+					-- below), and `nearX > belowX`, so in world X that is `-side`. Faster than a pool
+					-- and slower than the drop itself: it is a shelf of water on its way somewhere.
+					WaterFlow.Surface(basin, { axis = "X", sign = -side, speed = 0.9, transparency = 0.6 })
 				end
 				local foam = newPart({ Name = "FallFoam", Shape = Enum.PartType.Ball,
 					Size = Vector3.new(wide, 5, wide), Position = Vector3.new(fx - side * 9, foot + 3.2, fz),
