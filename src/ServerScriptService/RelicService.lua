@@ -244,14 +244,33 @@ end
 -- `PetService.HandleEquip`'s ladder, copied because it is the one that has already been got right:
 -- ownership against THIS player's own table, idempotent on something already worn, then the slot
 -- cap -- computed from the save, never a constant.
+--
+-- ===== BOTH LAYERS SINCE 34.63 =====
+--
+-- It resolved through `GameConfig.GetRelic` alone, which reads `RelicsByKey` -- the fifteen. The two
+-- hundred collection relics live in `SetRelicsByKey`, so a key from a zone page fell through
+-- `if not relic then return end` and was dropped in SILENCE: no equip, no refusal, no toast. That
+-- silence is what the owner reported as *"neki relics se ne mogu ni equipati"*, and her call on
+-- 2026-08-30 was to make all two hundred wearable rather than to explain the boundary.
+--
+-- THE OWNERSHIP CHECK IS PER LAYER because the two layers are two save tables: `data.Relics` holds
+-- `{ copies, level }`, `data.SetRelics` holds a plain count. Neither is trusted from the client --
+-- the client sends a KEY and nothing else, and a key that resolves in neither table returns here.
+local function ownedRelic(data, key)
+	local relic = GameConfig.GetRelic(key)
+	if relic and data.Relics and data.Relics[key] then return relic end
+	relic = GameConfig.GetSetRelic(key)
+	if relic and data.SetRelics and (tonumber(data.SetRelics[key]) or 0) > 0 then return relic end
+	return nil
+end
+
 function RelicService.HandleEquip(player, key)
 	local data = PlayerDataService.Get(player)
 	if not data then return end
 	if not forgeOpen(player, data) then return end
 
-	local relic = GameConfig.GetRelic(key)
+	local relic = ownedRelic(data, key)
 	if not relic then return end
-	if not (data.Relics and data.Relics[key]) then return end
 
 	for _, k in ipairs(data.EquippedRelicKeys) do
 		if k == key then return end

@@ -23,8 +23,8 @@
 --   right column  x 240, width 264   (240 .. 504)
 --   content top   y 98,  bottom y 512 (16 px margin, as every other panel)
 --
---   LEFT   constellation  98 .. 310   (212 square: a diamond of four 58 px slots round an orb)
---          extra slots   318 .. 400   (two chips: what opens slot 3 and slot 4)
+--   LEFT   constellation  98 .. 310   (212 square: a diamond of four 62 px sockets round an orb)
+--          premium slots 318 .. 400   (sockets 5 and 6 -- the `RelicSlots2` pass, 34.64)
 --          chest         408 .. 512   (the 2D chest, OPEN CHEST, and the diamond buy)
 --
 --   RIGHT  action row     98 .. 132   (EQUIP / FORGE -- they act on the selected tile)
@@ -48,15 +48,25 @@
 --     rule is that "37/215" would be a number about nothing, because the fifteen are the stat layer
 --     and the two hundred are the collection.
 --
--- ===== 34.56, AND THE THING THE ROADMAP ROW GOT WRONG =====
+-- ===== 34.56, THEN 34.63, AND THE SECOND ONE REVERSED THE FIRST =====
 --
--- The row says the gate is in this panel and that there is "no per-relic flag" on the server. There
--- IS one, and it is load-bearing:
+-- 34.56 reported that some relics could not be equipped. It was true, and the cause was not a bug in
+-- this panel: there are two relic tables and only one of them could be worn.
 --
 --   * `GameConfig.Relics` -- FIFTEEN relics, saved in `data.Relics`, resolved by `GameConfig.GetRelic`.
 --     These are the stat layer. They are worn, levelled and forged.
 --   * `GameConfig.SetRelicsByKey` -- TWO HUNDRED relics, saved in `data.SetRelics`, every one of them
 --     carrying `collection = true`, resolved by `GameConfig.GetSetRelic`.
+--
+-- 34.56 answered that by NAMING the boundary -- `SET BONUS` on the button and a sentence under it --
+-- and recommended against removing it, because the two hundred had no stat and there is one Mythic
+-- in the fifteen. **The owner overruled that on 2026-08-30 and 34.63 removed the boundary.** All two
+-- hundred are wearable now: `RelicSetForms` carries a `stat` per form, the value derives as
+-- `stat.base * rarity.mult * RelicCollectionScale`, `HandleEquip` resolves both tables and
+-- `equippedRelics` walks both save fields. What is written below about the SILENCE still holds --
+-- that is what 34.56 actually fixed and it is why the action row looks the way it does -- but the
+-- refusal it describes is gone. The one verb still refused on a collection relic is FORGE: those
+-- have no level, their duplicates pay dust, and `HandleMerge` refuses them server-side too.
 --
 -- `RelicService.HandleEquip` begins `local relic = GameConfig.GetRelic(key); if not relic then return end`
 -- -- and `GetRelic` reads `RelicsByKey`, which the two hundred are not in. So a collection relic sent
@@ -74,16 +84,18 @@
 -- indistinguishable from a broken one. Now:
 --
 --   1. The action row is always present, so the verbs never move or vanish.
---   2. Selecting a collection relic shows EQUIP disabled and captioned `SET BONUS`, with the detail
---      line saying in words that it pays as a set and is never worn.
---   3. Selecting a forge relic while every slot is full captions the button `SLOTS FULL` instead of
---      greying it wordlessly -- the cap is real and deliberate, and a cap that says its own name is
---      not the same experience as a dead button.
---   4. An empty unlocked slot is now a button that jumps to the Forge page, which is the only page
---      holding anything that fits in it.
+--   2. Selecting a relic you do not own captions EQUIP `NOT FOUND` rather than greying it wordlessly.
+--   3. Selecting one while every slot is full captions the button `SLOTS FULL` -- the cap is real and
+--      deliberate, and a cap that says its own name is not the same experience as a dead button.
+--   4. An empty unlocked slot is a button that jumps to the Forge page.
 --
--- Making the two hundred genuinely wearable is a GameConfig + RelicService decision that voids a
--- documented cap. It cannot be done from this file and it should not be done quietly.
+-- ===== AND SIX SLOTS, TWO OF THEM SOLD (34.64) =====
+--
+-- `RelicMaxSlots` is 6. Four are earned -- two at the unlock, one per rebirth for the first two --
+-- and five and six are the `RelicSlots2` game pass. The ring still draws FOUR because `SLOT_SPOTS`
+-- has four compass points and a hexagon collides with the `Worn` pill; sockets five and six are
+-- drawn in the premium block underneath, in the same `socketRefs` array, which is exactly where the
+-- owner's reference puts them.
 --
 -- ===== ONE REBUILD, THEN ONLY WRITES =====
 --
@@ -180,6 +192,10 @@ return function(hud)
 	-- it has to read as "nothing in it yet", not as a second kind of locked.
 	local EMPTY_SOCKET = { Color3.fromRGB(200, 182, 248), Color3.fromRGB(128, 100, 202) }
 	local LOCKED_SOCKET = { Color3.fromRGB(120, 114, 148), Color3.fromRGB(62, 58, 86) }
+	-- 34.64: SHUT IS NOT THE SAME AS SHUT-FOREVER. A rebirth slot is grey because waiting is the only
+	-- thing that opens it; a pass slot is GOLD because pressing it opens it now. Same padlock, two
+	-- different sentences, and the colour is the half a player reads before the caption.
+	local PREMIUM_SOCKET = { Color3.fromRGB(255, 226, 140), Color3.fromRGB(226, 152, 26) }
 
 	local field = CardKit.Card(panel, {
 		name = "Constellation",
@@ -223,8 +239,23 @@ return function(hud)
 		{ 106, 174 },   -- 4: bottom  (Rebirth 2)
 	}
 
+	-- ===== THE RING IS FOUR, AND SINCE 34.64 THAT IS NOT THE CAP =====
+	--
+	-- `RelicMaxSlots` went 4 -> 6 when slots five and six became a game pass, and this loop used to
+	-- read it directly. It cannot any more: `SLOT_SPOTS` has four compass points and a fifth index
+	-- would hand `spot` a nil. A HEXAGON WAS TRIED FIRST AND MEASURED WRONG -- six 62 px sockets on
+	-- a radius of 68 clear each other by 6 px, but the `Worn` pill sits at (8, 8) and the upper-left
+	-- socket of a hexagon lands on x 41..103, y 16..78, straight through it; every rescue (shrinking
+	-- the orb, moving the pill under it) put the pill inside another socket instead.
+	--
+	-- So five and six are built in the PREMIUM BLOCK below, which is where the owner's own reference
+	-- draws them -- *"a `Premium Relic Slots` block at the bottom with a Robux price on the first"*.
+	-- They go into the SAME `socketRefs` array, so `refresh()` still walks one list of sockets and
+	-- has no idea two of them are drawn somewhere else.
+	local RING_SLOTS = GameConfig.RelicBaseSlots + GameConfig.RelicRebirthSlots
+
 	local socketRefs = {}
-	for i = 1, GameConfig.RelicMaxSlots do
+	for i = 1, RING_SLOTS do
 		local spot = SLOT_SPOTS[i]
 		local tile, setTileColors = CardKit.Card(field, {
 			name = "Socket" .. i,
@@ -320,10 +351,16 @@ return function(hud)
 			if refs.key then
 				Remotes.UnequipRelic:FireServer(refs.key)
 			elseif refs.unlocked then
-				-- 34.56: AN EMPTY SLOT IS A ROUTE, NOT A DEAD TILE. The only relics that fit in it are
-				-- the fifteen on the Forge page, so tapping the hole goes there. A player who taps an
-				-- empty socket is asking "how do I fill this", and the old panel answered nothing.
+				-- 34.56: AN EMPTY SLOT IS A ROUTE, NOT A DEAD TILE. Tapping the hole goes to the page
+				-- holding things that fit in it. A player who taps an empty socket is asking "how do
+				-- I fill this", and the old panel answered nothing.
 				if showTab then showTab("forge") end
+			elseif refs.passKey then
+				-- 34.64: A LOCKED SOCKET THAT IS FOR SALE IS A DOOR. `PromptGamePassPurchase` takes
+				-- the pass KEY and the server holds the id -- the same rule `ShopPanel` follows, and
+				-- the reason a client cannot prompt a product it invented.
+				local prompt = Remotes:FindFirstChild("PromptGamePassPurchase")
+				if prompt then prompt:FireServer(refs.passKey) end
 			end
 		end)
 		socketRefs[i] = refs
@@ -333,16 +370,19 @@ return function(hud)
 	-- LEFT COLUMN 2 OF 3: THE EXTRA-SLOTS BLOCK
 	-- =================================================================================
 	--
-	-- The reference calls this "Premium Relic Slots" and prices the first one in Robux. THERE IS NO
-	-- SUCH PRODUCT IN THIS GAME and one cannot be invented from a client module: `GameConfig.RobuxShop`
-	-- has no relic row, `GetMaxEquippedRelics` reads `data.Rebirths` alone, and `RelicMaxSlots` is a
-	-- hard 4. A Robux price drawn here would be a button with no receipt behind it -- and a product
-	-- remote fired at a product that does not exist fails SILENTLY, which is the worst version of
-	-- that mistake.
+	-- The reference calls this "Premium Relic Slots" and prices the first one in Robux. 34.57 drew it
+	-- as a pair of rebirth chips instead, because no such product existed and *a product remote fired
+	-- at a product that does not exist fails SILENTLY* -- the worst version of that mistake.
 	--
-	-- So the block keeps the reference's PLACE and its job -- "here is how the ring gets bigger" --
-	-- and states the real currency, which is a rebirth. If a Robux slot product ever ships, this is
-	-- the block it lands in and the only thing that changes is the chip's caption.
+	-- 34.64 IS THE PRODUCT, so this block is what the reference asked for now: sockets five and six,
+	-- carrying the `RelicSlots2` price until the pass is owned. They are REAL SOCKETS in the same
+	-- `socketRefs` array as the ring's four -- see the note over `RING_SLOTS` for why they are drawn
+	-- down here rather than as two more points on a hexagon.
+	--
+	-- SLOTS THREE AND FOUR LOST THEIR CHIPS AND LOST NOTHING. Each of those sockets already draws its
+	-- own padlock with "Rebirth 1" / "Rebirth 2" along its bottom edge, so the chips were a second
+	-- copy of a sentence the ring was already saying -- and with `RelicMaxSlots` at 6 the old loop
+	-- would have laid four 98 px chips across a 212 px card, two of them off the edge.
 	local extra = CardKit.Card(panel, {
 		name = "ExtraSlots",
 		size = UDim2.new(0, LEFT_W, 0, 82),
@@ -355,7 +395,7 @@ return function(hud)
 
 	CardKit.Text(extra, {
 		name = "Title",
-		text = "EXTRA RELIC SLOTS",
+		text = "PREMIUM RELIC SLOTS",
 		size = UDim2.new(1, -12, 0, 18),
 		position = UDim2.new(0, 6, 0, 6),
 		textSize = 13,
@@ -365,26 +405,35 @@ return function(hud)
 		strokeThickness = 0,
 	})
 
-	local CHIP_OPEN = { Color3.fromRGB(150, 245, 190), Color3.fromRGB(24, 190, 110) }
-	local CHIP_SHUT = { Color3.fromRGB(198, 200, 220), Color3.fromRGB(140, 144, 172) }
-
-	-- One chip per slot ABOVE the base pair. Two rows inside a 98 px chip rather than one line
-	-- reading "1F512 Rebirth 1": that string is twelve characters plus a glyph at 12 px, which
-	-- measures within a pixel or two of the chip's inside width -- and a label that is one character
-	-- from truncating still reports `TextFits = true`, so the flag would never have caught it.
-	local chipRefs = {}
-	for i = GameConfig.RelicBaseSlots + 1, GameConfig.RelicMaxSlots do
-		local n = i - GameConfig.RelicBaseSlots
-		local chip, setChipColors = CardKit.Card(extra, {
-			name = "Chip" .. i,
+	-- Two chips, 98 px each, 4 + 106 apart across a 212 px card. Two ROWS inside one rather than a
+	-- single line reading "1F512 R$ 299": that string measures within a pixel or two of the chip's
+	-- inside width at 12 px, and a label one character from truncating still reports
+	-- `TextFits = true`, so the flag would never have caught it.
+	for i = RING_SLOTS + 1, GameConfig.RelicMaxSlots do
+		local n = i - RING_SLOTS
+		local tile, setTileColors = CardKit.Card(extra, {
+			name = "Socket" .. i,
 			size = UDim2.new(0, 98, 0, 44),
 			position = UDim2.new(0, 4 + (n - 1) * 106, 0, 30),
-			colors = CHIP_SHUT,
+			colors = LOCKED_SOCKET,
 			radius = 10,
 			studTransparency = 0.9,
 			zIndex = baseZ + 2,
 		})
-		local chipMark = CardKit.Text(chip, {
+
+		-- Left of the two lines, because a 44 px chip cannot stack art over text the way a 62 px
+		-- socket can. Hidden until something is worn, for the reason the ring's art is.
+		local art = Instance.new("ImageLabel")
+		art.Name = "Art"
+		art.Size = UDim2.new(0, 30, 0, 30)
+		art.Position = UDim2.new(0, 7, 0.5, -15)
+		art.BackgroundTransparency = 1
+		art.ScaleType = Enum.ScaleType.Fit
+		art.Visible = false
+		art.ZIndex = baseZ + 4
+		art.Parent = tile
+
+		local mark = CardKit.Text(tile, {
 			name = "Mark",
 			text = "\u{1F512}",
 			size = UDim2.new(1, -6, 0, 18),
@@ -394,9 +443,10 @@ return function(hud)
 			zIndex = baseZ + 3,
 			strokeThickness = 2,
 		})
-		local chipText = CardKit.Text(chip, {
+
+		local costLine = CardKit.Text(tile, {
 			name = "Cost",
-			text = GameConfig.GetRelicSlotRequirement(i) or "",
+			text = "",
 			size = UDim2.new(1, -6, 0, 16),
 			position = UDim2.new(0, 3, 0, 22),
 			textSize = 11,
@@ -404,7 +454,45 @@ return function(hud)
 			zIndex = baseZ + 3,
 			strokeThickness = 2,
 		})
-		chipRefs[i] = { setColors = setChipColors, mark = chipMark, text = chipText }
+
+		-- Built and never shown on these two. A level pip is 36 px wide and this chip is 98 with art
+		-- in it; `refresh` writes `pip.Visible` for every socket in the array, so the field has to
+		-- exist or that write throws on index 5.
+		local pip, pipLabel = CardKit.Pill(tile, {
+			name = "Level",
+			text = "",
+			size = UDim2.new(0, 34, 0, 15),
+			position = UDim2.new(1, -38, 1, -18),
+			textSize = 10,
+			zIndex = baseZ + 5,
+		})
+		pip.Visible = false
+
+		local hit = Instance.new("TextButton")
+		hit.Name = "Hit"
+		hit.Size = UDim2.new(1, 0, 1, 0)
+		hit.BackgroundTransparency = 1
+		hit.Text = ""
+		hit.AutoButtonColor = false
+		hit.ZIndex = baseZ + 6
+		hit.Parent = tile
+
+		local refs = {
+			tile = tile, setColors = setTileColors, art = art, mark = mark,
+			cost = costLine, pip = pip, pipLabel = pipLabel, hit = hit,
+			key = nil, unlocked = false, passKey = nil, premium = true,
+		}
+		hit.MouseButton1Click:Connect(function()
+			if refs.key then
+				Remotes.UnequipRelic:FireServer(refs.key)
+			elseif refs.unlocked then
+				if showTab then showTab("forge") end
+			elseif refs.passKey then
+				local prompt = Remotes:FindFirstChild("PromptGamePassPurchase")
+				if prompt then prompt:FireServer(refs.passKey) end
+			end
+		end)
+		socketRefs[i] = refs
 	end
 
 	-- =================================================================================
@@ -565,7 +653,11 @@ return function(hud)
 		textSize = 16,
 		zIndex = baseZ + 1,
 		callback = function()
-			if not selectedKey or selectedIsSet then return end
+			-- `or selectedIsSet` STOOD HERE UNTIL 34.63 and it is the exact shape of a dead button:
+			-- the caption said EQUIP, the callback returned, and nothing anywhere reported it. It was
+			-- correct while `HandleEquip` could not resolve a collection key -- now that it can, this
+			-- guard would have been a second, invisible copy of the boundary that was removed.
+			if not selectedKey then return end
 			-- The button is a toggle on one relic rather than two buttons that swap places: a control
 			-- that MOVES between states is a control the player has to re-find every time.
 			local data = hud.getData and hud.getData()
@@ -1218,14 +1310,45 @@ return function(hud)
 			-- never does today, but `GetMaxEquippedRelics` is free to change), and a socket showing a
 			-- relic that `GetRelicMult` is ignoring would be the panel lying about the bonus.
 			if i > slots then key = nil end
+			-- 34.63: A SOCKET CAN HOLD EITHER LAYER. The forge relic is looked up first because it is
+			-- the smaller table and the commoner case; a miss falls through to the two hundred. The
+			-- two keyspaces cannot collide (`relic_<zone>_<form>` is generated), so the order is a
+			-- preference and not a correctness argument.
 			local entry = key and owned[key]
 			local relic = key and GameConfig.GetRelic(key)
+			local setDef = nil
+			if key and not (relic and entry) then
+				setDef = GameConfig.GetSetRelic(key)
+				if setDef and GameConfig.GetSetRelicCopies(data, key) <= 0 then setDef = nil end
+			end
 			refs.unlocked = i <= slots
 
-			if relic and entry then
+			if setDef then
 				wornCount = wornCount + 1
 				refs.key = key
+				refs.passKey = nil
+				-- Through the FALLBACK, never `Id[icon]` raw: ten set forms resolve to art that may
+				-- not be uploaded yet, and an empty Image is a hole rather than a placeholder.
+				refs.art.Image = IconLibrary.Id[setDef.icon]
+					or IconLibrary.Id[GameConfig.RelicSetFallbackIcon] or ""
+				-- The tint is what says WHICH ZONE it came from, and it is the only thing that does
+				-- on a 40 px socket -- ten forms are shared across all twenty sets.
+				refs.art.ImageColor3 = setDef.tint
+				refs.art.Visible = true
+				refs.mark.Visible = false
+				refs.cost.Text = ""
+				refs.setColors({ setDef.rarityDef.color, setDef.rarityDef.deep })
+				-- no level, ever: duplicates of these pay dust and there is no merge path
+				refs.pip.Visible = false
+			elseif relic and entry then
+				wornCount = wornCount + 1
+				refs.key = key
+				refs.passKey = nil
 				refs.art.Image = IconLibrary.Id[relic.icon] or ""
+				-- RESET, because the socket may have been wearing a tinted collection relic a moment
+				-- ago and `ImageColor3` is sticky. The fifteen are drawn in their own colours and a
+				-- leftover zone tint would repaint one of them the wrong hue.
+				refs.art.ImageColor3 = Color3.new(1, 1, 1)
 				refs.art.Visible = true
 				refs.mark.Visible = false
 				refs.cost.Text = ""
@@ -1241,26 +1364,33 @@ return function(hud)
 				if refs.unlocked then
 					-- PLAIN, as the reference draws it: a pale well with a question mark and nothing
 					-- else. It is a hole, not a refusal, and it is a button -- see the socket handler.
+					--
+					-- `passKey` IS CLEARED HERE, and forgetting that is how a slot the player already
+					-- bought goes on trying to sell itself: the click handler tests `refs.passKey`
+					-- after `refs.unlocked`, so a stale one only bites on the frame ordering, but a
+					-- state left behind by a previous refresh is a bug waiting for a reorder.
+					refs.passKey = nil
 					refs.mark.Text = "?"
 					refs.cost.Text = ""
 					refs.setColors(EMPTY_SOCKET)
 				else
-					-- A LOCKED SLOT SAYS WHAT OPENS IT, in the place the reference puts a price.
+					-- A LOCKED SLOT SAYS WHAT OPENS IT, in the place the reference puts a price -- and
+					-- since 34.64 that is sometimes literally a price. `GetRelicSlotRequirement`
+					-- returns the sentence AND the pass key, so the socket prompts the right product
+					-- instead of the panel matching on the words it printed.
+					local need, passKey = GameConfig.GetRelicSlotRequirement(i)
+					refs.passKey = passKey
 					refs.mark.Text = "\u{1F512}"
-					refs.cost.Text = GameConfig.GetRelicSlotRequirement(i) or ""
-					refs.setColors(LOCKED_SOCKET)
+					refs.cost.Text = need or ""
+					refs.setColors(passKey and PREMIUM_SOCKET or LOCKED_SOCKET)
 				end
 			end
 		end
 		wornLabel.Text = ("%d/%d"):format(wornCount, slots)
 
-		-- --- the extra-slots chips
-		for i, chip in pairs(chipRefs) do
-			local got = i <= slots
-			chip.setColors(got and CHIP_OPEN or CHIP_SHUT)
-			chip.mark.Text = got and "\u{2714}" or "\u{1F512}"
-			chip.text.Text = got and "Unlocked" or (GameConfig.GetRelicSlotRequirement(i) or "")
-		end
+		-- THE EXTRA-SLOTS CHIPS WERE DELETED IN 34.64, not moved. They were a second copy of a
+		-- sentence each locked socket already carries along its own bottom edge, and slots five and
+		-- six ARE sockets now -- the loop above draws them wherever they happen to be parented.
 
 		refreshChest(data)
 
@@ -1297,9 +1427,11 @@ return function(hud)
 				refs.art.ImageTransparency = has and 0 or 0.72
 				refs.dupe.Visible = copies > 1
 				refs.dupeLabel.Text = "x" .. copies
-				-- a collection relic has no level and is never worn, so neither mark can ever show
+				-- No level, ever -- duplicates pay dust and there is no merge path for these. But
+				-- WORN is real since 34.63, and without the tick the grid would be the one surface
+				-- that still could not tell you what you have on.
 				refs.levelPip.Visible = false
-				refs.tick.Visible = false
+				refs.tick.Visible = equippedLookup[key] == true
 				refs.ring.Visible = (selectedKey == key)
 			end
 		elseif entry then
@@ -1347,22 +1479,50 @@ return function(hud)
 				detailArt.ImageColor3 = def.tint
 				detailName.Text = def.name
 				local have, total = GameConfig.CountSetRelicsOwned(data, def.zoneKey)
-				-- The blurb stays -- it is the only flavour these two hundred have -- and the rarity
-				-- joins it here, because it came off the NAME line above where it was overflowing.
+				-- ===== IT QUOTES WHAT IT PAYS NOW (34.63) =====
+				--
+				-- The blurb went. It was the only flavour these two hundred had, and it was also the
+				-- reason this label needed four lines -- but a relic you can WEAR has to lead with
+				-- what wearing it does, and `def.effectText` is the same derived string the fifteen
+				-- print. The flavour is not lost so much as outranked: the tile's own picture and the
+				-- set tint still carry the character, and a player choosing between two relics needs
+				-- the number, not the poetry.
 				if copies > 0 then
-					detailEffect.Text = ("%s\n%s \u{00B7} x%d held \u{00B7} %s set %d/%d"):format(
-						def.blurb, def.rarity, copies, def.zoneName, have, total)
+					detailEffect.Text = ("%s \u{00B7} %s\n%s \u{00B7} x%d held \u{00B7} %s set %d/%d"):format(
+						def.rarity, def.effectText, def.blurb, copies, def.zoneName, have, total)
 				else
-					detailEffect.Text = ("%s\n%s \u{00B7} not found yet \u{00B7} %s set %d/%d"):format(
-						def.blurb, def.rarity, def.zoneName, have, total)
+					detailEffect.Text = ("%s \u{00B7} %s\n%s \u{00B7} not found yet \u{00B7} %s set %d/%d"):format(
+						def.rarity, def.effectText, def.blurb, def.zoneName, have, total)
 				end
 			end
-			-- A COLLECTION RELIC IS NOT WORN AND NOT FORGED, and the panel now SAYS so instead of
-			-- deleting the buttons. `RelicService.HandleEquip` resolves through `GameConfig.GetRelic`,
-			-- which does not contain these two hundred keys, so firing `EquipRelic` here would be
-			-- dropped in silence -- see this file's header for why that boundary exists.
-			equipBtn.SetText("SET BONUS")
-			equipBtn.SetEnabled(false)
+			-- ===== ALL TWO HUNDRED ARE WEARABLE (34.63) =====
+			--
+			-- This branch used to read `SET BONUS` and grey itself, because `HandleEquip` resolved
+			-- through `GameConfig.GetRelic` -- the fifteen -- and a collection key sent to `EquipRelic`
+			-- was dropped in silence. The owner's call on 2026-08-30 was to remove the boundary rather
+			-- than to explain it, so the server resolves both tables now and this row behaves exactly
+			-- like the forge branch below: worn -> UNEQUIP, no room -> SLOTS FULL, otherwise EQUIP.
+			--
+			-- THE ONE THING THAT STAYS REFUSED IS THE FORGE, and it is not a leftover. A collection
+			-- relic has no level: its duplicates pay Relic Dust through `AddSetRelic` and there is no
+			-- merge path for them anywhere, so `HandleMerge` refuses them on the server too. A FORGE
+			-- button that did something here would need a second levelling model for two hundred
+			-- items, which is not what was asked for and is not what the dust economy is priced
+			-- against.
+			local wornSet = equippedLookup[selectedKey] == true
+			if not (def and copies > 0) then
+				equipBtn.SetText("NOT FOUND")
+				equipBtn.SetEnabled(false)
+			elseif wornSet then
+				equipBtn.SetText("UNEQUIP")
+				equipBtn.SetEnabled(true, EQUIP_ON)
+			elseif #equippedKeys >= slots then
+				equipBtn.SetText("SLOTS FULL")
+				equipBtn.SetEnabled(false)
+			else
+				equipBtn.SetText("EQUIP")
+				equipBtn.SetEnabled(true, EQUIP_ON)
+			end
 			forgeBtn.SetText("NO FORGE")
 			forgeBtn.SetEnabled(false)
 		else

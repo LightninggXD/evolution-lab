@@ -79,18 +79,41 @@ end
 -- one: a single slot has no decision in it -- you wear your best relic and that is the whole system
 -- -- where two immediately asks "damage or income", which is the question the feature exists for.
 GameConfig.RelicBaseSlots = 2
-GameConfig.RelicMaxSlots = 4
+-- 4 -> 6 in 34.64. Four is still everything the GAME gives away: two at the unlock and one per
+-- rebirth for the first two. Five and six are the `RelicSlots2` game pass and nothing else opens
+-- them, which is why the rebirth term below is still clamped at 2.
+GameConfig.RelicMaxSlots = 6
+GameConfig.RelicRebirthSlots = 2
 
+-- `GetPassAdd` LIVES IN A DIFFERENT GameConfig FILE and that is fine: every sub-module merges onto
+-- one table and this is resolved when the call runs, not when this file loads. The same argument
+-- `GetRelicMult` already makes about `CountCompletedRelicSets`, which is declared below it.
 function GameConfig.GetMaxEquippedRelics(data)
 	local rebirths = (data and data.Rebirths) or 0
-	return math.min(GameConfig.RelicBaseSlots + math.min(rebirths, 2), GameConfig.RelicMaxSlots)
+	local earned = GameConfig.RelicBaseSlots + math.min(rebirths, GameConfig.RelicRebirthSlots)
+	local bought = GameConfig.GetPassAdd and GameConfig.GetPassAdd(data, "relicSlots") or 0
+	return math.min(earned + bought, GameConfig.RelicMaxSlots)
 end
 
--- What a locked socket says, so the panel never has to know the ladder itself.
+-- The number of slots this save could ever reach WITHOUT paying. The panel draws sockets 5 and 6 as
+-- a purchase rather than as a lock, and it needs to know where the free ladder stops without
+-- re-deriving the ladder itself.
+function GameConfig.GetEarnedRelicSlots(data)
+	local rebirths = (data and data.Rebirths) or 0
+	return GameConfig.RelicBaseSlots + math.min(rebirths, GameConfig.RelicRebirthSlots)
+end
+
+-- What a locked socket says, so the panel never has to know the ladder itself. Two kinds of answer
+-- now: a rebirth you can reach, and a pass you can buy. The second returns the pass KEY as well, so
+-- the caller can prompt the right product instead of matching on the sentence.
 function GameConfig.GetRelicSlotRequirement(slotIndex)
 	local n = slotIndex - GameConfig.RelicBaseSlots
 	if n <= 0 then return nil end
-	return ("Rebirth %d"):format(n)
+	if n <= GameConfig.RelicRebirthSlots then
+		return ("Rebirth %d"):format(n), nil
+	end
+	local pass = GameConfig.GetGamePass and GameConfig.GetGamePass("RelicSlots2")
+	return (pass and ("R$ %d"):format(pass.price)) or "Game Pass", "RelicSlots2"
 end
 
 -- ===== RARITIES =====
@@ -350,18 +373,40 @@ GameConfig.RelicChestIconAlt = "rbxassetid://79295568252541"   -- hers; the oute
 -- applying. One formula, two readers.
 --
 -- Both walk `EquippedRelicKeys` and both are safe on a save that has none.
+--
+-- ===== ONE LIST, TWO SAVE FIELDS (34.63) =====
+--
+-- `EquippedRelicKeys` holds keys from BOTH layers now -- the owner's call, *"trebaju se svi moci
+-- equipati"*. The two keyspaces cannot collide: the fifteen are hand-authored words (`carrot`,
+-- `amethyst`) and the two hundred are generated as `relic_<zone>_<form>`, so one lookup can miss and
+-- the other hit without any flag in the saved list saying which is which. That matters because the
+-- saved list is just strings, and a save written before this row still resolves.
+--
+-- OWNERSHIP IS RE-CHECKED PER LAYER because the two layers are two different save tables:
+-- `data.Relics` holds `{ copies, level }` for the fifteen, `data.SetRelics` holds a copy count for
+-- the two hundred. A key still sitting in `EquippedRelicKeys` after the relic left its table would
+-- pay a bonus for something the player does not have -- the "phantom equipped pet"
+-- `PlayerDataService` already prunes for.
+--
+-- A COLLECTION RELIC IS ALWAYS LEVEL 1, and that is not an omission. Its duplicates pay dust rather
+-- than feeding a merge (`HandleMerge` resolves through `GetRelic` and so refuses them outright), so
+-- there is no level to read; `RelicCollectionScale` is set against that permanent Lv.1 value.
 local function equippedRelics(data)
 	local out = {}
 	if not (data and type(data.EquippedRelicKeys) == "table") then return out end
 	local slots = GameConfig.GetMaxEquippedRelics(data)
 	for _, key in ipairs(data.EquippedRelicKeys) do
 		local relic = GameConfig.RelicsByKey[key]
-		-- OWNERSHIP IS RE-CHECKED HERE, not trusted from the equipped list. A key that survived in
-		-- `EquippedRelicKeys` after the relic left `data.Relics` would pay a bonus for something the
-		-- player does not have -- the "phantom equipped pet" `PlayerDataService` already prunes for.
+		local level = 1
 		local owned = relic and data.Relics and data.Relics[key]
-		if owned and #out < slots then
-			table.insert(out, { relic = relic, level = (type(owned) == "table" and owned.level) or 1 })
+		if owned then
+			level = (type(owned) == "table" and owned.level) or 1
+		else
+			relic = GameConfig.SetRelicsByKey[key]
+			owned = relic and data.SetRelics and (tonumber(data.SetRelics[key]) or 0) > 0
+		end
+		if relic and owned and #out < slots then
+			table.insert(out, { relic = relic, level = level })
 		end
 	end
 	return out
@@ -381,7 +426,14 @@ GameConfig.GetEquippedRelics = equippedRelics
 function GameConfig.GetRelicFamilySets(data)
 	local counts, sets = {}, {}
 	for _, e in ipairs(equippedRelics(data)) do
-		counts[e.relic.family] = (counts[e.relic.family] or 0) + 1
+		-- GUARDED SINCE 34.63, AND WITHOUT THIS LINE THE WHOLE GAME THROWS. A collection relic has no
+		-- `family` -- families are Feast / Fossil / Arcane and belong to the fifteen -- so this read
+		-- returns nil, and `counts[nil] = ...` is a hard `table index is nil` error. It would fire
+		-- inside the one function `GetRelicMult` and `GetRelicAdd` both call, i.e. on every income
+		-- tick, every hit and every egg roll, the moment a player equipped one of the two hundred.
+		if e.relic.family then
+			counts[e.relic.family] = (counts[e.relic.family] or 0) + 1
+		end
 	end
 	for family, n in pairs(counts) do
 		if n >= 3 then sets[family] = true end
@@ -537,26 +589,76 @@ end
 -- because these ten PNGs are drawn NEARLY WHITE -- `ImageColor3` multiplies, so tinting a coloured
 -- drawing gives mud and tinting a white one gives the colour. The ink contour survives it for the
 -- same reason: dark times anything stays dark.
+--
+-- ===== A FORM CARRIES ITS STAT EVERYWHERE TOO (34.63) =====
+--
+-- The owner's call: *"trebaju se svi moci equipati"*, and all two hundred are worn now. That needed
+-- a stat for two hundred relics that had never had one -- they paid through `RelicSetBonus` for
+-- being OWNED and for nothing else.
+--
+-- IT IS ON THE FORM, NOT ON THE RELIC, for exactly the reason the rarity is. Twenty zones times ten
+-- forms is two hundred rows nobody types; a `stat` column here is ONE decision that every zone
+-- inherits, a zone added later inherits it for free, and a player learns *"the shard is damage"*
+-- once rather than two hundred times. Authoring it per relic would be two hundred chances for the
+-- ladder to drift, which is the same argument `relic.value = stat.base * rarity.mult` already wins.
+--
+-- ===== WHY THE CAPSTONE IS DAMAGE =====
+--
+-- The `sigil` is the only form that reaches Legendary, and Mythic in the top five zones, so
+-- whichever stat it lands on is the one the collection layer peaks in. It is DAMAGE because the
+-- other half of this system already pays the other two: completing a zone set pays
+-- `RelicSetBonus.incomeShare` and `.luckAdd`, twenty times over. Putting the wearable peak on income
+-- as well would stack both halves of the relic system onto one axis; on damage they pull in
+-- different directions, and "collect for income, wear for damage" is a sentence a player can hold.
 GameConfig.RelicSetForms = {
 	-- Four Commons. Small, hard, plentiful things.
-	{ key = "shard",  name = "Shard",  rarity = "Common",    icon = "relic_shard",  blurb = "A fragment that kept its edge." },
-	{ key = "tooth",  name = "Tooth",  rarity = "Common",    icon = "relic_tooth",  blurb = "Something shed it and did not come back for it." },
-	{ key = "coin",   name = "Token",  rarity = "Common",    icon = "relic_coin",   blurb = "Stamped by a hand nobody kept a record of." },
-	{ key = "plume",  name = "Plume",  rarity = "Common",    icon = "relic_plume",  blurb = "Too stiff to have come off anything living." },
+	{ key = "shard",  name = "Shard",  rarity = "Common",    stat = "damage", icon = "relic_shard",  blurb = "A fragment that kept its edge." },
+	{ key = "tooth",  name = "Tooth",  rarity = "Common",    stat = "xp",     icon = "relic_tooth",  blurb = "Something shed it and did not come back for it." },
+	{ key = "coin",   name = "Token",  rarity = "Common",    stat = "income", icon = "relic_coin",   blurb = "Stamped by a hand nobody kept a record of." },
+	{ key = "plume",  name = "Plume",  rarity = "Common",    stat = "luck",   icon = "relic_plume",  blurb = "Too stiff to have come off anything living." },
 
 	-- Three Rares.
-	{ key = "horn",   name = "Horn",   rarity = "Rare",      icon = "relic_horn",   blurb = "Still warm at the base, which it should not be." },
-	{ key = "rune",   name = "Rune",   rarity = "Rare",      icon = "relic_rune",   blurb = "One mark, cut deep enough to outlast the tablet." },
-	{ key = "vial",   name = "Vial",   rarity = "Rare",      icon = "relic_vial",   blurb = "Sealed. Whatever is in it has not settled." },
+	{ key = "horn",   name = "Horn",   rarity = "Rare",      stat = "damage", icon = "relic_horn",   blurb = "Still warm at the base, which it should not be." },
+	{ key = "rune",   name = "Rune",   rarity = "Rare",      stat = "xp",     icon = "relic_rune",   blurb = "One mark, cut deep enough to outlast the tablet." },
+	{ key = "vial",   name = "Vial",   rarity = "Rare",      stat = "luck",   icon = "relic_vial",   blurb = "Sealed. Whatever is in it has not settled." },
 
 	-- Two Epics.
-	{ key = "idol",   name = "Idol",   rarity = "Epic",      icon = "relic_idol",   blurb = "Carved facing away from wherever it was found." },
-	{ key = "core",   name = "Core",   rarity = "Epic",      icon = "relic_core",   blurb = "It draws the light in and gives a little of it back." },
+	{ key = "idol",   name = "Idol",   rarity = "Epic",      stat = "income", icon = "relic_idol",   blurb = "Carved facing away from wherever it was found." },
+	{ key = "core",   name = "Core",   rarity = "Epic",      stat = "damage", icon = "relic_core",   blurb = "It draws the light in and gives a little of it back." },
 
 	-- One capstone. Legendary in the first fifteen zones, MYTHIC in the last five -- the same
 	-- drawing either way, because the frame and the tint already say which one you are holding.
-	{ key = "sigil",  name = "Sigil",  rarity = "Legendary", icon = "relic_sigil",  blurb = "The mark a place leaves on whatever survives it." },
+	{ key = "sigil",  name = "Sigil",  rarity = "Legendary", stat = "damage", icon = "relic_sigil",  blurb = "The mark a place leaves on whatever survives it." },
 }
+
+-- ===== WHAT A WORN COLLECTION RELIC IS WORTH, AND HOW THIS NUMBER WAS CHOSEN =====
+--
+-- 0.45 of the rung an equippable relic of the same rarity pays. It is MEASURED, not picked, and the
+-- measurement is the whole content of this constant -- so it is written down rather than left to be
+-- re-derived by whoever next wants to move it.
+--
+-- Two things make a collection relic weaker than a forge relic of the same rarity even before the
+-- scale: it has NO LEVEL (a duplicate pays dust, never a merge, so it is permanently the Lv.1
+-- number while the fifteen reach x2.6 at Lv.5), and its stat is fixed by its FORM rather than
+-- chosen. Against that, twenty zones means you can wear several of the SAME form, which a
+-- fifteen-relic pool cannot do -- so the ceiling has to be measured with supply in mind: there are
+-- exactly FIVE Mythic sigils in the game, not six, so "six Mythics in six slots" is not reachable.
+--
+-- The best legal loadout, computed over both pools, with the family set bonus counted:
+--
+--                   forge (fifteen at Lv.5)     collection only, at 0.45
+--     damage  4 slots        1.58                       1.08
+--     damage  6 slots        1.58                       1.51
+--     income  4 slots        2.20                       0.38
+--     luck    4 slots      155.40                      14.40
+--
+-- Damage is the axis to watch because the capstone is on it, and 6 slots is the number 34.64 sells.
+-- 0.55 puts damage-at-6 on 1.85, ABOVE the forge ceiling, which would make the collection layer
+-- replace the stat layer at the top instead of standing beside it. 0.35 puts a Common on 2.1%,
+-- which is not a reward. 0.45 leaves the paid six-slot collection build at 96% of what fifteen
+-- fully-levelled relics reach -- close enough to be an endgame chase, under enough that the forge
+-- is still the answer.
+GameConfig.RelicCollectionScale = 0.45
 
 -- THE FALLBACK FORM, and it is part of this row rather than a follow-up. `RelicsPanel` draws
 -- `IconLibrary.Id[icon] or ""`, and an empty string is a HOLE in the tile -- not a placeholder, not
@@ -751,6 +853,22 @@ for tier, zone in ipairs(GameConfig.Zones) do
 			order = order,
 			collection = true,   -- the one flag a call site can test instead of guessing from the key
 		}
+		-- 34.63: THE SAME DERIVATION THE FIFTEEN USE, times the collection scale. Written here rather
+		-- than read at the call site so that a worn collection relic and a worn forge relic are the
+		-- same SHAPE to `equippedRelics` -- `statDef` and `value` -- and nothing downstream has to
+		-- branch on `collection`. `effectText` is built the same way too, so the panel quotes one
+		-- string for both layers.
+		local stat = GameConfig.RelicStats[form.stat]
+		relic.statDef = stat
+		relic.value = stat.base * rarity.mult * GameConfig.RelicCollectionScale
+		if stat.add then
+			-- Rounded like the fifteen are, and floored at 1: a Common luck relic solves to 1.8 and
+			-- an honest "+2 Luck" beats a "+0 Luck" that would make the tile a lie.
+			relic.value = math.max(1, math.floor(relic.value + 0.5))
+			relic.effectText = ("+%d %s"):format(relic.value, stat.label)
+		else
+			relic.effectText = ("+%d%% %s"):format(math.floor(relic.value * 100 + 0.5), stat.label)
+		end
 		set.relics[order] = relic
 		local bucket = set.byRarity[rarityKey]
 		if not bucket then

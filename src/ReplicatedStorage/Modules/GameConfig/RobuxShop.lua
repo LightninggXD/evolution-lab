@@ -330,6 +330,29 @@ GameConfig.GamePasses = {
 	{ key = "PetSlots3", passId = 1944156329, price = 299, emoji = "🐾", name = "+3 Pet Slots",
 	  desc = "Equip three more pets at once.", petSlots = 3 },
 
+	-- 34.64, HER CALL: *"da, 5. i 6. slot za Robux"*. One pass for both slots rather than two passes
+	-- for one each -- `PetSlots3` set that shape and it is the right one: a player deciding whether
+	-- to buy more equip room is answering one question, not two, and two products would mean a
+	-- half-bought state (five slots) that every layout below has to draw.
+	--
+	-- A PASS, NOT A DEVELOPER PRODUCT, and the distinction is load-bearing here. A slot is permanent;
+	-- a product is consumed. `PassService` re-checks pass ownership on every join, so a slot bought
+	-- today is still there after a rebirth, a data-loss rollback or a server move, none of which a
+	-- receipt-granted counter survives on its own.
+	--
+	-- `relicSlots` IS READ BY `GetPassAdd`, exactly as `petSlots` is -- so the whole server side of
+	-- this row is this line plus one term in `GetMaxEquippedRelics`. Nothing new was written.
+	--
+	-- 299 MATCHES `PetSlots3` DELIBERATELY. It is the same sentence to a player ("more of the thing
+	-- you equip"), and pricing two slots at what three pet slots cost prices a relic slot higher than
+	-- a pet slot, which is correct: a relic is a flat stat and a pet is a follower.
+	--
+	-- 👤 passId = 0 UNTIL THE DASHBOARD ROW EXISTS. That is this file's own documented sentinel --
+	-- `PassService` refuses to prompt on a zero id and says so out loud, which is the behaviour that
+	-- keeps an unbuilt product visible to the owner instead of silently dead (26.4).
+	{ key = "RelicSlots2", passId = 0, price = 299, emoji = "🔮", name = "+2 Relic Slots",
+	  desc = "Wear five and six relics at once instead of four.", relicSlots = 2 },
+
 	{ key = "VIP",       passId = 1941409673, price = 499, emoji = "👑", name = "VIP",
 	  -- The two figures in this sentence are the last row of GameConfig.VipCharacters. They are
 	  -- literals because this table is a plain list of strings that a dozen readers format, and
