@@ -266,25 +266,16 @@ local SIGN_CLEAR = { xMin = 40, xMax = 150, zMin = 200, zMax = 230 }
 local ROAD_PAINT = { PaintRoad = true, PaintCap = true, PaintDisc = true }
 local DRIVING_LINE = 12
 
-local function findClearSpot()
-	-- The authored spots first, in order, each one a real choice. Only when all four are unlucky at
-	-- once does the ring search step out from the first -- and then it is a safety net rather than
-	-- the thing choosing where a landmark stands.
-	local candidates = {}
-	for _, spot in ipairs(PREFERRED_SPOTS) do
-		table.insert(candidates, spot - PREFERRED)
-	end
-	for ring = 1, 6 do
-		-- the step is one footprint wide, so consecutive rings do not overlap each other
-		local step = ring * 26 * MACHINE_SCALE
-		table.insert(candidates, Vector3.new(step, 0, 0))
-		table.insert(candidates, Vector3.new(-step, 0, 0))
-		table.insert(candidates, Vector3.new(0, 0, step))
-		table.insert(candidates, Vector3.new(0, 0, -step))
-		table.insert(candidates, Vector3.new(step, 0, step))
-		table.insert(candidates, Vector3.new(-step, 0, step))
-	end
-
+-- ===== THE TWO QUESTIONS THE PLACEMENT ASKS, BUILT ONCE OFF THE WORLD AS IT STANDS (34.66) =====
+-- They used to be locals inside the search. They are lifted out because the search is no longer the
+-- only thing that asks them: before it runs, `reserveAuthoredSpot` has to know which authored spot
+-- is worth clearing -- an occupied spot with a road through it is worth nothing, since the search
+-- would refuse it after the clearing exactly as it refuses it now.
+--
+-- Built once and shared, because `signage` walks every descendant of `workspace` and this world has
+-- forty thousand parts in it. Neither closure caches its ANSWER -- `spotIsClear` queries the live
+-- world on every call, which is what lets the same predicate be asked again after props have moved.
+local function placementRules()
 	-- CREATURES ARE NOT OBSTRUCTIONS, AND LEAVING THEM IN HERE IS WHY THIS MACHINE MOVED HOUSE ON
 	-- EVERY BOOT. Measured 2026-08-19 on a live server: the only things this test found standing on
 	-- the preferred spot were two `body_geom` parts -- a creature, mid-walk. Four consecutive boots
@@ -381,8 +372,12 @@ local function findClearSpot()
 		return n
 	end
 
+	-- Returns `clear, why`. The reason exists for 34.66: only a spot refused for something STANDING
+	-- on it is worth asking the map to clear, and moving the artist's trees off a spot that the
+	-- street or the event sign's sightline would refuse anyway is work done for nothing.
 	local function spotIsClear(centre)
 		local blocked = math.abs(centre.X) - FOOTPRINT.X * 0.5 < STREET_HALF
+		local why = blocked and "the street" or nil
 		-- the event sign's sightline, rejected before the occupancy test because no occupancy test
 		-- can see it -- see SIGN_CLEAR
 		if not blocked then
@@ -390,6 +385,7 @@ local function findClearSpot()
 			local z0, z1 = centre.Z - FOOTPRINT.Z * 0.5, centre.Z + FOOTPRINT.Z * 0.5
 			blocked = x0 < SIGN_CLEAR.xMax and x1 > SIGN_CLEAR.xMin
 				and z0 < SIGN_CLEAR.zMax and z1 > SIGN_CLEAR.zMin
+			if blocked then why = "the event sign's sightline" end
 		end
 		if not blocked then
 			local box = CFrame.new(centre + Vector3.new(0, FOOTPRINT.Y / 2, 0))
@@ -401,6 +397,7 @@ local function findClearSpot()
 				-- place, and siting a landmark against one gives a different answer every boot.
 				if part.CanCollide and part.Anchored and part.Position.Y > 0.5 then
 					blocked = true
+					why = "a prop"
 					break
 				end
 			end
@@ -413,11 +410,35 @@ local function findClearSpot()
 				if (FOOTPRINT.X * 0.5 + sh.X) - math.abs(s.Position.X - centre.X) > 0
 					and (FOOTPRINT.Z * 0.5 + sh.Z) - math.abs(s.Position.Z - centre.Z) > 0 then
 					blocked = true
+					why = "a sign"
 					break
 				end
 			end
 		end
-		return not blocked
+		return not blocked, why
+	end
+
+	return spotIsClear, roadsThrough
+end
+
+-- ===== WHERE THE MACHINE MAY STAND, GIVEN THE WORLD THAT WAS BUILT AROUND IT =====
+local function findClearSpot(spotIsClear, roadsThrough)
+	-- The authored spots first, in order, each one a real choice. Only when all four are unlucky at
+	-- once does the ring search step out from the first -- and then it is a safety net rather than
+	-- the thing choosing where a landmark stands.
+	local candidates = {}
+	for _, spot in ipairs(PREFERRED_SPOTS) do
+		table.insert(candidates, spot - PREFERRED)
+	end
+	for ring = 1, 6 do
+		-- the step is one footprint wide, so consecutive rings do not overlap each other
+		local step = ring * 26 * MACHINE_SCALE
+		table.insert(candidates, Vector3.new(step, 0, 0))
+		table.insert(candidates, Vector3.new(-step, 0, 0))
+		table.insert(candidates, Vector3.new(0, 0, step))
+		table.insert(candidates, Vector3.new(0, 0, -step))
+		table.insert(candidates, Vector3.new(step, 0, step))
+		table.insert(candidates, Vector3.new(-step, 0, step))
 	end
 
 	-- ===== A ROAD IS A PREFERENCE HERE AND NEVER A VETO (34.65) =====
@@ -460,6 +481,63 @@ local function findClearSpot()
 		end
 	end
 	return PREFERRED, -1, false, roadsThrough(PREFERRED)
+end
+
+-- ===== ASKING THE MAP TO GIVE AN AUTHORED SPOT BACK (34.66) =====
+--
+-- 34.65 closed with the machine standing 52 studs off its first authored spot, on ground the ring
+-- search picked, because on that world roll ALL FOUR authored spots were occupied: a camp's
+-- backstop rocks on the first, a horizon collider's corner on the second, and the artist's own
+-- trees on the third and fourth. The two collider systems now keep off this machine's ground
+-- (`JungleLayout.MachineClearance`, honoured by `MapJungle` and `MapHorizon`), which leaves the
+-- village's trees -- and a tree is not a thing this file may simply refuse around: it was placed by
+-- the map's author and `evolution-lab-map-owns-the-furniture` is why we do not delete it.
+--
+-- So it is MOVED, by the file whose whole job is moving a village prop out of the way, and only
+-- when doing so actually buys the spot:
+--
+--   * a spot with a road driving through it is skipped, because the search would refuse it after
+--     the clearing exactly as it refuses it now -- clearing it would move trees for nothing;
+--   * a spot refused by the street or by the event sign's sightline is skipped for the same reason,
+--     which is what `spotIsClear`'s second return value is for;
+--   * `MapClearance.Reserve` is all-or-nothing: it refuses before it touches anything if the box
+--     holds architecture or a collider it may not move, so a half-cleared spot cannot happen;
+--   * and the answer is verified against the world afterwards rather than trusted. `Reserve` sees
+--     only the map's own top-level props; `spotIsClear` sees everything.
+--
+-- THE FIRST ROAD-FREE SPOT WINS, NOT THE FIRST SPOT. The list is a composition and its order is a
+-- preference, but a spot the search will not take is not worth clearing -- so this walks the same
+-- list in the same order and stops at the first one that clearing can actually deliver.
+local ZONE_KEY = "Forest"
+
+local function reserveAuthoredSpot(spotIsClear, roadsThrough)
+	-- Nothing to do when the list already offers what the search wants.
+	for _, spot in ipairs(PREFERRED_SPOTS) do
+		if spotIsClear(spot) and roadsThrough(spot) == 0 then return nil end
+	end
+
+	-- Lazily required, and that is not a style choice: `ForestMapService` requires `MapJungle`,
+	-- which requires `JungleLayout`, which requires THIS file -- so a require at the top of the page
+	-- would be a load-time cycle. By the time `Init` runs, that module has long since been loaded
+	-- and this is a registry lookup.
+	local ForestMapService = require(script.Parent.ForestMapService)
+
+	for i, spot in ipairs(PREFERRED_SPOTS) do
+		local clear, why = spotIsClear(spot)
+		if not clear and why == "a prop" and roadsThrough(spot) == 0 then
+			local report = ForestMapService.ClearGround(ZONE_KEY, {
+				x = spot.X, z = spot.Z,
+				hx = FOOTPRINT.X * 0.5, hz = FOOTPRINT.Z * 0.5,
+			}, ("the DNA Splicer's authored spot %d at (%d, %d)"):format(i, spot.X, spot.Z))
+			if report and report.cleared and spotIsClear(spot) then
+				print(("[SplicerService] authored spot %d at (%d, %d) was reserved: "
+					.. "%d of the map's props carried off it")
+					:format(i, spot.X, spot.Z, report.moved))
+				return spot
+			end
+		end
+	end
+	return nil
 end
 
 -- ===== THE MACHINE =====
@@ -957,7 +1035,12 @@ function SplicerService.Init()
 			end
 		end
 	else
-		local centre, moved, authored, roads = findClearSpot()
+		-- Built once and handed to both steps -- see `placementRules`. The reservation may move
+		-- village props; neither closure holds a cached answer, so the search below re-reads the
+		-- world it changed.
+		local spotIsClear, roadsThrough = placementRules()
+		reserveAuthoredSpot(spotIsClear, roadsThrough)
+		local centre, moved, authored, roads = findClearSpot(spotIsClear, roadsThrough)
 		machineModel = buildMachine(centre)
 		machineModel.Parent = map
 		-- Landing on the second or third AUTHORED spot is not a fault and must not be reported as

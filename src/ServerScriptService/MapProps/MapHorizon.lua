@@ -417,8 +417,19 @@ local ROAD_KEEP = 6
 local ROAD_STEP = 24
 local ROAD_TRIES = 12
 
-local function trimOffRoads(zoneKey, segments, acrossIsX, aMin, aMax, bMin, bMax, sign)
-	if not segments then return aMin, aMax, bMin, bMax end
+-- ===== AND OFF THE GROUND THE DNA SPLICER MAY CLAIM, WHICH IS THE SAME CUT AGAIN (34.66) =====
+-- Measured on the closing boot of 34.65: one collider box 538 x 396 studs, standing at (-424, 591)
+-- on the west run, reached a corner into the machine's SECOND authored spot at (-156, 384) -- 30
+-- studs of invisible wall on the village's own deck, 200 studs inboard of the range it belongs to.
+-- The occupancy test in `SplicerService` cannot tell that from a mountain and refused the spot.
+--
+-- It is the road trim's cut with a different clearance function, so the two share one body rather
+-- than growing a second copy of the push arithmetic. The outer face never moves, which is the rule
+-- that keeps the range continuous; a box that cannot be made clear keeps no box, and `dropped`
+-- counts it exactly as it does for a road.
+local MACHINE_KEEP = 6
+
+local function trimAgainst(clearanceAt, keep, acrossIsX, aMin, aMax, bMin, bMax, sign)
 	for _ = 1, ROAD_TRIES do
 		if aMax - aMin < MIN_BOX or bMax - bMin < MIN_BOX then return nil end
 		local na = math.max(1, math.ceil((aMax - aMin) / ROAD_STEP))
@@ -428,13 +439,12 @@ local function trimOffRoads(zoneKey, segments, acrossIsX, aMin, aMax, bMin, bMax
 			for j = 0, nb do
 				local a = aMin + (aMax - aMin) * i / na
 				local b = bMin + (bMax - bMin) * j / nb
-				local c = JungleLayout.RoadClearance(zoneKey,
-					acrossIsX and a or b, acrossIsX and b or a, segments)
+				local c = clearanceAt(acrossIsX and a or b, acrossIsX and b or a)
 				if c < worst then worst, wa, wb = c, a, b end
 			end
 		end
-		if worst >= ROAD_KEEP then return aMin, aMax, bMin, bMax end
-		local push = (ROAD_KEEP - worst) + 6
+		if worst >= keep then return aMin, aMax, bMin, bMax end
+		local push = (keep - worst) + 6
 		-- how far the offending cell is from each edge this trim is allowed to move
 		local dA = sign > 0 and (wa - aMin) or (aMax - wa)
 		local dB = math.min(wb - bMin, bMax - wb)
@@ -449,6 +459,21 @@ local function trimOffRoads(zoneKey, segments, acrossIsX, aMin, aMax, bMin, bMax
 	return nil
 end
 
+local function trimOffRoads(zoneKey, segments, acrossIsX, aMin, aMax, bMin, bMax, sign)
+	if not segments then return aMin, aMax, bMin, bMax end
+	return trimAgainst(function(x, z)
+		return JungleLayout.RoadClearance(zoneKey, x, z, segments)
+	end, ROAD_KEEP, acrossIsX, aMin, aMax, bMin, bMax, sign)
+end
+
+-- Called unguarded on purpose: `JungleLayout.MachineClearance` is this repo's own function and a
+-- `X.f and X.f(...) or` around it would turn a rename into a silently smaller answer rather than
+-- into an error (`guarded-call-to-a-missing-function`).
+local function trimOffMachines(acrossIsX, aMin, aMax, bMin, bMax, sign)
+	return trimAgainst(JungleLayout.MachineClearance, MACHINE_KEEP,
+		acrossIsX, aMin, aMax, bMin, bMax, sign)
+end
+
 function MapHorizon.Colliders(zoneKey)
 	local hills = MapHorizon.Solid[zoneKey]
 	if not hills then return {}, 0 end
@@ -456,6 +481,9 @@ function MapHorizon.Colliders(zoneKey)
 	local segments = JungleLayout.Segments(zoneKey)
 	local reach = JungleLayout.CAMP_RADIUS + CAMP_KEEP
 	local outList, clipped, dropped = {}, 0, 0
+	-- counted separately from `clipped` so the boot line can say whether the machine ground cost
+	-- this range anything at all, rather than hiding one cut inside another's number
+	local machineClipped = 0
 	for _, h in ipairs(hills) do
 		local across = h.acrossIsX and h.wx or h.wz
 		local along = h.acrossIsX and h.wz or h.wx
@@ -488,6 +516,21 @@ function MapHorizon.Colliders(zoneKey)
 				aMin = aMax
 			end
 		end
+		-- ...and then off the machine ground (34.66), AFTER the roads and never instead of them:
+		-- both cuts only ever move an inward face, so the second one starts from a box the first
+		-- already accepted and cannot hand back ground the road trim just gave up.
+		if aMax - aMin >= MIN_BOX then
+			local a0, a1, b0, b1 = trimOffMachines(h.acrossIsX, aMin, aMax, bMin, bMax, sign)
+			if a0 then
+				if a0 ~= aMin or a1 ~= aMax or b0 ~= bMin or b1 ~= bMax then
+					clipped += 1
+					machineClipped += 1
+				end
+				aMin, aMax, bMin, bMax = a0, a1, b0, b1
+			else
+				aMin = aMax
+			end
+		end
 		if aMax - aMin < MIN_BOX or bMax - bMin < MIN_BOX then
 			dropped += 1
 		else
@@ -502,7 +545,7 @@ function MapHorizon.Colliders(zoneKey)
 			}
 		end
 	end
-	return outList, clipped, dropped
+	return outList, clipped, dropped, machineClipped
 end
 
 -- ===== THE WALL ITSELF, RE-TINTED -- WITHOUT OPENING `ZoneBuilder` =====
@@ -949,14 +992,15 @@ function MapHorizon.Build(zoneKey, cx, map)
 	-- `clipped` is how many boxes had to be cut back off a camp floor and `dropped` how many were
 	-- cut to nothing and got no box at all. A non-zero `dropped` is a stretch of range you can still
 	-- walk through, which is the whole of what this row set out to close.
-	local boxes, clipped, dropped = MapHorizon.Colliders(zoneKey)
+	local boxes, clipped, dropped, machineClipped = MapHorizon.Colliders(zoneKey)
 	local outerVis = s.Y * scaleFor(COVER_OUTER) - SINK
 	local needed = WALL_H * AT.outerX / WALL_X
 	print(("[MapHorizon] %s: %d hills over %d runs from a %.0f x %.0f x %.0f stock; "
 		.. "tops %.0f..%.0f against the wall's %d -- %s; outer peaks %.0f, needs %.0f to clear "
 		.. "the wall from mid-zone -- %s; inner row at %.0f/%.0f (pinned %d/%d)%s; "
 		.. "tightest rock-to-camp-floor gap %+.1f studs, %s -- %s; "
-		.. "%d collider box(es) offered, %d clipped off a camp floor, %d dropped%s; "
+		.. "%d collider box(es) offered, %d clipped off a camp floor, %d dropped%s "
+		.. "(%d clipped off the machine ground); "
 		.. "gate lane |x - cx| <= %d: %d hill(s) shrunk to clear it, %d dropped as too small%s")
 		:format(zoneKey, hills, runs, s.X, s.Y, s.Z, lowTop, highTop, WALL_H,
 			lowTop > WALL_H and "RIDGE BREAKS THE SKYLINE"
@@ -1019,6 +1063,7 @@ function MapHorizon.Build(zoneKey, cx, map)
 				or "*** ROCK IS STANDING IN A CAMP ***",
 			#boxes, clipped, dropped,
 			dropped > 0 and "  *** A DROPPED BOX IS RANGE YOU CAN WALK THROUGH ***" or "",
+			machineClipped,
 			GATE_CLEAR, gate.shrunk, gate.dropped,
 			-- 32.19: zero shrunk on a build that HAS a lane means the enforcement never fired, and
 			-- the last two builds prove that is not a healthy silence -- it is a roll that happened

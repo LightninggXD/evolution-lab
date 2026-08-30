@@ -471,6 +471,23 @@ function ForestMapService.OpenApproaches(zoneKey)
 	return MapClearance.Open(zoneKey, built.cx, built.map, built.protected, MAPS[zoneKey])
 end
 
+-- ===== ONE BOX, CLEARED FOR A SERVICE THAT IS ABOUT TO BUILD IN IT (34.66) =====
+-- Same three values as the pass above and the same reason for the door being here rather than in
+-- the caller: the censused furniture set is not something a service could work out for itself, and
+-- `evolution-lab-map-owns-the-furniture` says the file that placed the map is the one that answers
+-- for what stands on it. `SplicerService` is the first caller -- it asks for the authored spot it
+-- has chosen and stands there only if the answer comes back cleared.
+--
+-- Returns nil when this zone has no placed map at all, which is every zone but Forest and is the
+-- caller's cue to do exactly what it did before this existed.
+function ForestMapService.ClearGround(zoneKey, rect, label)
+	local built = BUILT[zoneKey]
+	if not built then return nil end
+	if not built.map or not built.map.Parent then return nil end
+	return MapClearance.Reserve(zoneKey, built.cx, built.map, built.protected, MAPS[zoneKey],
+		rect, label)
+end
+
 function ForestMapService.Init()
 	local source = ServerStorage:FindFirstChild("Maps")
 	if not source then

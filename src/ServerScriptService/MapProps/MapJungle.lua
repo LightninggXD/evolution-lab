@@ -202,13 +202,26 @@ end
 -- not. The authored angle is a REQUEST now: slide along the arc, smallest move first, until the
 -- stone's own footprint clears every road surface, and drop the stone if the arc has no room. Four
 -- stones make a lip as well as five do; a stone in the road is a wall you cannot see.
+--
+-- ===== AND NOT ON THE GROUND THE DNA SPLICER MAY CLAIM, EITHER (34.66) =====
+-- Measured on the closing boot of 34.65: **four `JungleRockCollider`s standing inside the machine's
+-- first authored spot** at (120, 290), which is the composition's own first choice -- so the
+-- machine could never take it and nobody had chosen the spot it took instead. A backstop stone is
+-- the same kind of obstruction to a landmark as it is to a road: invisible (the collider is the
+-- solid half and it is `Transparency = 1`) and re-rolled with the world.
+--
+-- IT IS THE SAME PREDICATE AND DELIBERATELY NOT A NEW RULE. The stone was already sliding along
+-- this arc to clear a road; it now slides for either reason, at the same `ROCK_KEEP` -- which is
+-- the stone's own half-footprint and is exactly what a keep-out asks of the thing standing next to
+-- it. A stone that runs out of arc is dropped by the code below, as it always was, and counted.
 local function clearAngle(zoneKey, camp, a0, r, segments)
 	for step = 0, ARC_STEPS do
 		-- both ways from the authored angle, nearer first, so a stone moves as little as it can
 		for _, sgn in ipairs(step == 0 and { 1 } or { 1, -1 }) do
 			local a = a0 + sgn * step * ARC_STEP
 			local x, z = camp.x + math.cos(a) * r, camp.z + math.sin(a) * r
-			if JungleLayout.RoadClearance(zoneKey, x, z, segments) >= ROCK_KEEP then
+			if JungleLayout.RoadClearance(zoneKey, x, z, segments) >= ROCK_KEEP
+				and JungleLayout.MachineClearance(x, z) >= ROCK_KEEP then
 				return a
 			end
 		end
@@ -345,7 +358,11 @@ function MapJungle.Build(zoneKey, cx, map)
 		end
 	end
 
-	print(("[MapJungle] %s: %d clearings with %d rocks and floors (%d dropped off the roads), "
+	-- `dropped` counts a stone the arc could not place clear of a road OR of the ground the DNA
+	-- Splicer may claim (34.66). Two reasons, one number, and the line says so rather than naming
+	-- only the older one -- a count whose label is a lie is how a boot line stops being read.
+	print(("[MapJungle] %s: %d clearings with %d rocks and floors (%d dropped off the roads "
+		.. "and the machine ground), "
 		.. "%d path parts (%d cross + %d trails + %d spurs) -- the horizon is MapHorizon since 31.24")
 		:format(zoneKey, #camps, rocks, dropped, paved, trunks, trails, spurs))
 	return #camps

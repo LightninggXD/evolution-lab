@@ -601,6 +601,15 @@ local PATHS_FOREST = {
 -- connect. The alarm that used to read "furthest camp from a road" is worthless now -- it would
 -- read ~32 for all twenty -- so `Describe` asks the question that can still go wrong instead:
 -- DOES ANY ROAD LIE ACROSS A CAMP FLOOR IT DOES NOT SERVE.
+-- ===== THE MACHINE'S GROUND, ASKED ONCE AND HANDED TO EVERYONE WHO PLANTS (34.66) =====
+-- 34.65 gave this list to the trails and to nothing else, and the closing boot then found all four
+-- authored spots occupied -- by a camp's backstop rocks, by a horizon collider's corner and by the
+-- artist's own trees. Two of those three are placed by files that already require THIS module for
+-- `RoadClearance`, so the list is taken once here and published rather than re-required in each of
+-- them: `SplicerService` is a service and this is map data, and the header's whole argument is
+-- about what a second copy of four coordinates costs.
+local MACHINE_KEEPOUT = SplicerService.PlacementKeepOut()
+
 local trails = JungleTrails.Build(CAMPS_FOREST, PATHS_FOREST, {
 	campRadius = JungleLayout.CAMP_RADIUS,
 	mouth = JungleLayout.CAMP_RADIUS - JungleLayout.SPUR_OVERSHOOT,
@@ -609,7 +618,7 @@ local trails = JungleTrails.Build(CAMPS_FOREST, PATHS_FOREST, {
 	edgeX = 575,
 	edgeZ = 500,
 	lanes = MapGates.PaintKeepOut(),
-	machines = SplicerService.PlacementKeepOut(),
+	machines = MACHINE_KEEPOUT,
 })
 for _, t in ipairs(trails) do
 	PATHS_FOREST[#PATHS_FOREST + 1] = t
@@ -733,6 +742,37 @@ function JungleLayout.CampClearance(zoneKey, x, z)
 	local best = math.huge
 	for _, c in ipairs(camps) do
 		local d = math.sqrt((x - c.x) ^ 2 + (z - c.z) ^ 2)
+		if d < best then best = d end
+	end
+	return best
+end
+
+-- ===== THE GROUND THE DNA SPLICER MAY CLAIM (34.66) =====
+-- The rects `SplicerService` publishes, and the distance from a point to the nearest one -- the same
+-- shape and sign convention as `RoadClearance` above, so a planter that already holds its stock off
+-- a road holds it off a machine with the same line of code. NEGATIVE inside a rect, and the depth is
+-- the axis it is least far in, which is the direction a trim has to push.
+--
+-- ALL FOUR RECTS ARE IN IT AND ONLY ONE EVER HOLDS THE MACHINE, so this is a keep-out over MAYBES
+-- and `evolution-lab-a-keepout-for-four-maybes` is the standing warning about what those cost when
+-- they become a REFUSAL. Both callers here honour it the cheap way -- a camp rock slides along an
+-- arc it was already sliding along, a horizon box is trimmed on the face that is already trimmed
+-- for camps and roads -- and neither may refuse anything to obey it.
+function JungleLayout.MachineKeepOut()
+	return MACHINE_KEEPOUT
+end
+
+function JungleLayout.MachineClearance(x, z)
+	local best = math.huge
+	for _, r in ipairs(MACHINE_KEEPOUT) do
+		local dx = math.abs(x - r.x) - r.hx
+		local dz = math.abs(z - r.z) - r.hz
+		local d
+		if dx > 0 or dz > 0 then
+			d = math.sqrt(math.max(dx, 0) ^ 2 + math.max(dz, 0) ^ 2)
+		else
+			d = math.max(dx, dz)
+		end
 		if d < best then best = d end
 	end
 	return best

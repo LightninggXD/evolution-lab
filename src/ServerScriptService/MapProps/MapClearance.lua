@@ -400,6 +400,19 @@ local function fits(job, tx, tz, fronts, grid, cx, entrance, why, relaxed)
 	if onRoad(rx, tz, hw) then note(why, "in a road") return nil end
 	if inEntrance(entrance, rx, tz, hw) then note(why, "in the entrance funnel") return nil end
 
+	-- ===== AND NEVER BACK ONTO THE GROUND THIS MOVE IS CLEARING (34.66) =====
+	-- Carried on the JOB rather than passed as a tenth argument, because it is a property of the
+	-- prop being moved and not of the destination: only `Reserve`'s jobs have one, and every caller
+	-- that does not reserve ground is unchanged. Without it the ring's first candidates -- which are
+	-- 10 studs out, i.e. still inside a 60-stud box -- are all legal and the pass reports a move
+	-- that cleared nothing.
+	if job.avoid
+		and math.abs(tx - job.avoid.x) < job.avoid.hx + size.X / 2 + GAP
+		and math.abs(tz - job.avoid.z) < job.avoid.hz + size.Z / 2 + GAP then
+		note(why, "still on the reserved ground")
+		return nil
+	end
+
 	-- Ground first, because the height it lands at is what the overlap test below has to use.
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -478,6 +491,37 @@ local function findSpot(job, front, fronts, grid, cx, entrance, why, relaxed)
 	return nil
 end
 
+-- ===== THE MAP, INDEXED -- ONE CENSUS, TWO PASSES (34.66) =====
+-- `Open` clears the approaches to furniture and `Reserve` clears one named box; they differ only in
+-- WHICH props are jobs, so the census and its grid are taken here and the two passes read the same
+-- thing. Extracted verbatim from `Open`, including the `movable` rule and the reason attached to it.
+local function censusOf(map, protected)
+	local props = {}
+	for _, c in ipairs(map:GetChildren()) do
+		if not MapCut.NEVER_CUT[c.Name] then
+			local pos, size = boxOf(c)
+			if pos then
+				props[#props + 1] = {
+					inst = c,
+					pos = pos,
+					size = size,
+					-- FOLIAGE ONLY, and `MapCut.IsBlankWall` is deliberately NOT on this line even
+					-- though every road cut in this map treats the two the same. A blank wall is 60
+					-- to 96 studs long (measured, in that file's own note): carrying one ten studs
+					-- sideways moves a backdrop into open view and fixes nothing. It falls through
+					-- to `held` and gets named, which is the honest outcome for it.
+					movable = not (protected and protected[c]) and MapCut.IsFoliage(c),
+				}
+			end
+		end
+	end
+	local grid = {}
+	for _, p in ipairs(props) do
+		gridInsert(grid, p)
+	end
+	return props, grid
+end
+
 local function tally(counts)
 	local out = {}
 	for name, n in pairs(counts) do
@@ -498,30 +542,7 @@ function MapClearance.Open(zoneKey, cx, map, protected, spec)
 
 	-- Every top-level prop, furniture included: the furniture is what a moved prop must not land
 	-- inside, so it belongs in this list even though it is never a candidate.
-	local props = {}
-	for _, c in ipairs(map:GetChildren()) do
-		if not MapCut.NEVER_CUT[c.Name] then
-			local pos, size = boxOf(c)
-			if pos then
-				props[#props + 1] = {
-					inst = c,
-					pos = pos,
-					size = size,
-						-- FOLIAGE ONLY, and `MapCut.IsBlankWall` is deliberately NOT on this line even
-					-- though every road cut in this map treats the two the same. A blank wall is 60
-					-- to 96 studs long (measured, in that file's own note): carrying one ten studs
-					-- sideways moves a backdrop into open view and fixes nothing. It falls through
-					-- to `held` below and gets named, which is the honest outcome for it.
-					movable = not (protected and protected[c]) and MapCut.IsFoliage(c),
-				}
-			end
-		end
-	end
-
-	local grid = {}
-	for _, p in ipairs(props) do
-		gridInsert(grid, p)
-	end
+	local props, grid = censusOf(map, protected)
 
 	-- ===== FURNITURE IS NEVER IN FURNITURE'S WAY =====
 	-- Eight leaderboard boards stand in a row and every one of them is inside its neighbour's
@@ -743,6 +764,165 @@ function MapClearance.Open(zoneKey, cx, map, protected, spec)
 			:format(zoneKey, refusedCandidates, dropped, table.concat(parts, ", ")))
 	end
 	summary.refused = refused
+
+	return summary
+end
+
+-- ===== ONE NAMED BOX, CLEARED FOR SOMETHING THAT IS ABOUT TO STAND IN IT (34.66) =====
+--
+-- `Open` clears the ground in FRONT of furniture that is already standing. This clears the ground
+-- UNDER a landmark that is not standing yet -- the DNA Splicer is the first caller and the reason
+-- the row exists: on 34.65's closing boot all four of its authored spots were occupied, three of
+-- them by the artist's own trees, so the machine was sited by a ring search and *nobody chose
+-- where it ended up*.
+--
+-- ===== IT IS ALL OR NOTHING, AND THAT IS THE WHOLE DIFFERENCE FROM `Open` =====
+--
+-- `Open` improves a village prop by prop: every tree it carries out of a doorway is worth carrying
+-- whether or not the next one moves. Here the moves only buy something if the box ends up EMPTY --
+-- a spot with one tree left in it is exactly as unusable as a spot with four, and the trees have
+-- been moved for nothing. `evolution-lab-a-keepout-for-four-maybes` is the standing lesson under
+-- this: the machine has four authored spots and takes one, so a pass that cleared all four would
+-- rearrange the artist's wood in three places to no effect. The caller asks for ONE box, after it
+-- has decided that box is the one it wants.
+--
+-- So the census runs first and the pass refuses before it touches anything when the box holds
+-- something it may not move -- the village's own architecture, a censused anchor, or a collider
+-- some other file put there (`MapJungle`'s backstop rocks and `MapHorizon`'s boxes are children of
+-- the map and are not foliage). The caller then tries its next spot instead of standing a landmark
+-- in a half-cleared one.
+--
+-- ===== WHAT THE CALLER MUST STILL DO =====
+--
+-- Re-test the ground itself. This moves what it can SEE -- top-level children of the placed map --
+-- and the world holds plenty that is not one of those (creatures, our own built props, anything a
+-- service parented elsewhere). A `cleared = true` here means "nothing of the map's is standing on
+-- it any more", never "the spot is free".
+--
+-- `rect` is `{ x, z, hx, hz }`, world coordinates, the same shape `SplicerService.PlacementKeepOut`
+-- publishes. `label` names the claimant in the boot line and in the refusal reasons.
+local RESERVE_MAX = 12
+
+function MapClearance.Reserve(zoneKey, cx, map, protected, spec, rect, label)
+	if not (map and map.Parent and rect) then return nil end
+	label = label or "a machine"
+
+	local fronts = frontagesFor(zoneKey, map, cx, protected)
+	local entrance = spec and spec.entrance
+	local props, grid = censusOf(map, protected)
+
+	-- Who is standing on it. The height filter is `Open`'s: a flat rock underfoot is scenery, and
+	-- the machine is built on top of the ground rather than into it.
+	local jobs, held = {}, {}
+	for _, p in ipairs(props) do
+		if p.size.Y >= MIN_HEIGHT and p.inst.Parent
+			and math.abs(p.pos.X - rect.x) < rect.hx + p.size.X / 2
+			and math.abs(p.pos.Z - rect.z) < rect.hz + p.size.Z / 2 then
+			if p.movable then
+				jobs[#jobs + 1] = p
+			else
+				held[p.inst.Name] = (held[p.inst.Name] or 0) + 1
+			end
+		end
+	end
+
+	-- Reproducible order, and it is by name rather than by depth: every one of these has to move or
+	-- none of them counts, so there is no "deepest first" worth having.
+	table.sort(jobs, function(a, b)
+		if a.inst.Name ~= b.inst.Name then return a.inst.Name < b.inst.Name end
+		return a.pos.X < b.pos.X
+	end)
+
+	local summary = { label = label, inTheWay = #jobs, held = held, moved = 0, dropped = 0,
+		cleared = false, refused = {} }
+
+	if next(held) then
+		print(("[MapClearance] %s: %s is not clearable -- %s stands on it and this pass may not "
+			.. "move the map's own architecture")
+			:format(zoneKey, label, tally(held)))
+		return summary
+	end
+	if #jobs > RESERVE_MAX then
+		-- A box this full is not a spot with a tree on it, it is a spot in a wood. Moving twelve of
+		-- the artist's trees to seat one machine is the runaway 34.47 is the record of.
+		print(("[MapClearance] %s: %s holds %d movable props, over the %d cap -- left alone")
+			:format(zoneKey, label, #jobs, RESERVE_MAX))
+		return summary
+	end
+	if #jobs == 0 then
+		summary.cleared = true
+		return summary
+	end
+
+	local carriedSum, carriedFar, relaxedMoves = 0, 0, 0
+	local refused, refusedCandidates = {}, 0
+	local movedNames, stuckNames = {}, {}
+	for _, p in ipairs(jobs) do
+		-- The ring opens straight OUT of the box on the side the prop already stands, which is the
+		-- shortest move that can possibly clear it -- `findSpot`'s own opening bid, with the box
+		-- standing in for the frontage it usually measures from.
+		local d = Vector2.new(p.pos.X - rect.x, p.pos.Z - rect.z)
+		if d.Magnitude < 1 then d = Vector2.new(1, 0) else d = d.Unit end
+		local reach = math.abs(d.X) * rect.hx + math.abs(d.Y) * rect.hz
+		local front = { name = label, inst = nil, dx = d.X, dz = d.Y,
+			ox = rect.x + d.X * reach, oz = rect.z + d.Y * reach, top = 0 }
+
+		p.avoid = rect
+		local why = {}
+		local tx, tz, dy = findSpot(p, front, fronts, grid, cx, entrance, why)
+		if not tx then
+			tx, tz, dy = findSpot(p, front, fronts, grid, cx, entrance, nil, true)
+			if tx then relaxedMoves += 1 end
+		end
+		if tx then
+			p.inst:PivotTo(p.inst:GetPivot() + Vector3.new(tx - p.pos.X, dy, tz - p.pos.Z))
+			local carried = math.sqrt((tx - p.pos.X) ^ 2 + (tz - p.pos.Z) ^ 2)
+			-- read back from the instance, never assumed from the shift -- a Model's box is
+			-- pivot-frame (`probe-restore-must-be-read-back`, one scale down)
+			local np, ns = boxOf(p.inst)
+			p.pos, p.size = np, ns
+			gridInsert(grid, p)
+			summary.moved += 1
+			carriedSum += carried
+			if carried > carriedFar then carriedFar = carried end
+			movedNames[p.inst.Name] = (movedNames[p.inst.Name] or 0) + 1
+		else
+			-- NEVER destroyed, for 34.47's reason. An unplaced prop simply means this box cannot be
+			-- reserved, and the caller has another spot to try.
+			summary.dropped += 1
+			stuckNames[p.inst.Name] = (stuckNames[p.inst.Name] or 0) + 1
+			for reason, n in pairs(why) do
+				refused[reason] = (refused[reason] or 0) + n
+				refusedCandidates += n
+			end
+		end
+		p.avoid = nil
+	end
+
+	summary.cleared = summary.dropped == 0
+	summary.refused = refused
+	print(("[MapClearance] %s: %s -- %d prop(s) on the box, moved %d (%s), could not place %d%s; "
+		.. "mean carry %.1f studs, furthest %.1f; %d placed on the relaxed tier -- %s")
+		:format(zoneKey, label, #jobs, summary.moved, tally(movedNames), summary.dropped,
+			next(stuckNames) and (" (" .. tally(stuckNames) .. ")") or "",
+			summary.moved > 0 and carriedSum / summary.moved or 0, carriedFar, relaxedMoves,
+			summary.cleared and "THE BOX IS CLEAR OF THE MAP'S PROPS" or "NOT CLEARED"))
+	if summary.dropped > 0 then
+		local rows = {}
+		for reason, n in pairs(refused) do
+			rows[#rows + 1] = { reason = reason, n = n }
+		end
+		table.sort(rows, function(a, b)
+			if a.n ~= b.n then return a.n > b.n end
+			return a.reason < b.reason
+		end)
+		local parts = {}
+		for i = 1, math.min(#rows, 8) do
+			parts[#parts + 1] = ("%s x%d"):format(rows[i].reason, rows[i].n)
+		end
+		print(("[MapClearance] %s: %d candidates refused over %d unplaced props -- %s")
+			:format(zoneKey, refusedCandidates, summary.dropped, table.concat(parts, ", ")))
+	end
 
 	return summary
 end
