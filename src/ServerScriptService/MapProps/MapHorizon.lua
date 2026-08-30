@@ -427,7 +427,7 @@ local ROAD_TRIES = 12
 -- than growing a second copy of the push arithmetic. The outer face never moves, which is the rule
 -- that keeps the range continuous; a box that cannot be made clear keeps no box, and `dropped`
 -- counts it exactly as it does for a road.
-local MACHINE_KEEP = 6
+local FIXTURE_KEEP = 6
 
 local function trimAgainst(clearanceAt, keep, acrossIsX, aMin, aMax, bMin, bMax, sign)
 	for _ = 1, ROAD_TRIES do
@@ -466,11 +466,11 @@ local function trimOffRoads(zoneKey, segments, acrossIsX, aMin, aMax, bMin, bMax
 	end, ROAD_KEEP, acrossIsX, aMin, aMax, bMin, bMax, sign)
 end
 
--- Called unguarded on purpose: `JungleLayout.MachineClearance` is this repo's own function and a
+-- Called unguarded on purpose: `JungleLayout.FixtureClearance` is this repo's own function and a
 -- `X.f and X.f(...) or` around it would turn a rename into a silently smaller answer rather than
 -- into an error (`guarded-call-to-a-missing-function`).
-local function trimOffMachines(acrossIsX, aMin, aMax, bMin, bMax, sign)
-	return trimAgainst(JungleLayout.MachineClearance, MACHINE_KEEP,
+local function trimOffFixtures(acrossIsX, aMin, aMax, bMin, bMax, sign)
+	return trimAgainst(JungleLayout.FixtureClearance, FIXTURE_KEEP,
 		acrossIsX, aMin, aMax, bMin, bMax, sign)
 end
 
@@ -481,8 +481,8 @@ function MapHorizon.Colliders(zoneKey)
 	local segments = JungleLayout.Segments(zoneKey)
 	local reach = JungleLayout.CAMP_RADIUS + CAMP_KEEP
 	local outList, clipped, dropped = {}, 0, 0
-	-- counted separately from `clipped` so the boot line can say whether the machine ground cost
-	-- this range anything at all, rather than hiding one cut inside another's number
+	-- counted separately from `clipped` so the boot line can say whether our own fixtures cost this
+	-- range anything at all, rather than hiding one cut inside another's number
 	local machineClipped = 0
 	for _, h in ipairs(hills) do
 		local across = h.acrossIsX and h.wx or h.wz
@@ -516,11 +516,11 @@ function MapHorizon.Colliders(zoneKey)
 				aMin = aMax
 			end
 		end
-		-- ...and then off the machine ground (34.66), AFTER the roads and never instead of them:
+		-- ...and then off our own fixtures' ground (34.66, 34.68), AFTER the roads and never instead:
 		-- both cuts only ever move an inward face, so the second one starts from a box the first
 		-- already accepted and cannot hand back ground the road trim just gave up.
 		if aMax - aMin >= MIN_BOX then
-			local a0, a1, b0, b1 = trimOffMachines(h.acrossIsX, aMin, aMax, bMin, bMax, sign)
+			local a0, a1, b0, b1 = trimOffFixtures(h.acrossIsX, aMin, aMax, bMin, bMax, sign)
 			if a0 then
 				if a0 ~= aMin or a1 ~= aMax or b0 ~= bMin or b1 ~= bMax then
 					clipped += 1
@@ -1000,7 +1000,7 @@ function MapHorizon.Build(zoneKey, cx, map)
 		.. "the wall from mid-zone -- %s; inner row at %.0f/%.0f (pinned %d/%d)%s; "
 		.. "tightest rock-to-camp-floor gap %+.1f studs, %s -- %s; "
 		.. "%d collider box(es) offered, %d clipped off a camp floor, %d dropped%s "
-		.. "(%d clipped off the machine ground); "
+		.. "(%d clipped off a fixture's ground); "
 		.. "gate lane |x - cx| <= %d: %d hill(s) shrunk to clear it, %d dropped as too small%s")
 		:format(zoneKey, hills, runs, s.X, s.Y, s.Z, lowTop, highTop, WALL_H,
 			lowTop > WALL_H and "RIDGE BREAKS THE SKYLINE"

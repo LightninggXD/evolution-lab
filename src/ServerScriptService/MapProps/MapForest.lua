@@ -187,6 +187,13 @@ local ROAD_VERGE = 14         -- how far the first trunk stands back from the pa
 -- where the artist left it. A tree poking out of a mountainside is 30.19's own note about what
 -- reads as broken, and it is the one keep-out here that cannot be authored: the mountains move.
 local RIDGE_MARGIN = 8
+-- ...and the ground OUR OWN FIXTURES claim (34.68). `JungleLayout.FixtureClearance` unions what
+-- `SplicerService` and `ExpeditionService` publish about themselves -- the seam 34.65 set, where the
+-- file that owns a thing says where it stands and the planters ask. The margin is a CANOPY's
+-- overhang rather than a trunk's radius, because the point tested below is the trunk: the
+-- Expedition door was standing in five rock colliders and two tree colliders, and a tree whose
+-- trunk clears the arch by two studs still hangs its crown through the lintel.
+local FIXTURE_MARGIN = 10
 
 local function isOpenGround(zoneKey, x, z, spec, segments, ridges)
 	-- the village itself: the map's own props stand here and the wood must not grow through them
@@ -211,6 +218,10 @@ local function isOpenGround(zoneKey, x, z, spec, segments, ridges)
 	if JungleLayout.CampClearance(zoneKey, x, z) < JungleLayout.CLEARING_RADIUS then
 		return false
 	end
+	-- ...and the ground our own fixtures stand on: the Expedition door, and the four spots the DNA
+	-- Splicer may take. The machine's are free here -- all four are inside the plaza keep-out above
+	-- already -- and the door's is the one this clause was written for.
+	if JungleLayout.FixtureClearance(x, z) < FIXTURE_MARGIN then return false end
 	-- ...and inside the rock itself
 	for _, m in ipairs(ridges or {}) do
 		if math.abs(x - m.x) <= m.hx + RIDGE_MARGIN and math.abs(z - m.z) <= m.hz + RIDGE_MARGIN then
@@ -388,10 +399,11 @@ function MapForest.Plant(zoneKey, cx, map, spec)
 	MapSolids.Report(zoneKey)
 	print(("[MapForest] %s: planted %d over %d cells at spacing %d -- %d emergent / %d canopy / "
 		.. "%d undergrowth / %d shrub / %d rock (of %d tree, %d shrub, %d rock protos); keep-outs: "
-		.. "village, plaza, funnel, boss, %d road segments, %d camps, %d mountains")
+		.. "village, plaza, funnel, boss, %d road segments, %d camps, %d mountains, "
+		.. "%d fixture(s)")
 		:format(zoneKey or "?", planted, tested, f.spacing, tall, canopy, under, floorBits, stones,
 			#stock, #shrubs, #rocks, #(segments or {}), #(JungleLayout.Camps(zoneKey) or {}),
-			#ridges))
+			#ridges, #JungleLayout.FixtureKeepOut()))
 	return planted
 end
 

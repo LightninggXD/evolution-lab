@@ -221,7 +221,7 @@ local function clearAngle(zoneKey, camp, a0, r, segments)
 			local a = a0 + sgn * step * ARC_STEP
 			local x, z = camp.x + math.cos(a) * r, camp.z + math.sin(a) * r
 			if JungleLayout.RoadClearance(zoneKey, x, z, segments) >= ROCK_KEEP
-				and JungleLayout.MachineClearance(x, z) >= ROCK_KEEP then
+				and JungleLayout.FixtureClearance(x, z) >= ROCK_KEEP then
 				return a
 			end
 		end
@@ -358,11 +358,11 @@ function MapJungle.Build(zoneKey, cx, map)
 		end
 	end
 
-	-- `dropped` counts a stone the arc could not place clear of a road OR of the ground the DNA
-	-- Splicer may claim (34.66). Two reasons, one number, and the line says so rather than naming
+	-- `dropped` counts a stone the arc could not place clear of a road OR of the ground one of our
+	-- own fixtures claims (34.66, 34.68). Two reasons, one number, and the line says so rather than naming
 	-- only the older one -- a count whose label is a lie is how a boot line stops being read.
 	print(("[MapJungle] %s: %d clearings with %d rocks and floors (%d dropped off the roads "
-		.. "and the machine ground), "
+		.. "and our own fixtures' ground), "
 		.. "%d path parts (%d cross + %d trails + %d spurs) -- the horizon is MapHorizon since 31.24")
 		:format(zoneKey, #camps, rocks, dropped, paved, trunks, trails, spurs))
 	return #camps

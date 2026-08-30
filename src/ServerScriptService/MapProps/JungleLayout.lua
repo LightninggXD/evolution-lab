@@ -601,14 +601,29 @@ local PATHS_FOREST = {
 -- connect. The alarm that used to read "furthest camp from a road" is worthless now -- it would
 -- read ~32 for all twenty -- so `Describe` asks the question that can still go wrong instead:
 -- DOES ANY ROAD LIE ACROSS A CAMP FLOOR IT DOES NOT SERVE.
--- ===== THE MACHINE'S GROUND, ASKED ONCE AND HANDED TO EVERYONE WHO PLANTS (34.66) =====
--- 34.65 gave this list to the trails and to nothing else, and the closing boot then found all four
--- authored spots occupied -- by a camp's backstop rocks, by a horizon collider's corner and by the
--- artist's own trees. Two of those three are placed by files that already require THIS module for
--- `RoadClearance`, so the list is taken once here and published rather than re-required in each of
--- them: `SplicerService` is a service and this is map data, and the header's whole argument is
--- about what a second copy of four coordinates costs.
-local MACHINE_KEEPOUT = SplicerService.PlacementKeepOut()
+-- ===== THE GROUND OUR OWN FIXTURES CLAIM, ASKED ONCE AND HANDED TO EVERYONE WHO PLANTS =====
+-- 34.65 gave the machine's list to the trails and to nothing else, and the closing boot then found
+-- all four authored spots occupied -- by a camp's backstop rocks, by a horizon collider's corner and
+-- by the artist's own trees (34.66). 34.68 is the same fault at the Expedition door, which is
+-- ASSERTED at one fixed spot and had a wood planted straight through it.
+--
+-- Every planter in this zone already requires THIS module for `RoadClearance`, so the lists are
+-- taken once here and published rather than re-required in each of them. **Each rect's coordinates
+-- stay with the file that owns the thing** -- `SplicerService` and `ExpeditionService` publish their
+-- own ground, exactly as `MapGates.PaintKeepOut()` does; this file only unions them, which is the
+-- header's whole argument about what a second copy of a coordinate costs.
+--
+-- Both accessors are called at BUILD time, never at load, so a service's `Init` has nothing to do
+-- with it: `PlacementKeepOut` and `EntranceKeepOut` read module constants and start nothing.
+local ExpeditionService = require(script.Parent.Parent.ExpeditionService)
+
+local FIXTURE_KEEPOUT = {}
+for _, r in ipairs(SplicerService.PlacementKeepOut()) do
+	FIXTURE_KEEPOUT[#FIXTURE_KEEPOUT + 1] = r
+end
+for _, r in ipairs(ExpeditionService.EntranceKeepOut()) do
+	FIXTURE_KEEPOUT[#FIXTURE_KEEPOUT + 1] = r
+end
 
 local trails = JungleTrails.Build(CAMPS_FOREST, PATHS_FOREST, {
 	campRadius = JungleLayout.CAMP_RADIUS,
@@ -618,7 +633,12 @@ local trails = JungleTrails.Build(CAMPS_FOREST, PATHS_FOREST, {
 	edgeX = 575,
 	edgeZ = 500,
 	lanes = MapGates.PaintKeepOut(),
-	machines = MACHINE_KEEPOUT,
+	-- THE TRAILS GET THE MACHINE'S RECTS ONLY, and that is deliberate rather than an oversight:
+	-- 34.65 measured what a road rule spends on this list (90 links refused, a camp left with no
+	-- road at all) and settled on a door slide over the machine's four maybes. The Expedition door
+	-- is a keep-out for what PLANTS, not for what paves; a road passing the door is a road passing a
+	-- door. If that ever needs revisiting it is a measurement, not a line.
+	machines = SplicerService.PlacementKeepOut(),
 })
 for _, t in ipairs(trails) do
 	PATHS_FOREST[#PATHS_FOREST + 1] = t
@@ -747,24 +767,26 @@ function JungleLayout.CampClearance(zoneKey, x, z)
 	return best
 end
 
--- ===== THE GROUND THE DNA SPLICER MAY CLAIM (34.66) =====
--- The rects `SplicerService` publishes, and the distance from a point to the nearest one -- the same
--- shape and sign convention as `RoadClearance` above, so a planter that already holds its stock off
--- a road holds it off a machine with the same line of code. NEGATIVE inside a rect, and the depth is
--- the axis it is least far in, which is the direction a trim has to push.
+-- ===== THE GROUND OUR FIXTURES CLAIM (34.66, 34.68) =====
+-- The rects `SplicerService` and `ExpeditionService` publish, and the distance from a point to the
+-- nearest one -- the same shape and sign convention as `RoadClearance` above, so a planter that
+-- already holds its stock off a road holds it off a fixture with the same line of code. NEGATIVE
+-- inside a rect, and the depth is the axis it is least far in, which is the direction a trim pushes.
 --
--- ALL FOUR RECTS ARE IN IT AND ONLY ONE EVER HOLDS THE MACHINE, so this is a keep-out over MAYBES
--- and `evolution-lab-a-keepout-for-four-maybes` is the standing warning about what those cost when
--- they become a REFUSAL. Both callers here honour it the cheap way -- a camp rock slides along an
--- arc it was already sliding along, a horizon box is trimmed on the face that is already trimmed
--- for camps and roads -- and neither may refuse anything to obey it.
-function JungleLayout.MachineKeepOut()
-	return MACHINE_KEEPOUT
+-- THE TWO PUBLISHERS ARE NOT THE SAME KIND OF CLAIM and it is worth knowing which is which. The
+-- Expedition door's rect is CERTAIN -- it stands there on every world roll. All four of the
+-- machine's are MAYBES and only one ever holds it, which is what
+-- `evolution-lab-a-keepout-for-four-maybes` is the standing warning about. So every caller here
+-- honours the list the cheap way -- a camp rock slides along an arc it was already sliding along, a
+-- horizon box is trimmed on the face already trimmed for camps and roads, a tree is simply not
+-- planted -- and none of them may REFUSE anything (a link, a camp, a road) to obey it.
+function JungleLayout.FixtureKeepOut()
+	return FIXTURE_KEEPOUT
 end
 
-function JungleLayout.MachineClearance(x, z)
+function JungleLayout.FixtureClearance(x, z)
 	local best = math.huge
-	for _, r in ipairs(MACHINE_KEEPOUT) do
+	for _, r in ipairs(FIXTURE_KEEPOUT) do
 		local dx = math.abs(x - r.x) - r.hx
 		local dz = math.abs(z - r.z) - r.hz
 		local d

@@ -489,7 +489,7 @@ end
 -- search picked, because on that world roll ALL FOUR authored spots were occupied: a camp's
 -- backstop rocks on the first, a horizon collider's corner on the second, and the artist's own
 -- trees on the third and fourth. The two collider systems now keep off this machine's ground
--- (`JungleLayout.MachineClearance`, honoured by `MapJungle` and `MapHorizon`), which leaves the
+-- (`JungleLayout.FixtureClearance`, honoured by `MapJungle` and `MapHorizon`), which leaves the
 -- village's trees -- and a tree is not a thing this file may simply refuse around: it was placed by
 -- the map's author and `evolution-lab-map-owns-the-furniture` is why we do not delete it.
 --

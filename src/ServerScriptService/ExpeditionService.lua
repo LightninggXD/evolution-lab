@@ -130,6 +130,41 @@ local PULSE_DEPTH = 0.06
 -- row as the arcade terminal, because that pad is where every player entering Forest lands and this
 -- feature has no HUD tile -- the door IS the discovery surface.
 local ENTRANCE_SPOT = Vector3.new(210, 0, 440)
+-- The arch's own footprint, hoisted out of `buildEntrance` because the keep-out below has to be the
+-- SAME rectangle the door is built on -- two numbers typed twice is `evolution-lab-zone-geometry-
+-- constants`, and this file has already paid for one door standing inside a wood.
+local ENTRANCE_FOOT = Vector3.new(48, 3, 20)
+
+-- ===== THE GROUND THIS DOOR CLAIMS, PUBLISHED FOR THE FILES THAT PLANT (34.68) =====
+-- `ENTRANCE_SPOT` is ASSERTED, not searched: this door is a landmark beside the arrival pad and it
+-- stands where it was put. `MapForest` then plants the hunt band over the whole platform and
+-- `MapSolids` gives its trees invisible collider boxes, and measured on a live build the arch stood
+-- in **five `HuntRockCollider`, two `HuntTreeCollider` and one `HorizonHillCollider`** -- a body box
+-- walked in on four bearings was stopped in 27 of 36 samples, three of the four sides blocked ten
+-- studs out. Nothing could see it: the wood's colliders are `Transparency = 1`.
+--
+-- Same seam as `MapGates.PaintKeepOut()` and `SplicerService.PlacementKeepOut()`: the file that owns
+-- the thing publishes the ground it claims, and the planters ask. **Unlike the Splicer's, this is
+-- ONE CERTAIN RECT and not a list of maybes** -- there is nothing here for
+-- `evolution-lab-a-keepout-for-four-maybes` to bite, because the door is standing on this exact
+-- ground on every world roll.
+--
+-- `CLEAR` is the walk-up, not decoration: a 9-stud body needs room to reach the prompt and to step
+-- round the posts, and a canopy is wider at head height than its trunk is at the ground.
+local ENTRANCE_CLEAR = 16
+
+-- Callable WITHOUT `Init`, like the machine's: it reads two module-level constants and nothing else,
+-- so the map may ask while the world is still being built and this service has not started.
+function ExpeditionService.EntranceKeepOut()
+	return {
+		{
+			id = "ExpeditionDoor",
+			x = ENTRANCE_SPOT.X, z = ENTRANCE_SPOT.Z,
+			hx = ENTRANCE_FOOT.X * 0.5 + ENTRANCE_CLEAR,
+			hz = ENTRANCE_FOOT.Z * 0.5 + ENTRANCE_CLEAR,
+		},
+	}
+end
 
 -- ===== THE RUN =====
 -- userId -> { key, expedition, startedAt, symbols = {i -> true}, scores = {i -> n}, total,
@@ -162,8 +197,8 @@ local function buildEntrance(expedition)
 
 	local plinth = newPart({
 		Name = "Plinth",
-		Size = Vector3.new(48, 3, 20),
-		Position = ENTRANCE_SPOT + Vector3.new(0, 1.5, 0),
+		Size = ENTRANCE_FOOT,
+		Position = ENTRANCE_SPOT + Vector3.new(0, ENTRANCE_FOOT.Y * 0.5, 0),
 		Color = shell,
 		Material = Enum.Material.Metal,
 		Parent = model,
