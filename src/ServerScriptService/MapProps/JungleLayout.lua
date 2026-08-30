@@ -53,6 +53,13 @@ local JungleTrails = require(script.Parent.JungleTrails)
 -- them. `MapGates` requires nothing that reaches back here, and both files decide their geometry at
 -- module load off constants on their own page, so the lanes are already routed when this runs.
 local MapGates = require(script.Parent.MapGates)
+-- 34.65: and where the DNA Splicer may stand, or a trail head opens inside it. `SplicerService` is
+-- a service and this is map data, which is the wrong way round for a dependency -- but the only
+-- alternative is a second copy of four coordinates, and this file's own header is about what that
+-- costs. `PlacementKeepOut` reads two module-level constants and nothing else, so requiring it
+-- starts no service and yields nowhere; `ServerMain` has already required this module by the time
+-- the world is built, so it is in the registry either way.
+local SplicerService = require(script.Parent.Parent.SplicerService)
 
 local JungleLayout = {}
 
@@ -602,6 +609,7 @@ local trails = JungleTrails.Build(CAMPS_FOREST, PATHS_FOREST, {
 	edgeX = 575,
 	edgeZ = 500,
 	lanes = MapGates.PaintKeepOut(),
+	machines = SplicerService.PlacementKeepOut(),
 })
 for _, t in ipairs(trails) do
 	PATHS_FOREST[#PATHS_FOREST + 1] = t

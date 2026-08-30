@@ -138,6 +138,42 @@ local PREFERRED = PREFERRED_SPOTS[1]
 -- search happily clears a 30-stud box and then a 60-stud machine is built through a conifer.
 local FOOTPRINT = Vector3.new(30, 26, 30) * MACHINE_SCALE
 
+-- ===== THE GROUND THIS MACHINE MAY CLAIM, PUBLISHED FOR THE FILES THAT DRAW ROADS (34.65) =====
+-- `JungleTrails` opens the village's only north doors on `HubPlaza`'s deck, and one of them stood
+-- at (-150, 390) -- INSIDE this machine's 60-stud footprint at the second authored spot. A trail
+-- did not merely cross the machine, it BEGAN inside it, and every camp that hung off that door
+-- radiated another sheet of paint through the same box: measured on a live build, 29 road sheets
+-- through the machine's solid 52 x 52, nearest sheet centre 8.5 studs. The other three authored
+-- spots carry 4, 0 and 0.
+--
+-- THE DOOR MOVES, NOT THE LANDMARK, and the measurement is what decides that. A grid of the whole
+-- plaza deck at this footprint answers: 25 spots clear of props, signs, the street and the event
+-- sightline -- and NOT ONE of them clear of road paint, not even against a 12-stud driving line.
+-- `MapForest` keeps its trees out of the road segments, so on this deck *clear of props* and *on a
+-- road* are the same ground. A road veto in `findClearSpot` therefore has nowhere to send this
+-- machine but off the deck, which is exactly what it did when it was tried: 294 studs, to (-88,
+-- 498). A plaza is paved; standing on paint is not the fault. A road STARTING inside the machine is.
+--
+-- So the ground is published from the file that owns the machine, the same shape and for the same
+-- reason as `MapGates.PaintKeepOut()`: one file decides where this thing may stand. ALL FOUR spots
+-- are published, not the one in use -- Forest's props are `math.random`-placed and re-rolled on
+-- every world build, so which spot wins is re-rolled with them, and a door that is only clear of
+-- today's answer is clear by luck.
+--
+-- Callable WITHOUT `Init`: it reads nothing but the two constants above, so the road files may ask
+-- it while the world is still being built and this service has not started.
+function SplicerService.PlacementKeepOut()
+	local out = {}
+	for i, spot in ipairs(PREFERRED_SPOTS) do
+		out[#out + 1] = {
+			id = "Splicer" .. i,
+			x = spot.X, z = spot.Z,
+			hx = FOOTPRINT.X * 0.5, hz = FOOTPRINT.Z * 0.5,
+		}
+	end
+	return out
+end
+
 -- How close a player has to be for the helix to turn. Squared, because this is compared in a
 -- loop and a square root per player per tick buys nothing. Scaled too: this is a distance to a
 -- landmark, and a bigger landmark is legible from further away.
@@ -217,6 +253,19 @@ local STREET_HALF = 30
 -- costs nothing, and a rule that rejects that too pushes the machine 52 studs for no gain.
 local SIGN_CLEAR = { xMin = 40, xMax = 150, zMin = 200, zMax = 230 }
 
+-- ===== WHAT COUNTS AS A ROAD, AND HOW WIDE THE PART OF IT PEOPLE WALK DOWN IS (34.65) =====
+-- The three part names `MapPaint` draws a road with. Named rather than measured, for the same
+-- reason the street and the sightline are: road paint is `CanCollide = false`, so no occupancy
+-- test in this file can ever object to it, and a rule about traffic cannot be discovered from
+-- geometry.
+--
+-- `DRIVING_LINE` is deliberately far narrower than a trail (30) or a lane (46..56). The whole
+-- point of this row's measurement is that on the plaza deck a road's PAINT is under everything --
+-- 0 of 25 prop-clear spots are free of it -- so touching paint cannot be the test. Standing in the
+-- middle of the lane can be, and 12 studs is a stud and a half either side of an 8.4-stud body.
+local ROAD_PAINT = { PaintRoad = true, PaintCap = true, PaintDisc = true }
+local DRIVING_LINE = 12
+
 local function findClearSpot()
 	-- The authored spots first, in order, each one a real choice. Only when all four are unlucky at
 	-- once does the ring search step out from the first -- and then it is a safety net rather than
@@ -270,8 +319,69 @@ local function findClearSpot()
 		end
 	end
 
-	for index, offset in ipairs(candidates) do
-		local centre = PREFERRED + offset
+	-- ===== THE ROAD SHEETS, ASKED OF THE WORLD RATHER THAN OF A SECOND MODEL OF IT (34.65) =====
+	-- `JungleLayout` owns where the roads are, but it requires `SplicerService.PlacementKeepOut`
+	-- above, so requiring it back from here would be a cycle. It is not needed: this runs long
+	-- after `ForestMapService.Init`, so the paint is standing in the world and can be measured
+	-- where it lies. That is the better source anyway -- it is the sheets the player walks on and
+	-- not a plan of the sheets that were meant to be drawn.
+	local roads = {}
+	for _, root in ipairs({ workspace:FindFirstChild("Zones"), workspace:FindFirstChild("Map") }) do
+		if root then
+			for _, d in ipairs(root:GetDescendants()) do
+				if d:IsA("BasePart") and ROAD_PAINT[d.Name] then
+					local cf = d.CFrame
+					local u = Vector2.new(cf.RightVector.X, cf.RightVector.Z)
+					local v = Vector2.new(cf.LookVector.X, cf.LookVector.Z)
+					table.insert(roads, {
+						c = Vector2.new(cf.Position.X, cf.Position.Z),
+						u = (u.Magnitude > 1e-4) and u.Unit or Vector2.new(1, 0),
+						v = (v.Magnitude > 1e-4) and v.Unit or Vector2.new(0, 1),
+						hu = d.Size.X * 0.5, hv = d.Size.Z * 0.5,
+					})
+				end
+			end
+		end
+	end
+
+	-- Does any road's DRIVING LINE cross this footprint? Separating axes, because a trail sheet is
+	-- rotated to its bearing and its world bounding box reaches well past its corners -- an
+	-- axis-picked box test lies exactly there. The sheet's short side is pulled in to
+	-- `DRIVING_LINE` first: the question is not whether the machine touches paint (on this deck
+	-- everything does) but whether it stands in the part of the road people walk down.
+	local function roadsThrough(centre)
+		local h = FOOTPRINT.X * 0.5
+		local p = Vector2.new(centre.X, centre.Z)
+		local n = 0
+		for _, r in ipairs(roads) do
+			local hu, hv = r.hu, r.hv
+			if hu < hv then
+				hu = math.min(hu, DRIVING_LINE * 0.5)
+			else
+				hv = math.min(hv, DRIVING_LINE * 0.5)
+			end
+			local d = p - r.c
+			local sep = false
+			for _, a in ipairs({ { r.u, hu }, { r.v, hv } }) do
+				if math.abs(d:Dot(a[1])) > a[2] + h * (math.abs(a[1].X) + math.abs(a[1].Y)) then
+					sep = true
+					break
+				end
+			end
+			if not sep then
+				for _, axis in ipairs({ Vector2.new(1, 0), Vector2.new(0, 1) }) do
+					if math.abs(d:Dot(axis)) > h + hu * math.abs(r.u:Dot(axis)) + hv * math.abs(r.v:Dot(axis)) then
+						sep = true
+						break
+					end
+				end
+			end
+			if not sep then n += 1 end
+		end
+		return n
+	end
+
+	local function spotIsClear(centre)
 		local blocked = math.abs(centre.X) - FOOTPRINT.X * 0.5 < STREET_HALF
 		-- the event sign's sightline, rejected before the occupancy test because no occupancy test
 		-- can see it -- see SIGN_CLEAR
@@ -307,11 +417,49 @@ local function findClearSpot()
 				end
 			end
 		end
-		if not blocked then
-			return centre, offset.Magnitude, index <= #PREFERRED_SPOTS
+		return not blocked
+	end
+
+	-- ===== A ROAD IS A PREFERENCE HERE AND NEVER A VETO (34.65) =====
+	-- Two passes over the SAME list, and the difference between them is the whole row. The first
+	-- asks for an authored spot with no road driving through it; the second is exactly the search
+	-- this file has always run. A veto was built instead, once, and it is why this is a preference:
+	-- with 0 of 25 prop-clear spots on the deck free of road paint, "reject and keep looking" is a
+	-- rejection of the entire deck, and the ring search then walked 294 studs to (-88, 498) --
+	-- off the plaza, off the composition, somewhere nobody chose. A landmark in the wrong place is
+	-- worse than a landmark on a paved street.
+	--
+	-- THE AUTHORED SPOTS COME FIRST EVEN WHEN A RING SPOT WOULD BE CLEANER, which is why this is
+	-- three passes and not a score. Being where somebody put it is worth more than being road-free
+	-- -- the ring is a safety net, and a net that outranks the composition is not a net.
+	for index = 1, #PREFERRED_SPOTS do
+		local centre = PREFERRED + candidates[index]
+		if spotIsClear(centre) and roadsThrough(centre) == 0 then
+			return centre, candidates[index].Magnitude, true, 0
 		end
 	end
-	return PREFERRED, -1, false
+	-- Then the same question of the ring. Worth its own pass and not folded into the last one,
+	-- because the whole deck is paved and a search that takes the FIRST empty box takes a road
+	-- corridor by default: measured on a live build, of 6,000 grid positions across the deck at
+	-- this footprint, exactly FOUR are clear of both props and a driving line -- one 12-stud pocket
+	-- at z = 290. The old search found it by luck on the boot this was written on. This finds it
+	-- because it is looking.
+	for index = #PREFERRED_SPOTS + 1, #candidates do
+		local centre = PREFERRED + candidates[index]
+		if spotIsClear(centre) and roadsThrough(centre) == 0 then
+			return centre, candidates[index].Magnitude, false, 0
+		end
+	end
+	-- And then exactly what this file has always done. Reached when the deck has no road-free
+	-- ground the machine fits on at all, which is a real state on some world rolls and not a fault:
+	-- a landmark standing on a paved street is what a plaza looks like.
+	for index, offset in ipairs(candidates) do
+		local centre = PREFERRED + offset
+		if spotIsClear(centre) then
+			return centre, offset.Magnitude, index <= #PREFERRED_SPOTS, roadsThrough(centre)
+		end
+	end
+	return PREFERRED, -1, false, roadsThrough(PREFERRED)
 end
 
 -- ===== THE MACHINE =====
@@ -809,7 +957,7 @@ function SplicerService.Init()
 			end
 		end
 	else
-		local centre, moved, authored = findClearSpot()
+		local centre, moved, authored, roads = findClearSpot()
 		machineModel = buildMachine(centre)
 		machineModel.Parent = map
 		-- Landing on the second or third AUTHORED spot is not a fault and must not be reported as
@@ -822,6 +970,15 @@ function SplicerService.Init()
 			warn(("[SplicerService] every authored spot was occupied; machine searched %.0f studs to (%d, %d)")
 				:format(moved, centre.X, centre.Z))
 		end
+		-- ===== THE ROW'S OWN QUESTION, ASKED WHERE THE MACHINE ACTUALLY ENDED UP (34.65) =====
+		-- `JungleTrails` can only report against the four spots the machine MIGHT take, which is a
+		-- watch number by construction. This one knows which spot won, so it is allowed to be an
+		-- alarm -- and it is the sentence the row was opened by: *the DNA Splicer stands in a road*.
+		-- Zero is the answer the two-pass search above is trying to reach; anything else says the
+		-- deck had no road-free authored ground on this world roll, which is a real state and not a
+		-- bug, so it is a `print` with the number in it rather than a warn with a verdict in it.
+		print(("[SplicerService] %d road driving line(s) through the machine at (%d, %d)")
+			:format(roads or -1, centre.X, centre.Z))
 	end
 
 	-- Never streamed out: the machine is a landmark and a player who walked to it must find it

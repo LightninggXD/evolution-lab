@@ -210,6 +210,89 @@ local function hitsBox(x1, z1, x2, z2, hx, hz)
 	return true
 end
 
+-- ===== A DOOR MAY NOT OPEN INSIDE A MACHINE -- AND A ROAD MAY STILL PASS ONE (34.65) =====
+-- `SplicerService.PlacementKeepOut()` publishes the ground the DNA Splicer may claim -- all four of
+-- its authored spots, at the machine's real footprint -- from the file that owns the machine, for
+-- the same reason `MapGates.PaintKeepOut()` publishes a lane's paint.
+--
+-- There is NO TUCK here, and that is the difference from a lane. A lane is drawn over a trail, so a
+-- trail reaching one rim under it disappears; a machine is 38 studs of solid pillar, and a road
+-- reaching its footprint comes out the other side of it at eye height.
+--
+-- ===== AND IT IS STILL NOT A REFUSAL, BECAUSE A REFUSAL WAS BUILT AND MEASURED WORSE =====
+-- The obvious rule -- a fifth clause in `usable`, beside the lane one -- was written first. It
+-- refused **90 links**, and the network paid for every one: mean walk 126.5 -> 134 studs, worst
+-- 244 -> 301, and **NE2 ended up with no road at all**. That is 34.36's own trap one row later, and
+-- the reason is the same: the keep-out is FOUR boxes and only ONE of them will ever hold the
+-- machine, because which authored spot wins is re-rolled with the props on every world build. A
+-- refusal spends the whole network's shape on four maybes.
+--
+-- So this is a keep-out for the two things that are certain -- where a DOOR opens, and which way a
+-- bend leans -- and nothing else. What a leg may not do is start inside a machine; what it may do
+-- is pass one, which is what a road on a plaza does.
+local function machineHit(sx, sz, ex, ez, o)
+	for _, m in ipairs(o.machines) do
+		local pad = o.width / 2 + MapPaint.EDGE_W
+		if hitsBox(sx - m.x, sz - m.z, ex - m.x, ez - m.z, m.hx + pad, m.hz + pad) then
+			return true
+		end
+	end
+	return false
+end
+
+-- ===== THE NORTH DOORS SLIDE ALONG THE DECK, AND THEY ARE NEVER CLOSED (34.65) =====
+-- Measured on a live build: the west head at (-150, 390) stood INSIDE the Splicer's second
+-- authored spot, so a trail did not cross the machine, it BEGAN in it -- 29 sheets of paint through
+-- the machine's solid 52 x 52, nearest sheet centre 8.5 studs, because every camp that hangs off a
+-- door radiates its own road out of that one point.
+--
+-- SLID, NOT REFUSED, and the difference is the whole reason this list exists. These two doors are
+-- the village's ONLY north exits; the measurement that opened 32.1 found NW1/NE1 at a 13.9x detour
+-- with 54 studs of grass against 749 studs of road, for exactly the want of them. Closing one to
+-- keep a machine's ground clear would buy a road-free plinth with the fault the plinth stands next
+-- to.
+--
+-- Along x, because that is the edge these doors are on -- `HubPlaza`'s deck spans x -172..172, and
+-- the head comment at the top of this file is where those numbers already are. Both ways from the
+-- authored point, first clear one wins, same as `anchorOn`: the deck is symmetric and a search that
+-- only walks outward would answer differently for the east door than for the west one.
+--
+-- A door that cannot be made clear STAYS PUT and is named. That is the honest failure -- the road
+-- through the machine is a fault a screenshot finds, and a village with no north door is a fault
+-- every player walks.
+local HEAD_EDGE_X = 172
+
+local function resolveHeads(o)
+	local heads = {}
+	JungleTrails.HeadSlides = {}
+	for _, h in ipairs(JungleTrails.HEADS) do
+		local x = h.x
+		if #o.machines > 0 and machineHit(h.x, h.z, h.x, h.z, o) then
+			local moved = nil
+			for step = 1, math.ceil(2 * HEAD_EDGE_X / ANCHOR_STEP) do
+				for _, sgn in ipairs({ 1, -1 }) do
+					local try = h.x + sgn * step * ANCHOR_STEP
+					if math.abs(try) <= HEAD_EDGE_X and not machineHit(try, h.z, try, h.z, o) then
+						moved = try
+						break
+					end
+				end
+				if moved then break end
+			end
+			if moved then
+				x = moved
+				JungleTrails.HeadSlides[#JungleTrails.HeadSlides + 1] =
+					("(%d, %d) -> (%d, %d)"):format(h.x, h.z, x, h.z)
+			else
+				JungleTrails.HeadSlides[#JungleTrails.HeadSlides + 1] =
+					("(%d, %d) STUCK"):format(h.x, h.z)
+			end
+		end
+		heads[#heads + 1] = { x = x, z = h.z }
+	end
+	return heads
+end
+
 -- ===== ONE LINK, RIM TO RIM =====
 -- `from` is either a point on the cross (or a plaza head), in which case the road starts there, or
 -- another camp's centre, in which case it starts at that camp's mouth. It always ENDS at the mouth
@@ -376,6 +459,9 @@ function JungleTrails.Build(camps, cross, opts)
 		-- `MapGates.PaintKeepOut()`, handed in rather than required, for the same reason every
 		-- other constant on this table is: one file decides how wide a gate lane is painted.
 		lanes = opts.lanes or {},
+		-- `SplicerService.PlacementKeepOut()` (34.65), on the same terms: one file decides where
+		-- the DNA Splicer may stand, and this one only has to keep its roads off that ground.
+		machines = opts.machines or {},
 	}
 
 	local cost, connected, out = {}, {}, {}
@@ -384,6 +470,18 @@ function JungleTrails.Build(camps, cross, opts)
 	-- five boots at once, which is how a fixed fault goes on being printed.
 	JungleTrails.Crossing = {}
 	JungleTrails.LaneRefusals = 0
+	-- Kept for `Describe`, which measures the finished paint against it. A COUNT OF REFUSALS WOULD
+	-- BE THE WRONG NUMBER HERE and that is worth saying, because the lane rule right above prints
+	-- exactly that: a refusal count answers "did the rule fire", and there is no refusal rule left
+	-- for machines (see the measurement over `machineHit`). What can still go wrong is a finished
+	-- trail lying across a machine, so that is what gets counted -- off the segments, after the
+	-- bend, which is the only place the answer is true.
+	JungleTrails.Machines = o.machines
+	-- The doors, slid clear of the machines before a single link is costed. Resolved ONCE here and
+	-- not per camp: a door that answered differently for two camps would be two doors, and the
+	-- Dijkstra below prices a head at `base = 0` precisely because it is one place a player already
+	-- is.
+	o.heads = resolveHeads(o)
 
 	while left > 0 do
 		local best = nil
@@ -396,7 +494,7 @@ function JungleTrails.Build(camps, cross, opts)
 					local ax, az = anchorOn(p, camp, o)
 					if ax then anchors[#anchors + 1] = { x = ax, z = az, from = nil, base = 0 } end
 				end
-				for _, h in ipairs(JungleTrails.HEADS) do
+				for _, h in ipairs(o.heads) do
 					if laneExcess(h.x, h.z, h.x, h.z, o) <= 0 then
 						anchors[#anchors + 1] = { x = h.x, z = h.z, from = nil, base = 0 }
 					end
@@ -474,6 +572,21 @@ function JungleTrails.Build(camps, cross, opts)
 			end
 		end
 		
+		-- And the machines, as rects rather than circles (34.65): a machine keep-out really is an
+		-- axis-aligned box -- the footprint a square-plinthed machine is placed against -- so the
+		-- rect is the exact shape here, where for a lane it was the wrong one.
+		--
+		-- MEASURED, because a bend obstacle is not free and this one turned out to be: with these
+		-- four rects in, the network is `mean 129.0 / worst 266.5` and six legs lie on a machine's
+		-- ground; with them out it is `mean 129.0 / worst 266.5` and eight. Two legs for nothing.
+		-- The reason it is free is that this is a nudge and not a refusal -- `PathSplines` bends
+		-- where it can and says so when it cannot, so a box it fails to clear costs a warning
+		-- rather than a road.
+		for _, m in ipairs(o.machines) do
+			local pad = o.width / 2 + MapPaint.EDGE_W
+			table.insert(obs, { type = "rect", x = m.x, z = m.z, hx = m.hx + pad, hz = m.hz + pad })
+		end
+
 		local rng = opts.rng or Random.new(math.floor(math.abs(best.sx + best.sz)))
 		local pts, info = PathSplines.Route(startPos, endPos, rng, { maxJitter = 15 }, obs)
 
@@ -551,14 +664,42 @@ function JungleTrails.Describe(segments)
 			end
 		end
 	end
+	-- ===== A WATCH NUMBER, AND IT IS DELIBERATELY NOT AN ALARM (34.65) =====
+	-- Every leg, against every published machine keep-out, at the leg's own painted width. Six is
+	-- the healthy answer on today's map and it is EXPECTED TO BE NON-ZERO: the keep-out reserves
+	-- all four of the Splicer's authored spots and at most one of them ever holds the machine, so
+	-- most of what this counts is paint over ground the machine did not take. A rule that reads BAD
+	-- on a healthy tree is a rule that stops being read -- the same fault the remotes lint had one
+	-- row ago -- so this prints as a count and the WORD it uses is "may claim".
+	--
+	-- The line that is allowed to be an alarm is in `SplicerService`, at the other end of the boot:
+	-- it knows where the machine actually ended up and can ask whether a road drives through THAT.
+	-- Here the useful signal is movement -- a build where this jumps is a build where the doors or
+	-- the spots moved and nobody said so.
+	local crossed, machines = {}, JungleTrails.Machines or {}
+	for _, s in ipairs(segments) do
+		for _, m in ipairs(machines) do
+			local pad = (s.w or JungleTrails.WIDTH) / 2 + MapPaint.EDGE_W
+			if hitsBox(s.x1 - m.x, s.z1 - m.z, s.x2 - m.x, s.z2 - m.z, m.hx + pad, m.hz + pad) then
+				crossed[#crossed + 1] = s.id .. " vs " .. m.id
+				break
+			end
+		end
+	end
 	local crossing = JungleTrails.Crossing or {}
 	-- `laneRefusals` is printed even at zero. It is the only number that says whether 34.36's rule
 	-- is still reaching anything: at zero on a build whose lanes moved, the keep-out is being
 	-- derived from the wrong place and every trail is legal by accident.
+	-- `machineRefusals` and the head slides are printed on the same terms and for the same reason
+	-- (34.65): a door that slid says the keep-out reached it, and a build where NEITHER number
+	-- moves on a map whose machine moved is a keep-out being read from somewhere stale.
+	local slides = JungleTrails.HeadSlides or {}
 	return ("%d trails (%d legs), walk to a camp: mean %.0f studs, worst %s at %.0f"
-		.. " (%d link(s) refused for lying on a gate lane)%s%s")
+		.. " (%d link(s) refused for lying on a gate lane, %d leg(s) over ground a machine may claim)%s%s%s")
 		:format(n, legs, n > 0 and total / n or 0, worstId, worst,
 			JungleTrails.LaneRefusals or 0,
+			#crossed,
+			#slides > 0 and ("  north door " .. table.concat(slides, ", ")) or "",
 			#crossing > 0
 				and ("  <-- COULD NOT BEND CLEAR: " .. table.concat(crossing, ", ")) or "",
 			#JungleTrails.Unreachable > 0
