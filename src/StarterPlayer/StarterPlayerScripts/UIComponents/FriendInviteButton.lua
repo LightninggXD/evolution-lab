@@ -12,8 +12,34 @@ function FriendInviteButton.Init(screenGui)
 	if btn then return btn end
 
 	-- Rebuild using UITheme standard kit
-	btn = UITheme.Button(screenGui, { name = "FriendInviteButton", text = "Invite\nFriends", icon = "🤝" })
+	-- ===== THE EMOJI ALONE, BECAUSE BOTH DID NOT FIT (35.3) =====
+	--
+	-- The owner, off a two-client test: *"na trade buttonu je sve izmesano ne stane i text i
+	-- emoji, treba samo emoji"*. This carried BOTH a two-line caption and an icon, and
+	-- `UITheme.Button` lays those out SIDE BY SIDE -- the glyph takes the left end and the words
+	-- are centred in what is left. On a 72 x 72 button that leaves the label about 26 px for two
+	-- words, so it came out as the smear she photographed.
+	--
+	-- The other tiles in this column are NOT this shape: they stack a picture over a word and are
+	-- built by the tile builder, which is why they fit and this did not.
+	--
+	-- Empty text rather than a shorter word -- what she asked for, and also the only thing that
+	-- actually fits: `themeLabel` floors text at a `UITextSizeConstraint`, so a caption too big for
+	-- its box is CUT rather than shrunk and reports nothing wrong (33.36).
+	btn = UITheme.Button(screenGui, { name = "FriendInviteButton", text = "", icon = "🤝" })
 	btn.Size = UDim2.new(0, 72, 0, 72)
+
+	-- ...AND THE GLYPH HAS TO BE RE-CENTRED, because the kit parks it at the LEFT edge to leave
+	-- room for the words beside it; with no words that reads as an icon that has slid off centre.
+	-- `IconShadow` follows on its own -- it subscribes to the icon's Position and re-applies its
+	-- own offset -- so only this one is moved.
+	local glyph = btn:FindFirstChild("Icon")
+	if glyph then
+		glyph.AnchorPoint = Vector2.new(0.5, 0.5)
+		glyph.Position = UDim2.new(0.5, 0, 0.5, 0)
+		-- 0.62 -> 0.72: the room the caption was using belongs to the icon now.
+		glyph.Size = UDim2.new(0.72, 0, 0.72, 0)
+	end
 	-- ===== IT WAS SITTING UNDERNEATH THE WALLET (34.60) =====
 	--
 	-- The owner, on a capture of the diamond and gift capsules: *"ovaj invite ili trade sta je vec
