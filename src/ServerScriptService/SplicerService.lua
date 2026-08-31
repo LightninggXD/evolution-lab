@@ -45,6 +45,21 @@ local SplicerService = {}
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
+-- ===== CREATED AT REQUIRE TIME, NOT IN Init(). THIS IS 35.7 AND IT IS 35.1's RACE AGAIN. =====
+-- These used to be built inside Init(), and Init() is called AFTER the map build in `ServerMain` --
+-- about a minute of work. A client that has finished loading in that minute and indexes one of
+-- these by name gets `... is not a valid member of Folder "ReplicatedStorage.Remotes"`, which is a
+-- THROW, so the rest of that LocalScript never runs. `ServerMain` requires this module in its first
+-- frames, so creating them here closes the window instead of shortening it. The clients wait as
+-- well, but a wait that is instant and a wait that is sixty seconds are different products.
+for _, name in ipairs({ "SpliceRoll", "SpliceResult", "EquipMutation" }) do
+	if not Remotes:FindFirstChild(name) then
+		local r = Instance.new("RemoteEvent")
+		r.Name = name
+		r.Parent = Remotes
+	end
+end
+
 -- Bump to force the machine to be rebuilt on the next server start. Stamped on the model, the
 -- same trick RebirthShrine and ZoneBuilder use -- without it no change to the geometry below
 -- would ever appear on a place that has already been played.
@@ -994,14 +1009,6 @@ end
 
 function SplicerService.Init()
 	local PlayerDataService = require(script.Parent.PlayerDataService)
-
-	for _, name in ipairs({ "SpliceRoll", "SpliceResult", "EquipMutation" }) do
-		if not Remotes:FindFirstChild(name) then
-			local r = Instance.new("RemoteEvent")
-			r.Name = name
-			r.Parent = Remotes
-		end
-	end
 
 	local map = workspace:FindFirstChild("Map")
 	if not map then

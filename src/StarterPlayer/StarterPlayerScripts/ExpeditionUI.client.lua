@@ -544,7 +544,7 @@ Remotes.DataUpdate.OnClientEvent:Connect(function(data)
 	end
 end)
 
-Remotes.ExpeditionState.OnClientEvent:Connect(function(payload)
+Remotes:WaitForChild("ExpeditionState").OnClientEvent:Connect(function(payload)
 	if type(payload) ~= "table" then return end
 	runState = payload.running and payload or nil
 	if runState then
@@ -564,7 +564,7 @@ end)
 -- A station's OUTCOME. `MinigameUI` has already torn its own panel down off this same remote (it
 -- listens for the start half); all that is left here is the sound and the seal, and the seal itself
 -- arrives separately on `ExpeditionState` because the server is the only thing that counts them.
-Remotes.ExpeditionStation.OnClientEvent:Connect(function(payload)
+Remotes:WaitForChild("ExpeditionStation").OnClientEvent:Connect(function(payload)
 	if type(payload) ~= "table" then return end
 	if payload.ok and not payload.finished then
 		stationOpen = true
@@ -579,7 +579,7 @@ Remotes.ExpeditionStation.OnClientEvent:Connect(function(payload)
 	end
 end)
 
-Remotes.ExpeditionResult.OnClientEvent:Connect(function(payload)
+Remotes:WaitForChild("ExpeditionResult").OnClientEvent:Connect(function(payload)
 	if type(payload) ~= "table" or not payload.ok then return end
 	runState = nil
 	refreshTracker()

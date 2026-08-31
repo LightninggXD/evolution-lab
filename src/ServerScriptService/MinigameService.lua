@@ -46,6 +46,21 @@ local newPart, addLight = ZoneKit.newPart, ZoneKit.addLight
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 
+-- ===== CREATED AT REQUIRE TIME, NOT IN Init(). THIS IS 35.7 AND IT IS 35.1's RACE AGAIN. =====
+-- These used to be built inside Init(), and Init() is called AFTER the map build in `ServerMain` --
+-- about a minute of work. A client that has finished loading in that minute and indexes one of
+-- these by name gets `... is not a valid member of Folder "ReplicatedStorage.Remotes"`, which is a
+-- THROW, so the rest of that LocalScript never runs. `ServerMain` requires this module in its first
+-- frames, so creating them here closes the window instead of shortening it. The clients wait as
+-- well, but a wait that is instant and a wait that is sixty seconds are different products.
+for _, name in ipairs({ "MinigameStart", "MinigameSession", "MinigameFinish", "MinigameResult" }) do
+	if not Remotes:FindFirstChild(name) then
+		local remote = Instance.new("RemoteEvent")
+		remote.Name = name
+		remote.Parent = Remotes
+	end
+end
+
 local MinigameService = {}
 
 -- Rebuilt by replacement rather than patched in place, the rule `SplicerService` states: a stamped
@@ -432,14 +447,6 @@ function MinigameService.HandleFinish(player, payload)
 end
 
 function MinigameService.Init()
-	for _, name in ipairs({ "MinigameStart", "MinigameSession", "MinigameFinish", "MinigameResult" }) do
-		if not Remotes:FindFirstChild(name) then
-			local remote = Instance.new("RemoteEvent")
-			remote.Name = name
-			remote.Parent = Remotes
-		end
-	end
-
 	local map = workspace:FindFirstChild("Map")
 	if not map then
 		map = Instance.new("Folder")

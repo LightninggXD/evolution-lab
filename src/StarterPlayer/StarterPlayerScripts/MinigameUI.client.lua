@@ -1248,7 +1248,7 @@ end)
 -- The station's RESULT is not drawn here. This panel's result card talks about cooldowns and runs
 -- left, which is the arcade's vocabulary; a station's outcome is a seal on the expedition HUD, so
 -- `ExpeditionUI` owns that screen and this one simply closes.
-Remotes.ExpeditionStation.OnClientEvent:Connect(function(payload)
+Remotes:WaitForChild("ExpeditionStation").OnClientEvent:Connect(function(payload)
 	if type(payload) ~= "table" then return end
 	if payload.ok and not payload.finished then
 		-- THE PANEL IS OPENED HERE, AND IT HAS TO BE. The arcade's panel is shown by the terminal's
@@ -1289,7 +1289,7 @@ Remotes:WaitForChild("MinigameSession").OnClientEvent:Connect(function(payload)
 	end
 end)
 
-Remotes.MinigameResult.OnClientEvent:Connect(function(payload)
+Remotes:WaitForChild("MinigameResult").OnClientEvent:Connect(function(payload)
 	if type(payload) ~= "table" then return end
 	briefing.Visible = false
 	playing.Visible = false

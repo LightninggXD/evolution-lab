@@ -71,6 +71,20 @@ end
 local CombatFx = ensureRemote("CombatFx")
 local AutoAttack = ensureRemote("AutoAttack")
 
+-- ===== CREATED AT REQUIRE TIME, NOT IN Init(). THIS IS 35.7 AND IT IS 35.1's RACE AGAIN. =====
+-- These used to be built inside Init(), and Init() is called AFTER the map build in `ServerMain` --
+-- about a minute of work. A client that has finished loading in that minute and indexes one of
+-- these by name gets `... is not a valid member of Folder "ReplicatedStorage.Remotes"`, which is a
+-- THROW, so the rest of that LocalScript never runs. `ServerMain` requires this module in its first
+-- frames, so creating them here closes the window instead of shortening it. The clients wait as
+-- well, but a wait that is instant and a wait that is sixty seconds are different products.
+for _, name in ipairs({
+	"ExpeditionEnter", "ExpeditionState", "ExpeditionLeave", "ExpeditionChest",
+	"StationStart", "ExpeditionStation", "StationFinish", "ExpeditionResult",
+}) do
+	ensureRemote(name)
+end
+
 local ExpeditionService = {}
 
 local ENTRANCE_VERSION = 2
@@ -977,17 +991,6 @@ end
 
 -- ============================================================================
 function ExpeditionService.Init()
-	for _, name in ipairs({
-		"ExpeditionEnter", "ExpeditionState", "ExpeditionLeave", "ExpeditionChest",
-		"StationStart", "ExpeditionStation", "StationFinish", "ExpeditionResult",
-	}) do
-		if not Remotes:FindFirstChild(name) then
-			local remote = Instance.new("RemoteEvent")
-			remote.Name = name
-			remote.Parent = Remotes
-		end
-	end
-
 	-- INTO `workspace.Zones`, and that is load-bearing rather than tidy: `ZoneService.Init` scans
 	-- that folder ONCE at startup for parts named `PortalGate` and wires their Touched handlers.
 	-- A map built anywhere else -- or built after that scan -- has an exit gate that does nothing.
