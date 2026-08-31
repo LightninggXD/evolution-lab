@@ -1323,7 +1323,26 @@ local function buildZoneShop(model, zone, cx, shopKey, shopDef, base)
 		prompt.MaxActivationDistance = math.max(PROMPT_REACH, 28 * S)
 		prompt.RequiresLineOfSight = false
 		for k, v in pairs(attrs) do prompt:SetAttribute(k, v) end
-		prompt.Parent = parent
+		-- ...AND HEIGHT IS THE OTHER HALF OF REACH (35.9; 35.8 is where it was measured).
+		-- `ProximityPromptService` only shows a prompt whose ANCHOR IS ON SCREEN, and the anchor is
+		-- its parent's world position -- so a prompt mounted well above eye level DISAPPEARS AS YOU
+		-- WALK UP TO IT, which is the worst way round and reads exactly like a dead button. The
+		-- fusion counter is the one that got caught here: `VillageKit`'s counter cap sits at
+		-- `1.6 + 3.35 * F`, and at this shop's scale that is **18.4 studs over the shop floor**.
+		-- Hang the prompt on an Attachment at eye height instead of on the part's centre, keeping
+		-- it over the part the player is standing at. Only when it is actually too high: most of
+		-- these hosts (the potion tube, the upgrade pads) are already at a sensible height and
+		-- moving them would be a change for its own sake.
+		local eyeY = base.Position.Y + 8
+		if parent.Position.Y > eyeY + 4 then
+			local anchor = Instance.new("Attachment")
+			anchor.Name = "PromptAnchor"
+			anchor.Parent = parent
+			anchor.WorldPosition = Vector3.new(parent.Position.X, eyeY, parent.Position.Z)
+			prompt.Parent = anchor
+		else
+			prompt.Parent = parent
+		end
 		return prompt
 	end
 
