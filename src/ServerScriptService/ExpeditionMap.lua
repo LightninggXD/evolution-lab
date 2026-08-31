@@ -42,7 +42,9 @@ local ExpeditionMap = {}
 
 -- Bump when the SHAPE changes. `ZoneBuilder` compares this against the folder's own attribute and
 -- rebuilds the map alone, leaving the twenty zones untouched.
-ExpeditionMap.MAP_VERSION = 2
+-- 2 -> 3 (35.8): the station and vault prompts moved onto Attachments at head height, and the
+-- stations are only built when the map is, so the map has to be replaced for the fix to land.
+ExpeditionMap.MAP_VERSION = 3
 
 -- ===== THE FLOOR PLAN, IN ONE BLOCK =====
 local CHAMBER = 300 -- square, x and z

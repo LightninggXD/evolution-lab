@@ -87,12 +87,38 @@ end
 
 local ExpeditionService = {}
 
-local ENTRANCE_VERSION = 2
+-- 2 -> 3 (35.8): the prompt moved off the veil's centre onto an Attachment at head height. A
+-- version that does not move means the door already standing in a played world is never replaced,
+-- so the button stays 24 studs in the air where the camera cannot see it.
+local ENTRANCE_VERSION = 3
 
 -- `reach > structure half-width + player half-width` -- the rule `CombatClient` carries for bosses
 -- and `SplicerService` had to be rescued by on 2026-08-17. A stage-20 body is ~22 studs of half
 -- width; these structures are 30-40 across. 70 clears both with room to spare.
 local PROMPT_DISTANCE = 70
+
+-- ===== AND REACH IS ONLY HALF OF IT: A PROMPT ABOVE THE CAMERA'S VIEW IS A DEAD PROMPT (35.8) =====
+-- `ProximityPromptService` only shows a prompt whose ANCHOR IS ON SCREEN, and the anchor is its
+-- parent's world position. Measured at this very door on 2026-08-31: standing 23.5 studs away with
+-- a 70-stud reach, the veil's centre projects to viewport y = **-177** on a 793 px screen -- 177 px
+-- above the top edge -- so nothing is shown and E does nothing. Point the camera at it and the
+-- prompt appears in the same frame. Nothing about the prompt was wrong; it was mounted on the
+-- middle of a 42-stud veil, 24 studs over a player whose eyes are about 6. The closer you walked,
+-- the further off screen it went, which is the worst way round.
+--
+-- So every prompt in this file hangs off an Attachment `PROMPT_HEIGHT` studs above ITS OWN HOST'S
+-- BASE, rather than off the host's centre. Measuring from the base rather than from a zone floor is
+-- what keeps the number honest: it is the height of the button above the bottom of the thing it is
+-- on, whatever that thing is and wherever it stands.
+local PROMPT_HEIGHT = 6
+
+local function promptAnchor(host)
+	local a = Instance.new("Attachment")
+	a.Name = "PromptAnchor"
+	a.Position = Vector3.new(0, PROMPT_HEIGHT - host.Size.Y * 0.5, 0)
+	a.Parent = host
+	return a
+end
 
 -- =====================================================================================
 -- THE CORE, AND WHY IT IS NOT A BOSS
@@ -311,7 +337,7 @@ local function buildEntrance(expedition)
 	-- every number for would be a quarter second of nothing.
 	prompt:SetAttribute("ShopPanel", "expedition")
 	prompt:SetAttribute("ExpeditionKey", expedition.key)
-	prompt.Parent = veil
+	prompt.Parent = promptAnchor(veil)
 
 	model.PrimaryPart = plinth
 	return model
@@ -394,7 +420,7 @@ local function buildStationTerminal(map, expedition, index)
 	prompt.RequiresLineOfSight = false
 	prompt:SetAttribute("ShopPanel", "expedition_station")
 	prompt:SetAttribute("StationIndex", index)
-	prompt.Parent = body
+	prompt.Parent = promptAnchor(body)
 
 	model.PrimaryPart = body
 	model.Parent = map
@@ -435,7 +461,7 @@ local function buildVaultChest(map, expedition)
 	prompt.MaxActivationDistance = PROMPT_DISTANCE
 	prompt.RequiresLineOfSight = false
 	prompt:SetAttribute("ShopPanel", "expedition_chest")
-	prompt.Parent = base
+	prompt.Parent = promptAnchor(base)
 
 	model.PrimaryPart = base
 	model.Parent = map
