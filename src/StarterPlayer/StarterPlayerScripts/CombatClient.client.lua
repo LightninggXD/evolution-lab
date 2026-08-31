@@ -30,6 +30,7 @@ local RS = game:GetService("ReplicatedStorage")
 local UITheme = require(RS:WaitForChild("Modules"):WaitForChild("UITheme"))
 local SoundLibrary = require(RS.Modules:WaitForChild("SoundLibrary"))
 local IconLibrary = require(RS.Modules:WaitForChild("IconLibrary"))
+local PlateStack = require(RS.Modules:WaitForChild("PlateStack"))
 
 local player = Players.LocalPlayer
 local INK = Color3.fromRGB(26, 18, 36)
@@ -956,6 +957,11 @@ local function attachHealthPlate(character)
 	-- so half of it puts the bottom edge on the anchor at every distance and every stage scale.
 	gui.SizeOffset = Vector2.new(0, 0.5)
 	gui.Parent = head
+
+	-- ...AND TWO PLATES MUST NOT LAND ON EACH OTHER. Every plate on screen is the same 168 x 52
+	-- pixels whatever the distance, so two players standing together draw two names in one box.
+	-- PlateStack lifts the further one a row; the extra 16 is the title line above the box.
+	PlateStack.add(gui, head, 16)
 
 	local titleLabel = Instance.new("TextLabel")
 	titleLabel.Name = "TitleLabel"
