@@ -311,6 +311,15 @@ function PetDetail.Build(panel, hud, top)
 			local movingDef = GameConfig.GetEnchantDef(pet.enchant)
 			transferBtn.Text = ("\u{2728} MOVE %s  %d \u{1F48E}"):format(
 				(movingDef and movingDef.name or pet.enchant):upper(), transferCost)
+		else
+			-- CLEARED, NOT LEFT (17.13, 2026-08-31). The branch above is the only writer of this
+			-- caption, so without this line a hidden button keeps the PREVIOUS pet's enchant name --
+			-- measured live: selecting an enchanted pet and then a bare one left it still reading
+			-- "MOVE PRISMATIC  500" behind `Visible = false`. That is safe only while the two stay
+			-- paired, and the day anything reveals the button without running this branch it shows a
+			-- plausible lie rather than an obvious blank. Same rule as the tinted relic socket: any
+			-- property one branch writes, every other branch must reset.
+			transferBtn.Text = ""
 		end
 		-- Greyed when it cannot be paid for rather than hidden, exactly like ENCHANT above: the
 		-- price is the information.
