@@ -1200,189 +1200,32 @@ return function(hud)
 		end
 	end)
 	-- ========================================================================
-	-- 6. THE PROMPT OVER A NEARBY PLAYER (21.1)
+	-- 6. THE DOOR IS A HUD TILE AGAIN (35.4) -- AND THE TAG OVER THE HEAD IS GONE
 	-- ========================================================================
-	-- 16.2 put the door on the person and it was the right move -- but a door nobody can SEE is the
-	-- state 21.1 opened against: "trading is fully built and invisible", seven live remotes and
-	-- 1,011 lines of client behind a gesture the game never mentions. Clicking another player is not
-	-- something Roblox teaches, and nothing on this screen implies it does anything.
+	-- The owner, off a two-client test: *"trade opcija onda ima i iznad playera i kao button ovde,
+	-- nek bude samo button"*. She chose the tile explicitly when the trade was put to her.
 	--
-	-- So the affordance is drawn where the door already is: a small `Trade` tag over the head of any
-	-- other player inside `GameConfig.TradeProximityStuds`, which is the SERVER's own range rule
-	-- (`TradeService` reads the same constant), so a tag can never appear over somebody the server
-	-- would then refuse. Tapping the tag opens the same card the click opens -- it is one more way
-	-- in, not a second implementation.
+	-- THIS REVERSES 21.1's TAG, AND 21.1's COMPLAINT IS STILL ANSWERED. That row existed because
+	-- trading was fully built and invisible -- 16.2 had put the only door on the person, and nothing
+	-- on screen said so. A permanent tile says so at least as loudly, which is what 21.1 asked for
+	-- in the first place: it wanted a tile OR a tag, and the tag was chosen to save a register.
 	--
-	-- WHY A TAG AND NOT A HUD TILE, which is the other half of what 21.1 asked for. The tile existed
-	-- and 16.2 deleted it on the owner's own reasoning: trading means nothing until somebody is
-	-- standing next to you, and a permanent button spent a fifth of the left edge asking the player
-	-- to find a name in a list while they were looking straight at the person. Putting it back would
-	-- undo a closed row, break the left column's 2x2 block, and cost a register in a file that has
-	-- none (MainUI is at Luau's 200-local ceiling). The tag answers the actual complaint -- nothing
-	-- tells you the feature is there -- at the only moment it is true, and it carries the picker in
-	-- behind it through the card's second button. See the note in ROADMAP 21.1.
+	-- WHAT WAS DELETED: `prompts`, `alignPrompt`, `makePrompt`, `dropPrompt`, the 0.4 s maintenance
+	-- poll and the one-per-session teaching toast -- about 150 lines whose only product was a
+	-- BillboardGui reading `Trade` over every nearby head.
 	--
-	-- NOT AlwaysOnTop, on purpose, and it is the same rule the raycast above follows: a tag that
-	-- shines through a wall advertises a trade with somebody you cannot reach. `MaxDistance` is belt
-	-- and braces on top of the range test -- it culls the tag at the engine level on a frame the
-	-- poll has not caught up with yet.
-	local prompts = {}          -- [Player] = BillboardGui
-	local taughtThisSession = false
-
-	-- WHERE THE TAG SITS. THE FIRST VERSION PUT IT INSIDE THE PLAYER'S OWN BODY.
+	-- WHAT WAS KEPT ON PURPOSE: clicking another player still opens the card. That is not drawn
+	-- OVER anybody -- it opens where the click landed and closes itself -- so it is not the thing
+	-- she photographed, and deleting it would undo 16.2 as well as 21.1 in one unasked step.
 	--
-	-- It shipped as `ExtentsOffsetWorldSpace = (0, 1.8, 0)`, written and reviewed as "1.8 head
-	-- heights above the head" -- measured off the body so it would hold across the twenty stages.
-	-- It does hold across the stages, and it was never 1.8 head heights:
-	--
-	--     `ExtentsOffset` IS MEASURED IN THE ADORNEE'S HALF-SIZE, NOT ITS SIZE.
-	--
-	-- Measured on the live client at stage 20, three billboards side by side on the same Head: one
-	-- at `ExtentsOffsetWorldSpace = 2.0` rendered at exactly the height of one at
-	-- `StudsOffset = head.Size.Y`, and far below one at `StudsOffset = head.Size.Y * 2`. So the
-	-- shipped tag sat at 0.9 x the head's height, half of what the number reads as.
-	--
-	-- That put it under the one thing already over every head: `CombatClient`'s `HealthPlate`, the
-	-- player's name plus their bar when they are hurt, on the Head of every player, `AlwaysOnTop`,
-	-- 52 px tall, anchored at `head.Size.Y * 1.35 + 1.6`. That anchor is where the COSTUME ends --
-	-- the 1.35 clears the shell and the +1.6 clears the crowns and horns the late stages wear, and
-	-- the comment there records what it cost to find. The tag sat
-	--
-	--     0.9H - (1.35H + 1.6)  =  -0.45H - 1.6
-	--
-	-- below it, which is negative at every stage and grows worse as the body does: 2.6 studs under
-	-- the costume line at Cell, 4.7 at Alien, and 6.8 at The Absolute (measured: anchor 10.36 vs
-	-- the plate's 17.13). Inside the silhouette, on a tag that is deliberately NOT `AlwaysOnTop`,
-	-- which means the body itself occludes it. The affordance built so trading would stop being
-	-- invisible was being swallowed by the player it was pointing at.
-	--
-	-- AND IT COULD NOT HAVE BEEN FIXED BY A BIGGER NUMBER, because the two are measured in
-	-- different units. The plate is anchored in studs and sized in PIXELS -- that is its own fix
-	-- for "the bar is over my head" -- so the number of studs it covers GROWS as the camera pulls
-	-- back, and `CameraFit` alone moves that from 12.5 studs at stage 1 to 46 at stage 20 before
-	-- the other player's own 40 studs of range are added. Any constant stud offset slides through
-	-- it at some distance.
-	--
-	-- So the tag is stacked on the plate IN THE PLATE'S OWN SPACE: same anchor, then pushed clear
-	-- in pixels by `SizeOffset`, which is measured in multiples of the tag's own size and therefore
-	-- holds the same gap at every distance and every stage. Both numbers are READ OFF THE PLATE
-	-- rather than copied from it -- the anchor formula and the 52 belong to `CombatClient`, and this
-	-- must not become a second place that has to be edited when they move. The literal fallback is
-	-- only for the frames before `attachHealthPlate`'s `WaitForChild` has returned.
-	local function alignPrompt(gui, head)
-		local plate = head:FindFirstChild("HealthPlate")
-		local anchor = plate and plate.StudsOffset or Vector3.new(0, head.Size.Y * 1.35 + 1.6, 0)
-		if gui.StudsOffset ~= anchor then
-			gui.StudsOffset = anchor
-		end
-		-- How far the plate reaches ABOVE that anchor, in pixels: its own pixel height times the
-		-- fraction of itself that its `SizeOffset` pushed up, plus the half it would otherwise be
-		-- centred on. 6 px of air, so the two read as a stack rather than as one block.
-		local top = plate and plate.Size.Y.Offset * (plate.SizeOffset.Y + 0.5) or 52
-		local h = gui.Size.Y.Offset
-		local want = Vector2.new(0, (top + 6 + h / 2) / h)
-		if gui.SizeOffset ~= want then
-			gui.SizeOffset = want
-		end
+	-- THE CUT WAS UNSAFE UNTIL THIS LINE EXISTED, and that is why the tile came first:
+	-- `TradePickerPanel` was reachable from exactly ONE place, `cardListBtn` on that card, so
+	-- removing the tag with no replacement would have made trading unreachable -- the precise fault
+	-- the note at the top of section 4 records being fixed once already.
+	hud.openTradePicker = function()
+		hideCard()
+		refreshPicker()
+		toggleOnly(pickerPanel)
 	end
-
-	local function dropPrompt(other)
-		local gui = prompts[other]
-		if gui then
-			prompts[other] = nil
-			gui:Destroy()
-		end
-	end
-
-	local function makePrompt(other, head)
-		local gui = Instance.new("BillboardGui")
-		gui.Name = "TradePrompt"
-		gui.Adornee = head
-		gui.Size = UDim2.fromOffset(132, 40)
-		-- Set before it is parented, so the tag is never drawn for one frame at the head's own
-		-- origin. See `alignPrompt` above for why this is not an offset of its own.
-		alignPrompt(gui, head)
-		gui.AlwaysOnTop = false
-		gui.MaxDistance = GameConfig.TradeProximityStuds + 6
-		gui.ResetOnSpawn = false
-		gui.Parent = screenGui
-
-		local btn = Instance.new("TextButton")
-		btn.Name = "Tag"
-		btn.Size = UDim2.new(1, 0, 1, 0)
-		btn.BackgroundColor3 = UITheme.Color.Green
-		btn.AutoButtonColor = true
-		btn.Text = "\u{1F91D} Trade"
-		btn.Font = Enum.Font.FredokaOne
-		btn.TextSize = 20
-		btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-		btn.Parent = gui
-		corner(btn, UDim.new(0.5, 0))
-		stroke(btn, 3, UITheme.Color.Outline)
-
-		btn.MouseButton1Click:Connect(function()
-			-- The card is positioned from a SCREEN point, the same space an input position arrives
-			-- in -- `WorldToScreenPoint` includes the topbar inset and `WorldToViewportPoint` does
-			-- not, and `showCard` subtracts the inset itself. Mixing those two is how an element
-			-- lands exactly one inset out of place.
-			local cam = workspace.CurrentCamera
-			local px, py = 0, 0
-			if cam then
-				local pt = cam:WorldToScreenPoint(head.Position)
-				px, py = pt.X, pt.Y
-			end
-			showCard(other, px, py)
-		end)
-
-		prompts[other] = gui
-		return gui
-	end
-
-	Players.PlayerRemoving:Connect(dropPrompt)
-
-	task.spawn(function()
-		while true do
-			task.wait(0.4)
-			-- Every prompt goes away while a trade is actually open. The modal is the conversation;
-			-- a row of tags floating behind it invites a second one the server would refuse anyway.
-			local muted = tradeModal.Visible or currentTradeId ~= nil
-			for _, other in ipairs(Players:GetPlayers()) do
-				if other ~= player then
-					local head = other.Character and other.Character:FindFirstChild("Head")
-					local d = studsTo(other)
-					local want = (not muted) and head and d and d <= GameConfig.TradeProximityStuds
-					local gui = prompts[other]
-					if want then
-						if not gui then
-							makePrompt(other, head)
-							-- ONE toast, the first time it is ever true in a session, and never
-							-- again. The tag teaches the gesture on its own once it is on screen;
-							-- what it cannot do is catch the eye of somebody looking at their own
-							-- HUD. After that this would be a banner about a thing already visible.
-							if not taughtThisSession then
-								taughtThisSession = true
-								showNotification(
-									("\u{1F91D} %s is nearby \u{2014} tap the tag above them to trade")
-										:format(other.DisplayName),
-									UITheme.Color.Green, 4)
-							end
-						else
-							if gui.Adornee ~= head then
-								-- they respawned, or StageCostume rebuilt the body: re-adorn rather
-								-- than leaving a tag pinned to a Head no longer in the character
-								gui.Adornee = head
-							end
-							-- Re-aligned every pass, not only on re-adorn: an evolve grows the head
-							-- and moves the plate underneath a tag whose Adornee never changed.
-							-- Both writes are guarded on the value, so a still player costs nothing.
-							alignPrompt(gui, head)
-						end
-					elseif gui then
-						dropPrompt(other)
-					end
-				end
-			end
-		end
-	end)
 end
 

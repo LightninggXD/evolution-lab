@@ -1572,6 +1572,32 @@ emoteButton.MouseButton1Click:Connect(function()
 	EmotesPanel.Toggle()
 end)
 
+-- ===== THE TRADE TILE IS BACK, AND IT IS THE OWNER REVERSING 16.2 (35.4) =====
+--
+-- *"trade opcija onda ima i iznad playera i kao button ovde, nek bude samo button"*, and she
+-- picked the tile when the trade was put to her. 16.2 deleted this tile on her own earlier
+-- reasoning (trading means nothing until somebody is standing next to you) and 21.1 replaced it
+-- with a tag over the head; that tag is deleted in `TradePanel` section 6 by this row.
+--
+-- ORDER 6 COSTS NOTHING IN LAYOUT. The left column is two wide and `TileColumnFit` sizes it by ROW
+-- count, so five tiles and six are both three rows -- this one fills the hole beside Emotes rather
+-- than adding a row, and nothing below it moves (`FriendInviteButton` is bottom-anchored anyway).
+--
+-- NO LOCAL, deliberately: this file's top level is at Luau's 200-register ceiling and every one
+-- saved here is one the next feature can spend. The handle is not needed -- `columnTile` stamps
+-- `TradeButton` on it and anything that wants it can read `screenGui.TradeButton`.
+--
+-- GUARDED, because `TradePanel` is required ~3,400 lines below this and publishes
+-- `openTradePicker` when it runs. The handler only reads it at CLICK time, by which point it
+-- exists -- but a nil check is what keeps a press from throwing if that require is ever moved.
+columnTile("L", 6, "🤝", "Trade", UITheme.Color.Green).MouseButton1Click:Connect(function()
+	if hudRefs.openTradePicker then
+		hudRefs.openTradePicker()
+	else
+		warn("[MainUI] Trade tile pressed before TradePanel published openTradePicker")
+	end
+end)
+
 
 -- ===== The level bar (32.7) =====
 --
