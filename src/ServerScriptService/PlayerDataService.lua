@@ -847,7 +847,28 @@ end
 -- muted through the old board is not silent forever with no UI left to unmute it.
 
 function PlayerDataService.Init()
-	Players.PlayerAdded:Connect(function(player)
+	-- ===== A PLAYER WHO IS ALREADY HERE NEVER FIRES `PlayerAdded` (35.2) =====
+	--
+	-- This used to be a bare `Players.PlayerAdded:Connect(...)`, which is correct only if this line
+	-- runs before anybody joins. It does not. `ServerMain` builds the whole world at line **99**
+	-- (`ForestMapService.Init`) and only reaches `PlayerDataService.Init()` at **194** -- about a
+	-- minute later -- and in Studio, and on a real server that accepts a join while it is still
+	-- starting, the player is in `Players` long before that. Their `PlayerAdded` has already fired
+	-- into nothing.
+	--
+	-- Measured live 2026-08-31 on a two-client test and reproduced on a single Play: the save was
+	-- never loaded, so there were no `leaderstats`, **no `DataUpdate` ever pushed** (10 s of waiting,
+	-- nothing), and no stage body -- the player stood in the village as a **default Roblox avatar**
+	-- with `Damage: 0`, every panel drawing as though nothing were owned, a Claim button on rewards
+	-- that were never earned, every zone reading unlocked and no tutorial. All of it is this.
+	--
+	-- So the handler is a NAMED function, connected AND replayed over everyone already present. The
+	-- `handled` guard is not belt-and-braces: a player can join in the window between the connect and
+	-- the loop below, and `Load` running twice on one save is a real risk to it.
+	local handled = {}
+	local function onPlayerAdded(player)
+		if handled[player] then return end
+		handled[player] = true
 		local data = PlayerDataService.Load(player)
 		-- nil means the player was kicked or left during the read. Everything below would index it.
 		if not data then return end
@@ -907,7 +928,14 @@ function PlayerDataService.Init()
 				if player.Parent then PlayerDataService.PushToClient(player) end
 			end
 		end)
-	end)
+	end
+
+	Players.PlayerAdded:Connect(onPlayerAdded)
+	-- ...and everyone who beat this line to the server. `task.spawn` per player because `Load` yields
+	-- on a DataStore read: run serially and the second player waits out the first one's round trip.
+	for _, player in ipairs(Players:GetPlayers()) do
+		task.spawn(onPlayerAdded, player)
+	end
 
 	Players.PlayerRemoving:Connect(function(player)
 		PlayerDataService.Save(player, true)

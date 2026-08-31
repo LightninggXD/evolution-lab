@@ -3220,6 +3220,10 @@ hudRefs.CHAR_LINE_H = CHAR_LINE_H
 -- register. `characterCells` and `characterRows` are declared above and filled from in here.
 -- MOVED OUT (18.9) to `ReplicatedStorage.Modules.HUD.JournalGrid` -- 790 lines, unchanged.
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("JournalGrid"))(hudRefs)
+-- 17.6: the found-secrets row at the bottom of the same scroll. Its own module rather than more
+-- of `JournalGrid` -- a secret is not a character and does not go through the disc builder -- and
+-- required through `hudRefs` like every other panel, so this costs no top-level register.
+require(RS.Modules:WaitForChild("HUD"):WaitForChild("JournalSecrets"))(hudRefs)
 
 journalButton.MouseButton1Click:Connect(function()
 	toggleOnly(characterPanel)
@@ -3292,6 +3296,8 @@ local function refreshCharacterPanel()
 
 	-- rigs come and go with the scroll and with what has just been discovered
 	if hudRefs.journalSync then hudRefs.journalSync() end
+	-- and the found-secrets row, which only ever grows (17.6)
+	if hudRefs.refreshJournalSecrets then hudRefs.refreshJournalSecrets() end
 
 	for key, refs in pairs(characterCells) do
 		local isOwned = owned[key] == true

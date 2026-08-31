@@ -1392,6 +1392,26 @@ polish pass is running. 34.9 waits for data by design.
 
 ---
 
+## Phase 35 - The two-client test, and the dead boot behind six "bugs" · *opened 2026-08-31 by the owner, mid-session, from a real `Test > Clients and Servers` run*
+
+She ran two clients and sent three captures with one message: *"ni jedan player nije poceo kao cell vec
+ovaj roblox lik, ovo se preklapa i na trade buttonu je sve izmesano ne stane i text i emoji, treba samo
+emoji, a trade opcija onda ima i iznad playera i kao button ovde, nek bude samo button, sve jedna zona
+je odma otkljucana, ovde nista nije otkljucano a pise claim, nema tutoriala uopste i nema mobova"*.
+
+**Six of those eight complaints turned out to be ONE dead thread, and it is the most serious fault
+found in this file for a long time.** They are written down separately anyway, in 35.6, because the
+next person to see those symptoms should be able to search for them.
+
+| # | Status | Task | Check | Notes |
+|---|---|---|---|---|
+| 35.1 | `[x]` | 🚨 **THE SERVER BOOT DIED AT `ServerMain:99` AND NOTHING SAID SO -- 34.13's fault again, one file over and 92 lines earlier.** The console carried `ServerScriptService.MapProps.MapSolids:169: Script timeout: exhausted allowed execution time`, stack `RoadClearance -> checkRoadBox -> place -> Commit -> MapForest.Plant -> ForestMapService.Init -> ServerMain:99`. The watchdog kills the THREAD and the thread is `ServerMain`, so **every service after line 99 never initialised** -- and 99 is the FIRST one, which makes this strictly worse than 34.13 dying at 191. Measured on the live truncated server: `Remotes` **38-40 of 88**, `workspace.Bosses` **0**, `workspace.Creatures` **0**. `MapSolids.Commit` walks ~5,000 candidates in three loops without yielding once, and a HILL is the expensive one -- `checkRoadBox` fans an nx-by-nz grid into `JungleLayout.RoadClearance`, each scanning every road segment in the zone. **Why it started failing now: the watchdog measures UNYIELDED execution, not wall clock**, so a second and third Studio client sharing the CPU made the same work take longer in real time without ever giving the scheduler a frame. It would do the same on a loaded production server. Fixed with 34.13's own `pace()` shape: a yield every 100 trees and every 100 rocks, and **every single hill** (there are only ~34, and hills are where it died) | live: a fresh Play reaches `Remotes` **90**, `workspace.Bosses` **21**, `workspace.Creatures` **1480**, and the timeout is gone from the console ✅ | Fixed and verified 2026-08-31 |
+| 35.2 | `[x]` | 🚨 **A PLAYER WHO IS ALREADY IN THE SERVER NEVER FIRES `PlayerAdded`, AND `PlayerDataService` ONLY LISTENED FOR THAT.** The second root cause, independent of 35.1 and still live after it was fixed. `PlayerDataService.Init()` is `ServerMain:194`; the world build at **99** takes about a minute, so in Studio -- and on any real server that accepts a join while it is still starting -- the player is in `Players` long before the connect exists, and their `PlayerAdded` has already fired into nothing. Measured after 35.1 was fixed: full boot, 88 remotes, 1480 creatures, and **still no `DataUpdate` after 10 s of waiting**, no `leaderstats`, no stage body. The handler is a named `onPlayerAdded` now, connected AND replayed over `Players:GetPlayers()`, each in its own `task.spawn` because `Load` yields on a DataStore read. A `handled` guard covers the real race of a player joining between the connect and the loop -- `Load` running twice on one save is a risk to the save | live: `DataUpdate` arrives in **0.5 s** carrying the real save (stage 5, level 23, rebirth 9, `wolf_timber`), `leaderstats` reads `DNA` + `Rebirths`, and the body is the wolf with `SkinMesh` geoms and `SwordModel` over an avatar at `Transparency = 1` -- captured ✅ | Fixed and verified 2026-08-31 |
+| 35.3 | `[ ]` | **The trade button crams an emoji and a word into a box that fits neither** -- *"na trade buttonu je sve izmesano ne stane i text i emoji, treba samo emoji"*. Her call is explicit and it is the cheap half: **the button carries the emoji ALONE**. Note 33.36's finding before resizing anything -- `UIKit.themeLabel` floors text at a `UITextSizeConstraint`, so a caption that does not fit is CUT rather than shrunk and `TextFits` is the only thing that reports it | `TextFits` true on the button, and a capture of it beside the wallet chips | - |
+| 35.4 | `[ ]` | **The trade offer is drawn TWICE -- over the player's head and as a HUD button -- and she wants only the button** -- *"trade opcija onda ima i iznad playera i kao button ovde, nek bude samo button"*. The overhead one is the billboard half; find which module draws it (`TradeService` / the nameplate in `CombatClient`) and stop drawing it, leaving the HUD button as the single door. **Check the callback as well as the caption** -- the press-the-button rule's fifth shape: removing a surface must not remove the only caller of the thing behind it | live with two clients: an invite is reachable from the button alone, and nothing is drawn over the head | - |
+| 35.5 | `[ ]` | **Two players standing together overlap into an unreadable smear** -- *"ovo se preklapa"*, on a capture where `Player1` and `Player2` nameplates run into each other. Two separate questions and they should not be confused: whether the NAMEPLATES should fade/stack when close, and whether two BODIES should push apart at all. Measure the nameplate's `MaxDistance`/`ExtentsOffset` first -- [[roblox-extentsoffset-is-half-size]] | two bodies standing on the same spot: both names readable | - |
+| 35.6 | `[x]` | **The other six complaints in her message were all 35.1 + 35.2, and they are listed here so nobody chases them separately.** *"ni jedan player nije poceo kao cell vec ovaj roblox lik"* (no save -> no `ApplyStage` -> the raw Roblox avatar), `Damage: 0`, *"sve jedna zona je odma otkljucana"* (the zone panel drawing against a nil save gates nothing), *"ovde nista nije otkljucano a pise claim"* (the same, one panel over), *"nema tutoriala uopste"* (`FirstJoinGuide` was present and enabled -- it had no data to start from), *"nema mobova"* (`CreatureService.Init` is `ServerMain:232`, i.e. 133 lines past where the thread died). **One dead thread, six bug reports, and the only thing the console said about it was two client errors about remotes** -- which is the exact sentence 34.13 already wrote into this file | all six re-checked on the fixed boot ✅ | Closed by 35.1 + 35.2 |
+
 ## 👤 Owner action checklist
 
 Collect these once; each one blocks agents until it exists.
@@ -1621,6 +1641,37 @@ codebase and adding it is an infrastructure layer, not a feature.
 ---
 
 ## Changelog
+
+- **2026-08-31 (15th, fourth block)** - **PHASE 35 OPENED FROM A REAL TWO-CLIENT TEST, AND SIX OF THE OWNER'S EIGHT COMPLAINTS WERE ONE DEAD THREAD.**
+  She ran `Test > Clients and Servers` and reported: no player starts as a Cell (just a Roblox
+  avatar), overlapping nameplates, the trade button cramming emoji and text, trade drawn both over the
+  head and as a button, every zone unlocked, `Claim` on things not unlocked, no tutorial, and no mobs.
+  **The server boot was dying at `ServerMain:99`.** `MapSolids:169: Script timeout: exhausted allowed
+  execution time`, via `RoadClearance -> checkRoadBox -> place -> Commit -> MapForest.Plant ->
+  ForestMapService.Init`. The watchdog kills the THREAD and the thread is `ServerMain`, so every
+  service after the FIRST one never initialised: `Remotes` **38-40 of 88**, `workspace.Bosses` **0**,
+  `workspace.Creatures` **0**. This is 34.13's fault again, 92 lines earlier and therefore worse.
+  `Commit` walks ~5,000 candidates in three unyielded loops and a hill is the expensive one --
+  `checkRoadBox` fans a grid into `RoadClearance`, each scanning every road segment. **It started
+  failing now because the watchdog measures UNYIELDED execution, not wall clock**: a second and third
+  Studio client sharing the CPU stretched the same work in real time without ever yielding a frame. A
+  loaded production server would do the same. Fixed with 34.13's own `pace()` shape.
+  **Fixing that exposed a second, independent root cause.** With a full boot the client STILL got no
+  `DataUpdate` in 10 s, no `leaderstats`, no stage body. `PlayerDataService.Init()` is `ServerMain:194`
+  and only ever connected `Players.PlayerAdded` -- but the world build at 99 takes about a minute, so
+  the player is in `Players` long before the connect exists and **their `PlayerAdded` already fired
+  into nothing**. The handler is a named `onPlayerAdded` now, connected AND replayed over
+  `Players:GetPlayers()`, one `task.spawn` each because `Load` yields on a DataStore read, behind a
+  `handled` guard for the real race of a join landing between the connect and the loop.
+  **Verified live after both:** `Remotes` **90**, `Bosses` **21**, `Creatures` **1480**, `DataUpdate`
+  in **0.5 s** carrying the real save (stage 5, level 23, rebirth 9, `wolf_timber`), `leaderstats`
+  reading `DNA` + `Rebirths`, and the body drawn as the wolf with its `SkinMesh` geoms and `SwordModel`
+  over an avatar at `Transparency = 1` -- captured. That closes 35.1, 35.2 and 35.6 (the six symptoms).
+  **35.3, 35.4 and 35.5 are real and still open**: the trade button should carry the emoji alone, the
+  trade offer should stop being drawn over the player's head, and two players standing together
+  overlap into an unreadable smear.
+  **This also unblocks 34.1 and 34.2** -- the two-client session she started is the one thing those
+  rows were waiting on.
 
 - **2026-08-31 (15th, third block)** - **17.13 does not reproduce, 32.29 closes on 33.6's measurement, and 17.6 is annotated instead of closed.**
   **17.13 was a real report against a panel that no longer exists.** Her 2026-08-16 capture is of the

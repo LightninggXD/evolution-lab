@@ -450,9 +450,42 @@ function MapSolids.Commit()
 	-- TWO PASSES, IN THIS ORDER. Every tree is placed against the gap rule first, so the tree and
 	-- big-tree counts are exactly what they were before rocks were let through; the rocks then fill
 	-- in around them under the road rule alone.
+	-- ===== AND IT HAS TO YIELD, FOR THE REASON 34.13 ALREADY PAID FOR ONCE (35.1) =====
+	--
+	-- Measured on a live two-client test 2026-08-31, and again on a single Play running beside it:
+	--
+	--     ServerScriptService.MapProps.MapSolids:169: Script timeout: exhausted allowed execution time
+	--     ... RoadClearance -> checkRoadBox -> place -> Commit -> Plant -> ForestMapService.Init
+	--     -> ServerMain:99
+	--
+	-- The watchdog kills the THREAD and the thread is `ServerMain`, so every line after **99** never
+	-- ran -- and 99 is the FIRST service, which makes this strictly worse than 34.13's version of the
+	-- same fault at 191. The whole game was absent: `Remotes` came up **38 of 88**, `workspace.Bosses`
+	-- and `workspace.Creatures` **0 children**, no `DataUpdate` ever pushed, so no save reached any
+	-- client -- which is why every panel drew as though nothing were owned, no stage body was applied
+	-- (the player stood there as a default Roblox avatar), the tutorial never started and there were
+	-- no mobs at all. Six separate "bugs", one dead thread.
+	--
+	-- These three loops walk ~5,000 candidates without yielding once, and a HILL is the expensive
+	-- one: `checkRoadBox` fans out into an nx by nz grid of `JungleLayout.RoadClearance`, each of
+	-- which scans every road segment in the zone. That is why the stack died inside a hill.
+	--
+	-- The watchdog measures UNYIELDED execution, not wall clock, so a `task.wait()` resets it -- and
+	-- that is also why this only started failing when a second Studio client was sharing the CPU:
+	-- the same work took longer in real time without ever giving the scheduler a frame.
+	local sinceYield = 0
+	local function pace(every)
+		sinceYield += 1
+		if sinceYield >= every then
+			sinceYield = 0
+			task.wait()
+		end
+	end
+
 	for _, c in ipairs(state.candidates) do
 		if c.kind == "tree" then
 			place(c, true, rp)
+			pace(100)
 		end
 	end
 	-- The mountains sit between the two passes only for readability: a hill neither enters the cell
@@ -461,11 +494,15 @@ function MapSolids.Commit()
 	for _, c in ipairs(state.candidates) do
 		if c.kind == "hill" then
 			place(c, false, rp)
+			-- EVERY hill, not every hundredth: this is the call that blew the budget, there are only
+			-- ~34 of them, and 34 frames is nothing against a boot that already takes a minute.
+			pace(1)
 		end
 	end
 	for _, c in ipairs(state.candidates) do
 		if c.kind == "rock" then
 			place(c, false, rp)
+			pace(100)
 		end
 	end
 end
