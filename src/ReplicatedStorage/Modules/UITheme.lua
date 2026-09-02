@@ -1281,8 +1281,30 @@ local function iconSlot(parent, emoji, zIndex, minText, maxText)
 		shade.Parent = parent
 
 		-- Every caller sets Size/Position on the slot AFTER it is handed back, so the mirror is a
-		-- subscription rather than a copy. The offset is in SCALE, so it stays proportional as the
-		-- responsive pass drives a tile from 82 px down toward its 40 px floor.
+		-- subscription rather than a copy.
+		--
+		-- ===== THE OFFSET IS THE ICON'S, NOT THE PARENT'S (35.10) =====
+		--
+		-- It used to be `UDim2.new(0.05, 0, 0.055, 0)` -- a SCALE, i.e. a proportion of whatever the
+		-- icon happens to be parented to. That is right only while the parent is about the size of
+		-- the icon, which is true of the surface this was written for (a 92 px tile holding an 84 px
+		-- drawing: 4.6 px of offset) and false the moment a slot is hung on something big. A panel
+		-- TITLE is exactly that case -- `PanelHeader` parents the title's icon to the PANEL -- so on
+		-- the 500 x 520 Fusion panel the shadow sat **25 px right and 28.6 px down** of a 46 px
+		-- drawing, i.e. clean off it: a second, half-transparent copy of the emoji hanging over the
+		-- board's corner, which is what 35.10 was opened for. Swept on the live HUD before the fix:
+		-- **115 icon shadows, 30 of them displaced by more than 8 px** -- every panel title in the
+		-- game, and every wide row card (the fusion rows are 448 px, so their 54 px pet drawing wore
+		-- a ghost 22 px to its right).
+		--
+		-- Measured in PIXELS off the icon's own `AbsoluteSize` now, which is the size the shadow is a
+		-- shadow OF, and is still proportional in the sense the old comment wanted: an icon driven
+		-- from 84 px down to its floor takes its shadow with it. 0.06 / 0.066 are the ratios the 92 px
+		-- tile already had (4.6 / 5.1 px on an 84 px drawing), so the 60 tiles that are the bulk of
+		-- the HUD keep the offset they were authored with to within half a pixel.
+		--
+		-- `AbsoluteSize` joins the subscription list for the same reason `Size` is on it: it is 0
+		-- until the frame is first laid out, and a scale-sized icon never writes `Size` again.
 		local function mirror()
 			shade.Size = img.Size
 			shade.SizeConstraint = img.SizeConstraint
@@ -1290,9 +1312,11 @@ local function iconSlot(parent, emoji, zIndex, minText, maxText)
 			shade.LayoutOrder = img.LayoutOrder
 			shade.Visible = img.Visible
 			shade.Image = img.Image -- SetIcon can swap the drawing; the shadow has to follow it
-			shade.Position = img.Position + UDim2.new(0.05, 0, 0.055, 0)
+			local d = img.AbsoluteSize
+			shade.Position = img.Position
+				+ UDim2.fromOffset(math.max(1, math.round(d.X * 0.06)), math.max(1, math.round(d.Y * 0.066)))
 		end
-		for _, prop in ipairs({ "Size", "Position", "AnchorPoint", "SizeConstraint", "LayoutOrder", "Visible", "Image" }) do
+		for _, prop in ipairs({ "Size", "AbsoluteSize", "Position", "AnchorPoint", "SizeConstraint", "LayoutOrder", "Visible", "Image" }) do
 			img:GetPropertyChangedSignal(prop):Connect(mirror)
 		end
 		mirror()

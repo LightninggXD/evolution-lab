@@ -103,6 +103,25 @@ local function remote()
 	return r
 end
 
+-- ===== AT MODULE LOAD, NOT AT `Init()` -- 35.7's FIX, ONE MORE FILE (35.12) =====
+--
+-- The cold-boot console carried `Infinite yield possible on Remotes:WaitForChild("RarityBeam")`
+-- from `RarityBeam.client:413`, which is the same window 35.7 closed for the Expedition, Minigame
+-- and Splicer remotes: `AnnounceService.Init()` is `ServerMain:228` and the map build at
+-- `ServerMain:99` takes about a minute, so the client is running long before this remote exists.
+-- `ServerMain`'s own comment beside that call -- "Init() is what puts Remotes.RarityBeam there" --
+-- is what makes the window easy to miss, because it is true and still too late.
+--
+-- MILDER THAN 35.7 AND WORTH SAYING WHY, so nobody reading the warning assumes the worst: this
+-- client YIELDS on the name where `MinigameUI` and `ExpeditionUI` INDEXED it, and an index that
+-- throws takes the rest of the LocalScript with it. Here the tail is one `OnClientEvent` connect
+-- and it does arrive -- about 60 s late. So the bug was a beam that could be missed for the first
+-- minute of a server, not a dead script.
+--
+-- `ServerMain` requires this module in its first frames, so creating it here closes the window
+-- rather than shortening it. `Init()` still calls `remote()`; it is idempotent by construction.
+remote()
+
 local TOPIC = "GlobalAnnouncements_v1"
 
 -- The one send. Broadcasts locally, and publishes to MessagingService for other servers.

@@ -631,6 +631,51 @@ return function(hud)
 			end
 
 			-- ================================================================================
+			-- THE BAR YIELDS TO AN OPEN PANEL, BECAUSE IT SHARES A LANE WITH EVERY PANEL TITLE
+			-- (35.10)
+			-- ================================================================================
+			-- Kristina photographed `The Devourer LIVE` sitting on top of `Pet Fusion`, and it is
+			-- not the Fusion panel's fault: 27.1 hangs a `PanelHeader` title OUTSIDE its board, 52 px
+			-- above the top edge, and this bar is pinned at y = 92 for 32 px. Both are centred, so
+			-- the two land in the same box whenever a panel is tall enough to push its title up into
+			-- it. Measured on the live HUD at 1576 x 793, sweeping every panel that carries a title:
+			-- **9 of 15 overlap this bar** -- Auras, Eggs, Fusion, Inventory, Mastery, Trade, the
+			-- trade modal, Season and Relics -- by up to **32 px of 46**, i.e. most of the title's
+			-- height. Fusion is simply the one that was open when the boss went live.
+			--
+			-- WHY THE BAR MOVES AND NOT THE TITLE. There is no y that fixes this: the title's height
+			-- is `(viewport - panelHeight) / 2 - 52`, so it is different per panel AND per viewport,
+			-- and a bar parked clear of a 520 px panel is inside a 560 px one. Moving the titles
+			-- instead would reverse 27.1 -- the heading hanging over the corner is the reference look
+			-- Kristina picked from five screenshots -- and would move the content line of nineteen
+			-- panels, several of which write their own `52` out as a literal.
+			--
+			-- AND HIDING IT IS NOT A NEW BEHAVIOUR, IT IS THE EXISTING ONE MADE HONEST. This bar is
+			-- ZIndex 4 against a panel's 20, so a panel TALLER than ~600 already covers it completely
+			-- and the player never sees it. All this does is extend that to the panels whose title,
+			-- rather than whose board, is what the bar is standing on. It is ambient server news --
+			-- the same words are on every screen in the game -- and it comes straight back when the
+			-- panel closes, which is the same argument `PanelFocus` makes for blurring the world.
+			--
+			-- Swept rather than pushed from `MainUI`: `HudPanel` is stamped by `registerPanel` AND by
+			-- `ScrollingPanelBuilder`, so no single open path knows about all of them, and MainUI is
+			-- at the register cap and cannot export a signal. Direct children only, which is what
+			-- `FirstJoin` and `closeAllPanels` already do with the same attribute. Forty-odd children
+			-- four times a second is nothing next to the fit pass below it.
+			--
+			-- The lag is bounded by this loop's own 0.25 s. The panel's open tween is 0.22 s, so the
+			-- bar is gone by about the time the panel finishes arriving, and a quarter second of
+			-- ambient clock returning late on close is not a thing anybody can be shown.
+			local panelOpen = false
+			for _, child in ipairs(screenGui:GetChildren()) do
+				if child:IsA("GuiObject") and child.Visible and child:GetAttribute("HudPanel") then
+					panelOpen = true
+					break
+				end
+			end
+			eventBar.Visible = not panelOpen
+
+			-- ================================================================================
 			-- BOUNDED, AND OUT FROM UNDER THE BUTTONS (10.17)
 			-- ================================================================================
 			-- Measured before this existed: the strip is a 250 px frame with `ClipsDescendants`

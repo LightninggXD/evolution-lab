@@ -143,6 +143,41 @@ local function shrubStock(map)
 	return stock
 end
 
+-- ===== THIS FILE HAS TO YIELD, FOR EXACTLY 35.1's REASON, ONE FILE OVER (35.11) =====
+--
+-- Measured on a cold Play 2026-09-02, with the boot log ending at:
+--
+--     ServerScriptService.MapProps.MapForest:364: Script timeout: exhausted allowed execution time
+--     ... plantOne -> MapForest.Plant -> ForestMapService.Init:656 -> ServerMain:99
+--
+-- which is the SAME failure as 35.1 to the line: the watchdog kills the THREAD, the thread is
+-- `ServerMain`, and `ServerMain:99` is the first service -- so nothing after it ever initialises.
+-- Measured on that truncated boot: `Remotes` **55 of 90**, `workspace.Bosses` **0**,
+-- `workspace.Creatures` **0**, and the client console carrying the downstream wreckage
+-- (`Infinite yield ... RarityBeam`, `[MainUI] Remotes.DeletePets never appeared`). 35.1 paced
+-- `MapSolids.Commit`, which is what `Plant` calls at its END; it never paced the grid walk that
+-- gets there, and that walk is bigger -- thousands of cells, each asking `isOpenGround` (which
+-- scans every road segment, camp and ridge in the zone) and each planted cell cloning a tree
+-- model, scaling it and re-reading its bounding box twice.
+--
+-- WHY IT PASSED THE FIRST RUN OF THE SAME SESSION AND FAILED THE SECOND: the watchdog measures
+-- UNYIELDED execution, not wall clock. Nothing about the forest changed between the two runs --
+-- the machine was just busier. That is 35.1's own sentence and it is the reason this is not a
+-- "sometimes" bug but a "whenever the server is loaded" bug, which is every production server.
+--
+-- The counter is shared and file-scope because `plantOne` is, and the units are deliberately
+-- unequal: a planted tree is the expensive one and the one in the stack trace, so it yields four
+-- times as often as a bare grid cell. Nothing here depends on WHEN the yield lands -- the RNG is
+-- drawn in the same order either way, so two servers still grow the same forest.
+local sinceYield = 0
+local function pace(every)
+	sinceYield += 1
+	if sinceYield >= every then
+		sinceYield = 0
+		task.wait()
+	end
+end
+
 -- Stands one clone with its FEET on y = 0. The bounding box has to be re-read after the yaw,
 -- because a rotated tree is a different box and seating it on the box it had before the turn is
 -- how a trunk ends up half a stud in the air.
@@ -166,6 +201,7 @@ local function plantOne(proto, parent, x, z, rng, scale)
 	t.Name = "HuntTree"
 	t.Parent = parent
 	MapSolids.Offer(t, parent)
+	pace(50)
 	return t
 end
 
@@ -318,6 +354,7 @@ function MapForest.Plant(zoneKey, cx, map, spec)
 		r.Name = "HuntRock"
 		r.Parent = folder
 		MapSolids.Offer(r, folder, ROCK_SINK)
+		pace(50)
 		return 1
 	end
 
@@ -351,6 +388,9 @@ function MapForest.Plant(zoneKey, cx, map, spec)
 			local px = x + rng:NextNumber(-half, half)
 			local pz = z + rng:NextNumber(-half, half)
 			tested += 1
+			-- A cell that plants nothing is not free: `isOpenGround` below is the road/camp/ridge
+			-- scan, and on a dense zone most cells end here. Paced at 200 against `plantOne`'s 50.
+			pace(200)
 			if math.abs(px) <= f.xEdge and pz >= f.zSouth and pz <= f.zNorth
 				and isOpenGround(zoneKey, px, pz, spec, segments, ridges)
 				and rng:NextNumber() < density(px, pz, f)
