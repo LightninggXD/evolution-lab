@@ -59,6 +59,11 @@
 local AnalyticsService = game:GetService("AnalyticsService")
 local Players = game:GetService("Players")
 
+-- Required at the top rather than deferred behind a pcall inside a function, which is what every
+-- other require in this file does: those reach services that require Telemetry BACK, and this one
+-- pulls in nothing but `Players`, so there is no cycle to dodge.
+local PlayerJoin = require(script.Parent.Systems.PlayerJoin)
+
 local Telemetry = {}
 
 -- ===== THE COUNTERS ARE THE TEST SURFACE ======================================================
@@ -524,7 +529,25 @@ function Telemetry.Init()
 		Telemetry.Funnel(player, stepKey, data)
 	end)
 
-	Players.PlayerAdded:Connect(function(player)
+	-- ===== A PLAYER WHO IS ALREADY HERE NEVER FIRES `PlayerAdded` (21.9) =====
+	--
+	-- `PlayerJoin.onEach`, not a bare connect, and this file is the NINTH victim of the class bug
+	-- 35.2 found and the 35.13 sweep was written to end -- that sweep converted eight files and
+	-- missed this one. `Telemetry.Init()` is ServerMain line 195, a hundred lines PAST
+	-- `ZoneBuilder.Build()`, so in Studio and in the first minute of any real shard the player is
+	-- already sitting in `Players` and their join has already fired into nothing.
+	--
+	-- WHAT IT COST, MEASURED LIVE 2026-09-06 rather than reasoned about: on a server with the save
+	-- loaded and the game fully playable, `Telemetry.Stats.custom` held no `FriendsInServer` at
+	-- all, and `SessionEnd` skipped `SessionMinutes` because `started` was nil. Those are not two
+	-- small events. `SessionMinutes` IS the session-length distribution the whole soft launch is
+	-- being read for, and `FriendsInServer` is 20.3's co-play baseline. The players it silences are
+	-- exactly the ones a launch cares about most -- everybody in the first minute of a fresh shard,
+	-- and everybody who reconnects after a restart -- so the dashboard would have shown a clean,
+	-- believable, systematically thinned distribution, which is worse than a broken one.
+	--
+	-- `onEach` runs each player exactly once behind its own guard, so neither event can double.
+	PlayerJoin.onEach(function(player)
 		sessionStart[player.UserId] = os.clock()
 
 		-- 20.3: FRIEND IN SERVER. `IsFriendsWith` is a web call per pair, so this runs off the join
