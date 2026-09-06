@@ -68,6 +68,27 @@ local busy = false
 -- restore on respawn is outside the function that fills it.
 local hidden = {}
 
+-- ===== AND THE NAMEPLATES, WHICH ARE NOT ScreenGuis (17.3) =====
+--
+-- The first framed capture came out with FIVE floating labels across the subject's chest -- four pet
+-- nameplates and a creature's health bar -- because hiding every `ScreenGui` hides the HUD and
+-- nothing else: a nameplate is a `BillboardGui` living in the world, on somebody else's part. A
+-- photo with UI in it is not a photo, and this is the one moment in the game that is meant to be
+-- worth keeping.
+--
+-- A SPATIAL QUERY CANNOT FIND THEM, AND THAT IS THE WHOLE TRAP. The first version of this asked
+-- `GetPartBoundsInRadius` and switched off exactly two things: the player's own health plate and a
+-- signpost. Every plate that was actually in the photograph -- five pet nameplates and four creature
+-- bars -- hangs on a part with **`CanQuery = false`**, which is what a SkinMesh limb is built as, and
+-- a broadphase does not return a part that refuses queries. Photographed twice to be sure.
+--
+-- So this walks THREE named folders instead of the world: the character, `EquippedPets` and
+-- `Creatures`. Each is a flat list of models and each model is asked for ONE representative part, so
+-- the cost is a distance check per rig (about 1,500) and never a `GetDescendants` of a 42,000-part
+-- map. `Bosses` is in the list for the same reason a creature is -- it is a thing that stands in a
+-- plaza wearing a health bar.
+local plates = {}
+
 -- ============================================================================
 -- MEASURING THE SUBJECT
 -- ============================================================================
@@ -213,6 +234,69 @@ local function takePhoto(pad)
 	camera.CameraType = Enum.CameraType.Scriptable
 	camera.CFrame = CFrame.lookAt(camPos, subject)
 
+	-- ===== THE PLATES COME OFF ONCE THE CAMERA IS POSED, NOT BEFORE =====
+	--
+	-- The first cut hid every plate within `dist + height` of the subject and the second capture still
+	-- had four labels in it: a portrait camera is WIDE, so a creature 30 studs away is out of that
+	-- radius and squarely in the picture. The frame is the question, so the frame is what is asked --
+	-- `WorldToViewportPoint` on the posed camera, which cannot be done until the camera is posed.
+	-- The 160-stud cut is only there to keep the loop off the far side of the zone.
+	table.clear(plates)
+
+	local function takePlate(inst)
+		if inst and inst:IsA("BillboardGui") and inst.Enabled then
+			table.insert(plates, inst)
+			inst.Enabled = false
+		end
+	end
+
+	local function inShot(pos)
+		if (pos - camPos).Magnitude > 160 then return false end
+		local _, onScreen = camera:WorldToViewportPoint(pos)
+		return onScreen
+	end
+
+	-- The character's own -- its health plate, its title, whatever else is hung on it. Small enough
+	-- to walk whole, and it is standing in the middle of the frame by construction.
+	for _, d in ipairs(character:GetDescendants()) do
+		takePlate(d)
+	end
+
+	-- THIS PLAYER'S OWN PETS ARE HIDDEN WITHOUT ASKING WHERE THEY ARE, and that is not a shortcut:
+	-- they FLY. Two of the five survived the frame test on the capture that found this, because a pet
+	-- that was behind the camera when the shot was set up had drifted into the picture by the time the
+	-- countdown reached one. Anything that follows the subject is in the subject's photograph.
+	local mine = workspace:FindFirstChild("EquippedPets")
+	mine = mine and mine:FindFirstChild(tostring(player.UserId))
+	if mine then
+		for _, d in ipairs(mine:GetDescendants()) do
+			takePlate(d)
+		end
+	end
+
+	-- One representative part per rig, because a rig's plate hangs on the same part every time
+	-- (`Body`, or the model's own primary). A rig out of frame is skipped before anything inside it
+	-- is touched, which is what keeps 1,480 creatures to 1,480 distance-and-project checks.
+	for _, folderName in ipairs({ "EquippedPets", "Creatures", "Bosses" }) do
+		local folder = workspace:FindFirstChild(folderName)
+		if folder then
+			-- EquippedPets is a folder per player and Creatures is a flat list of rigs, so this
+			-- descends one level when the child holds no part of its own rather than assuming either.
+			for _, child in ipairs(folder:GetChildren()) do
+				-- already done above, unconditionally
+				local rigs = (child ~= mine) and (child:FindFirstChild("Body") and { child } or child:GetChildren()) or {}
+				for _, rig in ipairs(rigs) do
+					local body = rig:FindFirstChild("Body") or (rig:IsA("Model") and rig.PrimaryPart)
+					if body and inShot(body.Position) then
+						for _, d in ipairs(body:GetChildren()) do
+							takePlate(d)
+						end
+					end
+				end
+			end
+		end
+	end
+
 	for n = COUNT_FROM, 1, -1 do
 		centre.Text = tostring(n)
 		SoundLibrary.PlayLocal("click", { volume = 0.5, speed = 0.9 })
@@ -238,6 +322,12 @@ local function takePhoto(pad)
 			g.Enabled = true
 		end
 	end
+	for _, b in ipairs(plates) do
+		if b.Parent then
+			b.Enabled = true
+		end
+	end
+	table.clear(plates)
 	busy = false
 end
 
@@ -268,4 +358,12 @@ player.CharacterAdded:Connect(function()
 		end
 	end
 	table.clear(hidden)
+	-- The nameplates are the same promise as the GUIs above: a respawn mid-shot must not leave the
+	-- world's labels switched off for the rest of the session.
+	for _, b in ipairs(plates) do
+		if b.Parent then
+			b.Enabled = true
+		end
+	end
+	table.clear(plates)
 end)
