@@ -169,9 +169,54 @@ end
 
 -- What a zone of depth multiplies the bar by. Zone 1 is x1.00 by construction, so the first rung of
 -- the ladder is untouched by this and only the late game moves.
+--
+-- ===== AND THE SECOND DIVISION, 21.7 -- THE ONE THE DERIVATION ABOVE DID NOT LIVE TO SEE =====
+--
+-- `LevelZoneGrowth` divides `MobDepthGrowth` back out, for the reason written over it: this bar is
+-- fed the health a target actually LOST, so anything that multiplies creature HEALTH is already a
+-- multiplier on the level economy before this function is asked for anything. That derivation was
+-- correct and it was complete -- in 32.7. Then **33.34 multiplied creature health by a second,
+-- much larger depth factor** (`GetZoneMobScale`, the zone's expected stack normalised to zone 1,
+-- x1,348 on the Absolute Plane) and nothing divided that one out. It is the same fault the block
+-- above exists to prevent, one factor later.
+--
+-- MEASURED, 2026-09-06, against the live place before the fix: zone 1 -> zone 20 paid a ratio of
+-- **307,769** where the target is `LevelXpGrowth ^ (3 * 19)` = **228.8** -- an overpay of 1345.37
+-- against `GetZoneMobScale(20)` = 1348.40. The two agree to 0.2%, and the gap is the `math.floor`
+-- CreatureService puts on spawn health, which is what identified the factor beyond argument. In one
+-- line: a zone-20 Swarmer holds 51,404,386 health and paid 738,645 XP, so **ten of them bought the
+-- whole hundred-level ladder** (7,516,047) where 13,721 were intended.
+--
+-- WHY IT IS DIVIDED HERE AND NOT FOLDED INTO THE CONSTANT ABOVE, which is what `MobDepthGrowth`
+-- got: `MobDepthGrowth` is geometric, so it collapses into a growth rate. `GetZoneMobScale` is not
+-- -- it is fitted per zone off `GetZoneExpectedStack` -- so there is no constant that can carry it
+-- and the division has to happen per zone, here, where the one caller already is.
+--
+-- WHAT IT COSTS AND WHAT IT BUYS, modelled over the whole strip before it shipped. The early game
+-- does not move at all (`GetZoneMobScale(1)` is 1.00 by construction, so Forest is untouched and
+-- the first rebirth rung stays in Ocean). What moves is the end: a full run used to finish at the
+-- **level cap, reached in zone 13**, with all twenty rebirth rungs open by zone 11 -- the ladder
+-- that is the spine of the long game, consumed inside the first hour. It now finishes at **level
+-- 81**, and the rungs land one per zone the way twenty rungs against twenty zones were meant to:
+-- rung 1 in zone 3, rung 5 in zone 6, rung 10 in zone 10, rung 15 in zone 14, rung 20 in zone 19.
+--
+-- IT IS ALSO WHAT 33.34 SAID IT WANTED. That note reads *"XP is deliberately not compensated: a
+-- longer fight for the same XP is 33.32's dosta dosta tezi levels for free"* -- which is true of
+-- `data.XP`, the evolve bar, because that one is priced off the creature's TIER and never saw the
+-- health change at all. The level bar is priced off damage, so it compensated itself 1,348x over
+-- and delivered the exact opposite of the sentence. Two bars called XP; check which one a health
+-- change reaches.
+--
+-- THE RULE, for whoever adds the next multiplier to creature health: this bar is fed damage, so it
+-- absorbs that multiplier silently and pays it out as levels. Divide it here, or the ladder moves.
 function GameConfig.GetLevelZoneMult(zoneIndex)
 	local i = math.max(math.floor(tonumber(zoneIndex) or 1), 1)
-	return GameConfig.LevelZoneGrowth ^ (i - 1)
+	-- Guarded rather than trusted: this multiplies the one function that turns damage into levels,
+	-- and a nil or a zero leaking out of the scale would either error inside the kill path or
+	-- divide the whole ladder to infinity. Same defensive shape as `GetRebirthXpMult` below.
+	local scale = tonumber(GameConfig.GetZoneMobScale and GameConfig.GetZoneMobScale(i)) or 1
+	if scale ~= scale or scale <= 0 then scale = 1 end
+	return GameConfig.LevelZoneGrowth ^ (i - 1) / scale
 end
 
 -- ===== REBIRTH XP MULTIPLIER, AND IT IS CAPPED =====
