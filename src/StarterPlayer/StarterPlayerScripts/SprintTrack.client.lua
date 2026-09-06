@@ -11,14 +11,19 @@
 	lands in the result card -- the running number is a readout, the finishing number is the record,
 	and the two can differ by the one round trip without either being wrong.
 
-	AND IT IS DRIVEN BY `Heartbeat`, NOT `RenderStepped`, WHICH IS A MEASUREMENT AND NOT A STYLE
-	CHOICE. The first cut used `RenderStepped` -- the obvious signal for something that only exists
-	on screen -- and the clock read a frozen `0.00` for a whole verified run. Counted in the same
-	session, over one second on this client: `Heartbeat` 60, `Stepped` 61, **`RenderStepped` 0**. A
-	client that is not painting still runs the physics and task schedulers and does not run the
-	render step, so anything hung off it silently stops -- which is the same family as the note in
-	`RarityBeam.client` about TweenService "running and moving nothing on a client that is not
-	rendering". A stopwatch is exactly the wrong thing to hang there.
+	AND IT IS DRIVEN BY `Heartbeat`, NOT `RenderStepped`. The first cut used `RenderStepped` -- the
+	obvious signal for something that only exists on screen -- and the clock read a frozen `0.00`
+	for a whole verified run. Counted in the same session, over one second: `Heartbeat` 60,
+	`Stepped` 61, **`RenderStepped` 0**.
+
+	BE PRECISE ABOUT WHAT THAT PROVES, because the honest version is the useful one: a Studio Play
+	client does not paint, so `RenderStepped` never firing THERE is a sandbox condition and not a
+	bug an ordinary rendering player would ever have hit. It is not a reason to distrust
+	`RenderStepped` in general. The reason the clock lives on `Heartbeat` is the other three: a
+	minimised or backgrounded real client is the same condition; a stopwatch is the one thing that
+	must not silently stop (the same family as `RarityBeam.client`'s note about TweenService
+	"running and moving nothing on a client that is not rendering"); and a clock has nothing to say
+	to the renderer that 60 Hz simulation cannot say. It also costs nothing.
 
 	IT WAITS ON ITS REMOTE WITH A TIMEOUT AND CARRIES ON. 35.7's three client scripts INDEXED a
 	remote that a later `Init()` had not created yet and the index threw, taking the rest of each
