@@ -146,6 +146,66 @@ end
 
 -- Set by `Init`, read by the refresh: pass key -> the card's button handle. A table rather than a
 -- rebuild, because a rebuild throws the scroll position away every time a payload lands.
+-- ===== THE STOREFRONT (17.15) =====
+--
+-- Her note was a reference screenshot beside a capture of ours -- *"ovo isto znaci imas ovo u
+-- shopu"*. The reference is one big featured card, then a grid of small pass cards under a header.
+-- Ours was twenty-six identical wide rows in one scroll, sorted products-then-passes, which put
+-- VIP -- the most expensive thing in the game -- SEVENTEEN ROWS BELOW THE FOLD with nothing
+-- marking it out from a 49 R$ DNA pack.
+--
+-- Three shapes, all of them `ScrollingPanelBuilder`'s: `AddHero` for VIP, `AddGrid` for the other
+-- nine passes, and `AddSection` for the two headings. The products keep their rows, because a row
+-- is the right shape for a LADDER -- five DNA packs differ only by how much and how much for, and
+-- a grid of tiles is exactly where that comparison gets harder to make.
+--
+-- WHAT THE HERO SAYS IS DERIVED, NOT TYPED. `heroLines` reads the pass's own grant fields and the
+-- wardrobe's top rung (`GetVipLadderTop`), the same numbers `DNAService` multiplies by and the
+-- Forest plaque quotes -- so raising a VIP skin's ladder raises the advertisement with it and the
+-- store cannot promise a multiplier the server does not pay. `pass.desc`'s own sentence is not
+-- used here for exactly that reason: it is a literal, and it already says "9 exclusive skins"
+-- where the table now holds ten.
+local function fmtMult(n)
+	return (("%.10g"):format(tonumber(n) or 1))
+end
+
+--- The hero's three icon lines, in the order a shopper cares about: what is exclusive to it, what
+--- it multiplies, and what it hands over daily. Three because the card has room for three -- the
+--- fourth would reach the button (see `AddHero`).
+local function heroLines(pass)
+	local lines = {}
+	local top = GameConfig.GetVipLadderTop and GameConfig.GetVipLadderTop("vipDamageMult") or 1
+	lines[#lines + 1] = {
+		Icon = IconLibrary.Resolve("\u{1F451}") or "",
+		Text = ("%d exclusive skins, up to x%s damage"):format(#GameConfig.VipCharacters, fmtMult(top)),
+	}
+
+	local always = {}
+	if pass.damageMult then always[#always + 1] = ("x%s damage"):format(fmtMult(pass.damageMult)) end
+	if pass.incomeMult then always[#always + 1] = ("x%s DNA"):format(fmtMult(pass.incomeMult)) end
+	if #always > 0 then
+		lines[#lines + 1] = {
+			Icon = IconLibrary.Resolve("\u{2694}\u{FE0F}") or "",
+			Text = table.concat(always, " and ") .. ", always",
+		}
+	end
+
+	local daily = {}
+	if pass.luckAdd then daily[#daily + 1] = ("+%d%% Luck"):format(pass.luckAdd) end
+	if pass.dailyDiamonds then daily[#daily + 1] = ("%d Diamonds a day"):format(pass.dailyDiamonds) end
+	if #daily > 0 then
+		lines[#lines + 1] = {
+			Icon = IconLibrary.Resolve("\u{1F340}") or "",
+			Text = table.concat(daily, "  \u{00B7}  "),
+		}
+	end
+	return lines
+end
+
+-- The first pack in the list, so the `+` on a currency capsule can land on the packs rather than
+-- on the hero. Set while the products are built and read by `FocusPacks`.
+local firstProductName = nil
+
 local passButtons = {}
 -- Which passes the player already holds, as the callback sees it. The button's own `enabled` flag
 -- cannot carry this (see `paintPassButton`), so the guard lives here -- and it is a guard against
@@ -196,6 +256,89 @@ function ShopPanel.Init(screenGui)
 		EmptyText = "The store is unavailable right now",
 	})
 
+	-- ===== THE PASSES COME FIRST NOW, AND VIP COMES FIRST OF THOSE (17.15) =====
+	--
+	-- The order used to be products (LayoutOrder 1..20) then passes (1000+), on the argument that a
+	-- pass and a product are two ladders and mixing them makes a store hard to read. That argument
+	-- still holds and the split is still here -- what changed is which end of the list each one is
+	-- at. A pass is the permanent purchase and VIP is the one the game earns most on; putting the
+	-- consumables above them meant the store opened on its cheapest shelf.
+	--
+	-- The `+` on a currency capsule is the door that cared, and it is answered rather than ignored:
+	-- `FocusPacks` scrolls to the first pack, and `CurrencyPlus` asks for it by pressing
+	-- `openStorePacks`. A player who pressed `+` on DNA is asking for DNA, not for VIP.
+	local vipPass, gridPasses = nil, {}
+	for _, pass in ipairs(GameConfig.GamePasses) do
+		-- A pass with no real id cannot be prompted for and must not be drawn: an unbuyable card on
+		-- the screen the game earns on is worse than a missing one. `RelicSlots2` is the one sitting
+		-- at 0 today, which is 26.4's sentinel for "the dashboard row does not exist yet".
+		if pass.passId and pass.passId ~= 0 then
+			if pass.vip then
+				vipPass = pass
+			else
+				gridPasses[#gridPasses + 1] = pass
+			end
+		end
+	end
+
+	if vipPass then
+		local hero = panel.AddHero({
+			Name = "Pass_" .. vipPass.key,
+			LayoutOrder = 0,
+			Title = vipPass.name,
+			Icon = IconLibrary.Resolve(vipPass.emoji) or "",
+			IconPlate = true,
+			BackgroundColors = WASH_PASS,
+			-- "GAME PASS", not "NEW!". The reference's ribbon is a red NEW! and this pass is two
+			-- months old -- a flash that says something untrue is worth less than the space. What
+			-- the ribbon has to carry here is the one thing a shopper cannot tell from the price:
+			-- that this is permanent and not a consumable.
+			Ribbon = { Text = "GAME PASS", Colors = RIBBON_PASS },
+			Lines = heroLines(vipPass),
+			Button = {
+				Name = "Buy",
+				Price = "R$ " .. tostring(vipPass.price or "?"),
+				Icon = "",
+				Colors = ROBUX,
+				Callback = function()
+					if ownedKeys[vipPass.key] then return end
+					Remotes.PromptGamePassPurchase:FireServer(vipPass.key)
+				end,
+			},
+		})
+		passButtons[vipPass.key] = hero.Button
+	end
+
+	panel.AddSection("GAME PASSES", 1)
+	local grid = panel.AddGrid(2)
+	for i, pass in ipairs(gridPasses) do
+		local tile = grid.AddTile({
+			Name = "Pass_" .. pass.key,
+			LayoutOrder = i,
+			-- THE TILE DROPS `pass.desc` AND KEEPS THE NAME, which is the trade a 186 px tile makes:
+			-- "Move twice as fast, in every zone." is 300 px at any size worth reading, and eight of
+			-- these nine names ARE the effect ("2x Damage", "+3 Pet Slots"). The sentence is not lost
+			-- -- the Roblox purchase prompt the button opens carries the pass's own description.
+			Title = pass.name,
+			Icon = IconLibrary.Resolve(pass.emoji) or "",
+			BackgroundColors = WASH_PASS,
+			Button = {
+				Name = "Buy",
+				Price = "R$ " .. tostring(pass.price or "?"),
+				Icon = "",
+				Colors = ROBUX,
+				-- the KEY, never the pass id, for the same reason the products send a key: the
+				-- server looks the id up, so a tampered client can only ever name a pass that exists
+				Callback = function()
+					if ownedKeys[pass.key] then return end
+					Remotes.PromptGamePassPurchase:FireServer(pass.key)
+				end,
+			},
+		})
+		passButtons[pass.key] = tile.Button
+	end
+
+	panel.AddSection("PACKS AND BUNDLES", 3)
 	for i, product in ipairs(GameConfig.RobuxProducts) do
 		if inStore(product) then
 			-- THE RIBBON, AND WHY NO CARD CLAIMS TO BE POPULAR. "MOST POPULAR" is the standard flash in
@@ -212,9 +355,12 @@ function ShopPanel.Init(screenGui)
 				end
 			end
 
+			-- 10 + i, under the two sections and the grid. It was `i`, from when the products were
+			-- the top of the list.
+			firstProductName = firstProductName or product.key
 			panel.AddCard({
 				Name = product.key,
-				LayoutOrder = i,
+				LayoutOrder = 10 + i,
 				Title = product.name,
 				Subtitle = grantLine(product),
 				Ribbon = ribbon,
@@ -242,41 +388,6 @@ function ShopPanel.Init(screenGui)
 					},
 				},
 			})
-		end
-	end
-
-	-- ===== THE PASSES =====
-	for i, pass in ipairs(GameConfig.GamePasses) do
-		-- A pass with no real id cannot be prompted for and must not be drawn: an unbuyable card on
-		-- the screen the game earns on is worse than a missing one. Every pass has had a real id
-		-- since 2.11, so this is a guard rather than a filter.
-		if pass.passId and pass.passId ~= 0 then
-			local card = panel.AddCard({
-				Name = "Pass_" .. pass.key,
-				LayoutOrder = 1000 + i,
-				Title = pass.name,
-				Subtitle = pass.desc or "",
-				Ribbon = { Text = "GAME PASS", Colors = RIBBON_PASS },
-				Icon = IconLibrary.Resolve(pass.emoji) or "",
-				IconPlate = true,
-				BackgroundColors = WASH_PASS,
-				Buttons = {
-					{
-						Name = "Buy",
-						Price = "R$ " .. tostring(pass.price or "?"),
-						Icon = "",
-						Colors = ROBUX,
-						-- the KEY, never the pass id, for the same reason the products above send a
-						-- key: the server looks the id up, so a tampered client can only ever name a
-						-- pass that exists
-						Callback = function()
-							if ownedKeys[pass.key] then return end
-							Remotes.PromptGamePassPurchase:FireServer(pass.key)
-						end,
-					},
-				},
-			})
-			passButtons[pass.key] = card.Button
 		end
 	end
 
@@ -343,7 +454,11 @@ end
 function ShopPanel.Focus(cardName)
 	if not (panel and cardName) then return end
 	task.defer(function()
-		local card = panel.Scroll:FindFirstChild(cardName)
+		-- RECURSIVE SINCE 17.15, and it has to be: the nine grid passes are children of the grid
+		-- frame, not of the scroll, so a non-recursive lookup found `Pass_AutoHatch` right up to
+		-- the moment they moved into a grid and then silently found nothing -- which reads as
+		-- "the store opened at the top", i.e. exactly what this function exists to prevent.
+		local card = panel.Scroll:FindFirstChild(cardName, true)
 		if not (card and panel.IsOpen()) then return end
 		-- measured against the scroll's own frame rather than the canvas origin, because the canvas
 		-- has a top pad and a list layout between the two and neither is this file's business
@@ -351,6 +466,17 @@ function ShopPanel.Focus(cardName)
 		-- 12 px of air above the card, and never a negative canvas position
 		panel.Scroll.CanvasPosition = Vector2.new(0, math.max(0, y - 12))
 	end)
+end
+
+--- Scroll an open store to the first DNA / Diamond pack.
+---
+--- WHY IT EXISTS (17.15): the `+` on a currency capsule is a player saying "I am short of THIS",
+--- and until the storefront pass it landed on the top of the list, which was the packs. The top is
+--- the VIP hero now, so the door that meant "packs" has to say so. `CurrencyPlus` presses it
+--- through `hud.openStorePacks`; every other door still opens at the hero, which is where a player
+--- who asked for "the store" should arrive.
+function ShopPanel.FocusPacks()
+	if firstProductName then ShopPanel.Focus(firstProductName) end
 end
 
 return ShopPanel

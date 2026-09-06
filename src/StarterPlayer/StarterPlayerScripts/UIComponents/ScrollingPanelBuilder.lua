@@ -104,6 +104,91 @@ local function outlinedText(parent, text, size, height, zIndex, thickness)
 	return l
 end
 
+
+-- ===== ONE BUTTON, THREE SHAPES (17.15) =====
+--
+-- Lifted out of `AddCard` verbatim when the store grew a hero card and a tile grid: those two want
+-- the same button -- the same gradient, the same double stroke, the same handle with `SetPrice` /
+-- `SetEnabled` / `SetColors` on it -- at two other sizes. Copying it would have made three places
+-- to fix the next time a price string has to be indented past an icon, and this file has already
+-- paid for that once (`styleButton`'s third argument, 34.22).
+--
+-- `size` is the only thing the three shapes disagree about; everything else is the card's button as
+-- it was. `panelName` is here only so the pcall's warning still names the panel it happened on.
+local function actionButton(parent, bOpt, order, size, panelName)
+	local btn = Instance.new("TextButton")
+	btn.Name = bOpt.Name or ("Action" .. order)
+	btn.LayoutOrder = order
+	btn.Size = size or UDim2.new(1, 0, 0, 45)
+	btn.BackgroundColor3 = WHITE
+	btn.AutoButtonColor = true
+	btn.Font = Enum.Font.FredokaOne
+	btn.TextSize = bOpt.TextSize or 25
+	btn.TextColor3 = WHITE
+	btn.ZIndex = bOpt.ZIndex or 56
+	btn.Parent = parent
+	local btnGradient = gradient(btn, bOpt.Colors)
+	corner(btn, 6)
+	stroke(btn, INK, 3, Enum.ApplyStrokeMode.Border)
+	stroke(btn, BLACK, 2)
+
+	local bIcon = Instance.new("ImageLabel")
+	bIcon.Name = "ButtonIcon"
+	bIcon.Size = UDim2.new(0, 35, 0, 35)
+	bIcon.Position = UDim2.new(0, 5, 0.5, 0)
+	bIcon.AnchorPoint = Vector2.new(0, 0.5)
+	bIcon.BackgroundTransparency = 1
+	bIcon.Image = bOpt.Icon or ""
+	bIcon.ScaleType = Enum.ScaleType.Fit
+	bIcon.ZIndex = btn.ZIndex + 1
+	bIcon.Active = false
+	bIcon.Parent = btn
+
+	-- the label is indented past the icon only when there IS one, or a plain word like
+	-- "USE" sits visibly off-centre
+	local function setPrice(text)
+		btn.Text = (bIcon.Image ~= "" and "    " or "") .. tostring(text)
+	end
+	setPrice(bOpt.Price)
+
+	local enabled = true
+	local handle
+	handle = {
+		Instance = btn,
+		SetPrice = setPrice,
+		SetIcon = function(img)
+			bIcon.Image = img or ""
+			setPrice((btn.Text:gsub("^%s+", "")))
+		end,
+		SetColors = function(colors)
+			btnGradient.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, colors[1]),
+				ColorSequenceKeypoint.new(1, colors[2]),
+			})
+		end,
+		-- disabled is a LOOK plus a guard, never `Visible = false`: a button that vanishes
+		-- takes the price with it and the card stops explaining itself
+		SetEnabled = function(on, colors)
+			enabled = on and true or false
+			btn.AutoButtonColor = enabled
+			handle.SetColors(enabled and (colors or bOpt.Colors) or DISABLED)
+		end,
+		IsEnabled = function() return enabled end,
+		SetVisible = function(on) btn.Visible = on and true or false end,
+	}
+
+	btn.MouseButton1Click:Connect(function()
+		if not enabled then return end
+		if bOpt.Callback then
+			-- one card's bad callback must not take the panel's other buttons down with it
+			local ok, err = pcall(bOpt.Callback, handle)
+			if not ok then warn(("[%s] card action failed: %s"):format(tostring(panelName), tostring(err))) end
+		end
+	end)
+
+	return handle
+end
+
 function Builder.CreatePanel(options)
 	local screenGui = options.Parent
 
@@ -473,76 +558,10 @@ function Builder.CreatePanel(options)
 
 		local buttons = {}
 		for i, bOpt in ipairs(cardOptions.Buttons or {}) do
-			local btn = Instance.new("TextButton")
-			btn.Name = bOpt.Name or ("Action" .. i)
-			btn.LayoutOrder = i
-			btn.Size = UDim2.new(1, 0, 0, 45)
-			btn.BackgroundColor3 = WHITE
-			btn.AutoButtonColor = true
-			btn.Font = Enum.Font.FredokaOne
-			btn.TextSize = 25
-			btn.TextColor3 = WHITE
-			btn.ZIndex = 56
-			btn.Parent = btnFrame
-			local btnGradient = gradient(btn, bOpt.Colors)
-			corner(btn, 6)
-			stroke(btn, INK, 3, Enum.ApplyStrokeMode.Border)
-			stroke(btn, BLACK, 2)
-
-			local bIcon = Instance.new("ImageLabel")
-			bIcon.Name = "ButtonIcon"
-			bIcon.Size = UDim2.new(0, 35, 0, 35)
-			bIcon.Position = UDim2.new(0, 5, 0.5, 0)
-			bIcon.AnchorPoint = Vector2.new(0, 0.5)
-			bIcon.BackgroundTransparency = 1
-			bIcon.Image = bOpt.Icon or ""
-			bIcon.ScaleType = Enum.ScaleType.Fit
-			bIcon.ZIndex = 57
-			bIcon.Active = false
-			bIcon.Parent = btn
-
-			-- the label is indented past the icon only when there IS one, or a plain word like
-			-- "USE" sits visibly off-centre
-			local function setPrice(text)
-				btn.Text = (bIcon.Image ~= "" and "    " or "") .. tostring(text)
-			end
-			setPrice(bOpt.Price)
-
-			local enabled = true
-			local handle
-			handle = {
-				Instance = btn,
-				SetPrice = setPrice,
-				SetIcon = function(img)
-					bIcon.Image = img or ""
-					setPrice((btn.Text:gsub("^%s+", "")))
-				end,
-				SetColors = function(colors)
-					btnGradient.Color = ColorSequence.new({
-						ColorSequenceKeypoint.new(0, colors[1]),
-						ColorSequenceKeypoint.new(1, colors[2]),
-					})
-				end,
-				-- disabled is a LOOK plus a guard, never `Visible = false`: a button that vanishes
-				-- takes the price with it and the card stops explaining itself
-				SetEnabled = function(on, colors)
-					enabled = on and true or false
-					btn.AutoButtonColor = enabled
-					handle.SetColors(enabled and (colors or bOpt.Colors) or DISABLED)
-				end,
-				IsEnabled = function() return enabled end,
-				SetVisible = function(on) btn.Visible = on and true or false end,
-			}
-
-			btn.MouseButton1Click:Connect(function()
-				if not enabled then return end
-				if bOpt.Callback then
-					-- one card's bad callback must not take the panel's other buttons down with it
-					local ok, err = pcall(bOpt.Callback, handle)
-					if not ok then warn(("[%s] card action failed: %s"):format(options.Name, tostring(err))) end
-				end
-			end)
-
+			-- EXTRACTED TO `actionButton` (17.15) so the hero card and the grid tiles can wear the same
+			-- button. The body moved verbatim; the only thing the three shapes disagree about is the
+			-- size, which is why that is the argument.
+			local handle = actionButton(btnFrame, bOpt, i, UDim2.new(1, 0, 0, 45), options.Name)
 			buttons[i] = handle
 			if bOpt.Name then buttons[bOpt.Name] = handle end
 		end
@@ -596,6 +615,265 @@ function Builder.CreatePanel(options)
 		}
 	end
 
+	-- ===== THE STOREFRONT SHAPES (17.15): A SECTION RULE, A HERO, AND A GRID =====
+	--
+	-- Her note was a reference screenshot beside a capture of ours: *"ovo isto znaci imas ovo u
+	-- shopu"*. The genre's shop is a HIERARCHY -- one big featured card, then a grid of small ones
+	-- under a header -- and ours was twenty-six identical wide rows in one scroll, so the thing the
+	-- game earns most on sat seventeen rows below the fold with nothing to mark it out.
+	--
+	-- All three live here rather than in `ShopPanel` because they are FURNITURE, not shop logic:
+	-- the stud sheet, the ink outline, the gradient ramp and the button above are private to this
+	-- file, and a second file drawing panel cards would have to copy every one of them (which is
+	-- how `MainUI` came to hold two panel kits). What stays in `ShopPanel` is which pass is the
+	-- hero and what its lines say.
+
+	--- A left-aligned heading inside the list, for a store that sells two different kinds of thing.
+	local function AddSection(text, order)
+		local row = Instance.new("Frame")
+		-- Named after its own heading (`Section_GAMEPASSES`), because two headings in one list both
+		-- called "Section" are two frames a probe -- or `Focus` -- cannot tell apart.
+		row.Name = "Section_" .. tostring(text or ""):gsub("%W", "")
+		row.LayoutOrder = order or 0
+		row.Size = UDim2.new(1, -10, 0, 34)
+		row.BackgroundTransparency = 1
+		row.ZIndex = 53
+		row.Parent = scroll
+
+		local label = outlinedText(row, text or "", 26, 34, 55, 4)
+		label.Name = "SectionLabel"
+		label.TextXAlignment = Enum.TextXAlignment.Left
+		return row
+	end
+
+	--- The featured card: one big icon, a title, up to three effect lines, and one price button.
+	---
+	--- THE LINES ARE ICON LINES AND THAT IS THE POINT. A hero card that repeats the pass's own
+	--- sentence is just a bigger row; what the reference does -- and what a player scanning a store
+	--- reads -- is three short claims, each with the drawing of the thing it is about.
+	local function AddHero(opts)
+		local hero = Instance.new("Frame")
+		hero.Name = opts.Name or "Hero"
+		hero.LayoutOrder = opts.LayoutOrder or 0
+		hero.Size = UDim2.new(1, -10, 0, 250)
+		hero.BackgroundColor3 = WHITE
+		hero.BorderSizePixel = 0
+		hero.ZIndex = 53
+		hero.Parent = scroll
+		gradient(hero, opts.BackgroundColors or { WHITE, PANEL_LILAC })
+		corner(hero, 18)
+		stroke(hero, INK, 4)
+		studs(hero, 30, 0.86, 18, 54)
+
+		-- The well behind the art, always on here: a hero is gold and a crown is gold, which is the
+		-- exact collision `IconPlate` was added for on the product cards.
+		local plate = Instance.new("Frame")
+		plate.Name = "IconPlate"
+		plate.Size = UDim2.new(0, 168, 0, 168)
+		plate.Position = UDim2.new(0, 16, 0.5, 0)
+		plate.AnchorPoint = Vector2.new(0, 0.5)
+		plate.BackgroundColor3 = Color3.fromRGB(18, 20, 46)
+		plate.BackgroundTransparency = 0.62
+		plate.BorderSizePixel = 0
+		plate.ZIndex = 54
+		plate.Parent = hero
+		corner(plate, 18)
+		stroke(plate, INK, 3)
+
+		local icon = Instance.new("ImageLabel")
+		icon.Name = "Icon"
+		icon.Size = UDim2.new(0, 150, 0, 150)
+		icon.Position = UDim2.new(0, 25, 0.5, 0)
+		icon.AnchorPoint = Vector2.new(0, 0.5)
+		icon.BackgroundTransparency = 1
+		icon.Image = opts.Icon or ""
+		icon.ScaleType = Enum.ScaleType.Fit
+		icon.ZIndex = 55
+		icon.Parent = hero
+
+		-- 196 clears the plate (16 + 168) with 12 px of air; the right-hand 16 is the card's own
+		-- margin. Everything below measures its text against this width and not against the card.
+		local text = Instance.new("Frame")
+		text.Name = "Text"
+		text.Size = UDim2.new(1, -212, 1, -24)
+		text.Position = UDim2.new(0, 196, 0, 12)
+		text.BackgroundTransparency = 1
+		text.ZIndex = 55
+		text.Parent = hero
+
+		local title = outlinedText(text, opts.Title or "", 40, 46, 56, 5)
+		title.Name = "HeroTitle"
+		title.TextXAlignment = Enum.TextXAlignment.Left
+		title.TextTruncate = Enum.TextTruncate.AtEnd
+
+		-- The ribbon sits on the title's own line, right-aligned, rather than over the corner: the
+		-- corner of a hero is where the outline is, and a badge drawn over a 4 px stroke reads as a
+		-- sticker that missed. `AutomaticSize` so "NEW!" and "BEST VALUE" both fit their pill.
+		local ribbon
+		if opts.Ribbon then
+			ribbon = Instance.new("TextLabel")
+			ribbon.Name = "Ribbon"
+			ribbon.AutomaticSize = Enum.AutomaticSize.X
+			ribbon.Size = UDim2.new(0, 0, 0, 30)
+			ribbon.Position = UDim2.new(1, 0, 0, 8)
+			ribbon.AnchorPoint = Vector2.new(1, 0)
+			ribbon.BackgroundColor3 = WHITE
+			ribbon.Font = Enum.Font.FredokaOne
+			ribbon.Text = "  " .. tostring(opts.Ribbon.Text or "") .. "  "
+			ribbon.TextSize = 20
+			ribbon.TextColor3 = WHITE
+			ribbon.ZIndex = 57
+			ribbon.Parent = text
+			gradient(ribbon, opts.Ribbon.Colors or { WHITE, PANEL_LILAC })
+			corner(ribbon, 8)
+			stroke(ribbon, INK, 3, Enum.ApplyStrokeMode.Border)
+			stroke(ribbon, BLACK, 2)
+		end
+
+		-- Three lines, 34 apart, starting under the title. Four would reach the button.
+		local lines = {}
+		for i, line in ipairs(opts.Lines or {}) do
+			if i > 3 then break end
+			local row = Instance.new("Frame")
+			row.Name = "Line" .. i
+			row.Size = UDim2.new(1, 0, 0, 30)
+			row.Position = UDim2.new(0, 0, 0, 54 + (i - 1) * 34)
+			row.BackgroundTransparency = 1
+			row.ZIndex = 55
+			row.Parent = text
+
+			local li = Instance.new("ImageLabel")
+			li.Name = "LineIcon"
+			li.Size = UDim2.new(0, 28, 0, 28)
+			li.Position = UDim2.new(0, 0, 0.5, 0)
+			li.AnchorPoint = Vector2.new(0, 0.5)
+			li.BackgroundTransparency = 1
+			li.Image = line.Icon or ""
+			li.ScaleType = Enum.ScaleType.Fit
+			li.ZIndex = 56
+			li.Parent = row
+
+			local lt = outlinedText(row, line.Text or "", 20, 30, 56, 3)
+			lt.Name = "LineText"
+			lt.Size = UDim2.new(1, -36, 0, 30)
+			lt.Position = UDim2.new(0, 36, 0, 0)
+			lt.TextXAlignment = Enum.TextXAlignment.Left
+			lt.TextTruncate = Enum.TextTruncate.AtEnd
+			lines[i] = { Icon = li, Label = lt }
+		end
+
+		local button
+		if opts.Button then
+			button = actionButton(text, opts.Button, 1, UDim2.new(0, 230, 0, 54), opts.Name or "Hero")
+			button.Instance.Position = UDim2.new(1, 0, 1, 0)
+			button.Instance.AnchorPoint = Vector2.new(1, 1)
+			button.Instance.TextSize = 28
+		end
+
+		return {
+			Instance = hero,
+			Button = button,
+			SetTitle = function(t) title.Text = t or "" end,
+			SetLine = function(i, t)
+				local l = lines[i]
+				if l then l.Label.Text = t or "" end
+			end,
+			SetColors = function(colors)
+				for _, g in ipairs(hero:GetChildren()) do
+					if g:IsA("UIGradient") then
+						g.Color = ColorSequence.new({
+							ColorSequenceKeypoint.new(0, colors[1]),
+							ColorSequenceKeypoint.new(1, colors[2]),
+						})
+					end
+				end
+			end,
+		}
+	end
+
+	--- A block of small square tiles inside the list. Returns a handle with `AddTile`; the tiles
+	--- themselves are 186 x 206, three to a row in a 600 px list -- 582 of cells and gutters, which
+	--- leaves the scrollbar its 12 px and the stroke its 4.
+	local function AddGrid(order)
+		local frame = Instance.new("Frame")
+		frame.Name = "Grid"
+		frame.LayoutOrder = order or 0
+		frame.Size = UDim2.new(1, -10, 0, 0)
+		frame.AutomaticSize = Enum.AutomaticSize.Y
+		frame.BackgroundTransparency = 1
+		frame.ZIndex = 53
+		frame.Parent = scroll
+
+		local gl = Instance.new("UIGridLayout")
+		gl.CellSize = UDim2.new(0, 186, 0, 206)
+		gl.CellPadding = UDim2.new(0, 12, 0, 12)
+		gl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+		gl.SortOrder = Enum.SortOrder.LayoutOrder
+		gl.Parent = frame
+
+		local function AddTile(tileOptions)
+			local tile = Instance.new("Frame")
+			tile.Name = tileOptions.Name or "Tile"
+			tile.LayoutOrder = tileOptions.LayoutOrder or 0
+			tile.BackgroundColor3 = WHITE
+			tile.BorderSizePixel = 0
+			tile.ZIndex = 53
+			tile.Parent = frame
+			gradient(tile, tileOptions.BackgroundColors or { WHITE, PANEL_LILAC })
+			corner(tile, 14)
+			stroke(tile, INK, 4)
+			studs(tile, 30, 0.86, 14, 54)
+
+			local plate = Instance.new("Frame")
+			plate.Name = "IconPlate"
+			plate.Size = UDim2.new(0, 90, 0, 90)
+			plate.Position = UDim2.new(0.5, 0, 0, 10)
+			plate.AnchorPoint = Vector2.new(0.5, 0)
+			plate.BackgroundColor3 = Color3.fromRGB(18, 20, 46)
+			plate.BackgroundTransparency = 0.62
+			plate.BorderSizePixel = 0
+			plate.ZIndex = 54
+			plate.Parent = tile
+			corner(plate, 12)
+			stroke(plate, INK, 3)
+
+			local icon = Instance.new("ImageLabel")
+			icon.Name = "Icon"
+			icon.Size = UDim2.new(0, 78, 0, 78)
+			icon.Position = UDim2.new(0.5, 0, 0, 16)
+			icon.AnchorPoint = Vector2.new(0.5, 0)
+			icon.BackgroundTransparency = 1
+			icon.Image = tileOptions.Icon or ""
+			icon.ScaleType = Enum.ScaleType.Fit
+			icon.ZIndex = 55
+			icon.Parent = tile
+
+			-- TWO LINES AND WRAPPED, not one truncated. "Fast Auto Attack" is 168 px at 18 on a 170 px
+			-- line, so a single-line tile title truncates the longest names in the list -- which are
+			-- the passes, i.e. the things this grid exists to sell.
+			local name = outlinedText(tile, tileOptions.Title or "", 18, 48, 55, 3)
+			name.Name = "TileTitle"
+			name.Size = UDim2.new(1, -16, 0, 48)
+			name.Position = UDim2.new(0, 8, 0, 106)
+			name.TextWrapped = true
+
+			local button
+			if tileOptions.Button then
+				button = actionButton(tile, tileOptions.Button, 1, UDim2.new(1, -20, 0, 42), tile.Name)
+				button.Instance.Position = UDim2.new(0.5, 0, 1, -10)
+				button.Instance.AnchorPoint = Vector2.new(0.5, 1)
+				button.Instance.TextSize = 22
+			end
+
+			return {
+				Instance = tile,
+				Button = button,
+				SetTitle = function(t) name.Text = t or "" end,
+			}
+		end
+
+		return { Instance = frame, AddTile = AddTile }
+	end
 	-- For the lists whose LENGTH changes rather than their contents -- the potion bag, which empties
 	-- as it is drunk. A list of fixed membership (the twenty zones) should keep its handles and
 	-- update them instead: rebuilding throws the scroll position away.
@@ -647,6 +925,9 @@ function Builder.CreatePanel(options)
 		Scroll = scroll,
 		Footer = footerFrame,
 		AddCard = AddCard,
+		AddSection = AddSection,
+		AddHero = AddHero,
+		AddGrid = AddGrid,
 		Clear = Clear,
 		Toggle = function() SetOpen(not overlay.Visible) end,
 		SetOpen = SetOpen,

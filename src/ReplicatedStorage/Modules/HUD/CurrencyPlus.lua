@@ -33,17 +33,26 @@ return function(hud)
 			--
 			-- This used to be `toggleOnly(hud.robuxPanel)` plus `selectRobuxTab(false)` -- a handle
 			-- on an instance MainUI built, and a request for that instance's Packs tab. Both are
-			-- gone with the panel. `UIComponents.ShopPanel` is one scrolling list with the products
-			-- first, so "always the Packs tab" is now the default rather than an instruction: a `+`
-			-- on a currency is a request for that currency, never for a pass, and no pass hint is
-			-- passed here for exactly that reason.
+			-- gone with the panel. A `+` on a currency is a request for that currency, never for a
+			-- pass -- which used to need no saying, because `ShopPanel` was one scrolling list with
+			-- the products at the top of it.
+			--
+			-- 17.15 MOVED THE TOP OF THAT LIST. The passes sort above the packs now and the first
+			-- thing in the store is the VIP hero, so "open the store" and "open the packs" stopped
+			-- being the same instruction and this button means the second one. `openStorePacks` is
+			-- `openStore` plus a scroll; the fallback is here because a field this module does not
+			-- own can be missing, and landing on the hero beats not opening the store at all.
 			--
 			-- Read at PRESS time, not captured as an upvalue at build time. MainUI does assign
 			-- `openStore` before this module is required, so an upvalue would work today -- and
 			-- that is the whole argument against it. The old line broke the moment the instance it
 			-- named stopped existing; a field read on press is indifferent to require order, which
 			-- is the property that was missing when this was `toggleOnly(robuxPanel)`.
-			if hud.openStore then hud.openStore() end
+			if hud.openStorePacks then
+				hud.openStorePacks()
+			elseif hud.openStore then
+				hud.openStore()
+			end
 		end)
 	end
 

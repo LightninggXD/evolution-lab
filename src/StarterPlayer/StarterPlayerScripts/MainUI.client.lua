@@ -2985,6 +2985,16 @@ hudRefs.openStore = function(passKey)
 	if passKey then ShopPanel.Focus("Pass_" .. passKey) end
 end
 
+-- THE `+` ON A CURRENCY IS A DIFFERENT REQUEST FROM "THE STORE" (17.15). The store opens on the
+-- VIP hero now -- the passes sort above the packs, where they earn -- so the door a player takes
+-- when they came up short of DNA has to name the shelf it means. One extra call, and the whole of
+-- it is `ShopPanel.FocusPacks`, which is a scroll and can change nothing about what is sold.
+hudRefs.openStorePacks = function()
+	hudRefs.openStore()
+	local ShopPanel = require(script.Parent.UIComponents.ShopPanel)
+	ShopPanel.FocusPacks()
+end
+
 -- ===== THE `+` ON THE CURRENCY CAPSULES =====
 --
 -- Twenty lines, and the highest-leverage conversion change in this file: the store is otherwise
