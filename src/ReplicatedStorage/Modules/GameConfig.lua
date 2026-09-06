@@ -81,6 +81,13 @@ for _, part in ipairs({
 	-- that already lets `Swords` and `Levels` load after the part that asks them. Appending is
 	-- therefore the only move that cannot produce the silent nil this list's header warns about.
 	"Training",
+	-- LAST, and the argument is `Training`'s over again. `Sprint` reads NOTHING off the table at
+	-- load time -- every constant in it is literal -- and nothing above it reads a `Sprint*` name at
+	-- load time either. Its one outward quote goes BACKWARDS at CALL time: `GetSprintLedger` asks
+	-- `MinigameDayNumber` which day it is, so the two features that ration a player by the UTC day
+	-- cannot disagree about when one ends. Appending is therefore the only move that cannot produce
+	-- the silent nil this list's header warns about.
+	"Sprint",
 }) do
 	require(script:WaitForChild(part))(GameConfig)
 end

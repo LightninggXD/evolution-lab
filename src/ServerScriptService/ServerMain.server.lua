@@ -39,6 +39,7 @@ local HubPlaza = require(ServerScriptService.HubPlaza)
 
 local WorldApron = require(ServerScriptService.WorldApron)
 local WaterfallParkour = require(ServerScriptService.WaterfallParkour)
+local SprintTrack = require(ServerScriptService.SprintTrack)
 local TradeService = require(ServerScriptService.TradeService)
 local MinigameService = require(ServerScriptService.MinigameService)
 local ExpeditionService = require(ServerScriptService.ExpeditionService)
@@ -332,6 +333,17 @@ WorldApron.Init()
 -- at the top of these falls is the secret this route exists to reach. If the two ever disagree,
 -- the log should show the world the player actually gets.
 WaterfallParkour.Init()
+-- Beside those two, and version-stamped like them, for the same reason both of them are here: the
+-- lane is scenery with its own stamp so a change to it never drags ZoneBuilder's BUILD_VERSION and
+-- its 105,000 parts along, and it lives at the top of Workspace so a zone rebuild cannot take it.
+--
+-- ITS ORDERING CONSTRAINT IS `HubPlaza.Init()` ABOVE, and it is a soft one stated so nobody
+-- reverses it: the lane stands on the measured clear ground NORTH of the plaza gate, and the plaza
+-- is the thing whose furniture searches decide what is standing where down there. The track does
+-- not search -- its footprint is authored off a live probe, recorded in its own header -- so it
+-- cannot be displaced and cannot get out of anything's way either. Running it after the plaza means
+-- the boot log prints them in the order a reader would expect to compare them in.
+SprintTrack.Init()
 -- LAST, and after DNAService in particular: the offline payout is DNAService.GetAutoCollectAmount
 -- multiplied by a bounded number of seconds, so it has to run once the income stack it reads is
 -- fully wired. It hooks PlayerAdded itself rather than being called from the block below, because
