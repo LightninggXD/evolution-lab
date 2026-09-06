@@ -40,6 +40,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local PlayerJoin = require(script.Parent.Systems.PlayerJoin)
 
 local SplicerService = {}
 
@@ -1100,20 +1101,23 @@ function SplicerService.Init()
 	-- PlayerDataService refunds the deleted Mutation Chance upgrade during load and leaves the
 	-- amount in memory (never on the save -- it would be persisted and re-announced forever).
 	-- This is its only reader, and it clears the entry so a rejoin on the same server says nothing.
-	Players.PlayerAdded:Connect(function(player)
-		task.spawn(function()
+	-- 35.13: `onEach`, and the `:Wait()` below had to be guarded with it. On a replay the character
+	-- usually EXISTS already, and `CharacterAdded:Wait()` on a player who has one blocks until their
+	-- next death -- so the notice would have arrived at a respawn, or never.
+	PlayerJoin.onEach(function(player)
+		if not player.Character then
 			player.CharacterAdded:Wait()
-			task.wait(3) -- the HUD and SplicerUI are both up well inside this
-			local refund = PlayerDataService.SplicerRefunds[player.UserId]
-			if refund and refund > 0 then
-				PlayerDataService.SplicerRefunds[player.UserId] = nil
-				-- Through the ordinary Notify stack rather than a card of its own: it is news, not
-				-- an event, and MainUI already owns how news is worded, ranked and sounded.
-				Remotes.Notify:FireClient(player, { kind = "reward",
-					message = ("🧬 Mutation Chance was replaced by the DNA Splicer -- refunded %d DNA")
-						:format(refund) })
-			end
-		end)
+		end
+		task.wait(3) -- the HUD and SplicerUI are both up well inside this
+		local refund = PlayerDataService.SplicerRefunds[player.UserId]
+		if refund and refund > 0 then
+			PlayerDataService.SplicerRefunds[player.UserId] = nil
+			-- Through the ordinary Notify stack rather than a card of its own: it is news, not
+			-- an event, and MainUI already owns how news is worded, ranked and sounded.
+			Remotes.Notify:FireClient(player, { kind = "reward",
+				message = ("🧬 Mutation Chance was replaced by the DNA Splicer -- refunded %d DNA")
+					:format(refund) })
+		end
 	end)
 
 	Players.PlayerRemoving:Connect(function(player)

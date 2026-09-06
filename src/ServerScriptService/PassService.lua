@@ -7,6 +7,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local PlayerJoin = require(script.Parent.Systems.PlayerJoin)
 local Telemetry = require(script.Parent.Telemetry)
 
 local PassService = {}
@@ -185,20 +186,24 @@ end
 function PassService.Init()
 	local promptPass = ensureRemote("PromptGamePassPurchase")
 
-	Players.PlayerAdded:Connect(function(player)
-		task.spawn(function()
-			-- PlayerDataService loads on its own PlayerAdded connection and there is no ordering
-			-- guarantee between two connections to the same event, so wait for the table to exist
-			-- rather than assuming it does.
-			local data
-			repeat
-				task.wait(0.2)
-				data = PlayerDataService.Get(player)
-			until data or not player.Parent
-			if data then
-				refreshWithRetries(player)
-			end
-		end)
+	-- 35.13: `PlayerJoin.onEach`, NOT a bare `PlayerAdded:Connect`. `PassService.Init()` is
+	-- `ServerMain:284` and the world build at 99 takes about a minute, so a player who joined
+	-- during the boot had already fired their join event into nothing -- and this handler is the
+	-- only thing that fills `data.Passes`. The measured result was a session with NO GAME PASSES
+	-- AT ALL: no VIP, no 2x DNA, no auto-collect, and in Studio not even the test grant, which is
+	-- why `[PassService] STUDIO TEST MODE` had stopped appearing in the console.
+	PlayerJoin.onEach(function(player)
+		-- PlayerDataService loads on its own connection and there is no ordering guarantee between
+		-- two handlers of the same event, so wait for the table to exist rather than assuming it
+		-- does. (`onEach` already runs this in its own thread.)
+		local data
+		repeat
+			task.wait(0.2)
+			data = PlayerDataService.Get(player)
+		until data or not player.Parent
+		if data then
+			refreshWithRetries(player)
+		end
 	end)
 
 	Players.PlayerRemoving:Connect(function(player)

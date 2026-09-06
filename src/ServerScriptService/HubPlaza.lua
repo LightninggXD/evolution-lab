@@ -76,7 +76,11 @@ local HubPlaza = {}
 -- 3: the photo spot gained the prompt it had been missing since it was built (17.3).
 -- 4: the Exhibit -- fourteen locked-but-visible skins flanking the walk from the spawn (26.5).
 -- 5: the trading floor -- the marked circle 30.7 gives 21.1's proximity tags to point at.
-local PLAZA_VERSION = 6
+-- 6: bumped by 34.47 with no line written here; recorded now so the ladder has no hole in it.
+-- 7: the VIP rank's plaques gained a fourth line naming the skin's two multipliers, and a Robux
+--    door on the plaque itself -- a prompt is a new instance, so a standing plaza never grows one
+--    without this (17.12).
+local PLAZA_VERSION = 7
 
 -- What the first photo pays, once per save, ever. Diamonds rather than DNA because DNA is
 -- stage-scaled and a fixed figure means nothing across twenty zones -- the same reasoning the
@@ -888,7 +892,7 @@ end
 -- A museum label, not a floating billboard. A BillboardGui over a statue's head reads as a HUD
 -- element that happens to be in the world -- the signage note this game has paid for twice -- and
 -- this one has a real slab to sit on, angled with the figure so the walk sees both square-on.
-local function buildPlaque(stand, centre, side, entry, earnLine, tint)
+local function buildPlaque(stand, centre, side, entry, earnLine, tint, perkLine)
 	local look = exhibitLook(side)
 	-- CLEAR OF THE PLINTH, WHICH THE FIRST CUT WAS NOT AND ONLY A CAPTURE SAID SO. At 4.9 the slab
 	-- was inside the base's own 13-stud footprint: every property read correct, `TextFits` was true,
@@ -929,10 +933,20 @@ local function buildPlaque(stand, centre, side, entry, earnLine, tint)
 	corner.CornerRadius = UDim.new(0, 10)
 	corner.Parent = shell
 
+	-- ===== THREE BANDS, OR FOUR WHEN THERE IS A PERK TO NAME (17.12) =====
+	-- The wardrobe is the one costume in the game that changes what you hit for, and until this row
+	-- the only place that said so was a Journal card three clicks in. An event plaque still gets the
+	-- old three bands: an event skin has no multipliers, so a fourth line there would be an empty
+	-- row shrinking the other three for nothing. Every band is a fraction of the same 170 px shell,
+	-- so moving one means moving its neighbours -- they are written together for that reason.
+	local BAND = perkLine
+		and { title = {0.32, 0.02}, perk = {0.22, 0.35}, earn = {0.20, 0.57}, status = {0.22, 0.77} }
+		or  { title = {0.40, 0.03},                      earn = {0.29, 0.42}, status = {0.26, 0.72} }
+
 	local title = Instance.new("TextLabel")
 	title.Name = "Title"
-	title.Size = UDim2.fromScale(1, 0.40)
-	title.Position = UDim2.fromScale(0, 0.03)
+	title.Size = UDim2.fromScale(1, BAND.title[1])
+	title.Position = UDim2.fromScale(0, BAND.title[2])
 	title.BackgroundTransparency = 1
 	title.Font = UITheme.Font.Display
 	title.Text = (entry.emoji or "") .. "  " .. entry.name
@@ -940,12 +954,30 @@ local function buildPlaque(stand, centre, side, entry, earnLine, tint)
 	title.TextScaled = true
 	title.Parent = shell
 
+	-- WHAT THE SKIN DOES, IN THE TWO NUMBERS THAT ARE THE WHOLE OF IT. Read off the entry rather
+	-- than written here, so re-tuning the wardrobe's two ladders (the block over
+	-- GameConfig.VipCharacters) re-letters nine plaques and needs no edit in this file.
+	if perkLine then
+		local perk = Instance.new("TextLabel")
+		perk.Name = "Perk"
+		perk.Size = UDim2.fromScale(1, BAND.perk[1])
+		perk.Position = UDim2.fromScale(0, BAND.perk[2])
+		perk.BackgroundTransparency = 1
+		perk.Font = UITheme.Font.Display
+		perk.Text = perkLine
+		-- The one warm line on a cool sheet: this is the sales pitch, and it must not read as the
+		-- same weight as the pass price under it.
+		perk.TextColor3 = Color3.fromRGB(168, 120, 24)
+		perk.TextScaled = true
+		perk.Parent = shell
+	end
+
 	-- Dark ink on a white sheet takes NO stroke. UITheme's outline is the same near-black as the
 	-- glyph, so a halo here renders as a blob -- 12.3, 12.6 and 26.3 have each paid for this once.
 	local earn = Instance.new("TextLabel")
 	earn.Name = "Earn"
-	earn.Size = UDim2.fromScale(1, 0.29)
-	earn.Position = UDim2.fromScale(0, 0.42)
+	earn.Size = UDim2.fromScale(1, BAND.earn[1])
+	earn.Position = UDim2.fromScale(0, BAND.earn[2])
 	earn.BackgroundTransparency = 1
 	earn.Font = UITheme.Font.Body
 	earn.Text = earnLine
@@ -957,8 +989,8 @@ local function buildPlaque(stand, centre, side, entry, earnLine, tint)
 	-- DataUpdate: whether this player has it, and for an event skin how long its window has left.
 	local status = Instance.new("TextLabel")
 	status.Name = "Status"
-	status.Size = UDim2.fromScale(1, 0.26)
-	status.Position = UDim2.fromScale(0, 0.72)
+	status.Size = UDim2.fromScale(1, BAND.status[1])
+	status.Position = UDim2.fromScale(0, BAND.status[2])
 	status.BackgroundTransparency = 1
 	status.Font = UITheme.Font.Display
 	status.Text = "\u{1F512} LOCKED"
@@ -1017,7 +1049,7 @@ end
 
 -- One plinth, one figure, one plaque. `entry` is the GameConfig character row; `kind` is what the
 -- client branches on.
-local function buildStand(parent, preferred, side, entry, kind, earnLine, tint)
+local function buildStand(parent, preferred, side, entry, kind, earnLine, tint, perkLine, sellKey)
 	local pos = standInRank(preferred, side)
 	if not pos then return nil end
 
@@ -1054,8 +1086,65 @@ local function buildStand(parent, preferred, side, entry, kind, earnLine, tint)
 		Color = tint, CanCollide = true, Parent = stand,
 	})
 
-	buildPlaque(stand, pos, side, entry, earnLine, tint)
+	local plaque = buildPlaque(stand, pos, side, entry, earnLine, tint, perkLine)
+
+	-- ===== THE TILL, AND IT IS ON THE PLAQUE ON PURPOSE (17.12) =====
+	--
+	-- 26.5 built this rank with NO door and wrote its reason down: the Journal's VIP portrait is the
+	-- one till, and a second one standing in the world would be a duplicate. That was a fair call
+	-- and it is being reversed, because the OWNER's own words for this rank asked for both halves in
+	-- one sentence -- *"vip skinovi nek stoje na pocetku tj u forrestu izlozeni i nek se mogu kupiti
+	-- robuxima"*. Displayed, and buyable. Until now the plaque's last line said "Unlock in the
+	-- Journal", which is a signpost to a till rather than a till: a player who has walked up to the
+	-- statue, read the price and decided still has to open a panel and find the portrait again.
+	--
+	-- IT SELLS THE PASS, NOT THE SKIN, and that is not a shortcut. The block over
+	-- `GameConfig.VipCharacters` settles it: *"ALL NINE ARE ONE PURCHASE ... not nine separate
+	-- sales"* -- they are granted and revoked together by `SyncVipCharacter`. So the honest door at
+	-- any one plinth is the door to all nine, and this row's older plan of a per-skin `productId` is
+	-- superseded rather than blocked. (The vestigial `robuxPrice` on eight of the nine entries is
+	-- what is left of that plan; nothing reads it.)
+	--
+	-- ON THE PLAQUE RATHER THAN ON THE COLUMN, for the reason 35.8 cost a session to find: a prompt
+	-- is only offered while its anchor is ON SCREEN, and the plaque is the thing a player is already
+	-- looking at -- planted on the deck, chest high, and 8.4 studs in FRONT of the plinth, so it can
+	-- neither be hidden behind the base nor climb over the camera as you walk up. `RequiresLineOfSight`
+	-- is off for the same reason the figure is `CanQuery = false`: the sheet the prompt hangs on is
+	-- itself between the prompt and the player.
+	--
+	-- ENABLED HERE AND SWITCHED PER PLAYER IN `Exhibit.client`. This is one shared set of parts, so
+	-- the server cannot know who owns the pass; the client turns the caption from a purchase into
+	-- "Wear it" for a VIP, exactly as it repaints the figure.
+	if sellKey and plaque then
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "StandPrompt"
+		prompt.ActionText = "Get VIP"
+		prompt.ObjectText = entry.name
+		prompt.KeyboardKeyCode = Enum.KeyCode.E
+		prompt.HoldDuration = 0
+		prompt.RequiresLineOfSight = false
+		-- Under the rank's own 24-stud pitch, so the plinth you are standing at is the one that
+		-- answers -- the service offers the nearest prompt, and a reach that overlapped a neighbour
+		-- would make the row feel like it belonged to whichever statue you had walked past last.
+		prompt.MaxActivationDistance = 16
+		prompt:SetAttribute("SellPass", sellKey)
+		prompt:SetAttribute("CharacterKey", entry.key)
+		prompt.Parent = plaque
+	end
+
 	return pos
+end
+
+-- x4.5 rather than x4.50, and x1.5 rather than x1.50: the same trim `JournalGrid` runs on the same
+-- two fields, so the world and the panel quote one skin's numbers identically. A skin with no
+-- multipliers gets no line at all rather than a pair of x1s.
+local function perkLineFor(entry)
+	if not entry.vipDamageMult then return nil end
+	local function trim(n)
+		return (("%.2f"):format(n):gsub("%.?0+$", ""))
+	end
+	return ("\u{2694}\u{FE0F} x%s damage   \u{2022}   \u{1F9EC} x%s DNA")
+		:format(trim(entry.vipDamageMult), trim(entry.vipIncomeMult or 1))
 end
 
 -- The two ranks, ordered the way they are walked: the VIP row escalates away from the spawn, so
@@ -1074,9 +1163,14 @@ local function buildExhibit(model)
 	local vipLine = (pass and pass.passId and pass.passId > 0)
 		and ("VIP Pass \u{2022} R$ %d for all %d"):format(pass.price, #GameConfig.VipCharacters)
 		or "VIP Pass"
+	-- The pass key is handed down only when it can actually be bought -- `passId <= 0` is the same
+	-- guard the caption above uses, and a prompt that fires a purchase which cannot complete is the
+	-- exact failure this row was written to avoid.
+	local sellKey = (pass and pass.passId and pass.passId > 0) and pass.key or nil
 	for index, entry in ipairs(GameConfig.VipCharacters) do
 		local preferred = Vector3.new(EXHIBIT_X, 0, EXHIBIT_Z - (index - 1) * EXHIBIT_STEP)
-		local pos = buildStand(exhibit, preferred, 1, entry, "vip", vipLine, GOLD)
+		local pos = buildStand(exhibit, preferred, 1, entry, "vip", vipLine, GOLD,
+			perkLineFor(entry), sellKey)
 		if pos then
 			built += 1
 			table.insert(spots, pos)

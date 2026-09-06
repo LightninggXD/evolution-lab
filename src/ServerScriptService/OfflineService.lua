@@ -37,6 +37,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local PlayerJoin = require(script.Parent.Systems.PlayerJoin)
 local Telemetry = require(script.Parent.Telemetry)
 local DNAService = require(script.Parent.DNAService)
 
@@ -101,23 +102,26 @@ function OfflineService.Grant(player)
 end
 
 function OfflineService.Init()
-	Players.PlayerAdded:Connect(function(player)
-		task.spawn(function()
-			-- The same wait-for-data shape ServerMain uses. It has to wait: Load yields on a
-			-- DataStore read, and GetAutoCollectAmount needs the upgrades that read brings back.
-			local data
-			repeat
-				task.wait(0.2)
-				data = PlayerDataService.Get(player)
-			until data or not player.Parent
-			if not data or not player.Parent then return end
-			-- a beat behind the join so the welcome-back card does not land underneath the loading
-			-- screen it would otherwise be drawn behind
-			task.wait(1.5)
-			if player.Parent then
-				OfflineService.Grant(player)
-			end
-		end)
+	-- 35.13: `onEach`, so a player who joined while the world was still building is still paid.
+	-- This is the handler that grants offline earnings and draws the Welcome Back card, and it runs
+	-- EXACTLY ONCE per player by construction -- paying an offline bank twice is the reason that
+	-- guard lives in the helper rather than in each caller.
+	PlayerJoin.onEach(function(player)
+		-- The same wait-for-data shape ServerMain uses. It has to wait: Load yields on a
+		-- DataStore read, and GetAutoCollectAmount needs the upgrades that read brings back.
+		-- (`onEach` already runs this in its own thread, so the old inner `task.spawn` is gone.)
+		local data
+		repeat
+			task.wait(0.2)
+			data = PlayerDataService.Get(player)
+		until data or not player.Parent
+		if not data or not player.Parent then return end
+		-- a beat behind the join so the welcome-back card does not land underneath the loading
+		-- screen it would otherwise be drawn behind
+		task.wait(1.5)
+		if player.Parent then
+			OfflineService.Grant(player)
+		end
 	end)
 end
 

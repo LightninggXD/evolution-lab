@@ -3,6 +3,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local PlayerJoin = require(script.Parent.Systems.PlayerJoin)
 local Telemetry = require(script.Parent.Telemetry)
 local ZoneBuilder = require(script.Parent.ZoneBuilder)
 
@@ -355,13 +356,25 @@ function ZoneService.Init()
 		end
 	end)
 
-	Players.PlayerAdded:Connect(function(player)
+	-- 35.13: `onEach`. A player who joined during the world build never fired `PlayerAdded`, so
+	-- this connect never happened and they were never returned to their own zone -- not on the
+	-- join, and not on any respawn for the rest of the session.
+	PlayerJoin.onEach(function(player)
 		player.CharacterAdded:Connect(function()
 			-- the HumanoidRootPart exists before the character is parented into the workspace, and
 			-- moving it any earlier is silently undone by the spawn placement that follows
 			task.wait(0.35)
 			ZoneService.ReturnToCurrentZone(player)
 		end)
+		-- AND THE BODY THAT IS ALREADY STANDING THERE. On a replay the spawn we are connecting for
+		-- has already happened, so the connect alone repairs every FUTURE respawn and leaves the
+		-- current one where the fault put it: in Forest, whatever the save says. This is the same
+		-- 0.35 s and the same call the handler above makes, and `ReturnToCurrentZone` is a no-op
+		-- for a Forest save or a zone this player has not unlocked.
+		if player.Character then
+			task.wait(0.35)
+			ZoneService.ReturnToCurrentZone(player)
+		end
 	end)
 
 	-- Wire up the big portal gates ZoneBuilder placed in each zone's walls: walking

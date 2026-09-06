@@ -17,6 +17,11 @@
 	that costs a sale. Every stand is silhouetted the moment it is found, before any data arrives, and
 	only a payload can unlock one.
 
+	AND SINCE 17.12 IT OWNS THE PLINTH'S DOOR AS WELL. The server hangs a `ProximityPrompt` on every
+	VIP plaque; this file captions it per player -- `Get VIP` for somebody who does not hold the
+	pass, `Wear it` for somebody who does -- and answers the press. Same seam, same reason: one
+	shared rank, one answer per client.
+
 	THE TEXTURE IS THE HALF A TINT DOES NOT COVER. These are catalog bundles: `Color` alone leaves a
 	fully textured Korblox-grade body standing there in a dark tint, which reads as a lighting bug
 	rather than as a locked item. Clearing `MeshPart.TextureID` is what makes it a shape. It is a
@@ -90,10 +95,20 @@ local function statusFor(rec)
 	end
 
 	if rec.kind ~= "event" then
-		-- The door itself is the Journal's VIP portrait (26.4). A plaque that opened a Robux prompt
-		-- would be a second till for the same pass standing in the middle of the world, and the one
-		-- in the Journal is beside the nine portraits it sells.
-		return "\u{1F512} Unlock in the Journal", INK_PRICE
+		-- ===== IT SAYS THE PRICE NOW, BECAUSE THE PLINTH IS A TILL (17.12) =====
+		-- This used to read "Unlock in the Journal" and 26.5's note beside it argued that the
+		-- Journal's VIP portrait should stay the only door. The owner asked for the other thing in
+		-- the same sentence that asked for the rank -- displayed AND buyable with Robux -- so the
+		-- plaque carries a `ProximityPrompt` and this line is what tells you to press it. A stand
+		-- built with no prompt (an unset `passId`, which is `sellKey = nil` on the server) says so
+		-- instead of naming a price nothing can take.
+		-- NO PRICE ON THIS LINE, and the first capture is why: the band above it already reads
+		-- "VIP Pass - R$ 499 for all 10", so quoting the figure again put `R$ 499` twice on a
+		-- four-line plaque. This line is the instruction; the line over it is the price.
+		if not rec.prompt then
+			return "\u{1F512} Not on sale yet", INK_WAIT
+		end
+		return "\u{1F512} Press E to unlock", INK_PRICE
 	end
 
 	local entry = GameConfig.GetCharacter(rec.key)
@@ -125,8 +140,24 @@ local function statusFor(rec)
 	return "\u{1F512} LOCKED", INK_WAIT
 end
 
+-- ===== THE PROMPT IS THE SAME INSTANCE FOR EVERYBODY, SO ITS CAPTION IS PER PLAYER =====
+-- Same seam as the silhouette: one shared set of parts, one answer per client. A VIP must not be
+-- offered a till for a pass they already hold -- `PassService` answers that purchase with *"You
+-- already own VIP!"* and nothing would happen -- so for an owner the door becomes the one thing a
+-- wardrobe is actually for, which is putting the skin on. `ActionText` is a LOCAL write on a
+-- replicated instance, exactly like `TextureID` above; it never leaves this machine.
+local function paintPrompt(rec)
+	if not rec.prompt then return end
+	if rec.owned then
+		rec.prompt.ActionText = "Wear it"
+	else
+		rec.prompt.ActionText = "Get VIP"
+	end
+end
+
 local function paint(rec)
 	setLocked(rec, not rec.owned)
+	paintPrompt(rec)
 	if not rec.status then return end
 	local text, ink = statusFor(rec)
 	if rec.status.Text ~= text then
@@ -186,10 +217,22 @@ local function adopt(stand)
 	end
 	if #rec.parts == 0 then return end
 
+	-- What the turntable below needs, measured ONCE. The spin is about the vertical axis through
+	-- the figure's own bounding-box centre and not about its pivot: a catalog bundle's pivot is
+	-- wherever the bake left it (usually the HumanoidRootPart), so pivoting in place would swing
+	-- the body around a point off its own middle and the statue would orbit its plinth.
+	rec.figure = figure
+	rec.basePivot = figure:GetPivot()
+	rec.spinCentre = (figure:GetBoundingBox()).Position
+	rec.angle = 0
+
 	local plaque = stand:FindFirstChild("Plaque")
 	local gui = plaque and plaque:FindFirstChild("PlaqueSign")
 	local shell = gui and gui:FindFirstChild("Shell")
 	rec.status = shell and shell:FindFirstChild("Status")
+	-- Only the VIP rank carries one, and only when the pass has a real id: `nil` here is the
+	-- "not on sale yet" arm above rather than a missing part.
+	rec.prompt = plaque and plaque:FindFirstChild("StandPrompt")
 
 	rec.owned = ownershipFor(rec)
 	table.insert(stands, rec)
@@ -204,6 +247,52 @@ local function onData(data)
 		paint(rec)
 	end
 end
+
+-- ============================================================================
+-- THE DOOR (17.12)
+-- ============================================================================
+-- ONE CONNECTION FOR THE WHOLE RANK, not one per plinth: `PromptTriggered` is a service-wide signal
+-- and the prompt it hands back is the identity, so nine stands cost one handler.
+--
+-- IT IS THE PASS REMOTE AND NOT THE PRODUCT ONE, which 26.4 paid a session to learn: firing
+-- `PromptRobuxPurchase` with a pass key resolves nothing in `GameConfig.RobuxProducts`, throws
+-- nothing and prints nothing -- a dead button with no diagnostic anywhere.
+-- `Remotes.PromptGamePassPurchase` takes the KEY, never the passId.
+--
+-- LOOKED UP AT PRESS TIME rather than at load. `PassService.Init` creates that remote, and 35.7 is
+-- the row about a client that indexed a late remote at load and took the rest of its own script
+-- down with it. A press happens long after the boot, so `FindFirstChild` there is both safe and
+-- honest -- if it is somehow missing, one press does nothing instead of the file dying.
+local ProximityPromptService = game:GetService("ProximityPromptService")
+
+local function standFor(prompt)
+	for _, rec in ipairs(stands) do
+		if rec.prompt == prompt then return rec end
+	end
+	return nil
+end
+
+ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
+	if player ~= game:GetService("Players").LocalPlayer then return end
+	local rec = standFor(prompt)
+	if not rec then return end
+
+	local remotes = RS:FindFirstChild("Remotes")
+	if not remotes then return end
+
+	if rec.owned then
+		-- The wardrobe's own purpose. Guarded on ownership FIRST, the same order `JournalGrid`
+		-- fires it in: an EquipCharacter for a skin the save does not hold is a remote the server
+		-- has to refuse, and asking it to is how a door becomes an exploit surface.
+		local equip = remotes:FindFirstChild("EquipCharacter")
+		if equip then equip:FireServer(rec.key) end
+		return
+	end
+
+	local door = remotes:FindFirstChild("PromptGamePassPurchase")
+	local key = prompt:GetAttribute("SellPass")
+	if door and key then door:FireServer(key) end
+end)
 
 -- ============================================================================
 -- BOOT
@@ -227,6 +316,47 @@ task.spawn(function()
 	exhibit.ChildAdded:Connect(function(stand)
 		task.wait()
 		adopt(stand)
+	end)
+
+	-- ============================================================================
+	-- THE TURNTABLE (17.12)
+	-- ============================================================================
+	-- 17.12 asked for the figures to be TURNING, and a rank of statues that turn is what makes a
+	-- row of plinths read as a display case instead of as scenery -- it is also the only way to see
+	-- the back of a bundle you are being asked to pay for.
+	--
+	-- ONE Heartbeat FOR ALL FOURTEEN, WITH A PROXIMITY GATE, which is the standing rule in this
+	-- game for anything animated per object: a `task.spawn` loop per creature was fine at 160 and
+	-- fell over at 520, and `BossService.driveRigs` / `CreatureService.driveCreatures` are both
+	-- built this way. The gate is deliberately tight -- 70 studs, against a rank 24 studs apart --
+	-- so one or two figures move at a time and a player at the other end of the plaza pays nothing.
+	-- A statue turning where nobody can see it is not a feature.
+	--
+	-- LOCAL, like everything else in this file: the parts are Anchored, `CanCollide = false` and
+	-- `CanQuery = false`, so nothing in the world is standing on one or measuring against one, and
+	-- the write never leaves this machine.
+	local RunService = game:GetService("RunService")
+	local Players = game:GetService("Players")
+	local SPIN_RANGE = 70
+	local SPIN_RATE = math.pi * 2 / 22   -- one turn in 22 s: a museum plinth, not a fairground ride
+
+	RunService.Heartbeat:Connect(function(dt)
+		local char = Players.LocalPlayer.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then return end
+		local here = root.Position
+		for _, rec in ipairs(stands) do
+			-- `parts[1].Parent` is the streaming check the repaint above already uses: a figure
+			-- that has streamed out has no parts and `PivotTo` on it would be a write into nothing.
+			if rec.figure and rec.spinCentre and rec.parts[1] and rec.parts[1].Parent
+				and (here - rec.spinCentre).Magnitude <= SPIN_RANGE then
+				rec.angle = (rec.angle + dt * SPIN_RATE) % (math.pi * 2)
+				local spin = CFrame.new(rec.spinCentre)
+					* CFrame.Angles(0, rec.angle, 0)
+					* CFrame.new(-rec.spinCentre)
+				rec.figure:PivotTo(spin * rec.basePivot)
+			end
+		end
 	end)
 
 	-- The clocks. One loop for all fourteen plaques rather than a timer each, on the same second the

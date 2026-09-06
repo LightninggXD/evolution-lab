@@ -52,6 +52,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local Remotes = RS.Remotes
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local PlayerJoin = require(script.Parent.Systems.PlayerJoin)
 local ZoneService = require(script.Parent.ZoneService)
 local AdventureMap = require(script.Parent.AdventureMap)
 -- Not lazy, unlike `EvolutionVisuals` below: `AdventureReward` requires only `GameConfig` and
@@ -564,7 +565,8 @@ function AdventureService.Init()
 	-- the disconnect-and-reconnect case and the admin case -- has their run ended rather than being
 	-- left registered on a map they are not standing on. `ZoneService` already owns the respawn: it
 	-- puts every character back at `CurrentZone`, which a course deliberately never writes.
-	Players.PlayerAdded:Connect(function(player)
+	-- 35.13: `onEach`, or an early joiner's respawn never clears their run.
+	PlayerJoin.onEach(function(player)
 		player.CharacterAdded:Connect(function()
 			if runs[player] then
 				runs[player] = nil

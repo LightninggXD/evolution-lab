@@ -50,6 +50,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local ZoneKit = require(script.Parent.ZoneKit)
 local ExpeditionMap = require(script.Parent.ExpeditionMap)
+local PlayerJoin = require(script.Parent.Systems.PlayerJoin)
 
 local newPart, addLight = ZoneKit.newPart, ZoneKit.addLight
 
@@ -1098,7 +1099,8 @@ function ExpeditionService.Init()
 	-- A run is server memory and the body is somewhere it cannot stay. Dying already ejects the
 	-- player (see the header); this drops the run that body was in, so a respawn inside the map is
 	-- never a half-run with a live token.
-	Players.PlayerAdded:Connect(function(player)
+	-- 35.13: `onEach`, or an early joiner's expedition never ends when they die.
+	PlayerJoin.onEach(function(player)
 		player.CharacterRemoving:Connect(function()
 			endRun(player, "died")
 		end)

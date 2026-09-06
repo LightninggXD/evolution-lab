@@ -66,6 +66,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local UITheme = require(RS.Modules.UITheme)
 
 local PlayerDataService = require(script.Parent.PlayerDataService)
+local PlayerJoin = require(script.Parent.Systems.PlayerJoin)
 local AnnounceService = require(script.Parent.AnnounceService)
 -- For the ladder's payout and its toast line only (26.1) -- `GrantReward` / `RewardText`, which are
 -- the season board's own and are exported rather than copied here. A ONE-WAY EDGE: SeasonPassService
@@ -702,17 +703,17 @@ function EventService.Init()
 	EventService.Publish()
 	EventService.DrawBoard()
 
-	Players.PlayerAdded:Connect(function(player)
-		task.spawn(function()
-			local data
-			repeat
-				task.wait(0.25)
-				data = PlayerDataService.Get(player)
-			until data or not player.Parent
-			if data then
-				EventService.SyncCharacters(player)
-			end
-		end)
+	-- 35.13: `onEach` -- an early joiner never fired `PlayerAdded`, so their event skins were
+	-- never synced onto the save for the whole session.
+	PlayerJoin.onEach(function(player)
+		local data
+		repeat
+			task.wait(0.25)
+			data = PlayerDataService.Get(player)
+		until data or not player.Parent
+		if data then
+			EventService.SyncCharacters(player)
+		end
 	end)
 
 	task.spawn(function()

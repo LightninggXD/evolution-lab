@@ -27,6 +27,7 @@ local RewardService = require(ServerScriptService.RewardService)
 local PotionService = require(ServerScriptService.PotionService)
 local RelicService = require(ServerScriptService.RelicService)
 local PassService = require(ServerScriptService.PassService)
+local PlayerJoin = require(ServerScriptService.Systems.PlayerJoin)
 local RobuxShopService = require(ServerScriptService.RobuxShopService)
 local PlaytimeGiftService = require(ServerScriptService.PlaytimeGiftService)
 local SeasonPassService = require(ServerScriptService.SeasonPassService)
@@ -468,9 +469,13 @@ RebirthService.OnReturnHome = function(player)
 	end)
 end
 
--- Check zone unlocks for returning players once their data has loaded
-Players.PlayerAdded:Connect(function(player)
-	task.spawn(function()
+-- Check zone unlocks for returning players once their data has loaded.
+-- 35.13: `PlayerJoin.onEach` rather than a bare `PlayerAdded:Connect`. This line is the LAST one in
+-- the boot, about a minute after the world build at 99 -- so for a player who joined during that
+-- build it never ran at all: no zone unlock check, and no collection top-up for a save older than
+-- the Journal. `onEach` connects first and then replays over everyone already here, once each.
+PlayerJoin.onEach(function(player)
+	do  -- the old inner `task.spawn`'s block; `onEach` owns the thread now, so it is only a scope
 		local data
 		repeat
 			task.wait(0.2)
@@ -498,7 +503,7 @@ Players.PlayerAdded:Connect(function(player)
 				PlayerDataService.PushToClient(player)
 			end
 		end
-	end)
+	end
 end)
 
 print("[Evolution Lab Tycoon] Server systems initialized.")
