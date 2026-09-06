@@ -304,10 +304,31 @@ for i, zone in ipairs(GameConfig.Zones) do
 	-- multiplies its own spawn health by the same factor, so scaling only one term here -- or
 	-- forgetting this line while adding that one -- re-creates 11.9's boss-weaker-than-a-creep
 	-- inversion in exactly the way the floor was built to make impossible.
-	zone.boss.health = math.floor(GameConfig.GetZoneDepthMult(i) * math.max(
-		math.floor(GameConfig.BossTargetHits * GameConfig.GetZoneReferenceDamage(i)),
-		math.floor(GameConfig.BossEliteFloor * GameConfig.EliteBaseHealth
-			* GameConfig.CreatureGenerationMax * zone.mobHealthMult)))
+	--
+	-- ===== AND BY THE PART OF THE GEAR A BOSS BLOW KEEPS, SINCE 21.8 =====
+	--
+	-- `GetZoneBossGearScale(i)` -- x1.00 in Forest by construction and x9.68 on the Absolute Plane.
+	-- It is the second factor outside the `math.max` and it obeys the same rule the depth factor
+	-- above it does, for the same reason: BOTH TERMS AT ONCE, or the floor stops meaning what the
+	-- paragraph above says it means. (Multiplying both by one factor cannot change which of them
+	-- binds, so the shape of the curve is untouched -- the floor still binds in zones 2-16 -- and
+	-- only its length moves.)
+	--
+	-- WHAT IT FIXES: the boss got EASIER the deeper it stood. 21.5 measured the strip and the fight
+	-- ran 95 blows in Forest down to 30 on the Absolute Plane, because `GetBossBlowDivisor` leaves a
+	-- `gear ^ 0.55` residual that climbs x9.68 while everything on this line climbed x3.03. Nothing
+	-- here knew about it. The derivation, and why the scale is anchored at zone 1, is written out
+	-- over `GameConfig.GetZoneBossGearScale`.
+	--
+	-- THE STRIP AFTER IT: 95 blows in Forest to 287 on the Absolute Plane, i.e. 32 s to 98 s at the
+	-- 0.34 s auto-attack cadence 21.5 measured. It still climbs, and that climb is `GetZoneDepthMult`
+	-- alone -- the deliberate 32.7 ramp the creature carries too. What is gone is the accidental term
+	-- that used to run the other way underneath it.
+	zone.boss.health = math.floor(GameConfig.GetZoneDepthMult(i) * GameConfig.GetZoneBossGearScale(i)
+		* math.max(
+			math.floor(GameConfig.BossTargetHits * GameConfig.GetZoneReferenceDamage(i)),
+			math.floor(GameConfig.BossEliteFloor * GameConfig.EliteBaseHealth
+				* GameConfig.CreatureGenerationMax * zone.mobHealthMult)))
 
 	-- Exactly HALF a level, in the currency of the stage this zone belongs to (zone i unlocks at
 	-- stage i, so the index is the same one the xpCost curve is written against). Boss XP used to be

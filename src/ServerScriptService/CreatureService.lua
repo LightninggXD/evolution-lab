@@ -3223,14 +3223,22 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 		-- to keep a boss above a farmed creep of its own zone, and scaling the creature without the
 		-- boss is exactly the inversion 11.9 was written about.
 		--
-		-- **THE 33.34 FACTOR BELOW IS THE ONE EXCEPTION, AND IT IS DELIBERATE.** It does NOT go to
-		-- the boss, because since 33.33 a boss already divides the player's blow by what the zone
-		-- expects (`GetBossBlowDivisor`) -- putting the same expectation on its health as well would
-		-- count it twice and turn every boss into a wall. The 11.9 guarantee is unharmed, because
-		-- what that inversion was about is FIGHT LENGTH and not raw health: measured after this
-		-- change, a zone-20 Elite is ~6 blows and its boss is ~30, which is the ordering the floor
-		-- exists to protect. Raw health stops being comparable between the two the moment one of
-		-- them has a divisor and the other does not.
+		-- **THE 33.34 FACTOR BELOW STILL DOES NOT GO TO THE BOSS, BUT HALF OF IT NOW DOES (21.8).**
+		-- The original argument here was that a boss already divides the player's blow by what the
+		-- zone expects (`GetBossBlowDivisor`), so putting the same expectation on its health would
+		-- count it twice. That was half right, and the missing half cost the game its endgame boss:
+		-- the divisor cancels the gear at `^ BossGearSquash` (0.45), not whole, so a `gear ^ 0.55`
+		-- residual survives every boss blow -- x9.68 across the strip -- and boss health knew about
+		-- none of it. 21.5 measured the result: 95 blows in Forest against 30 on the Absolute Plane,
+		-- the first boss in the game being the longest fight in it. `GetZoneBossGearScale` is that
+		-- residual and it is now on the boss health line in `Zones`; `GetZoneMobScale` here is the
+		-- whole stack, because a creature cancels nothing. Two factors, one rule -- and the reason
+		-- they are two different numbers rather than one is exactly the divisor this note names.
+		--
+		-- The 11.9 guarantee is unharmed, because what that inversion was about is FIGHT LENGTH and
+		-- not raw health: a zone-20 Elite is ~6 blows for the player who is really standing there and
+		-- its boss is 287, which is the ordering the floor exists to protect. Raw health stops being
+		-- comparable between the two the moment one of them has a divisor and the other does not.
 		--
 		-- ...and by what the ZONE EXPECTS THE PLAYER TO BE CARRYING since 33.34
 		-- (`GetZoneMobScale`, x1.00 in Forest by construction and about x1,350 on the Absolute

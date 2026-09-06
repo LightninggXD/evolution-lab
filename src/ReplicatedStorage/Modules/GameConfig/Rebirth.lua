@@ -216,7 +216,13 @@ end
 -- IT IS A DIVISOR AND NOT A HEALTH MULTIPLIER, for the reason written out above: boss health is
 -- shared by everyone standing in the arena, and a divisor is per-player. Two players of different
 -- strength must be able to fight the same boss.
-GameConfig.BossGearSquash = 0.45
+--
+-- `BossGearSquash` ITSELF IS SET IN THE EVOLUTION PART, not here, and that is a load-order fact
+-- rather than a preference: 21.8 prices boss health off the residual this squash leaves behind
+-- (`gear ^ (1 - BossGearSquash)`, see `GetZoneBossGearScale`), and the boss table is built at module
+-- load inside `Zones`, which is composed BEFORE this part. The derivation stays here, where it is
+-- argued; only the storage moved, and it moved so that the divisor below and the health the boss is
+-- given can never be reading two different numbers.
 GameConfig.BossExcessCancel = 0.85
 
 -- The gear a save is actually carrying, in the same three terms `GetZoneExpectedGear` predicts.

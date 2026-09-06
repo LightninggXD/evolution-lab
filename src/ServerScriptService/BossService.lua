@@ -2340,8 +2340,10 @@ local function spawnBoss(zone)
 		--
 		-- What replaces it is arithmetic rather than a clamp: boss health is now DERIVED from the
 		-- damage ladder at `GameConfig.BossTargetHits` blows for the zone it guards, so a boss is
-		-- roughly sixty swings for a player who has just arrived and fewer for one who has geared.
-		-- See the BOSS HEALTH IS DERIVED block in GameConfig.
+		-- a long fight for a player who has just arrived and a shorter one for a player who has
+		-- geared. See the BOSS HEALTH IS DERIVED block in GameConfig -- and note that since 21.8 the
+		-- health carries `GetZoneBossGearScale` as well, which is what stops the geared fight from
+		-- shrinking away with depth (95 blows in Forest, 287 on the Absolute Plane).
 		--
 		-- Divided by the player's own rebirth multiplier (14.1). The blow a creature takes is
 		-- untouched; only a boss asks what a reset was worth, and the answer is "nothing, so that
@@ -2366,8 +2368,12 @@ local function spawnBoss(zone)
 		-- IT IS THE DIVIDED NUMBER, on purpose. A boss blow is worth what it actually took off the
 		-- boss and not what the player swung, which is the same rule the creature path follows one
 		-- file over. Because boss health is `BossTargetHits x GetZoneReferenceDamage` and the award
-		-- divides by that same reference, a whole zone boss is worth `BossTargetHits` (150) XP --
-		-- the same figure in every zone, to whoever fells it.
+		-- divides by that same reference, a whole zone boss is worth `BossTargetHits` (150) XP times
+		-- whatever else the health line carries -- `GetZoneDepthMult` since 32.7 and
+		-- `GetZoneBossGearScale` since 21.8, so 150 in Forest and 4,393 on the Absolute Plane. It is
+		-- a rounding error against the zone's own creatures either way: a single zone-20 Elite pays
+		-- 228,000 on the same scale, because a creature's health carries `GetZoneMobScale` (x1,348)
+		-- and a boss's does not.
 		--
 		-- THE EVENT BOSS IS DELIBERATELY NOT HOOKED (see the `EVENT_MIN_HITS` path far below). Its
 		-- health is a flat authored number rather than one derived from the zone ladder, so there

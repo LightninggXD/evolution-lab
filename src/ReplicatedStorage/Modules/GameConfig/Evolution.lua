@@ -398,6 +398,54 @@ function GameConfig.GetZoneExpectedGear(zoneIndex)
 	return income * mastery * pets
 end
 
+-- ===== AND THE PART OF THAT GEAR A BOSS BLOW KEEPS (21.8) =====
+--
+-- `GetBossBlowDivisor` cancels the blade, the level, the rebirth and the training ladder whole, and
+-- squashes the gear above at `BossGearSquash`. What is left over -- the amount by which a geared
+-- player really does hit a boss harder than a bare one -- is therefore `gear ^ (1 - BossGearSquash)`,
+-- and that residual is the ONE multiplier in the game that boss health did not know about.
+--
+-- **THE MEASUREMENT THIS EXISTS TO FIX (21.5, 2026-09-06).** Blows to fell for a player arriving
+-- with the gear the zone expects: Forest **95**, Ocean 85, Moon 76, Galaxy 67, Nebula 57, Time Rift
+-- 45, Mirror Universe 36, **Absolute Plane 30**. The first boss in the game was the longest fight in
+-- it and the last was a third of that -- a 32-second gate followed nineteen zones later by a
+-- 10-second one. The cause is a straight race: the authored health climbs x57,333 across the strip
+-- while `ref * gear ^ 0.55` climbs x181,000, so the residual outran the curve by x3.2 and the fight
+-- decayed the whole way down.
+--
+-- IT IS THE SAME HOLE `GetZoneMobScale` WAS DUG FOR, one tier over. A creature cancels nothing, so
+-- it is priced against the whole expected stack; a boss cancels four terms, so it is priced against
+-- what those four leave behind. Two functions, one rule: content is priced against the player who
+-- will actually be standing in front of it.
+--
+-- NORMALISED TO ZONE 1, exactly as `GetZoneMobScale` is, and for the same reason -- Forest is
+-- untouched to the stud, so the first ten minutes of the game are what they always were and only
+-- the decay after it is removed. `BossGearScaleAnchor` is the one number that moves the whole curve
+-- if the endgame fight is ever judged too long: anchoring at zone 10 divides every boss in the game
+-- by 3.27.
+--
+-- WHAT IT DOES NOT DO IS FLATTEN THE STRIP. After this the boss still climbs with `GetZoneDepthMult`
+-- -- 95 blows in Forest to 287 on the Absolute Plane -- and that is the deliberate 32.7 ramp the
+-- creature carries too, her *"nek bossovi i creaturi na vecim stagevima budu jaci"*. What is gone is
+-- the accidental term running the other way underneath it.
+GameConfig.BossGearScaleAnchor = 1
+
+-- `BossGearSquash` LIVES HERE rather than beside its own derivation in the Rebirth part, and the
+-- reason is the same one `EliteBaseHealth` is here for: the boss table is built at module load in
+-- `Zones`, which is composed BEFORE `Rebirth`, so a constant that part of the table needs has to
+-- exist by now. The argument for the value 0.45 is written out over `GetBossBlowDivisor`; this is
+-- only where it is stored, and the two numbers below are one number so the divisor and the health
+-- can never disagree about how much of the gear survives a boss blow.
+GameConfig.BossGearSquash = 0.45
+
+function GameConfig.GetZoneBossGearScale(zoneIndex)
+	local last = GameConfig.Zones and #GameConfig.Zones or 20
+	local z = math.clamp(math.floor(tonumber(zoneIndex) or 1), 1, last)
+	local anchor = math.clamp(math.floor(GameConfig.BossGearScaleAnchor or 1), 1, last)
+	local residual = 1 - GameConfig.BossGearSquash
+	return (GameConfig.GetZoneExpectedGear(z) / GameConfig.GetZoneExpectedGear(anchor)) ^ residual
+end
+
 -- ===== AND THE WHOLE STACK THAT ZONE EXPECTS, WHICH IS WHAT A CREATURE IS PRICED AGAINST (33.34) =====
 --
 -- `GetZoneExpectedGear` above is the part a BOSS cares about, because the boss divisor already
