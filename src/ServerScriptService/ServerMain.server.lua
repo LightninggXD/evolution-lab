@@ -279,6 +279,42 @@ PotionService.Init()
 -- sits here beside PotionService because a relic and a potion are the same KIND of thing to this
 -- file (a consumable-ish inventory owned by the player), not because anything requires it to.
 RelicService.Init()
+-- ===== 35.14: THIS CALLBACK IS ASSIGNED **BEFORE** `PassService.Init()`, AND THAT IS THE FIX =====
+--
+-- Every other `On*` in this file is assigned at the bottom, after every Init, and that is fine for
+-- all of them: they fire on a player ACTION -- an evolve, a rebirth, wearing a skin -- and no action
+-- can beat the boot. **This one fires on the JOIN path**, and since 35.13 gave `PassService` a
+-- `PlayerJoin.onEach` replay it fires for the player who was ALREADY in the server, within a
+-- fraction of a second of the Init below.
+--
+-- Measured on a real boot 2026-09-07: `[PassService] STUDIO TEST MODE` -- printed from inside
+-- `PassService.Refresh`, one line under its `if PassService.OnPassesChanged then` guard -- lands in
+-- the console between `MinigameService` (359) and `AdventureRemotes` (382), while the assignment
+-- was at **418**. So the guard fell through, silently, on every boot. The player owned every pass in
+-- `data.Passes` and had **`IsVIP = nil`, `AutoSpeedMult = nil`** -- i.e. no golden aura, no [VIP]
+-- chat tag and no Fast Auto Attack, for the whole session, having paid for all three. Calling the
+-- same `PassService.Refresh` by hand afterwards set both, which is what proves the path itself was
+-- never broken -- only its ordering. A guarded call to a nil callback is a downgrade, not an error.
+
+-- The 2x Speed pass lands on the Humanoid too, and it can arrive at any point in a session: on the
+-- join refresh, on a purchase, or on a background re-check that finally got an answer out of the
+-- ownership API. Same treatment as Stage Mastery above, for the same reason -- otherwise the player
+-- pays for speed and does not move any faster until they next die.
+PassService.OnPassesChanged = function(player, data)
+	EvolutionVisuals.RefreshBonuses(player, data)
+	-- CombatClient reads this attribute rather than the pass table. The server stays the only thing
+	-- that knows what is owned, the client needs no remote and no re-wire, and a purchase applies on
+	-- the very next swing. Runs on the join refresh too, so it is always set before the first fight.
+	player:SetAttribute("AutoSpeedMult", GameConfig.GetPassMult(data, "autoSpeedMult"))
+	-- Grants the VIP skin, and takes it back if the pass ever goes. Safe to run on every refresh:
+	-- it is idempotent, and it is the only thing that ever writes that key.
+	GameConfig.SyncVipCharacter(data)
+	-- Read by VipFlair on every client to draw the aura and the chat tag. An attribute rather than a
+	-- remote because it replicates to EVERYONE by itself, which is exactly what a badge needs: other
+	-- players have to see it, and that is most of what the buyer is paying for.
+	player:SetAttribute("IsVIP", GameConfig.OwnsPass(data, "VIP"))
+end
+
 -- before RobuxShopService: both take a Robux purchase path, and PassService owns the one that has
 -- to be answered on join (a pass is permanent and is read by the stat functions on the first click,
 -- where a developer product is a one-off receipt that can arrive whenever)
@@ -411,24 +447,12 @@ DNAService.OnMasteryChanged = function(player, data)
 	EvolutionVisuals.RefreshBonuses(player, data)
 end
 
--- The 2x Speed pass lands on the Humanoid too, and it can arrive at any point in a session: on the
--- join refresh, on a purchase, or on a background re-check that finally got an answer out of the
--- ownership API. Same treatment as Stage Mastery above, for the same reason -- otherwise the player
--- pays for speed and does not move any faster until they next die.
-PassService.OnPassesChanged = function(player, data)
-	EvolutionVisuals.RefreshBonuses(player, data)
-	-- CombatClient reads this attribute rather than the pass table. The server stays the only thing
-	-- that knows what is owned, the client needs no remote and no re-wire, and a purchase applies on
-	-- the very next swing. Runs on the join refresh too, so it is always set before the first fight.
-	player:SetAttribute("AutoSpeedMult", GameConfig.GetPassMult(data, "autoSpeedMult"))
-	-- Grants the VIP skin, and takes it back if the pass ever goes. Safe to run on every refresh:
-	-- it is idempotent, and it is the only thing that ever writes that key.
-	GameConfig.SyncVipCharacter(data)
-	-- Read by VipFlair on every client to draw the aura and the chat tag. An attribute rather than a
-	-- remote because it replicates to EVERYONE by itself, which is exactly what a badge needs: other
-	-- players have to see it, and that is most of what the buyer is paying for.
-	player:SetAttribute("IsVIP", GameConfig.OwnsPass(data, "VIP"))
-end
+-- `PassService.OnPassesChanged` USED TO BE ASSIGNED HERE, and that was 35.14: it is called on the
+-- JOIN path, so assigning it 133 lines below the `PassService.Init()` that starts that path meant a
+-- silent no-op for the player who was already in the server. It now sits directly above that Init
+-- call -- see the block there for the measurement. The rule it left behind: a callback fired on
+-- join belongs above its service's Init; one fired by a player ACTION (evolve, rebirth, wear) can
+-- stay down here, because no action can beat the boot.
 
 -- Wearing a different character from the Journal. The body is rebuilt rather than recoloured: the
 -- character's colour is what StageCostume paints every shell and every detail with, and there is no
