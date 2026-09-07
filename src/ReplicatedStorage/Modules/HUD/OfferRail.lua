@@ -114,7 +114,14 @@ return function(hud)
 			priceLabel.Position = UDim2.new(0.5, 0, 1, -6)
 			priceLabel.AnchorPoint = Vector2.new(0.5, 1)
 			priceLabel.BackgroundTransparency = 1
-			priceLabel.Text = "ONLY " .. (pass.price or 0) .. "\u{2B22}"
+			-- "R$", not the Robux hexagon U+2B22. Authored as the hexagon and PHOTOGRAPHED as
+			-- nothing at all on 2026-09-07: FredokaOne has no glyph for it, so the line read
+			-- "ONLY 199" with no currency mark -- the one thing a price line has to say. Same
+			-- trap 27.7 hit with U+2715, and `TextFits` was true both times, because the
+			-- character IS laid out (4 px of advance at size 8) and simply never drawn. Every
+			-- other price in this game -- PassShop, ProductTiles, PetFusion, RelicsPanel,
+			-- JournalGrid -- writes "R$ ", which FredokaOne does carry.
+			priceLabel.Text = "ONLY R$ " .. (pass.price or 0)
 			priceLabel.ZIndex = card.ZIndex + UITheme.Z.Content
 			priceLabel.Parent = card
 			-- Green ink on the price line, matching the Robux hexagon it ends with and matching what
@@ -167,14 +174,27 @@ return function(hud)
 		return best
 	end
 
+	-- A Position offset is in the ScreenGui's LOCAL space and `AbsolutePosition` is in screen space,
+	-- and on this ScreenGui those two do NOT share an origin: `IgnoreGuiInset = true` puts
+	-- `screenGui.AbsolutePosition` at (0, -58), the topbar's own height. This loop used to hand a
+	-- screen Y straight to a local Position, which parked the rail exactly one inset TOO HIGH --
+	-- measured 2026-09-07 at 1576x793, the cluster's top tile sits at screen y 283 and the rail's
+	-- bottom edge came out at 211, i.e. **72 px of daylight where 14 was authored**. Subtracting the
+	-- ScreenGui's own AbsolutePosition converts the one space into the other, and is right whether
+	-- the inset is ignored or not (it is 0 when it is not). It matters beyond the 58 px: the topbar
+	-- is not the same height on every device, so the error was not even a constant.
+	local RAIL_H = #OFFERS * CARD_H + (#OFFERS - 1) * GAP
+
 	task.spawn(function()
 		while rail.Parent do
 			local top = topOfCluster()
 			if top then
-				-- AbsolutePosition is in screen pixels and this ScreenGui is IgnoreGuiInset, so the
-				-- two share an origin and the value can be used directly. 14 px of daylight above the
-				-- cluster's top row, matching the gap the cluster keeps between its own rows.
-				rail.Position = UDim2.new(1, -20, 0, math.max(top - 14, 40))
+				-- 14 px of daylight above the cluster's top row.
+				local localTop = top - screenGui.AbsolutePosition.Y
+				-- The floor keeps the WHOLE rail on screen rather than just its bottom edge: this
+				-- Position is the bottom (AnchorPoint y = 1), so a floor smaller than the rail's own
+				-- height hangs its top off the top of the viewport.
+				rail.Position = UDim2.new(1, -20, 0, math.max(localTop - 14, RAIL_H + 8))
 				rail.AnchorPoint = Vector2.new(1, 1)
 			end
 			task.wait(0.5)

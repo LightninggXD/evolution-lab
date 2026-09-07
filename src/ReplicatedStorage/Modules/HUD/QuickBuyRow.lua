@@ -130,6 +130,14 @@ return function(hud)
 			price.Size = UDim2.new(0, 58, 0, 26)
 			price.Position = UDim2.new(1, -6, 0, -6)
 			price.AnchorPoint = Vector2.new(1, 0)
+			-- \u{2B22} DRAWS NOTHING, and this line is left as it stands only because 32.7 made
+			-- this whole module an orphan (nothing requires it). Photographed 2026-09-07 while
+			-- verifying 27.6, which carried the same character: FredokaOne has no glyph for the
+			-- Robux hexagon, so the chip reads "999" with no currency mark, and `TextFits` is
+			-- true throughout because the character is laid out and simply never drawn -- 27.7's
+			-- U+2715 trap exactly. IF THIS ROW IS EVER PUT BACK, write "R$ " like every other
+			-- price in the game and re-measure the 58 px chip against "R$ 999" before believing
+			-- it fits.
 			price.Text = (product.price or 0) .. "\u{2B22}"
 			price.ZIndex = btn.ZIndex + UITheme.Z.Badge
 			price.Parent = btn
