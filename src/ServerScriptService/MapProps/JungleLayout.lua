@@ -435,12 +435,33 @@ local CAMPS_FOREST = {
 	{ id = "NW2", kind = "swarm",     x =  -666, z =   492 }, -- final r=84.0
 	{ id = "NW3", kind = "brute",     x =  -241, z =   370 }, -- final r=28.0
 	{ id = "NW4", kind = "brute",     x =  -212, z =   650 }, -- final r=84.0
-	{ id = "NW5", kind = "elite",     x =  -690, z =   199 }, -- final r=84.0  [separated]
+	{ id = "NW5", kind = "elite",     x =  -690, z =   199 }, -- final r=83.9  [33.3: no longer separated]
 	-- ---- north-east quadrant, mirrored
 	{ id = "NE1", kind = "swarm",     x =   411, z =   209 }, -- final r=28.1
 	{ id = "NE2", kind = "swarm",     x =   283, z =   650 }, -- final r=84.0
 	{ id = "NE3", kind = "brute",     x =   411, z =    80 }, -- final r=28.1
-	{ id = "NE4", kind = "brute",     x =   612, z =   602 }, -- final r=84.0  [32.18: was 600/491]
+	-- ===== 33.3: THE TWO BANDS ARE EXACT NOW, AND THIS IS THE ONE KIND THAT DID NOT FIT =====
+	-- Measured 2026-09-07: the twenty camps stand on two clean rings -- ten at village gap
+	-- 28.0-28.1 and ten at 83.9-84.0, with nothing in between. The "smear across 56..84" this
+	-- table's header describes as 33.3's remaining work is GONE; 33.4 and 33.5 closed it by moving
+	-- SW5, SE4, NE4, NE5, SE5 and SE2 along their own bands for other reasons. So the geometry half
+	-- of 33.3 (and of 32.11a, fork (a)) needed no re-author at all.
+	--
+	-- What was left was the oddity 33.3 names in as many words: an APEX standing on the INNER ring,
+	-- 28 studs off the village wall. 👤 THE OWNER TOOK THE CALL, 2026-09-07: swap the two KINDS and
+	-- move nothing. `SE5` (inner, due east) becomes a brute and `NE4` (outer, north-east) becomes the
+	-- apex.
+	--
+	-- Swapping kinds rather than coordinates is what makes it free. Every keep-out in this file is
+	-- geometric -- the village clamp, `MIN_CAMP_SEPARATION`, the three trunk roads, HubPlaza's deck,
+	-- `MapHorizon`'s campEdge, the east-column arithmetic 33.4 sits on -- and not one of them can
+	-- notice, because no camp moves a stud. The census cannot notice either: `brute` is 4 creatures
+	-- (Brute 1 + Swarmer 3) and `apex` is 1, so the two camps trade +3 and -3 and every tier total
+	-- is unchanged (Apex 4, Brute 12, Critter 22, Elite 6, Swarmer 30 = 74).
+	--
+	-- The inner ring keeps two GATED camps regardless (`SW3`/`SE3` raidElite) -- this removes the
+	-- apex from it, which is what was asked, not every gate.
+	{ id = "NE4", kind = "apex",      x =   612, z =   602 }, -- final r=84.0  [32.18: was 600/491] [33.3: was brute]
 	{ id = "NE5", kind = "elite",     x =   410, z =   302 }, -- final r=28.0  [village-clamped] [32.18: was 551/40]
 	-- ---- south-west quadrant: everything gated, and the deep end of the walk
 	{ id = "SW1", kind = "brute",     x =   -84, z =  -370 }, -- final r=28.0
@@ -451,7 +472,7 @@ local CAMPS_FOREST = {
 	-- z = -100 and SW5 landed at z = -135.8, needing 43 (half of 46, plus CAMP_RADIUS) and
 	-- having 35.8. It never showed in the boot log because `Describe` printed only the worse
 	-- of the two and SE4 was -32.1. Bearing and band both kept: village gap 56.1 -> 56.
-	{ id = "SW5", kind = "apex",      x =  -690, z =  -363 }, -- final r=84.0  [33.5: was -551/-229]
+	{ id = "SW5", kind = "apex",      x =  -690, z =  -363 }, -- final r=83.9  [33.5: was -551/-229]
 	-- ---- south-east quadrant, mirrored
 	{ id = "SE1", kind = "brute",     x =   209, z =  -370 }, -- final r=28.0
 	{ id = "SE2", kind = "raidBrute", x =   689, z =  -460 }, -- final r=84.0  [village-clamped] [32.18: was 691/-6]
@@ -461,7 +482,7 @@ local CAMPS_FOREST = {
 	-- inside the clearing. Moved along its own band rather than out of it: the village gap is
 	-- 84.0 -> 83.7 -- the same outer-band apex, standing 168 studs off the lane instead of 16.
 	{ id = "SE4", kind = "apex",      x =   348, z =  -650 }, -- final r=84.0  [33.5: was 33/-650, r=84.0]
-	{ id = "SE5", kind = "apex",      x =   410, z =   -11 }, -- final r=28.0  [village-clamped] [32.18: was 551/-34]
+	{ id = "SE5", kind = "brute",     x =   410, z =   -11 }, -- final r=28.0  [village-clamped] [32.18: was 551/-34] [33.3: was apex]
 }
 
 -- The table above stays readable AS AUTHORED and the shrink is applied over it here, rather than
