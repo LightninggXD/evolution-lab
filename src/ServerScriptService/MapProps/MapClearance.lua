@@ -75,6 +75,10 @@ local MapCut = require(script.Parent.MapCut)
 local MapGates = require(script.Parent.MapGates)
 local MapAnchors = require(script.Parent.MapAnchors)
 local PathSplines = require(script.Parent.PathSplines)
+-- Since 32.33, for `onRoad`. No cycle: `JungleLayout` reaches `JungleTrails`, `MapGates`,
+-- `SplicerService` and `ExpeditionService`, and none of those requires this file at the top level
+-- (`SplicerService` requires `ForestMapService` INSIDE a function, which is what keeps that arm open).
+local JungleLayout = require(script.Parent.JungleLayout)
 
 local MapClearance = {}
 
@@ -346,13 +350,32 @@ end
 -- Would a box of `size` centred at (tx, tz) be standing in a road? Zone-relative, exactly as
 -- `MapGates` measures its own driving line -- the lanes BEND since 33.35 and `PathSplines.Clearance`
 -- is the clamped projection over the polyline rather than over its chord.
-local function onRoad(rx, tz, hw)
+-- ===== ...AND THE 120 SEGMENTS OF THE JUNGLE NETWORK, WHICH THIS PASS COULD NOT SEE (32.33) =====
+--
+-- `MapGates.LANES` is the VILLAGE's three lanes. The trunks and the twenty camp trails are a second
+-- road system on the same platform, owned by `JungleLayout`, and until this line the search did not
+-- know they existed -- so a prop carried out of a shop frontage could be, and was, put down in the
+-- middle of one.
+--
+-- MEASURED 2026-09-08, and this is the whole of 32.33. A body-box walk of all 120 segments came
+-- back with two trails blocked by a 43 x 46 x 37 tree 5.4 studs off `NW5trail`'s centre line and a
+-- 33 x 45 x 42 over `SE5trail_5`. Cutting them where the roads are PAINTED (`MapJungle`, which now
+-- runs `MapCut` over its own network) took five props and left ten -- and a debug print at the cut
+-- proved why: **at that moment neither tree was in the map at all.** They arrive later, carried
+-- here, out of a village frontage: this pass moves 22 props a mean 135 studs and up to 180, the
+-- village reaches x -172, and -172 - 180 is -352. The cut is the right pass for what was always
+-- standing in a road; a keep-out is the only thing that stops one being DELIVERED into it.
+--
+-- `RoadClearance` measures to the road's painted EDGE and is negative on it, so the prop's own
+-- half-width is the whole test -- no verge constant, and none invented here. It answers `math.huge`
+-- for the twenty zones that have no jungle layout, which is what makes this line safe everywhere.
+local function onRoad(zoneKey, rx, tz, hw)
 	for _, lane in ipairs(MapGates.LANES) do
 		if lane.path and PathSplines.Clearance(lane.path, rx, tz) <= MapGates.CLEAR_HALF + hw then
 			return true
 		end
 	end
-	return false
+	return JungleLayout.RoadClearance(zoneKey, rx, tz) <= hw
 end
 
 -- ...and the funnel the arrival road comes down, which is not one of those three. `entrance` is
@@ -392,13 +415,17 @@ end
 -- than not moving it* is not a compromise of the rule, it is the rule applied to a village that
 -- cannot satisfy it, and the boot line says how many were placed that way so it can never quietly
 -- become the normal path (which is exactly how the deleting version of this pass went wrong).
-local function fits(job, tx, tz, fronts, grid, cx, entrance, why, relaxed)
+local function fits(job, tx, tz, fronts, grid, cx, zone, why, relaxed)
 	local size = job.size
 	local hw = math.max(size.X, size.Z) / 2
 
 	local rx = tx - cx
-	if onRoad(rx, tz, hw) then note(why, "in a road") return nil end
-	if inEntrance(entrance, rx, tz, hw) then note(why, "in the entrance funnel") return nil end
+	-- ===== `zone` RATHER THAN A TENTH ARGUMENT (32.33) =====
+	-- This used to be the bare `entrance` spec. `onRoad` needs the zone key now (see its note), and
+	-- the two facts travel together from the same call -- so they travel as one field pair rather
+	-- than as a signature this file has already refused to grow once.
+	if onRoad(zone and zone.key, rx, tz, hw) then note(why, "in a road") return nil end
+	if inEntrance(zone and zone.entrance, rx, tz, hw) then note(why, "in the entrance funnel") return nil end
 
 	-- ===== AND NEVER BACK ONTO THE GROUND THIS MOVE IS CLEARING (34.66) =====
 	-- Carried on the JOB rather than passed as a tenth argument, because it is a property of the
@@ -470,7 +497,7 @@ end
 -- The ring, opening straight out of the corridor on the side the prop is already on: the shortest
 -- move that could possibly clear it, which is `MapGates.relocate`'s own opening bid. Everything past
 -- that is tried in growing rings so the NEAREST spot that works wins, whichever way it lies.
-local function findSpot(job, front, fronts, grid, cx, entrance, why, relaxed)
+local function findSpot(job, front, fronts, grid, cx, zone, why, relaxed)
 	local px, pz = job.pos.X - front.ox, job.pos.Z - front.oz
 	local side = (-px * front.dz + pz * front.dx) >= 0 and 1 or -1
 	local base = math.atan2(front.dx * side, -front.dz * side)
@@ -483,7 +510,7 @@ local function findSpot(job, front, fronts, grid, cx, entrance, why, relaxed)
 				local ang = base + sgn * k * (math.pi / arcs)
 				local tx = job.pos.X + math.cos(ang) * r
 				local tz = job.pos.Z + math.sin(ang) * r
-				local dy = fits(job, tx, tz, fronts, grid, cx, entrance, why, relaxed)
+				local dy = fits(job, tx, tz, fronts, grid, cx, zone, why, relaxed)
 				if dy then return tx, tz, dy end
 			end
 		end
@@ -538,7 +565,7 @@ end
 -- the numbers does not have to parse the line.
 function MapClearance.Open(zoneKey, cx, map, protected, spec)
 	local fronts = frontagesFor(zoneKey, map, cx, protected)
-	local entrance = spec and spec.entrance
+	local zone = { key = zoneKey, entrance = spec and spec.entrance }
 
 	-- Every top-level prop, furniture included: the furniture is what a moved prop must not land
 	-- inside, so it belongs in this list even though it is never a candidate.
@@ -607,11 +634,11 @@ function MapClearance.Open(zoneKey, cx, map, protected, spec)
 		local p = job.prop
 		if p.inst.Parent then
 			local why = {}
-			local tx, tz, dy = findSpot(p, job.front, fronts, grid, cx, entrance, why)
+			local tx, tz, dy = findSpot(p, job.front, fronts, grid, cx, zone, why)
 			local onSightLine = false
 			if not tx then
 				-- Second tier, and it is only ever reached when the first found nothing at all.
-				tx, tz, dy = findSpot(p, job.front, fronts, grid, cx, entrance, nil, true)
+				tx, tz, dy = findSpot(p, job.front, fronts, grid, cx, zone, nil, true)
 				onSightLine = tx ~= nil
 			end
 			if tx then
@@ -808,7 +835,7 @@ function MapClearance.Reserve(zoneKey, cx, map, protected, spec, rect, label)
 	label = label or "a machine"
 
 	local fronts = frontagesFor(zoneKey, map, cx, protected)
-	local entrance = spec and spec.entrance
+	local zone = { key = zoneKey, entrance = spec and spec.entrance }
 	local props, grid = censusOf(map, protected)
 
 	-- Who is standing on it. The height filter is `Open`'s: a flat rock underfoot is scenery, and
@@ -869,9 +896,9 @@ function MapClearance.Reserve(zoneKey, cx, map, protected, spec, rect, label)
 
 		p.avoid = rect
 		local why = {}
-		local tx, tz, dy = findSpot(p, front, fronts, grid, cx, entrance, why)
+		local tx, tz, dy = findSpot(p, front, fronts, grid, cx, zone, why)
 		if not tx then
-			tx, tz, dy = findSpot(p, front, fronts, grid, cx, entrance, nil, true)
+			tx, tz, dy = findSpot(p, front, fronts, grid, cx, zone, nil, true)
 			if tx then relaxedMoves += 1 end
 		end
 		if tx then

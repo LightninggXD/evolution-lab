@@ -658,7 +658,10 @@ function ForestMapService.Init()
 				-- rocks are placed against authored coordinates, but the trees are scattered, and a
 				-- tree grown where a rock already stands is a tree with a rock in it. Planting first
 				-- means the wood is the thing that gets interrupted, which is what a wood does.
-				local camps = MapJungle.Build(zoneKey, cx, map)
+				-- `protected` since 32.33: this pass cuts the map's own props out of the 120
+				-- road segments now, exactly as the entrance funnel and the three gates already
+				-- do, and a cut without the census is a cut through the egg row.
+				local camps = MapJungle.Build(zoneKey, cx, map, protected)
 				-- LAST, and after the cut rather than before it. The approach road is paint laid
 				-- over whatever the entrance band left standing, so it has to be drawn on the
 				-- finished ground -- `evolution-lab-placement-search-ordering` is the standing note

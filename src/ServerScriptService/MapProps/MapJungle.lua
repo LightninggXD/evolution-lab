@@ -54,10 +54,49 @@
 
 local JungleLayout = require(script.Parent.JungleLayout)
 local MapPaint = require(script.Parent.MapPaint)
+local MapCut = require(script.Parent.MapCut)
 
 local MapJungle = {}
 
 local FOLDER_NAME = "Jungle"
+
+-- ===== A ROAD CUTS WHAT STANDS IN IT, AND THE TRAIL NETWORK NEVER ASKED (32.33) =====
+--
+-- Every other road on this platform runs `MapCut` over the ground it is about to paint: the
+-- entrance funnel in `ForestMapService.cutEntrance`, the three village gates in `MapGates.cutAlong`.
+-- The 120 segments this file paints did not, and the only reason it never showed is that the map's
+-- own dressing is thin this far out -- the PLANTER holds its 6,458 new trees out of the roads
+-- (`MapForest`, `120 road segments` in its keep-out line), so the wood the player walks through is
+-- already clear and the source map's own props are the ones nobody asked about.
+--
+-- MEASURED 2026-09-08 on a live boot, by a body-box walk of all 120 segments at the CENTRE line:
+-- **two of the map's own trees stand ON a trail** -- a 43 x 46 x 37 at (-307, -38) whose trunk is
+-- 5.4 studs off `NW5trail`'s centre line, and a 33 x 45 x 42 at (305, -27) whose canopy hangs over
+-- `SE5trail_5`. Both are `Model` + `Top` + `Bottom`, i.e. `MapCut.IsFoliage` says yes to both, and
+-- both have been standing there since the trails were first laid.
+--
+-- ===== THE ROW THAT FOUND THEM CALLED THEM HILLS, AND THAT IS WORTH KEEPING =====
+-- 32.33 was written from a walk that reported *"ground standing y 26..40 -- the flank hills
+-- `MapHorizon` raises"* and asked for a hill footprint keep-out one level earlier. There is no hill
+-- at either spot: `WorldShell.Floor` is at y 0 under both, and the y 26..40 "ground" was the walk's
+-- own downward ray landing on the TREE'S CANOPY, 25 studs of it, from above. A ground raycast that
+-- starts over an obstruction measures the obstruction
+-- ([[evolution-lab-walk-probe-traps]]), and it reads exactly like terrain.
+--
+-- ===== HOW WIDE THE CUT IS, AND WHY IT IS NOT THE PAINT =====
+-- `MapCut.Lane` takes the prop's CENTRE against the segment's own painted half-width -- a trunk on
+-- the path goes, a tree beside the path stays and hangs over it, which is what a path through a
+-- wood looks like and is that function's whole design.
+--
+-- `LaneFootprint` is the second half and needs a number of its own. `MapGates` drives 24 studs of
+-- a 46..56-stud lane and the entrance funnel drives 26; a trail is 30 studs wide and is not a road
+-- for anything but feet, so the strip that has to be genuinely walkable is the body's: 8 studs
+-- either side of the centre line is a 16-stud corridor for an 8.6-stud body, and it leaves the
+-- outer 7 studs a side to the canopy. MEASURED against the alternatives on the same boot, and the
+-- curve is almost flat -- 4.3 -> 7 props, 6 -> 11, 8 -> 12, 10 -> 12, 15 -> 14 -- so this is a
+-- choice about what the trail should LOOK like, not a fight over a prop count.
+local TRAIL_DRIVE_HALF = 8
+local TRAIL_DRIVE_MIN_HEIGHT = 2   -- nothing above knee height stands on the driving line
 
 -- ===== SIZING A ROCK: THE FOOTPRINT IS THE CONSTRAINT, NOT THE HEIGHT =====
 -- The first cut of this sized every rock by HEIGHT alone -- `k = h / size.Y`, applied to all three
@@ -304,7 +343,7 @@ end
 --
 -- Idempotent, and it has to be for the same reason `ForestMapService.Init` is: a second call must
 -- not stand a second ring of rocks inside the first.
-function MapJungle.Build(zoneKey, cx, map)
+function MapJungle.Build(zoneKey, cx, map, protected)
 	local camps = JungleLayout.Camps(zoneKey)
 	if not camps or not map then return 0 end
 
@@ -339,6 +378,34 @@ function MapJungle.Build(zoneKey, cx, map)
 	local trunks, trails, spurs = 0, 0, 0
 	local paved = 0
 
+	-- ===== CUT FIRST, PAINT SECOND (32.33) =====
+	-- See the note over `TRAIL_DRIVE_HALF`. Both passes per segment, exactly as `MapGates.cutAlong`
+	-- runs them: the centre test against the segment's OWN painted half-width, then the narrow
+	-- footprint test against the strip a body actually walks.
+	--
+	-- `stay` is collected and printed rather than dropped, which is the contract `MapCut.Lane`'s own
+	-- header states in as many words: everything the corridor found and refused to remove. A trail
+	-- with a house standing in it is a trail that does not work, and no probe in this repo asks. It
+	-- is keyed by INSTANCE because the trails are polylines -- two consecutive legs see the same
+	-- prop at the bend between them, the same dedupe `MapGates` needed for its T-junction.
+	local cutProps, stayed, stayedSeen = 0, {}, {}
+	for _, seg in ipairs(segments) do
+		-- `seg.w` bare, with no fallback: the paint loop below already indexes it unguarded, so a
+		-- segment without a width is an error two lines later either way.
+		local half = seg.w / 2
+		local lane = { x1 = seg.x1, z1 = seg.z1, x2 = seg.x2, z2 = seg.z2, halfA = half, halfB = half }
+		local n, kept = MapCut.Lane(map, cx, lane, protected)
+		cutProps += n
+		cutProps += MapCut.LaneFootprint(map, cx, lane, TRAIL_DRIVE_HALF, protected,
+			TRAIL_DRIVE_MIN_HEIGHT)
+		for _, k in ipairs(kept) do
+			if k.inst and k.inst.Parent and not stayedSeen[k.inst] then
+				stayedSeen[k.inst] = true
+				stayed[#stayed + 1] = ("%s (%.0f, %.0f) on %s"):format(k.name, k.x, k.z, seg.id)
+			end
+		end
+	end
+
 	for _, seg in ipairs(segments) do
 		local segEdge = { x1 = seg.x1, z1 = seg.z1, x2 = seg.x2, z2 = seg.z2, w = seg.w + EDGE_W * 2 }
 		paved += MapPaint.Segment(segEdge, folder, cx, edgeColour, Y_EDGE_FOR[seg.tier] or Y_TRUNK_EDGE, nil, seg.caps)
@@ -363,8 +430,10 @@ function MapJungle.Build(zoneKey, cx, map)
 	-- only the older one -- a count whose label is a lie is how a boot line stops being read.
 	print(("[MapJungle] %s: %d clearings with %d rocks and floors (%d dropped off the roads "
 		.. "and our own fixtures' ground), "
-		.. "%d path parts (%d cross + %d trails + %d spurs) -- the horizon is MapHorizon since 31.24")
-		:format(zoneKey, #camps, rocks, dropped, paved, trunks, trails, spurs))
+		.. "%d path parts (%d cross + %d trails + %d spurs), cut %d of the map's own props out of "
+		.. "the network%s -- the horizon is MapHorizon since 31.24")
+		:format(zoneKey, #camps, rocks, dropped, paved, trunks, trails, spurs, cutProps,
+			#stayed > 0 and ("  <-- STILL STANDING IN A ROAD: " .. table.concat(stayed, ", ")) or ""))
 	return #camps
 end
 

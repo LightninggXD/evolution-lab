@@ -67,6 +67,13 @@ local SkinMesh = require(RS.Modules.SkinMesh)
 -- Only for the photo reward at the bottom of this file; the plaza itself touches no save.
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local Telemetry = require(script.Parent.Telemetry)
+-- Since 32.33, so a lamp post is not stood up in the middle of a jungle trail. This plaza is
+-- Forest's and nothing else's (the file header says so in its first line), so the zone key is a
+-- constant here rather than a parameter nobody would ever pass anything else to. No cycle:
+-- `JungleLayout` reaches `JungleTrails`, `MapGates`, `SplicerService` and `ExpeditionService`, and
+-- only `ServerMain` requires this file.
+local JungleLayout = require(script.Parent.MapProps.JungleLayout)
+local ZONE_KEY = "Forest"
 
 local HubPlaza = {}
 
@@ -314,12 +321,39 @@ local moved = 0
 -- The one gate every standing piece goes through. Returns a position, or nil when there is nowhere
 -- honest to put it -- callers must handle nil, because a lamp inside a leaderboard is worse than no
 -- lamp, and both are far better than a build that stops halfway.
-local function standAt(preferred, footprint)
+-- ===== CONSTRAINT 2, AND WHY IT IS AN ARGUMENT RATHER THAN A RULE (32.33) =====
+--
+-- `occupied` asks the WORLD what is standing here, and the jungle trails are paint: their slabs top
+-- out around y 1.3, well under `GROUND_CLEAR`, so every road on this deck reads as empty ground.
+-- The two north doors 34.65 opened put trail heads at (-150, 390) and (150, 390) -- on this deck --
+-- so the roads and the street furniture have shared the plaza since, and nobody asked.
+--
+-- MEASURED 2026-09-08 by a body-box walk of all 120 segments: the lamp at the authored (-84, 364)
+-- stands ON `NW4trail_2`. A cross-section every 2 studs across that 30-stud trail leaves it open
+-- only from -14 to -2 -- i.e. passable at the rim and not at the centre, which is exactly what
+-- 32.33 refused to accept.
+--
+-- **`roadHalf` is per-caller and not a rule over `footprint`, because a blanket road test measured
+-- WORSE than the fault.** Three of this file's eighteen authored spots stand on a jungle road: this
+-- lamp, the photo spot (-104, 344) and the trade floor (-138, 298). The trade floor is a floor --
+-- "you walk over a floor, you walk around a lamp post" is this file's own line about the medallion.
+-- The photo spot's `PHOTO_FOOT` is a 40-stud clearance box around a backdrop far smaller than it,
+-- **not one of its thirteen nudges clears a road**, and the walk finds nothing blocking there -- so
+-- a rule keyed off the footprint would skip the one piece whose own header says it may never be
+-- skipped, to fix a thing that is not broken. The three pieces that are a POST pass their post's
+-- half-width; the two that are ground pass nothing.
+--
+-- `RoadClearance` measures to the road's painted edge and is negative on it, and answers
+-- `math.huge` where there is no jungle layout at all.
+local function standAt(preferred, footprint, roadHalf)
 	for _, offset in ipairs(NUDGE) do
 		local centre = preferred + offset
 		local halfX = footprint.X * 0.5
 		-- CONSTRAINT 1: never in the walking lane, whatever the search says about the ground
-		if math.abs(centre.X) - halfX >= CORRIDOR_HALF then
+		if math.abs(centre.X) - halfX >= CORRIDOR_HALF
+			-- CONSTRAINT 2: and never standing in a road -- see the note above
+			and (not roadHalf
+				or JungleLayout.RoadClearance(ZONE_KEY, centre.X, centre.Z) > roadHalf) then
 			if not occupied(centre, footprint) then
 				if offset.Magnitude > 0.5 then
 					moved = moved + 1
@@ -404,7 +438,9 @@ end
 local LAMP_FOOT = Vector3.new(10, 26, 10)
 
 local function buildLamp(model, centre)
-	local pos = standAt(centre, LAMP_FOOT)
+	-- 5 studs is the plinth's own half-width (`LampPlinth` is 5 x 5): what has to be off the road
+	-- is the post, not the 10-stud box the search keeps other props out of.
+	local pos = standAt(centre, LAMP_FOOT, 5)
 	if not pos then return nil end
 
 	local base = newPart({
@@ -458,7 +494,8 @@ end
 local POLE_FOOT = Vector3.new(9, 32, 9)
 
 local function buildBannerPole(model, centre)
-	local pos = standAt(centre, POLE_FOOT)
+	-- The pole's own base is 6 x 6 (see `PoleBase` below), so 3 is what stands on the ground.
+	local pos = standAt(centre, POLE_FOOT, 3)
 	if not pos then return nil end
 
 	newPart({
@@ -504,7 +541,8 @@ end
 local SIGN_FOOT = Vector3.new(10, 20, 10)
 
 local function buildGateSign(model, centre)
-	local pos = standAt(centre, SIGN_FOOT)
+	-- `SignBase` is 6 x 6, the same reading as the lamp's and the banner's.
+	local pos = standAt(centre, SIGN_FOOT, 3)
 	if not pos then return nil end
 
 	newPart({
