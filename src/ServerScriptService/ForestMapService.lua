@@ -422,6 +422,15 @@ end
 --
 -- The `entrance` spec keeps its own four-field shape because `MapForest`, `MapRoad` and `GetSpec`
 -- read it; it is converted to a lane here, at the single place that cuts with it.
+-- ===== THE ONE LANE THROUGH THE LEADERBOARD ROW (32.34) =====
+-- World coordinates, `{ x, z, hx, hz }` -- the shape `MapClearance.Reserve` and
+-- `SplicerService.PlacementKeepOut` both use. x 168..192 at z -16..-40, chosen off the measurement
+-- in the note at the call site: it is the first stretch east of the boards where NOTHING standing
+-- is the map's architecture, so the reservation either clears outright or says why. On the boot it
+-- was written for it moved one tree and left a 29-stud opening, against the 12.9 a body and a half
+-- needs.
+local SOUTH_EAST_EXIT = { x = 180, z = -28, hx = 12, hz = 12 }
+
 local ENTRANCE_DRIVE_HALF = 26   -- the strip of the funnel that has to be genuinely walkable
 local ENTRANCE_DRIVE_MIN = 2     -- ...and nothing above knee height stands on it
 
@@ -697,6 +706,43 @@ function ForestMapService.Init()
 				-- service's own line is already the longest format string in the file.
 				MapClearance.Open(zoneKey, cx, map, protected, spec)
 				BUILT[zoneKey] = { cx = cx, map = map, protected = protected }
+
+				-- ===== AND ONE WAY OUT OF THE VILLAGE'S SOUTH-EAST CORNER (32.34) =====
+				--
+				-- `MapClearance.Open` reserves the ground IN FRONT of a board so you can read it.
+				-- Nothing reserved a way PAST a row of them, and `LeaderboardService` ADOPTS the
+				-- map's boards rather than placing them, so their spacing is the map author's and
+				-- was never a rule anybody wrote down.
+				--
+				-- MEASURED 2026-09-08 with the 8.6 x 5.4 body box over a per-cell downward ray
+				-- (walls counted only above hip 3.0): a southbound march at 1-stud steps across the
+				-- band `z -16..-36` found **one gap in the whole of x 88..240, and it was 12 studs
+				-- wide** -- one stud under the body-and-a-half this row asks for, and standing at
+				-- x 88..99, which is beside the south gate rather than at the corner a player
+				-- leaves by. East of it the line is unbroken: `SecretsHatched`, `TotalGems`,
+				-- `TimePlayed` and the `Well` from x 100 to 144, `Barrel1` and pines to 168, and
+				-- the map's own trees from 172 out past 240.
+				--
+				-- **The route matters because the pathfinder takes it.** `ComputeAsync` from
+				-- `ForestSpawn` to the waterfall secret with a body-sized agent (radius 4.3) comes
+				-- back Success at 754 studs -- 1.06x the straight line -- and crosses `z = -24` at
+				-- **x 120**, i.e. straight through the board row, because that is the short way. A
+				-- body box walked down that path is stopped on `SecretsHatched` and then on the
+				-- `Well`. That is the stall this row was opened by.
+				--
+				-- ===== WHY HERE AND NOT AT THE 12-STUD GAP =====
+				-- Both were measured. Widening the west gap needs the 43-stud tree at (70, -11)
+				-- moved, and `Reserve` cannot place it -- 833 candidates refused for another prop,
+				-- 694 for a road, 465 for the entrance funnel -- so that lane clears PARTLY, which
+				-- is the worst of the three outcomes. At the corner the only things standing are
+				-- the map's own trees, `Reserve` clears the box outright, and the opening it leaves
+				-- is where somebody walking to the waterfall was heading anyway.
+				--
+				-- Deliberately NOT paved. The row asks for a way through, and a dirt stripe laid
+				-- across the village's own edge is a road that `JungleTrails` did not plan and
+				-- `MapPaint` would have to be told about -- see 32.11b before adding one.
+				MapClearance.Reserve(zoneKey, cx, map, protected, spec, SOUTH_EAST_EXIT,
+					"the village's south-east exit")
 
 				-- ===== AND LAST OF ALL, PUT BACK ANYTHING LEFT IN MID-AIR (32.21) =====
 				--
