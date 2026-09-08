@@ -108,9 +108,12 @@
 local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local NavBlock = require(ServerScriptService.NavBlock)
+
 local WaterfallParkour = {}
 
-local ROUTE_VERSION = 3
+-- v4 (32.35): the approach's picket line is declared solid to the pathfinder. No geometry moved.
+local ROUTE_VERSION = 4
 local MODEL_NAME = "WaterfallParkour"
 
 -- ===== GEOMETRY CONSTANTS =====
@@ -207,6 +210,18 @@ local X_WEST, X_EAST = 226, 262
 -- HUMANOID fits at a landing spot is the only test that separates "standing honestly on a ledge"
 -- from "buried in the cliff". Audit() replays it piece by piece.
 local BODY_BOX = Vector3.new(4, 6, 4)
+
+-- ===== THE WALKING BODY, WHICH IS NOT THE BOX ABOVE (32.35, 2026-09-08) =====
+--
+-- `BODY_BOX` asks "does a humanoid FIT standing here" and is the 4-stud collider. These three ask
+-- the other question -- "can a humanoid GET here" -- and they are the numbers the map's walk probes
+-- use: 8.6 studs across the shoulders (the ruler the whole world was re-authored against in Phase
+-- 31), 9 studs tall, and a step-up of 3, read off the live character's HipHeight 2.97 in a Play
+-- boot. A face taller than STEP_UP is a wall to a walker however short it looks, and a slot
+-- narrower than BODY_WIDTH is not a door however clearly the pathfinder can see through it.
+local BODY_WIDTH = 8.6
+local BODY_HEIGHT = 9
+local STEP_UP = 3.0
 
 -- ===== THE ROUTE =====
 --
@@ -589,6 +604,56 @@ function WaterfallParkour.Build()
 		end
 	end
 
+	-- ----- what the PATHFINDER is allowed to make of the shore (32.35) -----
+	--
+	-- The five stones stand in a line across the shore lane between the village and the grotto, with
+	-- 2 to 4 studs of daylight between them. Those gaps are the approach's JUMPS and they are doors
+	-- to nothing: a walking body is 8.6 studs across. `PathfindingService` threads them anyway at
+	-- AgentRadius 4.3 -- the navmesh is built off collision geometry and cannot tell a stepping
+	-- stone from a floor -- and the route it hands back walks a body into the 7.5-stud north face of
+	-- `ParkourStone3`. Measured twice on 2026-09-08 at (254, 4.2, -230), which is the coordinate
+	-- 32.34's own walk reported before this row existed.
+	--
+	-- So the picket line is declared solid TO THE PATHFINDER ONLY. See `NavBlock` for why every
+	-- other mechanism fails -- a `PathfindingModifier` on a non-collidable part does nothing at all,
+	-- and on a collidable one it needs the caller to pass a `Costs` table. NOTHING ABOUT THE CLIMB
+	-- CHANGES: the block is physically inert, invisible to every raycast and every spatial query,
+	-- and a player jumps stone to stone straight through it exactly as before.
+	--
+	-- WHERE IT STOPS IS MEASURED, NOT CHOSEN. A stone whose top stands no more than a body's step-up
+	-- over the shore is a KERB and not a wall -- `ParkourStone1` is 2.5 studs and a body simply walks
+	-- onto it, which is why the open lane round the line runs x 274..309 and not x 289..309. So the
+	-- block covers every stone a body cannot step onto, plus any slot east of them narrower than a
+	-- body, and it ends at the west edge of the first stone that is walkable.
+	do
+		local shoreY = APPROACH[1][2] - THICK
+		local west, east = math.huge, -math.huge
+		local north, south, top = -math.huge, math.huge, -math.huge
+		for _, stone in ipairs(APPROACH) do
+			if stone[2] - shoreY > STEP_UP then
+				local z = stone[3] + APPROACH_LANE
+				west = math.min(west, stone[1] - stone[4] * 0.5)
+				east = math.max(east, stone[1] + stone[4] * 0.5)
+				north = math.max(north, z + stone[5] * 0.5)
+				south = math.min(south, z - stone[5] * 0.5)
+				top = math.max(top, stone[2])
+			end
+		end
+		for _, stone in ipairs(APPROACH) do
+			local stoneWest = stone[1] - stone[4] * 0.5
+			if stoneWest > east and stoneWest - east < BODY_WIDTH then
+				east = stoneWest
+			end
+		end
+		-- Two studs of margin along the line, and a lid a body's height over the tallest stone: a
+		-- navmesh that cannot go through a wall will happily go over one that stops too low.
+		local floor, ceiling = shoreY - 2, top + BODY_HEIGHT
+		NavBlock.New("ParkourNavBlock",
+			CFrame.new((west + east) * 0.5, (floor + ceiling) * 0.5, (north + south) * 0.5),
+			Vector3.new(east - west, ceiling - floor, (north - south) + 4),
+			model)
+	end
+
 	-- ----- the switchback -----
 	local y = APPROACH[#APPROACH][2]
 	local z = APPROACH[#APPROACH][3]
@@ -729,11 +794,14 @@ function WaterfallParkour.Build()
 
 	model.Parent = workspace
 
+	local navBlock = model:FindFirstChild("ParkourNavBlock")
 	print(("[WaterfallParkour] built v%d: %d pieces, %d legs, shore (%d, %.1f, %d) -> summit "
-		.. "(%.0f, %.1f, %.0f)")
+		.. "(%.0f, %.1f, %.0f); the approach is closed to the pathfinder over x %.0f..%.0f")
 		:format(ROUTE_VERSION, index, #LEGS,
 			APPROACH[1][1], APPROACH[1][2], APPROACH[1][3],
-			model:FindFirstChild("ParkourRest" .. #LEGS).Position.X, y, z))
+			model:FindFirstChild("ParkourRest" .. #LEGS).Position.X, y, z,
+			navBlock and (navBlock.Position.X - navBlock.Size.X * 0.5) or 0,
+			navBlock and (navBlock.Position.X + navBlock.Size.X * 0.5) or 0))
 
 	return model
 end
