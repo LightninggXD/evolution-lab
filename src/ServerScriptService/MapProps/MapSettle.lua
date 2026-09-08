@@ -136,8 +136,38 @@ function MapSettle.Run(spec)
 		end
 	end
 
+	-- ===== PACED, BECAUSE THIS WALK KILLED THE WHOLE SERVER (21.6, 2026-09-08) =====
+	--
+	-- `MapSettle:144: Script timeout: exhausted allowed execution time`, thrown out of `groundUnder`
+	-- and up through `ServerMain:172`. The timeout does not kill this pass -- it kills the THREAD,
+	-- and the thread is `ServerMain`, so every service below that line never initialised: no save,
+	-- no leaderstats, a raw avatar, no mobs, and the only console evidence was one client line about
+	-- a missing remote. That is the fourth time this class bug has landed here (34.13 at
+	-- `ServerMain:191`, 35.1 in `MapSolids.Commit`, 35.11 in `MapForest.plantOne`) and the third
+	-- distinct file, so the fix is the established one rather than a new idea.
+	--
+	-- THE WALK IS THE EXPENSIVE UNIT, not anything it calls -- which is trap 2 of that bug: pacing an
+	-- inner call and leaving the outer walk unpaced is what made 35.11 die one frame earlier in the
+	-- same stack. Here the loop body is a `measure` over every descendant of a prop PLUS up to eight
+	-- raycasts, run over 5,950 props, and none of it ever yields.
+	--
+	-- 25 rather than `MapSolids`' 100, for the same reason its hills get a tighter cadence than its
+	-- trees: one iteration here can cost eight casts, so the unit is several times the size.
+	--
+	-- THE YIELD CANNOT CHANGE THE RESULT. There is no RNG in this pass, `pairs` was never ordered,
+	-- and the only thing a yield lets in is another script moving a prop mid-walk -- which is
+	-- already the case this pass is built to survive: `ServerMain` runs it a SECOND time after
+	-- `MapSquare.Arrange` for exactly that reason, and it is idempotent by construction. Verify the
+	-- fix the way 35.11's was verified: the boot line's own numbers should not move.
+	local sinceYield = 0
+	local function pace(every)
+		sinceYield += 1
+		if sinceYield >= every then sinceYield = 0 task.wait() end
+	end
+
 	local dropped, checked, worst, worstName = 0, 0, 0, ""
 	for inst in pairs(settling) do
+		pace(25)
 		local foot, mx, mz = measure(inst)
 		if foot then
 			checked += 1

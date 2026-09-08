@@ -69,6 +69,7 @@ local RS = game:GetService("ReplicatedStorage")
 local Remotes = RS:WaitForChild("Remotes")
 local GameConfig = require(RS.Modules.GameConfig)
 local IconLibrary = require(RS.Modules:WaitForChild("IconLibrary"))
+local UITheme = require(RS.Modules.UITheme)
 
 local Builder = require(script.Parent:WaitForChild("ScrollingPanelBuilder"))
 
@@ -135,6 +136,29 @@ local function grantLine(p)
 	if p.grantPotions then bits[#bits + 1] = ("%d Potions"):format(p.grantPotions) end
 	if p.grantSpin then bits[#bits + 1] = "1 Lucky Spin" end
 	return #bits > 0 and table.concat(bits, "  ·  ") or (p.blurb or "")
+end
+
+--- The same sentence as `grantLine`, in the width a HERO line actually has (21.6).
+---
+--- MEASURED, NOT GUESSED. `AddHero`'s line label is **340 px** and its text is 20 px, and
+--- `grantLine`'s output for the Starter Pack -- "2500 DNA  ·  30 Diamonds  ·  25 Evolution Shards"
+--- -- draws at roughly 435. It was silently cut to "... · 25…" on the live card, which a probe
+--- cannot see and only the capture found. Note the trap in reading that back: `TextBounds` reported
+--- 266, because **TextBounds measures the truncation, not the string**.
+---
+--- So the two differ in vocabulary and NOT in derivation. Both read the same grant fields off the
+--- same product, so a fourth line added to the pack in `RobuxShop` still arrives here on its own;
+--- this one just spends fewer characters on each -- "Shards" for "Evolution Shards", a thin
+--- separator -- and puts DNA through the game's own suffixes, which is what the join card prints
+--- and what every wallet in the HUD shows. Budget: 34 characters at 20 px is ~310 of the 340.
+local function bundleLine(p)
+	local bits = {}
+	if p.grantDNA then bits[#bits + 1] = ("%s DNA"):format(UITheme.FormatNumber(p.grantDNA)) end
+	if p.grantDiamonds then bits[#bits + 1] = ("%d Diamonds"):format(p.grantDiamonds) end
+	if p.grantShards then bits[#bits + 1] = ("%d Shards"):format(p.grantShards) end
+	if p.grantSpins then bits[#bits + 1] = ("%d Spins"):format(p.grantSpins) end
+	if p.grantPotions then bits[#bits + 1] = ("%d Potions"):format(p.grantPotions) end
+	return table.concat(bits, " \u{00B7} ")
 end
 
 -- `ProductTiles`' predicate, copied rather than re-reasoned -- see fault 2 in the header. Boss Revive
@@ -267,6 +291,59 @@ function ShopPanel.Init(screenGui)
 	-- The `+` on a currency capsule is the door that cared, and it is answered rather than ignored:
 	-- `FocusPacks` scrolls to the first pack, and `CurrencyPlus` asks for it by pressing
 	-- `openStorePacks`. A player who pressed `+` on DNA is asking for DNA, not for VIP.
+	-- ===== THE STARTER PACK SITS ABOVE VIP WHILE IT IS STILL OFFERED (21.6) =====
+	--
+	-- The join card is the interruption and this is the DOOR. Without it a player who closed the card
+	-- -- or who was already busy when it would have opened, which `HUD/StarterPack` deliberately
+	-- allows -- could never buy the pack at all: the product carries `panel = "starter"`, so `inStore`
+	-- keeps it off the packs wall below. That is 34.5's fault exactly (a TRANSFER button nothing ever
+	-- assigned) and it is worth one card to not repeat it.
+	--
+	-- ABOVE VIP, and only for as long as it is honest. LayoutOrder -1 puts it at the top of the store
+	-- for a player who has never spent, which is the one shopper for whom a 499 R$ pass is the wrong
+	-- first thing to see. It is DRAWN ONCE and hidden by the refresh, never rebuilt: a rebuild throws
+	-- the scroll position away on every payload, and the payload this reacts to is the purchase.
+	--
+	-- BUILT EVEN WHEN IT IS NOT ELIGIBLE, because `Init` runs once and eligibility is a property of
+	-- the save that changes underneath it. `Visible` is the whole mechanism, and it is answered by
+	-- `GameConfig.IsStarterPackEligible` in the refresh below -- the SAME predicate the server fires
+	-- the join card on, so the card and the hero can never disagree about who this is for.
+	local starter = GameConfig.GetRobuxProduct("StarterPack")
+	local starterHero = nil
+	if starter then
+		starterHero = panel.AddHero({
+			Name = "Product_" .. starter.key,
+			LayoutOrder = -1,
+			Title = starter.name,
+			Icon = IconLibrary.Resolve(starter.emoji) or "",
+			IconPlate = true,
+			BackgroundColors = { Color3.fromRGB(255, 226, 138), Color3.fromRGB(232, 150, 40) },
+			-- The one ribbon in this store that is a fact about the OFFER rather than about value:
+			-- it is shown to a player who has never spent and disappears for good when they do.
+			Ribbon = { Text = "ONE TIME ONLY", Colors = RIBBON_BEST },
+			-- DERIVED, like the hero's VIP lines beside it. `GetBundleValue` prices each grant at the
+			-- cheapest rung in this same table that sells the same thing, so the store cannot promise
+			-- a saving the receipt does not pay.
+			Lines = {
+				-- `bundleLine`, not `grantLine`: same fields, same derivation, fewer characters --
+				-- a hero line is 340 px and `grantLine`'s wording overruns it. See its own note.
+				{ Icon = IconLibrary.Resolve("\u{1F9EC}") or "", Text = bundleLine(starter) },
+				{ Icon = IconLibrary.Resolve("\u{1F4B0}") or "", Text = ("Worth R$ %d bought separately"):format(
+					GameConfig.GetBundleValue(starter)) },
+				{ Icon = IconLibrary.Resolve("\u{1F381}") or "", Text = "Your first purchase, once" },
+			},
+			Button = {
+				Name = "Buy",
+				Price = "R$ " .. tostring(starter.price or "?"),
+				Icon = "",
+				Colors = ROBUX,
+				Callback = function()
+					Remotes.PromptRobuxPurchase:FireServer(starter.key)
+				end,
+			},
+		})
+	end
+
 	local vipPass, gridPasses = nil, {}
 	for _, pass in ipairs(GameConfig.GamePasses) do
 		-- A pass with no real id cannot be prompted for and must not be drawn: an unbuyable card on
@@ -396,6 +473,13 @@ function ShopPanel.Init(screenGui)
 	panel.OnRefresh(function()
 		local data = ShopPanel.getData and ShopPanel.getData()
 		local owned = (data and data.Passes) or {}
+		-- The hero closes for good the moment `RobuxSpent` moves or a pass is owned. Asked on every
+		-- payload rather than once at build, because the payload that matters IS the purchase: the
+		-- receipt lands, `data.RobuxSpent` moves, and the card that sold it takes itself off the
+		-- screen without the store being reopened.
+		if starterHero then
+			starterHero.Instance.Visible = GameConfig.IsStarterPackEligible(data)
+		end
 		for _, pass in ipairs(GameConfig.GamePasses) do
 			local handle = passButtons[pass.key]
 			local has = owned[pass.key] == true

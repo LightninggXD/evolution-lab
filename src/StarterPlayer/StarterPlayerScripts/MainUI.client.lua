@@ -4261,6 +4261,25 @@ end
 -- MOVED OUT (18.9) to `ReplicatedStorage.Modules.HUD.WelcomeBack` -- 213 lines, unchanged.
 require(RS.Modules:WaitForChild("HUD"):WaitForChild("WelcomeBack"))(hudRefs)
 
+-- ===== THE STARTER PACK CARD (21.6) =====
+--
+-- The second card in the game that opens itself, and the only one that asks for money -- so it is
+-- required beside `WelcomeBack`, which is the other one, and it wears the same courtesies: it waits
+-- out the loading screen and stands down in front of any panel the player opened themselves.
+--
+-- UNLIKE `WelcomeBack` IT IS NOT CALLED FROM THE PAYLOAD HANDLER, and that is not an inconsistency.
+-- `WelcomeBack` asks a question about the save (is a daily reward waiting?) and the payload is the
+-- answer, so its trigger belongs where the payload lands. This card's trigger is a decision only the
+-- server can make -- who has never spent, and has this save been offered the pack before -- so the
+-- server makes it, stamps `StarterPackShown`, and fires `StarterPackOffer`. The module connects that
+-- remote itself. Nothing on this client can arm it, which is the whole point: a card the client
+-- could arm is a one-time offer that can be shown as many times as a player likes.
+--
+-- It still publishes `hudRefs.starterPackOffer`, so the card has one named opener the rest of the
+-- HUD can reach -- and `StarterPackPanel` is in `swipeSkip` below, because a modal that arrives is
+-- not a screen you browse to.
+require(RS.Modules:WaitForChild("HUD"):WaitForChild("StarterPack"))(hudRefs)
+
 -- ============================================================================
 -- THE AURAS PANEL (15.27) -- every mutation the Splicer has ever given you, and
 -- which one is on your body right now
@@ -4429,8 +4448,9 @@ end
 -- deliberately NOT in it -- they are full-screen dims that `closeAllPanels` sweeps by attribute --
 -- so a swipe never lands on a screen that has no neighbours to swipe to.
 --
--- EIGHT OF THEM ARE NOT SOMEWHERE YOU BROWSE TO, and a swipe must not deal them out. Three are
--- modal answers to an event (`TradeModal`, `TradePickerPanel`, `WelcomeBackPanel`) and five are the
+-- NINE OF THEM ARE NOT SOMEWHERE YOU BROWSE TO, and a swipe must not deal them out. Four are
+-- modal answers to an event (`TradeModal`, `TradePickerPanel`, `WelcomeBackPanel`, `StarterPackPanel`)
+-- and five are the
 -- screens of a place you are standing in -- the egg stall, the fusion lab, the mastery counter, the
 -- relic forge, the group board. None has a HUD tile, which is the test: the tile column IS the
 -- player's menu, and swiping is a second way through the same menu, not a way into rooms they have
@@ -4439,6 +4459,7 @@ hudRefs.swipeSkip = {
 	TradeModal = true,
 	TradePickerPanel = true,
 	WelcomeBackPanel = true,
+	StarterPackPanel = true,
 	EggPanel = true,
 	FusionPanel = true,
 	MasteryPanel = true,

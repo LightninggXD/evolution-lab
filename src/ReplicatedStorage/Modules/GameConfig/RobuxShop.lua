@@ -206,6 +206,45 @@ GameConfig.RobuxProducts = {
 	-- ProcessReceipt; buying it late is safe, because every premium reward already reached stays
 	-- claimable (see SeasonPassService.GrantPremium).
 	{ key = "SeasonPremium", productId = 3702256841, price = 399, name = "Premium Season Pass", emoji = "\u{1F39F}\u{FE0F}", grantSeasonPremium = true },
+
+	-- ===== THE STARTER PACK (21.6) =====
+	--
+	-- The shop has nineteen products and not one of them is aimed at the FIRST purchase. That is the
+	-- gap this row fills, and the reason it is worth filling is the only number in the row's own cell:
+	-- roughly 95% of players who spend once spend again, so a first purchase is not one sale, it is
+	-- the door to every later one. Nothing else in this table is priced or gated to be that door --
+	-- every tile above is a rung on a ladder aimed at somebody who has already decided to pay.
+	--
+	-- THREE CURRENCIES, ONE PRICE, AND THE CONTENTS ARE THE ARGUMENT. A first-time buyer has not met
+	-- the diamond upgrades or the wheel yet; a pack of pure DNA would sell them progress they were
+	-- already going to make. One of each instead: DNA is the run, Diamonds are the permanent upgrades
+	-- (`DiamondUpgrades`, Stage Mastery), Shards are the wheel at exactly one spin -- so the pack
+	-- introduces the three sinks rather than accelerating the one the player is already standing in.
+	--
+	-- R$ 99, THE TOP OF THE BAND THE ROW ALLOWS (49-99). 49 is already the price of a single small
+	-- anything in this shop (DNA_1, Diamonds_1, Shards_1, LuckySpin), so a 49 pack would have to be
+	-- one of those with two crumbs beside it and would read as the cheapest tile rather than as a
+	-- bundle. 99 is the same impulse band and buys the pack room to be worth three things.
+	--
+	-- THE WORTH IS DERIVED, NEVER TYPED -- `GetBundleValue` below prices each line at the CHEAPEST
+	-- existing rung that sells the same thing, which is the same base `GetTierBonusPct` divides by.
+	-- So the card's "WORTH R$ 318" is a sum this table already contains, and repricing DNA_1 moves
+	-- the claim with it. That is 11.7's rule about ribbons, and it binds harder on a bundle than on a
+	-- tier tile: a tier tile's ribbon can be checked by eye against the tile above it, and a bundle's
+	-- cannot be checked by the buyer at all.
+	--
+	-- `panel = "starter"` KEEPS IT OFF THE PACKS WALL, for the same reason the two Catalysts are off
+	-- it: this card answers a question asked once, on the way in. A permanent tile among the currency
+	-- packs would be a "one-time offer" that is visibly always there, which is the one claim in this
+	-- shop that would be a lie. It has exactly two doors -- the join card (`HUD/StarterPack`) and the
+	-- store's own hero -- and BOTH close for good the moment `RobuxSpent` moves.
+	--
+	-- 👤 productId = 0 UNTIL THE DASHBOARD ROW EXISTS. This file's own documented sentinel, and
+	-- `RobuxShopService` refuses to prompt on it with a message rather than opening a dialog that
+	-- cannot complete (26.4). Both doors above hide themselves on a zero id, so nothing draws until
+	-- the id is real -- see `IsStarterPackEligible`.
+	{ key = "StarterPack", productId = 0, price = 99, panel = "starter", name = "Starter Pack",
+	  emoji = "\u{1F381}", grantDNA = 2500, grantDiamonds = 30, grantShards = 25 },
 }
 
 function GameConfig.GetRobuxProduct(key)
@@ -228,6 +267,93 @@ function GameConfig.GetValuePerRobux(product)
 		or product.grantSpins or product.grantPotions or product.grantTierUps
 	if not amount then return 0 end
 	return amount / product.price
+end
+
+-- ===== WHAT A BUNDLE IS WORTH, AT THIS SHOP'S OWN PRICES (21.6) =====
+--
+-- `GetValuePerRobux` above answers "how good is this rung", and it cannot answer for the Starter
+-- Pack: it returns the FIRST grant field it finds, so a product paying three currencies would be
+-- valued on its DNA alone. That is harmless there only because a bundle carries no `tierGroup` and
+-- therefore never draws a tier ribbon -- but a bundle still has to be able to say what it is worth,
+-- and the one thing it must never do is say it in an authored number.
+--
+-- SO IT IS PRICED AGAINST THE SHOP ITSELF. Each grant line is valued at the CHEAPEST-PRICED product
+-- that sells the same thing, which is deliberately the same base `GetTierBonusPct` divides by -- the
+-- 49 R$ rung of each ladder. That is the honest comparison for the person this is aimed at: a
+-- first-time buyer is choosing against the small tile, not against the 999 R$ one, and pricing the
+-- pack against the best rate in the shop would compare a starter offer to a whale's.
+--
+-- `delisted` rows are skipped: Boss Revive grants 10 Diamonds for 49 and would tie with Diamonds_1
+-- today, but it is withdrawn, and a withdrawn row must never become the price something else quotes.
+-- The product being valued is skipped too, or a bundle would price itself against itself.
+--
+-- FLOORED, so the number the card prints is never more than the shop can actually charge for the
+-- same goods. It is a sum of this table, in Robux.
+local BUNDLE_GRANTS = { "grantDNA", "grantDiamonds", "grantShards", "grantSpins", "grantPotions", "grantTierUps" }
+
+function GameConfig.GetBundleValue(product)
+	if not product then return 0 end
+	local total = 0
+	for _, field in ipairs(BUNDLE_GRANTS) do
+		local amount = tonumber(product[field])
+		if amount and amount > 0 then
+			local base
+			for _, p in ipairs(GameConfig.RobuxProducts) do
+				local paid = tonumber(p[field])
+				if p ~= product and not p.delisted and paid and paid > 0
+					and p.price and p.price > 0 and (not base or p.price < base.price) then
+					base = p
+				end
+			end
+			if base then
+				total += amount * (base.price / base[field])
+			end
+		end
+	end
+	return math.floor(total)
+end
+
+-- ===== WHO IS STILL OFFERED THE STARTER PACK (21.6) =====
+--
+-- "Shown once to players who have never spent" is the row's whole gate, and `data.RobuxSpent` is
+-- already exactly that number: `BoardStats.RobuxSpent` is called from `ProcessReceipt` and NOWHERE
+-- else, on `receiptInfo.CurrencySpent`, so it counts real completed purchases and cannot be moved by
+-- a cancelled prompt. No second "has bought the pack" field is needed -- buying the pack IS spending.
+--
+-- THE PASSES ARE THE OTHER HALF, and they are why this is not a one-line test. A game pass never
+-- reaches `ProcessReceipt` -- `PassService` grants it off `UserOwnsGamePassAsync` -- so a player who
+-- has bought VIP and nothing else still reads `RobuxSpent == 0`. Offering them a starter pack would
+-- be offering a first-purchase discount to somebody who spent 499 R$ on the way in.
+--
+-- `data.Passes` FAILS CLOSED IN THE DIRECTION THAT MATTERS. It is a runtime cache that
+-- `PlayerDataService` clears on load and `PassService` refills on join, so before that refill it is
+-- empty -- which reads here as "owns nothing", i.e. still eligible, i.e. an offer shown to somebody
+-- who might own a pass. That is the cheap mistake of the two (a card offered, not a grant given),
+-- and the expensive one -- hiding the offer from a genuine new player because the API was slow --
+-- cannot happen. The caller controls the timing anyway: the join card waits for the join to settle.
+--
+-- A ZERO `productId` IS NOT ELIGIBLE. It is this file's "not set up yet" sentinel, and every surface
+-- that would draw the pack asks here first -- so until the dashboard row exists the offer simply
+-- does not appear, rather than appearing and refusing.
+-- Seconds after a player joins before the starter-pack card is offered. A named constant because it
+-- is a BALANCE between two failure modes rather than a delay for its own sake: too short and the
+-- card lands on the loading screen, over `FirstJoin`'s four-beat guide, and before `PassService` has
+-- refilled `data.Passes` -- so an existing pass owner is offered a first-purchase pack, once, and
+-- the offer is then burned. Too long and a short first session never sees it at all. 25 s is past
+-- the guide and comfortably past the ownership calls on a cold shard.
+GameConfig.StarterPackOfferDelay = 25
+
+function GameConfig.IsStarterPackEligible(data)
+	local product = GameConfig.GetRobuxProduct("StarterPack")
+	if not product or not product.productId or product.productId <= 0 then return false end
+	if not data then return false end
+	if (tonumber(data.RobuxSpent) or 0) > 0 then return false end
+	if type(data.Passes) == "table" then
+		for _, owned in pairs(data.Passes) do
+			if owned then return false end
+		end
+	end
+	return true
 end
 
 -- How much more this tier pays per Robux than the CHEAPEST tier in its group, as a percentage.

@@ -24,6 +24,10 @@ local DNAService = require(script.Parent.DNAService)
 -- `DNAService` above requires it. Nothing in either reaches back to this file.
 local RelicService = require(script.Parent.RelicService)
 local PetService = require(script.Parent.PetService)
+-- The one shape a join handler is allowed to take here: `PlayerAdded` alone never sees a player who
+-- is already in `Players`, and on this server everybody is, because every service is initialised
+-- after `ServerMain` spends a minute building the world. See the module's own header (35.13).
+local PlayerJoin = require(script.Parent.Systems.PlayerJoin)
 
 local RobuxShopService = {}
 
@@ -40,6 +44,22 @@ local function ensureRemote(name)
 end
 
 local SpinResult = ensureRemote("SpinResult")
+
+-- ===== THE STARTER PACK'S ONE-WAY DOOR (21.6) =====
+--
+-- Created at module load rather than in `Init`, like `SpinResult` above and for a sharper version of
+-- the same reason: the client `WaitForChild`s it, and a remote parented inside `Init` does not exist
+-- until every service before this one has finished booting -- which on this server is a minute of
+-- world building. A client that gave up waiting would simply never show the card.
+--
+-- SERVER TO CLIENT ONLY, AND THERE IS NO INBOUND PARTNER. The client is never asked whether it has
+-- seen the card, because a client-written "I saw it" is a client-written save field: a player who
+-- silenced it could farm the offer forever, and one who never fired it would be shown the card on
+-- every join for the rest of their life. The server decides, stamps and pushes, and the client's
+-- only job is to draw what it is handed. The purchase itself goes back out through
+-- `PromptRobuxPurchase`, which every other card in the shop already uses and which validates the
+-- product key server-side.
+local StarterPackOffer = ensureRemote("StarterPackOffer")
 
 -- ===== THE LUCKY SPIN, GRANTED SERVER-SIDE OFF THE PLAYER'S OWN LUCK =====
 --
@@ -510,6 +530,38 @@ function RobuxShopService.Init()
 	-- rather than by the Player object so that a rejoin cannot resurrect a stale entry
 	Players.PlayerRemoving:Connect(function(player)
 		lastSpin[player.UserId] = nil
+	end)
+
+	-- ===== THE STARTER PACK IS OFFERED ONCE, HERE (21.6) =====
+	--
+	-- WHY IT WAITS. Eligibility reads `data.Passes`, which `PlayerDataService` clears on load and
+	-- `PassService` refills from `UserOwnsGamePassAsync` on the same join -- so deciding this in the
+	-- first frames would offer a first-purchase pack to somebody who already owns VIP. The delay is
+	-- also what keeps the card off the loading screen and out of `FirstJoin`'s four-beat guide; a
+	-- brand-new player meets the game before it asks them for money. It is generous on purpose: the
+	-- cost of being late is a card a few seconds down the line, and the cost of being early is an
+	-- offer shown to the wrong person and then burned forever.
+	--
+	-- STAMPED BEFORE IT IS FIRED, and never re-armed. `StarterPackShown` is written and SAVED here
+	-- rather than on any acknowledgement from the client, because the only honest reading of "shown
+	-- once" is once per save: a client that disconnects between the stamp and the draw has lost a
+	-- card, and one that could withhold the stamp would be handed an offer it can replay.
+	--
+	-- IT DOES NOT MARK ANYTHING BOUGHT. Whether the pack may still be purchased is
+	-- `GameConfig.IsStarterPackEligible`, which this fires on and which the store's hero asks again
+	-- on every payload -- so a player who closes this card keeps the pack in their store until they
+	-- spend, and loses only the interruption.
+	PlayerJoin.onEach(function(player)
+		task.wait(GameConfig.StarterPackOfferDelay or 25)
+		if not player.Parent then return end
+		local data = PlayerDataService.Get(player)
+		if not data then return end
+		if (tonumber(data.StarterPackShown) or 0) > 0 then return end
+		if not GameConfig.IsStarterPackEligible(data) then return end
+		data.StarterPackShown = os.time()
+		PlayerDataService.Save(player)
+		PlayerDataService.PushToClient(player)
+		StarterPackOffer:FireClient(player)
 	end)
 
 	Remotes.PromptRobuxPurchase.OnServerEvent:Connect(function(player, productKey)

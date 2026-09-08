@@ -92,6 +92,22 @@ local function defaultData()
 		SecretsHatched = 0,
 		TotalClicks = 0,
 		RobuxSpent = 0,
+		-- ===== THE STARTER PACK'S ONE FIELD (21.6) =====
+		-- `os.time()` of the join the offer card was first shown on, 0 for a save that has never
+		-- seen it. It exists so "shown once" is once in a LIFETIME rather than once a session --
+		-- a card that reappears every join is not an offer, it is an advertisement, and the row
+		-- asked for the former.
+		--
+		-- IT IS NOT THE ELIGIBILITY TEST AND MUST NOT BECOME ONE. Whether the pack may still be
+		-- BOUGHT is `GameConfig.IsStarterPackEligible`, which reads `RobuxSpent` and the pass
+		-- cache; this field only decides whether the card interrupts. Conflating them is what
+		-- would make a dismissed card a product that can never be purchased -- the store's hero
+		-- stays up for exactly that reason.
+		--
+		-- OFF THE REBIRTH RESET LIST by construction, like `TutorialDone`: `RebirthService`
+		-- writes named fields only, and re-offering a first-purchase pack to somebody on their
+		-- fourth rebirth would be the offer lying about who it is for.
+		StarterPackShown = 0,
 		TimePlayed = 0,   -- lifetime SECONDS; the two clocks in PlaytimeGiftService are per-sitting
 		EvolutionShards = 0,
 		LastRewardClaim = 0,
