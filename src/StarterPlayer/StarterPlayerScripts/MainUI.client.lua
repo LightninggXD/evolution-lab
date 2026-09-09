@@ -4072,8 +4072,26 @@ local function refreshUI()
 		shardPill.Value.Text = formatNumber(data.EvolutionShards or 0)
 	end
 
-	-- Task 22.1: Live HUD pill for the friends-in-server bonus
-	local friendPill = currencyStack:FindFirstChild("FriendPill")
+	-- ===== THE FRIENDS-IN-SERVER PILL (22.1), AND THE LOOK-UP THAT HAS TO MATCH WHAT IT BUILT =====
+	--
+	-- `UITheme.Pill` PARENTS A SHELL, not the pill: given a `shellColor` it builds `<name>Shell`,
+	-- puts the named frame INSIDE it, and returns the inner frame. So
+	-- `currencyStack:FindFirstChild("FriendPill")` -- a non-recursive look-up against the stack --
+	-- never found the pill it had just built, and this block created ANOTHER ONE on every server
+	-- push. Measured on the running client with three friends held: **24 `FriendPillShell`s in the
+	-- wallet inside half a minute**, a column of identical `3 (+15%)` capsules straight up the left
+	-- edge of the screen and off the top of it, over the wallet and over the tile column, growing
+	-- once a second for as long as a friend was in the server. The `elseif` never fired either, so
+	-- the column could not come back down.
+	--
+	-- It shipped invisible because the whole branch is behind `__friendCount > 0`, which cannot
+	-- happen in a solo Studio test -- the same shape as 17.15's `ShopPanel.Focus`, a non-recursive
+	-- `FindFirstChild` for a card that had just moved inside a grid frame.
+	--
+	-- The SHELL is the thing shown and hidden: it carries the capsule, the gloss and the
+	-- `LayoutOrder`, so hiding only the inner frame would leave an empty capsule in the wallet.
+	local friendShell = currencyStack:FindFirstChild("FriendPillShell")
+	local friendPill = friendShell and friendShell:FindFirstChild("FriendPill")
 	if data.__friendCount and data.__friendCount > 0 then
 		if not friendPill then
 			friendPill = UITheme.Pill(currencyStack, {
@@ -4081,13 +4099,14 @@ local function refreshUI()
 				size = UDim2.new(1, 0, 0, 40), maxTextSize = 24,
 				shellColor = UITheme.Color.Frost:Lerp(UITheme.Color.Peach, 0.16), color = UITheme.Color.Ink,
 			})
+			friendShell = friendPill.Parent
 		end
-		friendPill.Visible = true
+		friendShell.Visible = true
 		-- GameConfig's number, not a literal -- see the block over `FriendBonusPct` in Rewards
 		local bonus = GameConfig.GetFriendBonusPct(data.__friendCount)
 		friendPill.Value.Text = string.format("%d (+%d%%)", data.__friendCount, bonus)
-	elseif friendPill then
-		friendPill.Visible = false
+	elseif friendShell then
+		friendShell.Visible = false
 	end
 
 	dnaPill:SetAttribute("PrevVal", data.DNA or 0)

@@ -36,7 +36,7 @@ end
 --- full bag past the cap and leave `TrimCollection` to pick what to throw away.
 --- Returns true only when a pet actually landed.
 local function grantInvitePet(data)
-	local def = PetService.GrantPetByKey(data, GameConfig.InviteRewardPetKey or "Amicus")
+	local def = PetService.GrantPetByKey(data, GameConfig.InviteRewardPetKey)
 	return def ~= nil
 end
 
@@ -46,7 +46,7 @@ local function payJoiner(player, inviterId)
 	if not data or data.WasInvited then return end
 	-- The account-age gate is the whole anti-farm: an invite loop is only worth running if the
 	-- alts it makes can be paid, and a fresh account cannot be.
-	if player.AccountAge < (GameConfig.InviteMinAccountAgeDays or 14) then return end
+	if player.AccountAge < GameConfig.InviteMinAccountAgeDays then return end
 	-- SET BEFORE THE GRANT, not after: everything below yields, and a second PlayerAdded for the
 	-- same save (a rejoin inside the load window) must not find this still false.
 	data.WasInvited = true
@@ -74,7 +74,7 @@ local function payJoiner(player, inviterId)
 	pcall(function()
 		InviteInbox:UpdateAsync(tostring(inviterId), function(oldList)
 			local list = oldList or {}
-			if #list < (GameConfig.InviteMaxPaid or 5) then
+			if #list < GameConfig.InviteMaxPaid then
 				table.insert(list, player.UserId)
 			end
 			return list
@@ -99,7 +99,7 @@ local function collectInbox(player)
 	for _, joinedId in ipairs(inbox) do
 		if table.find(paidList, joinedId) then
 			-- already settled on an earlier join; nothing owed
-		elseif #paidList >= (GameConfig.InviteMaxPaid or 5) then
+		elseif #paidList >= GameConfig.InviteMaxPaid then
 			-- at the lifetime cap -- this entry is never going to be paid, so it is not deferred
 		elseif grantInvitePet(data) then
 			table.insert(paidList, joinedId)

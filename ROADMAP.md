@@ -987,8 +987,8 @@ a player who adds one friend in week one has **3× the 30-day retention** and a 
 
 | ID | | Task |
 |---|---|---|
-| 22.1 | `[ ]` | **Friends-in-server bonus** — +X% DNA per friend present, capped, drawn as a live HUD pill that says how many and how much |
-| 22.2 | `[ ]` | **Invite reward** — `FriendInviteButton` already opens the prompt. Pay for the *join*, not the click, and pay both sides |
+| 22.1 | `[x]` | <!-- built by Gemini 2026-08-28 (agent-board S28), reviewed R40, and left `[ ]` here for twelve days; verified live and repaired 2026-09-09 (34th) -->**Friends-in-server bonus** — +X% DNA per friend present, capped, drawn as a live HUD pill that says how many and how much. **THE CODE WAS ALREADY ON DISK AND IN STUDIO AND THE ROW HAD NEVER BEEN RE-READ** — `FriendBonusService`, the term in `DNAService.GetIncomeMult`, the pill in `MainUI` and the badge on `FriendInviteButton`, all byte-identical in a 227-file sweep. **Verified live, on the running server, by standing in for the one seam a solo Studio test cannot drive** (`GetFriendCount` is a field on the service table, so an injected bridge can hold a count while the real `GetIncomeMult` runs): the ladder measured through the real income multiplier is **0:×1.0000 1:×1.0500 2:×1.1000 3:×1.1500 4:×1.2000 5:×1.2000 6:×1.2000** — +5% a friend, capped at four, exactly what `GameConfig.FriendBonusPct/Cap` say; and the **offline path is 1.000000** (`excludeEvents`, 0 friends 50.9999 against 4 friends 50.9999), which is the right answer because a friend in the server now was not there while the player slept. `data.__friendCount` reaches the client on the auto-collect tick, and **both** readouts drew it: the wallet pill `3 (+15%)` and the invite button's red `+15%` badge. **TWO REAL FAULTS, AND ONE OF THEM WOULD HAVE DESTROYED THE HUD.** (1) `MainUI` looked the pill up with a NON-recursive `currencyStack:FindFirstChild("FriendPill")` while `UITheme.Pill` parents a **`FriendPillShell`** and returns the frame inside it — so it never found what it had built and made **a new pill on every server push**: 24 capsules up the left edge of the screen inside half a minute, over the wallet and over the tile column, growing once a second for as long as a friend was in the server, and the `elseif` that hides it never fired either. Captured. Fixed by looking the SHELL up and toggling it; re-measured at **one shell, `3 (+15%)`, y 673..713 inside the stack's 503..713** — the fourth capsule fits the fixed 210-px wallet with 14 px to spare and does not reach `FriendInviteButton` at y 397..469 (34.60's collision). Hide path re-run at 2 friends then 0: one shell, `Visible = false`, not duplicated and not destroyed. Same shape as 17.15's `ShopPanel.Focus`. (2) `FriendBonusService.Init` was **the tenth victim of the already-here `PlayerAdded` bug** and the only bare `PlayerAdded:Connect` left in the tree with no replay — every other server-side hit has one. For the player present at boot the map entry was never created, so they got **no bonus for the whole session**, a later joining friend was paid while they were not, and on that friend's leave the unwind found nothing to undo, **paying the other player for a friend who had left, for the life of the server**. Now `PlayerJoin.onEach`, with a pair cache so no `IsFriendsWith` web call is made twice and an authoritative leave sweep. **THE ONE THING NOT MEASURED, and nobody can measure it in Studio:** `IsFriendsWith` returning true needs two really-befriended accounts, which `Test > Clients and Servers` cannot make. It is one pcall'd call, written exactly as `Telemetry:563` has written it since 20.3, and it is first provable on a live server |
+| 22.2 | `[~]` | <!-- built by Gemini 2026-08-28 (agent-board S29), reviewed R41, left `[ ]` here; the inviter half verified live 2026-09-09 (34th) -->**Invite reward** — `FriendInviteButton` already opens the prompt. Pay for the *join*, not the click, and pay both sides. Built as `InviteRewardService`: the joiner is paid on the spot off `GetJoinData().LaunchData`, the inviter through an `InviteInbox` DataStore collected on their next join, and the reward is one exclusive pet, `Amicus` (Legendary, `exclusive`, so it is out of every egg pool). **THE TWO ANTI-FARM CONSTANTS DID NOT EXIST**: the file read `GameConfig.InviteMinAccountAgeDays or 14` and `GameConfig.InviteMaxPaid or 5` against names nothing defined, so the numbers were real, invisible and un-tunable — both are written down in `GameConfig/Rewards` now, with the reasoning (14 days because a farm can make accounts but cannot age them; 5 as a LIFETIME cap that also bounds `data.InvitesPaid`, a list that would otherwise only grow), and the `or` is gone from all three call sites. **THE INVITER HALF IS VERIFIED END TO END ACROSS FOUR BOOTS ON THE REAL SAVE, with the restore owned by the probe.** Seven fake joiner ids seeded into the inbox, then: (B) bag at 100/100 — **0 granted, and the inbox was left INTACT with all seven**, which is the `deferred` branch and the one the old version got wrong by clearing unconditionally; (C) six pets trimmed to make room — **exactly 5 granted**, `InvitesPaid` = the first five ids, **inbox removed**, and the client toast read *“An invited friend joined! You received 5 exclusive pet(s)!”* at 15.5 s. Pressed the Inventory tile and photographed it: five `Amicus` tiles in the Pets panel, header **99/100**, detail pane **Amicus · Legendary · Normal · Damage +45%**; (D) the same seven re-seeded against a five-entry `InvitesPaid` — **nothing granted**, five deduped by `table.find` and two refused by the cap. Restored and read back off a **fresh load** in a fifth boot: **100 pets, 0 mismatching entries, no Amicus, `InvitesPaid` nil, `WasInvited` nil, inbox key gone**. **`[~]` FOR THE JOINER HALF ONLY:** `player:GetJoinData().LaunchData` is empty for every Studio join and cannot be forged, so the account-age gate, the `WasInvited` flag and the write into the inviter's inbox are first provable on a **published** place. It joins 5.4 and 34.4 on that wall |
 | 22.3 | `[ ]` | **Make the group real.** `RobloxGroupId` is **0**, so the +10% DNA, the daily group chest and the Like / Favourite rewards all ship against no group. It is also the guild substitute Roblox gives away free, and the 4× number attaches to it |
 | 22.4 | `[ ]` | **The world boss leaves the arena.** The Colosseum giant already tracks contributors and pays everyone who damaged it; it is behind a teleport into a separate room on a 30-minute timer. Put it — or a sibling — in the hub, visible from spawn, with a countdown on the HUD and a live contribution board |
 | 22.5 | `[ ]` | **Party support** — up to six friends land in one server; give a party a visible treatment and a shared bonus |
@@ -1658,6 +1658,52 @@ codebase and adding it is an infrastructure layer, not a feature.
 ---
 
 ## Changelog
+
+- **2026-09-09 (34th)** -- **22.1 AND 22.2 WERE BUILT TWELVE DAYS AGO, MARKED `[ ]`, AND ONE OF THEM
+  WOULD HAVE DESTROYED THE HUD THE MOMENT A FRIEND JOINED.** The board's own survey said everything
+  remaining was an owner row; the agent-board said otherwise -- **S28 and S29 are `VERIFIED`, Gemini
+  built both on 2026-08-28 and Claude reviewed them (R40, R41), and neither row was ever flipped in
+  this file**. That is the eleventh time in twelve sessions that a mark was behind its own contents,
+  and the new part is WHERE the truth was: not in the row's own cell but in `agent-board/STATUS.md`.
+  **Read the board's step table before believing a phase is unstarted.** A 227-file hash sweep found
+  `src/` and Studio byte-identical, so what both rows owed was the live half -- which is exactly what
+  found the faults.
+
+  **22.1's HUD pill made a new capsule on EVERY server push.** `UITheme.Pill` parents `<name>Shell`
+  and returns the frame inside it; `MainUI` looked `FriendPill` up non-recursively against the stack,
+  never found what it had just built, and built another -- **24 identical `3 (+15%)` capsules
+  straight up the left edge of the screen inside half a minute**, over the wallet and over the tile
+  column, growing once a second, with the hide branch equally dead. It shipped invisible because the
+  whole block is behind `__friendCount > 0`, which **cannot happen in a solo Studio test** -- so no
+  amount of playing alone would ever have shown it. Same shape as 17.15's `ShopPanel.Focus`. Fixed,
+  re-measured and captured: one shell, y 673..713 inside the wallet's own 503..713, 14 px of slack.
+
+  **And `FriendBonusService` was the TENTH victim of the already-here `PlayerAdded` bug** -- the only
+  bare `PlayerAdded:Connect` left in the tree with no replay beside it; every other server-side hit
+  has one. What it cost was worse than a missed bonus: the boot player's map entry was never made, so
+  a later joining friend was paid while they were not, and **when that friend left, the unwind found
+  nothing to undo and the other player kept being paid for them for the life of the server**.
+  `PlayerJoin.onEach` now, with a pair cache and an authoritative leave sweep. **The sweep that memory
+  prescribes works**: re-grepping `PlayerAdded:Connect` and reading each hit's neighbours took four
+  minutes and found it.
+
+  **The income term itself measured exactly right** through the real `GetIncomeMult`, with the count
+  held at the one seam a solo test can drive: 0/1/2/3/4/5/6 friends -> x1.0000 / 1.0500 / 1.1000 /
+  1.1500 / 1.2000 / 1.2000 / 1.2000, and the **offline path 1.000000** either way. Both readouts drew
+  it. What is NOT measured, and what nobody can measure in Studio, is `IsFriendsWith` returning true:
+  that needs two really-befriended accounts, which `Test > Clients and Servers` cannot make.
+
+  **22.2's inviter half is proven end to end across four boots on the real save.** Seven fake joiner
+  ids in the inbox: a full bag left all seven **intact** (the `deferred` branch the old version got
+  wrong by clearing unconditionally); with room, **exactly five** were granted, `InvitesPaid` took the
+  first five, the inbox was removed and the client toast said *"An invited friend joined! You received
+  5 exclusive pet(s)!"*; the same seven re-seeded granted **nothing**, five deduped and two over the
+  cap. Photographed in the panel: five `Amicus` tiles, header 99/100, `Amicus - Legendary - Normal -
+  Damage +45%`. Restored and read back off a **fresh load**: 100 pets, 0 mismatching entries, both
+  invite fields nil, inbox key gone. Its two anti-farm constants **did not exist** -- the file read
+  them as `X or 14` and `X or 5` against names nothing defined, which is a real number nobody can find
+  and nobody can tune. Written down now. `[~]` only for the joiner half, which needs a published
+  place, like 5.4 and 34.4.
 
 - **2026-09-09 (33rd)** -- **30.21 AND 30.6 CLOSED BY A WALK, 0.4's DEAD CHECK REPLACED WITH A LIVE
   ONE, AND THE WALK OPENED 32.36.** 30.21 had been parked as 👤 OWNER for eighteen days on

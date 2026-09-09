@@ -120,6 +120,28 @@ function GameConfig.GetFriendBonusPct(friendCount)
 	local n = math.min(math.max(tonumber(friendCount) or 0, 0), GameConfig.FriendBonusCap)
 	return n * GameConfig.FriendBonusPct
 end
+
+-- ===== THE INVITE REWARD'S TWO ANTI-FARM NUMBERS (22.2) =====
+--
+-- `InviteRewardService` pays an exclusive pet to BOTH ends of a game invite, and alt accounts are
+-- the failure mode of every referral system ever shipped. These are the only two levers against
+-- that, and they were never written down: the service read `GameConfig.InviteMinAccountAgeDays or
+-- 14` and `GameConfig.InviteMaxPaid or 5` against constants that DID NOT EXIST, so the numbers
+-- were real but invisible -- nothing could find them, and changing them meant editing a fallback
+-- inside a boolean expression. The `or` is gone from all three call sites with this.
+--
+-- 14 DAYS is the account age a joiner must clear before the invite pays anything. A farm can make
+-- accounts freely but it cannot make them old, so age is the one gate that costs the attacker time
+-- rather than clicks. It is deliberately above Roblox's own 24-hour new-account marks: the pet is
+-- permanent and tradable-adjacent, and a fortnight is cheap to wait out honestly (a real friend
+-- invited today is on an account made years ago) while being useless to run at scale.
+--
+-- 5 IS A LIFETIME CAP, not a daily one, and it bounds a save field as well as the payout:
+-- `data.InvitesPaid` is a list of the UserIds an inviter has been paid for, and a list that only
+-- ever grows is a save-size bug. The cap is what keeps it five entries long forever. Five pets is
+-- a real reward for bringing real friends and a poor return on building a farm.
+GameConfig.InviteMinAccountAgeDays = 14
+GameConfig.InviteMaxPaid = 5
 GameConfig.GroupChestReward = {
 	dna = 1000, -- scaled by GameConfig.ScaleReward
 	diamonds = 25,
