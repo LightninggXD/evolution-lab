@@ -1004,9 +1004,9 @@ missing flex surface: nothing today lets one player see what another has.
 
 | ID | | Task |
 |---|---|---|
-| 23.1 | `[ ]` | **Mutations become multiplicative value multipliers**, stacking multiplicatively rather than additively |
-| 23.2 | `[ ]` | **A mutation is visible from across the map.** The rented-Highlight pool and the VFX attach rules already exist. A mutation nobody can see is not a flex |
-| 23.3 | `[ ]` | **Server-wide announce for the top tier**, through `AnnounceService` and `RarityBeam`, rate-limited by the existing `KIND_COOLDOWN` |
+| 23.1 | `[~]` | <!-- read against the code 2026-09-09 (35th): half of it is already true and the other half is a reversal only she can make -->**Mutations become multiplicative value multipliers**, stacking multiplicatively rather than additively. **THE FIRST HALF IS ALREADY TRUE:** `DNAService.GetIncomeMult` reads `mult = mult * GameConfig.GetMutationIncomeMult(data)` -- the worn mutation has multiplied since Phase 12, at x1.05 (Common) to x2.25 (Godly). **THE SECOND HALF ASKS FOR A REVERSAL, NOT A BUILD.** There is no stacking to convert: Phase 12 deliberately replaced the accumulated `data.Mutations` LIST with one worn `data.SplicerMutation` -- *"One active mutation deletes the stacking questions outright"* -- and `PlayerDataService` still carries the migration that collapses an old list into the single best name. Letting two stack again means re-opening that decision and the income curve behind it (two Godlies would be x5.06, and the Splicer is a DNA sink whose pacing assumes one). 👤 **OWNER CALL: do you want mutations to stack again, and if so how many at once?** Everything else in Phase 23 was built or closed without it |
+| 23.2 | `[x]` | <!-- built, pushed and verified live 2026-09-09 (35th) -->**A mutation is visible from across the map.** The rented-Highlight pool and the VFX attach rules already exist. A mutation nobody can see is not a flex. **THE MEASUREMENT CAME FIRST AND IT CHANGED THE INSTRUMENT.** The aura is real -- Godly is a seven-emitter tornado up to 11 studs across, hung on the root by `EvolutionVisuals.AttachMutationAura` -- and photographed from **60 studs** it is a pale patch on the grass you would not name as anything. That is not the aura being broken: a particle is WORLD-sized, so it shrinks with distance like everything else and no amount of it survives 300 studs. **The one instrument that does is a PIXEL-sized `BillboardGui`** -- the same reason `RarityBeam`'s label is authored that way -- so `MutationFlair.client` hangs a 176 x 44 chip over the head: the mutation's name in its own colour with the multiplier under it (`GODLY / x2.25 income`). **RARITY IS THE READ DISTANCE, NOT A YES/NO:** 90 / 130 / 190 / 280 / 420 / 620 / 900 studs from Common to Godly -- the same ladder 23.3's `announceMinIndex` draws as a switch, drawn as a curve, so what a rare roll buys is being seen from further away and the ladder is its own crowd control in a 60-player server. Occluded rather than AlwaysOnTop (a flex you can read through a mountain is a wallhack), stacked at +6.6 studs so it sits above 22.5's party chip at +3.4, and no `Highlight` anywhere -- `CreatureService` rents 14 of the ~31 and one per mutated player would strip the outlines off the world. **VERIFIED LIVE:** at **353 studs** the capture reads `GODLY / x2.25 income` plainly over the village where the before-shot at 60 studs read nothing at all; all seven rungs were then walked on the live client with their own distances, text and colour; and the chip is destroyed the moment the attribute clears |
+| 23.3 | `[x]` | <!-- read against the code and verified live 2026-09-09 (35th); it was already built -->**Server-wide announce for the top tier**, through `AnnounceService` and `RarityBeam`, rate-limited by the existing `KIND_COOLDOWN`. **IT WAS BUILT ALREADY, TO THE WORD:** `SplicerService` ends a roll with `if idx >= S.announceMinIndex then AnnounceService.MutationRolled(player, mutation)`, `GameConfig.Splicer.announceMinIndex = 5` (Mythic, Secret, Godly), and `MutationRolled` broadcasts with the roller's POSITION so `RarityBeam` draws its pillar, behind `onCooldown(player, 'mutation')`. What the row owed was its live half. **VERIFIED WITH THE GATE FLIPPED BOTH WAYS, on real rolls fired through `Remotes.SpliceRoll` from the client.** Gate opened to 1: a real Common roll (688,928 DNA) produced `[mutation] COMMON MUTATION! / OGLightninggXD spliced Common at the DNA Splicer` on the client with `position=true`. Gate shut to 99: two more real rolls, **zero announces** -- so it is the gate holding and not the clock. **The cooldown holds too:** two rolls **1.4 s apart produced exactly ONE announce** (`PLAYER_COOLDOWN` is 6 s) -- measured inside a single call, because the gap between two MCP round trips is longer than the cooldown being tested and the first attempt mistook one for the other. A natural **MYTHIC** landed during the run and announced on the real gate. Seven rolls cost 4,822,496 DNA on the owner's save; DNA, `SplicerRolls` and the worn Godly were all restored and read back field by field |
 | 23.4 | `[ ]` | **Mutated creatures become the tradable prestige object.** Trading is pets-only because DNA is stage-scaled and has no agreed value between two players; a mutation is a fixed multiplier, so it does |
 | 23.5 | `[ ]` | **The Journal becomes an index with completion rewards.** `StatsService` already publishes "0.3% of players own this" and nothing makes it worth anything |
 | 23.6 | `[ ]` | **A live window makes mutations more likely** — the difference between an event that is a multiplier and an event worth logging in for |
@@ -1658,6 +1658,40 @@ codebase and adding it is an infrastructure layer, not a feature.
 ---
 
 ## Changelog
+
+- **2026-09-09 (35th, third and fourth rows)** -- **23.2 AND 23.3 CLOSED, AND 23.1 TURNED OUT TO BE
+  AN OWNER CALL RATHER THAN A BUILD.** Phase 23's first three rows read as one job and were three
+  different things.
+
+  **23.3 was already built, to the word of the row** -- the gate (`announceMinIndex = 5`), the
+  publisher (`AnnounceService.MutationRolled`, with a position so `RarityBeam` draws its pillar) and
+  the rate limit (`onCooldown(player, "mutation")`, 6 s). It owed only its live half, so it was
+  verified by flipping the gate both ways on REAL rolls: opened to 1, a Common roll announced with a
+  position; shut to 99, two more rolls were silent. Two rolls 1.4 s apart produced exactly one
+  announce -- and that had to be measured inside a SINGLE call, because the gap between two MCP
+  round trips is longer than the six-second cooldown it was trying to test, and the first attempt
+  read "FIRED" and meant nothing. Seven rolls, 4.8M DNA, all restored.
+
+  **23.1's first half is already true and its second half is a REVERSAL.** Mutations have multiplied
+  since Phase 12; what does not exist is stacking, because Phase 12 deliberately replaced the
+  accumulated list with one worn mutation and shipped a save migration to collapse the old lists.
+  Asking for stacking again is asking to re-open that decision and the Splicer's pacing with it, so
+  the row is 👤 now with the question written into it.
+
+  **23.2 is the row that got built, and the measurement changed the instrument.** The row names the
+  Highlight pool; the answer is neither a Highlight nor a beam. The aura IS real -- Godly is a
+  seven-emitter tornado -- and from 60 studs it photographs as a pale patch on the grass, because a
+  particle is world-sized and a world-sized thing is a few pixels at 300 studs. **The only thing
+  that survives distance is a PIXEL-sized billboard**, which is exactly why `RarityBeam`'s label is
+  authored that way. So a mutation now wears a 176 x 44 chip over the head -- `GODLY / x2.25 income`
+  in the mutation's own colour -- and **rarity is the READ DISTANCE rather than a badge**: 90 studs
+  for a Common through 900 for a Godly. That ladder is also its own crowd control in a 60-player
+  server, and it is 23.3's switch expressed as a curve.
+
+  **Verified at 353 studs**, where the capture reads `GODLY / x2.25 income` plainly over the whole
+  village, against a before-shot at 60 studs where nothing was legible at all; then all seven rungs
+  walked on the live client. It stacks at +6.6 studs, above 22.5's party chip at +3.4 -- anything
+  that hangs over a head next takes the following rung and says so in that file.
 
 - **2026-09-09 (35th, second row)** -- **22.5: A PARTY IS THE BONUS YOU HAVE TO STAND NEXT TO
   SOMEBODY TO KEEP.** Phase 22 is now closed except 22.3 (the group id, 👤).
