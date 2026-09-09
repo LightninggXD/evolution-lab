@@ -197,7 +197,33 @@ local function resolveOffer(userId, offer)
 	if not data then return {} end
 	local list = {}
 	for _, item in ipairs(offer or {}) do
-		if item.kind == TradeItems.RELIC then
+		if item.kind == TradeItems.MUTATION then
+			-- 23.4: clamped to what is SPARE right now, for the reason written over the relic
+			-- branch below -- and one reason more. An aura line's spare count can MOVE while the
+			-- window is open without the owner touching the Splicer: a secret found in the grotto
+			-- (`SecretsService.grantMutation`) raises it, and so does a roll. Reading it fresh on
+			-- every push is what keeps both boards honest in either direction.
+			local mut = GameConfig.GetMutationByName(item.key)
+			local spare = GameConfig.GetSpareMutations(data, item.key)
+			local n = math.min(item.n, spare)
+			if mut and n > 0 then
+				table.insert(list, {
+					kind = TradeItems.MUTATION,
+					key = mut.name,
+					n = n,
+					name = mut.name,
+					-- The mutation's OWN colour, which is what the Auras panel, the aura on the
+					-- body and 23.2's head chip all identify it by. It travels as `tint` because
+					-- that is the field `makeSlotCard` already paints a border with.
+					tint = mut.color,
+					incomeMult = mut.incomeMult,
+					-- A tile is 56 px and every mutation name is one word, so the name IS the
+					-- short form -- none of `RelicSetForms`' problem to solve here.
+					short = mut.name,
+					emoji = "\u{1F9EC}",
+				})
+			end
+		elseif item.kind == TradeItems.RELIC then
 			local relic = GameConfig.GetSetRelic(item.key)
 			-- Clamped to what is SPARE right now rather than to what was offered: a player who
 			-- spends a spare mid-window watches their own card shrink instead of watching a
@@ -319,6 +345,15 @@ local function describeRelic(key, n)
 	if not relic then return ("%s x%d"):format(tostring(key), n) end
 	local set = GameConfig.RelicSetsByZone[relic.zoneKey]
 	return ("%s %s x%d"):format((set and set.emoji) or "", relic.name or key, n)
+end
+
+-- 23.4: and the same sentence for an aura line. The glyph is the Splicer's, because a mutation has
+-- no emoji of its own anywhere in the game -- `GameConfig.Mutations` carries a name, two
+-- multipliers and a colour, and a colour does not survive into a log line.
+local function describeMutation(key, n)
+	local mut = GameConfig.GetMutationByName(key)
+	if not mut then return ("%s x%d"):format(tostring(key), n) end
+	return ("\u{1F9EC} %s aura x%d"):format(mut.name, n)
 end
 
 -- ============================================================================
@@ -536,7 +571,25 @@ function TradeService.SetOffer(userId, items)
 	-- rejected offer leaves the previous one standing rather than half-applied.
 	local accepted = {}
 	for _, item in ipairs(offered) do
-		if item.kind == TradeItems.RELIC then
+		if item.kind == TradeItems.MUTATION then
+			-- ===== 23.4: ONLY A SPARE AURA, AND THE WORN ONE IS SAFE BY CONSTRUCTION =====
+			--
+			-- `GetSpareMutations` is `found - 1`, so the copy that backs the entry in the Auras
+			-- panel never moves -- and because wearing one requires having found it, the aura on
+			-- your own body cannot be traded off your back either. There is no equivalent of the
+			-- "unequip that pet first" refusal here BECAUSE there is nothing to unequip: the worn
+			-- mutation is a NAME, and the copy that name points at is the one being kept.
+			local mut = GameConfig.GetMutationByName(item.key)
+			if not mut then return refuse(userId, "That aura does not exist") end
+			local spare = GameConfig.GetSpareMutations(data, item.key)
+			if spare < item.n then
+				if spare <= 0 then
+					return refuse(userId, ("%s is your only one"):format(mut.name))
+				end
+				return refuse(userId, ("You have %d spare %s"):format(spare, mut.name))
+			end
+			table.insert(accepted, item)
+		elseif item.kind == TradeItems.RELIC then
 			-- ===== ONLY THE COLLECTION LAYER, AND ONLY A SPARE =====
 			--
 			-- The fifteen worn relics get their own sentence rather than falling through this
@@ -674,7 +727,18 @@ function TradeService.Commit(tradeId)
 	local takeA, takeB = {}, {}
 	local function gather(data, offer, out)
 		for _, item in ipairs(offer) do
-			if item.kind == TradeItems.RELIC then
+			if item.kind == TradeItems.MUTATION then
+				-- 23.4: re-read for the same reason a relic line is, and the reason is not that
+				-- the count can fall -- one live window a player means nothing else can spend it
+				-- -- but that `SetOffer` ran at a different moment. "Cannot today" and "cannot"
+				-- are different, which is the whole argument of the header above.
+				local mut = GameConfig.GetMutationByName(item.key)
+				if not mut then return "One of those auras is gone" end
+				if GameConfig.GetSpareMutations(data, item.key) < item.n then
+					return ("One of those auras is no longer spare (%s)"):format(mut.name)
+				end
+				table.insert(out, { kind = TradeItems.MUTATION, key = item.key, n = item.n, mutation = mut })
+			elseif item.kind == TradeItems.RELIC then
 				local relic = GameConfig.GetSetRelic(item.key)
 				if not relic then return "One of those relics is gone" end
 				if GameConfig.GetSpareSetRelics(data, item.key) < item.n then
@@ -757,6 +821,16 @@ function TradeService.Commit(tradeId)
 				-- stays complete -- which is the whole reason the spare rule exists.
 				data.SetRelics[entry.key] = (tonumber(data.SetRelics[entry.key]) or 0) - entry.n
 				table.insert(moved, { kind = TradeItems.RELIC, key = entry.key, n = entry.n, relic = entry.relic })
+			elseif entry.kind == TradeItems.MUTATION then
+				-- 23.4: never below 1 here either, so `SplicerFound[name]` stays above zero. That
+				-- is load-bearing in two places nowhere near this file: `HandleEquipMutation`
+				-- refuses a name whose count is not above zero, and `PlayerDataService`'s repair
+				-- stamps a WORN mutation back into the table when it is missing. A trade that
+				-- could take the last copy would make the first lie to a player about their own
+				-- collection and the second quietly re-mint what was just given away.
+				if type(data.SplicerFound) ~= "table" then data.SplicerFound = {} end
+				data.SplicerFound[entry.key] = (tonumber(data.SplicerFound[entry.key]) or 0) - entry.n
+				table.insert(moved, { kind = TradeItems.MUTATION, key = entry.key, n = entry.n, mutation = entry.mutation })
 			end
 		end
 	end
@@ -765,6 +839,17 @@ function TradeService.Commit(tradeId)
 		for _, entry in ipairs(moved) do
 			if entry.kind == TradeItems.PET then
 				table.insert(data.Pets, entry.pet)
+			elseif entry.kind == TradeItems.MUTATION then
+				-- **NOT the Splicer's `applyMutation`, and not `HandleEquipMutation`** -- 30.7's
+				-- lesson arriving at the same junction down a different road. The roll path EQUIPS
+				-- what it grants when it beats what you wear, which is right for a roll you pressed
+				-- for and wrong for goods arriving in a window: a trade that silently changed the
+				-- aura burning on your body would take the decision the Auras panel exists to give
+				-- you. It also yields (the attribute, `RefreshBonuses`, `PushToClient`) and this
+				-- block must not. So the count is written straight in, and the receiver wears it
+				-- when they choose to, from the panel that already draws every aura they own.
+				if type(data.SplicerFound) ~= "table" then data.SplicerFound = {} end
+				data.SplicerFound[entry.key] = (tonumber(data.SplicerFound[entry.key]) or 0) + entry.n
 			else
 				-- **NOT `GameConfig.AddSetRelic`**, and this is the one line in the row where the
 				-- obvious call is the wrong one. `AddSetRelic` pays `RelicDust` for every copy past
@@ -794,6 +879,9 @@ function TradeService.Commit(tradeId)
 		b = { userId = session.b.userId, gave = {} },
 	}
 	local function line(entry)
+		if entry.kind == TradeItems.MUTATION then
+			return { kind = TradeItems.MUTATION, key = entry.key, n = entry.n, text = describeMutation(entry.key, entry.n) }
+		end
 		if entry.kind == TradeItems.RELIC then
 			return { kind = TradeItems.RELIC, key = entry.key, n = entry.n, text = describeRelic(entry.key, entry.n) }
 		end
@@ -856,8 +944,33 @@ function TradeService.Commit(tradeId)
 			end
 		end
 	end
+
+	-- 23.4: THE SAME RULE FOR AN AURA, AGAINST THE SPLICER'S OWN LADDER. The gate is
+	-- `GameConfig.Splicer.announceMinIndex` -- the identical threshold a ROLL announces at, read
+	-- from the same place rather than copied out as a rarity name, because "rare enough to tell the
+	-- other servers about" is one decision. A trade is the second way a Godly can reach a player
+	-- and it is the more interesting one: somebody handed it over.
+	--
+	-- Its own cooldown key inside `AnnounceService` ("mutation"), so a traded aura and a rolled one
+	-- cannot eat each other, and one per side for the reason written over `announceMythic`.
+	local function announceMutation(player, moved)
+		if not player then return end
+		local minIdx = (GameConfig.Splicer and GameConfig.Splicer.announceMinIndex) or math.huge
+		for _, entry in ipairs(moved) do
+			if entry.kind == TradeItems.MUTATION and entry.mutation then
+				for i, m in ipairs(GameConfig.Mutations) do
+					if m.name == entry.mutation.name and i >= minIdx then
+						AnnounceService.MutationRolled(player, entry.mutation, "TRADE")
+						return
+					end
+				end
+			end
+		end
+	end
 	announceMythic(playerB, movedA)
 	announceMythic(playerA, movedB)
+	announceMutation(playerB, movedA)
+	announceMutation(playerA, movedB)
 
 	return record
 end

@@ -27,11 +27,24 @@
 -- A player already in a trade window when the server updates is holding a `TradePanel` that sends
 -- the old shape. Rejecting it would empty their offer mid-trade with no explanation. A string is
 -- read as `{kind = "pet", id = it}`, which is exactly what it used to mean.
+--
+-- ===== 23.4: THE THIRD KIND IS A MUTATION, AND IT IS SHAPED LIKE A RELIC =====
+--
+-- `{kind = "mutation", key = "Godly", n = 2}`. A mutation is not an object with an id -- it is a
+-- NAME held some number of times in `data.SplicerFound` -- so it is a count out of one pile,
+-- exactly like a collection relic, and it reuses the relic's rules rather than inventing new ones:
+-- a per-line cap, one line per key, and only SPARES move (`GameConfig.GetSpareMutations`).
+--
+-- Adding it here rather than as a second grammar is the whole point of this file: the client
+-- deciding a mutation line looks like `{kind="mutation", key=..., n=...}` while the server reads
+-- `name` would not error anywhere -- it would be an aura that silently never appears in the offer,
+-- on one side only.
 
 local TradeItems = {}
 
 TradeItems.PET = "pet"
 TradeItems.RELIC = "relic"
+TradeItems.MUTATION = "mutation"
 
 -- Ten LINES a side, not ten things: it is 8.5's reviewability limit, and a line reading "Forest
 -- Shard x4" is one thing to read. The per-line count is capped separately, below.
@@ -45,11 +58,13 @@ TradeItems.MaxCount = 99
 -- copies past a per-line cap.
 function TradeItems.Key(item)
 	if item.kind == TradeItems.RELIC then return "relic:" .. item.key end
+	if item.kind == TradeItems.MUTATION then return "mutation:" .. item.key end
 	return "pet:" .. item.id
 end
 
 function TradeItems.IsPet(item) return item and item.kind == TradeItems.PET end
 function TradeItems.IsRelic(item) return item and item.kind == TradeItems.RELIC end
+function TradeItems.IsMutation(item) return item and item.kind == TradeItems.MUTATION end
 
 -- Returns a canonical list, or nil plus the sentence the player is shown.
 function TradeItems.Normalise(list)
@@ -66,6 +81,15 @@ function TradeItems.Normalise(list)
 				if n < 1 then return nil, "Bad offer" end
 				if n > TradeItems.MaxCount then return nil, "That is too many of one relic" end
 				item = { kind = TradeItems.RELIC, key = raw.key, n = n }
+			elseif raw.kind == TradeItems.MUTATION then
+				-- 23.4: parsed by the same three tests as a relic line, and refused for the same
+				-- reasons. `key` is the mutation's NAME (`GameConfig.Mutations[i].name`), which is
+				-- what `data.SplicerFound` is keyed by everywhere else -- there is no id to carry.
+				if type(raw.key) ~= "string" then return nil, "Bad offer" end
+				local n = math.floor(tonumber(raw.n) or 0)
+				if n < 1 then return nil, "Bad offer" end
+				if n > TradeItems.MaxCount then return nil, "That is too many of one aura" end
+				item = { kind = TradeItems.MUTATION, key = raw.key, n = n }
 			elseif raw.kind == TradeItems.PET or raw.kind == nil then
 				if type(raw.id) ~= "string" then return nil, "Bad offer" end
 				item = { kind = TradeItems.PET, id = raw.id }

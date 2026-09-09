@@ -602,6 +602,28 @@ function GameConfig.GetMutationSpeedPct(data)
 	return (m and m.speedPct) or 0
 end
 
+-- ===== HOW MANY OF ONE AURA ARE SPARE (23.4) =====
+--
+-- `data.SplicerFound` has counted every roll since Phase 12 and until this row the count past the
+-- first was worth nothing at all: the Auras panel draws a mutation you have found, not how many
+-- times, and wearing one asks only whether the count is above zero. 23.4 makes the duplicates the
+-- tradable thing, so the count becomes goods.
+--
+-- A SPARE IS `found - 1`, WHICH IS `GetSpareSetRelics`'S RULE AND FOR THE SAME REASON. Keeping one
+-- copy back means a trade can never take an aura OUT of a collection: the entry the panel draws
+-- stays, the right to wear it stays, and -- because you cannot be wearing something you have never
+-- found -- the aura on your own body can never be traded off your back. That is what makes this
+-- safe to hand a stranger's client, and the commit leans on it exactly as 30.7's does.
+function GameConfig.GetMutationsFound(data, name)
+	local found = data and data.SplicerFound
+	if type(found) ~= "table" then return 0 end
+	return tonumber(found[name]) or 0
+end
+
+function GameConfig.GetSpareMutations(data, name)
+	return math.max(0, GameConfig.GetMutationsFound(data, name) - 1)
+end
+
 -- ===== INCOME CURVE =====
 -- DNA earned per click and per creature kill has to grow at the same rate as the evolve costs,
 -- or progression drifts apart. The old base -- `1 + (stageIndex - 1) * 0.5` -- grew about 2x per

@@ -227,7 +227,12 @@ end
 --
 -- `color` is passed EXPLICITLY. Mutation names -- Mythic, Secret, Godly -- are not pet rarities,
 -- so the client's `GetRarity` fallback would paint the rarest roll in the game Common grey.
-function AnnounceService.MutationRolled(player, mutation)
+--
+-- 23.4: `verb` is the same parameter `RelicObtained` takes and it exists for the same reason -- a
+-- mutation has two ways of reaching a player now, and the sentence is the only thing that differs
+-- between them. Left nil this reads exactly as it did before, so every existing caller is
+-- unchanged; "TRADE" says who handed it over, which is the whole point of announcing that one.
+function AnnounceService.MutationRolled(player, mutation, verb)
 	if not player or not mutation then return end
 
 	local character = player.Character
@@ -240,8 +245,12 @@ function AnnounceService.MutationRolled(player, mutation)
 		kind = "mutation",
 		position = root.Position,
 		color = mutation.color,
-		headline = ("%s MUTATION!"):format(mutation.name:upper()),
-		subline = ("%s spliced %s at the DNA Splicer"):format(player.DisplayName, mutation.name),
+		headline = (verb == "TRADE")
+			and ("%s MUTATION TRADED!"):format(mutation.name:upper())
+			or ("%s MUTATION!"):format(mutation.name:upper()),
+		subline = (verb == "TRADE")
+			and ("%s traded for a %s aura"):format(player.DisplayName, mutation.name)
+			or ("%s spliced %s at the DNA Splicer"):format(player.DisplayName, mutation.name),
 	})
 end
 

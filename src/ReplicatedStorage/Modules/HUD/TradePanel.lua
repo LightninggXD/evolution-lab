@@ -33,6 +33,7 @@ local UITheme = require(RS.Modules.UITheme)
 local IconLibrary = require(RS.Modules:WaitForChild("IconLibrary"))
 -- 30.7: the offer grammar, shared with `TradeService`. Both halves of a trade now describe the
 -- same two kinds of line, and describing them twice is how the two halves drift apart.
+-- 23.4: three kinds -- a spare AURA is a count out of `data.SplicerFound`, shaped like a relic.
 local TradeItems = require(RS.Modules.TradeItems)
 local UIKit = require(RS.Modules:WaitForChild("UIKit"))
 
@@ -196,7 +197,7 @@ return function(hud)
 
 	local header, topY = UITheme.PanelHeader(tradeModal, {
 		title = "🤝 Secure Trading",
-		subtitle = "Trade pets and spare relics safely with other players (Anti-scam verified)",
+		subtitle = "Trade pets, spare relics and spare auras safely (Anti-scam verified)",
 		accent = UITheme.Color.PanelBlue,
 		maxTextSize = 26,
 		margin = 16,
@@ -304,8 +305,12 @@ return function(hud)
 
 	-- Middle Section: My Inventory Picker
 	local invLabel = Instance.new("TextLabel")
-	-- narrower since 30.7: the two picker tabs stand at the right-hand end of this row
-	invLabel.Size = UDim2.new(1, -252, 0, 20)
+	-- narrower since 30.7: the picker tabs stand at the right-hand end of this row. 23.4 makes it
+	-- THREE tabs and pays for the third by narrowing them (106 -> 84) rather than by taking another
+	-- 106 off this label: 33.36 measured the tab captions at 26-34 px of text in a 90 px box, so
+	-- the width was never what those buttons needed -- the height was. 380 px of label against
+	-- 84*3 + 4*2 + 16 of tabs, and the sentences below were shortened to match.
+	invLabel.Size = UDim2.new(1, -300, 0, 20)
 	invLabel.Position = UDim2.new(0, 16, 0, topY + 208)
 	invLabel.BackgroundTransparency = 1
 	invLabel.Text = "Your Pet Inventory (Click to offer/remove):"
@@ -396,11 +401,27 @@ return function(hud)
 		-- window fell to the same grey and the rarity border said nothing. `GetRarity` is what the
 		-- Pets panel, the Journal and the hatch reveal all read.
 		local isRelic = (pet.kind == TradeItems.RELIC)
-		local rarityColor = (isRelic and typeof(pet.tint) == "Color3")
+		-- 23.4: an aura carries a `tint` too -- `GameConfig.Mutations[i].color`, the colour the
+		-- Auras panel, the particle aura on the body and 23.2's head chip all identify it by -- so
+		-- the tint test stops being the relic's private branch and becomes the general one.
+		local isMutation = (pet.kind == TradeItems.MUTATION)
+		local isStack = isRelic or isMutation
+		local rarityColor = (typeof(pet.tint) == "Color3")
 			and pet.tint
 			or GameConfig.GetRarity(pet.rarity).color
 		local border = styleCard(tile, UITheme.Color.PanelWhite, UDim.new(0, 10), 3)
 		border.Color = rarityColor
+
+		-- ...AND THE NAME CANNOT ALWAYS BE PAINTED IN IT. Two of the seven mutation colours are
+		-- pale on purpose (Common rgb(200) and Godly rgb(255,240,150)) and this tile is white:
+		-- `AuraCard` never has this problem because it FILLS its card with the colour and writes
+		-- white on it. Here the border carries the identity and the label falls back to ink when
+		-- the colour is too light to read -- `UITheme.IsDarkInk` is the same 0.45 cut the kit uses
+		-- everywhere else to decide exactly this.
+		local nameColor = rarityColor
+		if isMutation and not UITheme.IsDarkInk(rarityColor) then
+			nameColor = UITheme.Color.Outline
+		end
 
 		-- A RELIC IS AN IMAGE, NOT A GLYPH, and this is the one that would have shipped. A
 		-- collection relic's `icon` is an `IconLibrary` NAME ("relic_shard"); `IconLibrary`
@@ -436,7 +457,7 @@ return function(hud)
 		-- THE COUNT IS ON THE CARD OR IT IS NOWHERE. A relic line is a stack, and a tile that
 		-- reads "Forest Shard" whether it moves one or six is the card 8.5's summary rule exists to
 		-- prevent -- the player has to be able to read what they are giving away.
-		if isRelic and (pet.n or 1) > 1 then
+		if isStack and (pet.n or 1) > 1 then
 			local count = Instance.new("TextLabel")
 			count.Name = "Count"
 			count.Size = UDim2.new(0, 26, 0, 16)
@@ -458,14 +479,48 @@ return function(hud)
 		name.TextTruncate = Enum.TextTruncate.AtEnd
 		name.ZIndex = tile.ZIndex + UITheme.Z.Content
 		name.Parent = tile
-		themeLabel(name, 15, rarityColor)
+		-- ONE POINT OF FLOOR IS WORTH A WHOLE WORD HERE. `themeLabel` gives every label it builds a
+		-- constraint of `min(14, max)`, and 14 is one point too coarse for this 60 px box: measured
+		-- live on the aura strip, "Legendary" is 55 px of bounds that will not fit and truncates to
+		-- "Legend...", while at 13 it lands at exactly 60 and fits. The constraint is built here
+		-- first because `themeLabel` only adds one when the label has none, so this is the kit's own
+		-- API rather than a property fought over afterwards. It buys the same point back for a long
+		-- pet name; the longest of those can still truncate, and the ellipsis is honest there
+		-- because a pet tile has nothing else to say.
+		UITheme.AutoSize(name, 13, 15)
+		themeLabel(name, 15, nameColor)
 
 		if isRemovable and onRemove then
 			tile.Activated:Connect(function()
 				onRemove(pet)
 			end)
 		end
-		return tile
+		-- The name label comes back with the tile because `markOffered` below has to move the ink
+		-- when it moves the fill, and it is the only thing on the card that is not already white.
+		return tile, name
+	end
+
+	-- ===== 23.7: THE "ALREADY IN YOUR OFFER" TILE WAS PAINTING A FRAME NOBODY DRAWS =====
+	--
+	-- All three picker branches ended `btn.BackgroundColor3 = Color3.fromRGB(40, 55, 75)`, and since
+	-- 15.28 that is a dead write: `styleCard` sets the host transparent and moves the fill into an
+	-- `InnerBody` child, so the tile a player has already put in their offer looked exactly like one
+	-- they had not -- through all of 8.5 and 30.7, on pets and relics alike. Nothing could report it:
+	-- the property reads back correctly, and only a capture shows it. `UITheme.SetColor` is the
+	-- public path that paints the face, its gradient and its bottom lip together.
+	--
+	-- THE INK HAS TO MOVE WITH THE FILL. `themeLabel` DROPS a dark colour's halo, because dark ink
+	-- is only ever chosen for a light card -- so the moment this tile stops being light, an inked
+	-- name (every relic tint at rarity grey, and 23.4's two pale auras) disappears into the navy. It
+	-- goes white with its outline back, and the tile's identity stays where it already was: the
+	-- rarity border, which does not move.
+	local OFFERED_FILL = Color3.fromRGB(40, 55, 75)
+	local function markOffered(tile, nameLabel)
+		UITheme.SetColor(tile, OFFERED_FILL)
+		if not nameLabel then return end
+		nameLabel.TextColor3 = UITheme.Color.White
+		local halo = nameLabel:FindFirstChildOfClass("UIStroke")
+		if halo then halo.Thickness = 4 end
 	end
 
 	-- Render offers
@@ -504,8 +559,48 @@ return function(hud)
 		-- Populate the picker -- pets or spare relics, whichever tab is up.
 		local data = hud.getData()
 		local shown = 0
-		if data and invTab == "relics" then
-			invLabel.Text = "Your spare relics (click to add one, click again for another):"
+		if data and invTab == "auras" then
+			invLabel.Text = "Spare auras (click to add, again for another):"
+			-- WALKED IN LADDER ORDER, which is `GameConfig.Mutations`' own order -- rarity order,
+			-- the same order the Auras panel draws and the same reason the relic strip walks its
+			-- sets: a `pairs()` walk of `data.SplicerFound` would re-order itself on every push and
+			-- move the tile out from under the finger pressing it.
+			for _, mut in ipairs(GameConfig.Mutations) do
+				local spare = GameConfig.GetSpareMutations(data, mut.name)
+				if spare > 0 then
+					local card = {
+						kind = TradeItems.MUTATION,
+						key = mut.name,
+						n = spare,
+						name = mut.name,
+						tint = mut.color,
+						short = mut.name,
+						emoji = "\u{1F9EC}",
+					}
+					local offered = offerIndexOf(card)
+					local btn, btnName = makeSlotCard(card, invScroll, true, function(clicked)
+						local idx = offerIndexOf(clicked)
+						if not idx then
+							if #myOffer < TradeItems.MaxLines then
+								table.insert(myOffer, { kind = TradeItems.MUTATION, key = clicked.key, n = 1 })
+							end
+						elseif myOffer[idx].n < spare then
+							myOffer[idx].n = myOffer[idx].n + 1
+						else
+							-- past the top of the stack the next press clears the line, so one tile
+							-- both builds and clears with the single input a phone has
+							table.remove(myOffer, idx)
+						end
+						sendOffer()
+					end)
+					if offered then
+						markOffered(btn, btnName)
+					end
+					shown = shown + 1
+				end
+			end
+		elseif data and invTab == "relics" then
+			invLabel.Text = "Spare relics (click to add, again for another):"
 			-- WALKED IN SET ORDER rather than over `data.SetRelics`, so the strip is stable
 			-- between refreshes: a pairs() walk of the save would re-order itself every push and
 			-- the tile under the player's finger would move while they were clicking it.
@@ -527,7 +622,7 @@ return function(hud)
 							short = (GameConfig.RelicSetForms[relic.order] or {}).name or relic.name,
 						}
 						local offered = offerIndexOf(card)
-						local btn = makeSlotCard(card, invScroll, true, function(clicked)
+						local btn, btnName = makeSlotCard(card, invScroll, true, function(clicked)
 							local idx = offerIndexOf(clicked)
 							if not idx then
 								if #myOffer < TradeItems.MaxLines then
@@ -545,14 +640,14 @@ return function(hud)
 							sendOffer()
 						end)
 						if offered then
-							btn.BackgroundColor3 = Color3.fromRGB(40, 55, 75)
+							markOffered(btn, btnName)
 						end
 						shown = shown + 1
 					end
 				end
 			end
 		elseif data and data.Pets then
-			invLabel.Text = "Your Pet Inventory (Click to offer/remove):"
+			invLabel.Text = "Your pets (click to offer or remove):"
 			local equippedSet = {}
 			for _, eqId in ipairs(data.EquippedPetIds or {}) do equippedSet[eqId] = true end
 
@@ -568,7 +663,7 @@ return function(hud)
 						emoji = def and def.emoji or "🐾",
 					}
 					local isOffered = offerIndexOf(pObj) ~= nil
-					local btn = makeSlotCard(pObj, invScroll, true, function(clicked)
+					local btn, btnName = makeSlotCard(pObj, invScroll, true, function(clicked)
 						local idx = offerIndexOf(clicked)
 						if idx then
 							table.remove(myOffer, idx)
@@ -578,7 +673,7 @@ return function(hud)
 						sendOffer()
 					end)
 					if isOffered then
-						btn.BackgroundColor3 = Color3.fromRGB(40, 55, 75)
+						markOffered(btn, btnName)
 					end
 					shown = shown + 1
 				end
@@ -632,10 +727,14 @@ return function(hud)
 	-- forward declarations reads to it as an undefined global.
 	local relicTabBtn = nil
 	local petTabBtn = nil
+	-- 23.4: the third tab. Same forward-declared-and-nil shape as the other two, for both reasons
+	-- written above it.
+	local auraTabBtn = nil
 	local function setTab(name)
 		invTab = name
 		UITheme.SetColor(petTabBtn, name == "pets" and UITheme.Color.Blue or UITheme.Color.Locked)
 		UITheme.SetColor(relicTabBtn, name == "relics" and UITheme.Color.Blue or UITheme.Color.Locked)
+		UITheme.SetColor(auraTabBtn, name == "auras" and UITheme.Color.Blue or UITheme.Color.Locked)
 		refreshTradeUI()
 	end
 
@@ -652,24 +751,46 @@ return function(hud)
 	-- `InvPickerScroll` starts at `topY + 232` and shares this row's right-hand edge, so growing
 	-- downward would have laid both tabs over the top of the list. 202..230 keeps the bottom edge
 	-- where it was and still clears the two 200-tall offer columns above at `topY`.
+	--
+	-- ...AND THEY ARE NAMED. `UITheme.Button` defaults every button it builds to `Button`, so all
+	-- three tabs and both action buttons answered to the same path and none of them could be pressed
+	-- by an agent -- which is the one check that would have caught 23.7 above two phases ago. See
+	-- the PRESS THE BUTTON rule: a capture of a panel is not a test of the panel.
+	--
+	-- 23.4 KEEPS THE HEIGHT AND SPENDS THE WIDTH. Three tabs at 106 would not fit beside a label
+	-- that has to stay readable, so they are 84 wide with the same 4 px gap and the same right-hand
+	-- edge: 404..488, 492..576, 580..664 in a 680 px modal. The captions are 26-34 px of text
+	-- (33.36's measurement), so 84 is still four times what any of them needs.
 	petTabBtn = UITheme.Button(tradeModal, {
+		name = "PetsTab",
 		text = "Pets",
 		color = UITheme.Color.Blue,
-		size = UDim2.new(0, 106, 0, 28),
-		position = UDim2.new(1, -232, 0, topY + 202),
+		size = UDim2.new(0, 84, 0, 28),
+		position = UDim2.new(1, -276, 0, topY + 202),
 		fontSize = 14,
 		zIndex = 43,
 	})
 	relicTabBtn = UITheme.Button(tradeModal, {
+		name = "RelicsTab",
 		text = "Relics",
 		color = UITheme.Color.Locked,
-		size = UDim2.new(0, 106, 0, 28),
-		position = UDim2.new(1, -122, 0, topY + 202),
+		size = UDim2.new(0, 84, 0, 28),
+		position = UDim2.new(1, -188, 0, topY + 202),
+		fontSize = 14,
+		zIndex = 43,
+	})
+	auraTabBtn = UITheme.Button(tradeModal, {
+		name = "AurasTab",
+		text = "Auras",
+		color = UITheme.Color.Locked,
+		size = UDim2.new(0, 84, 0, 28),
+		position = UDim2.new(1, -100, 0, topY + 202),
 		fontSize = 14,
 		zIndex = 43,
 	})
 	petTabBtn.Activated:Connect(function() setTab("pets") end)
 	relicTabBtn.Activated:Connect(function() setTab("relics") end)
+	auraTabBtn.Activated:Connect(function() setTab("auras") end)
 
 	-- Cancel button
 	cancelTradeBtn.Activated:Connect(function()
@@ -718,6 +839,10 @@ return function(hud)
 			for _, line in ipairs(payload.myOffer or {}) do
 				if line.kind == TradeItems.RELIC then
 					table.insert(myOffer, { kind = TradeItems.RELIC, key = line.key, n = line.n })
+				elseif line.kind == TradeItems.MUTATION then
+					-- 23.4: and an aura line is clamped by `resolveOffer` exactly as a relic line
+					-- is, so it has to be re-seeded from the server's number for the same reason.
+					table.insert(myOffer, { kind = TradeItems.MUTATION, key = line.key, n = line.n })
 				else
 					table.insert(myOffer, { kind = TradeItems.PET, id = line.id })
 				end
