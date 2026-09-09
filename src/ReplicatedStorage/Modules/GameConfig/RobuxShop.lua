@@ -133,10 +133,14 @@ GameConfig.RobuxProducts = {
 	-- another tile in this shop pointless.
 	--
 	-- UNSCALED, like shards and for the identical reason: a ticket buys exactly one thing.
-	{ key = "Spins_2",  productId = 0, price = 99,   tierGroup = "Spins", name = "2 Lucky Spins",  emoji = "\u{1F3A1}", grantSpins = 2 },
-	{ key = "Spins_5",  productId = 0, price = 199,  tierGroup = "Spins", name = "5 Lucky Spins",  emoji = "\u{1F3A1}", grantSpins = 5 },
-	{ key = "Spins_20", productId = 0, price = 699,  tierGroup = "Spins", name = "20 Lucky Spins", emoji = "\u{1F3A1}", grantSpins = 20 },
-	{ key = "Spins_50", productId = 0, price = 1499, tierGroup = "Spins", name = "50 Lucky Spins", emoji = "\u{1F3A1}", grantSpins = 50, ribbon = "BEST VALUE" },
+	--
+	-- ALL FOUR DASHBOARD ROWS EXIST SINCE 2026-09-09 (34.46's last owner item), Managed pricing OFF
+	-- on every one of them -- leave it Enabled and Roblox re-prices per region, so the dashboard
+	-- stops charging what the price above says and every ribbon derived from it becomes a lie.
+	{ key = "Spins_2",  productId = 3712037453, price = 99,   tierGroup = "Spins", name = "2 Lucky Spins",  emoji = "\u{1F3A1}", grantSpins = 2 },
+	{ key = "Spins_5",  productId = 3712037614, price = 199,  tierGroup = "Spins", name = "5 Lucky Spins",  emoji = "\u{1F3A1}", grantSpins = 5 },
+	{ key = "Spins_20", productId = 3712037728, price = 699,  tierGroup = "Spins", name = "20 Lucky Spins", emoji = "\u{1F3A1}", grantSpins = 20 },
+	{ key = "Spins_50", productId = 3712091193, price = 1499, tierGroup = "Spins", name = "50 Lucky Spins", emoji = "\u{1F3A1}", grantSpins = 50, ribbon = "BEST VALUE" },
 
 	-- A COUNTED CHARGE, not a moment. `grantBossRevives` adds to data.BossRevives and BossService
 	-- spends one when there is something to restore; the receipt can therefore arrive late, on
@@ -239,11 +243,12 @@ GameConfig.RobuxProducts = {
 	-- shop that would be a lie. It has exactly two doors -- the join card (`HUD/StarterPack`) and the
 	-- store's own hero -- and BOTH close for good the moment `RobuxSpent` moves.
 	--
-	-- 👤 productId = 0 UNTIL THE DASHBOARD ROW EXISTS. This file's own documented sentinel, and
+	-- THE DASHBOARD ROW EXISTS SINCE 2026-09-09 (21.6): id 3712036506, R$ 99, Managed pricing OFF.
+	-- `productId = 0` remains this file's documented sentinel for a row that has not been created --
 	-- `RobuxShopService` refuses to prompt on it with a message rather than opening a dialog that
-	-- cannot complete (26.4). Both doors above hide themselves on a zero id, so nothing draws until
-	-- the id is real -- see `IsStarterPackEligible`.
-	{ key = "StarterPack", productId = 0, price = 99, panel = "starter", name = "Starter Pack",
+	-- cannot complete (26.4), and both doors above hide themselves on a zero id, which is what kept
+	-- this row visible to the owner while it waited -- see `IsStarterPackEligible`.
+	{ key = "StarterPack", productId = 3712036506, price = 99, panel = "starter", name = "Starter Pack",
 	  emoji = "\u{1F381}", grantDNA = 2500, grantDiamonds = 30, grantShards = 25 },
 }
 
@@ -473,10 +478,11 @@ GameConfig.GamePasses = {
 	-- you equip"), and pricing two slots at what three pet slots cost prices a relic slot higher than
 	-- a pet slot, which is correct: a relic is a flat stat and a pet is a follower.
 	--
-	-- 👤 passId = 0 UNTIL THE DASHBOARD ROW EXISTS. That is this file's own documented sentinel --
-	-- `PassService` refuses to prompt on a zero id and says so out loud, which is the behaviour that
-	-- keeps an unbuilt product visible to the owner instead of silently dead (26.4).
-	{ key = "RelicSlots2", passId = 0, price = 299, emoji = "🔮", name = "+2 Relic Slots",
+	-- THE DASHBOARD ROW EXISTS SINCE 2026-09-09 (34.64): id 1975778262, R$ 299. `passId = 0` is
+	-- still this file's documented sentinel for a pass that has not been created -- `PassService`
+	-- refuses to prompt on a zero id and says so out loud, which is the behaviour that keeps an
+	-- unbuilt product visible to the owner instead of silently dead (26.4).
+	{ key = "RelicSlots2", passId = 1975778262, price = 299, emoji = "🔮", name = "+2 Relic Slots",
 	  desc = "Wear five and six relics at once instead of four.", relicSlots = 2 },
 
 	{ key = "VIP",       passId = 1941409673, price = 499, emoji = "👑", name = "VIP",
