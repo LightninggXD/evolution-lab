@@ -4889,6 +4889,12 @@ Remotes.Notify.OnClientEvent:Connect(function(payload)
 		end
 		elseif payload.kind == "inviteReward" then
 		showNotification("🤝 " .. payload.message, Color3.fromRGB(150, 255, 150), notifRank, payload.kind)
+	elseif payload.kind == "party" then
+		-- 22.5. Its own kind rather than borrowing `reward`, and the reason is the grouping key:
+		-- `showNotification` keys on kind PLUS the digit-collapsed body, so joining and leaving
+		-- stay two cards while a burst of the same sentence still collapses. Party blue, the same
+		-- colour `GameConfig.PartyColors[1]` paints the chip over the head with.
+		showNotification("🎉 " .. payload.message, Color3.fromRGB(96, 176, 255), notifRank, payload.kind)
 	elseif payload.kind == "error" then
 		showNotification("❌ " .. payload.message, Color3.fromRGB(200, 60, 60), notifRank, payload.kind)
 	end

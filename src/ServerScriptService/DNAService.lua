@@ -6,6 +6,9 @@ local PlayerDataService = require(script.Parent.PlayerDataService)
 local Telemetry = require(script.Parent.Telemetry)
 local PetService = require(script.Parent.PetService)
 local FriendBonusService = require(script.Parent.FriendBonusService)
+-- 22.5. A leaf beside `FriendBonusService`: it requires `GameConfig` and `Players` and nothing
+-- else, so there is no way back into this file.
+local PartyService = require(script.Parent.Party.PartyService)
 
 local DNAService = {}
 DNAService.OnEvolve = nil -- optional callback(player, data) set by ServerMain to avoid circular requires
@@ -64,6 +67,11 @@ function DNAService.GetIncomeMult(data, excludeEvents)
 	-- button's badge -- three copies of one rule, one of which was already lying to the player.
 	if not excludeEvents then
 		mult = mult * GameConfig.GetFriendBonusMult(FriendBonusService.GetFriendCount(data.UserId))
+		-- The party (22.5), beside it and multiplying with it on purpose: the friend bonus pays for
+		-- who is logged in, this pays for who is STANDING WITH YOU, and a party of friends earns
+		-- both. Excluded from offline earnings for the stronger version of the same reason -- a
+		-- member who was next to you is not next to you while you are asleep.
+		mult = mult * GameConfig.GetPartyBonusMult(PartyService.NearbyCount(data.UserId))
 	end
 	-- ...and any live server-wide event, last of all (Phase 7.1). It takes no `data`, which is the
 	-- difference between an event and a pass written out: an event is the same for everybody on the

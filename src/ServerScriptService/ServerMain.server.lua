@@ -43,6 +43,9 @@ local WaterfallParkour = require(ServerScriptService.WaterfallParkour)
 local SprintTrack = require(ServerScriptService.SprintTrack)
 -- 22.4: the world boss that stands in the village rather than in the room behind the gate.
 local HeraldService = require(ServerScriptService.WorldBoss.HeraldService)
+-- 22.5: who is playing WITH whom, and the stand that is the door into it.
+local PartyService = require(ServerScriptService.Party.PartyService)
+local PartyStand = require(ServerScriptService.Party.PartyStand)
 local TradeService = require(ServerScriptService.TradeService)
 local MinigameService = require(ServerScriptService.MinigameService)
 local ExpeditionService = require(ServerScriptService.ExpeditionService)
@@ -281,6 +284,15 @@ phase("Telemetry.Init", Telemetry.Init)
 phase("PlayerDataService.Init", PlayerDataService.Init)
 phase("DNAService.Init", DNAService.Init)
 phase("FriendBonusService.Init", FriendBonusService.Init)
+-- 22.5, beside it because it is the other half of the same idea and has the same (absent)
+-- ordering constraints: it connects `PlayerRemoving`, starts one 1-second loop and reads no world
+-- furniture at all. It must be before `DNAService` can be asked for an income multiplier, which
+-- everything in this file is.
+--
+-- NO JOIN HANDLER AT ALL, deliberately -- see the note in its Init. A player arrives in no party,
+-- which is what a Player with no party attributes already means, so the already-here `PlayerAdded`
+-- trap that has bitten ten files in this repo has nothing to bite here.
+phase("PartyService.Init", PartyService.Init)
 -- AFTER DNAService, and the order is a preference rather than a constraint: it connects one remote
 -- and reads nothing at Init time. It is placed here because it is the other half of the same
 -- purchase surface -- `SwordService.HandleBuy` is `HandleBuyDiamondUpgrade` beat for beat -- and
@@ -476,6 +488,12 @@ phase("SprintTrack.Init", SprintTrack.Init)
 -- function destroys every child of `workspace.Bosses` (the Herald parents itself there) and it is
 -- what starts the arena clock this file derives its own arrivals from.
 phase("HeraldService.Init", HeraldService.Init)
+-- 22.5's door, in the Forest-furniture block for the same reason the track and the Herald's
+-- station are: its footprint is authored off a live probe of the plaza (an 18 x 18 grid at
+-- (-88, 278), flat on `WorldShell.Floor`, zero parts standing in it), it does not search, and it
+-- stands fifteen studs off the trading floor's rim -- so it has to be after `HubPlaza.Init` above,
+-- which is what decides where that circle and its sign end up.
+phase("PartyStand.Init", PartyStand.Init)
 -- LAST, and after DNAService in particular: the offline payout is DNAService.GetAutoCollectAmount
 -- multiplied by a bounded number of seconds, so it has to run once the income stack it reads is
 -- fully wired. It hooks PlayerAdded itself rather than being called from the block below, because

@@ -121,6 +121,58 @@ function GameConfig.GetFriendBonusPct(friendCount)
 	return n * GameConfig.FriendBonusPct
 end
 
+-- ===== THE PARTY, AND WHY ITS BONUS IS NOT THE FRIEND BONUS AGAIN (22.5) =====
+--
+-- The friends-in-server bonus pays for who is LOGGED IN. It asks nothing of either player: two
+-- friends on opposite ends of a twenty-zone strip who never see each other are paid the same +5%
+-- as two standing shoulder to shoulder. That is correct for what it is -- a reason to bring a
+-- friend -- and it is not co-play.
+--
+-- A party is the other half: it costs something to hold. The bonus counts only party members
+-- **within `PartyRadiusStuds` of you right now**, so it is paid for actually playing together, and
+-- it is bigger than the friend bonus precisely because it is conditional. The two multiply -- a
+-- party of friends gets both -- which is the stack Phase 22 is trying to produce.
+--
+-- AND IT IS OPEN TO STRANGERS, which the friend bonus cannot be. `IsFriendsWith` is a fact about
+-- two accounts; standing on the same ground is a fact about two people playing. The party stand
+-- puts anyone who presses it into the smallest open party, so a new player with no friends on the
+-- platform can still be in one within a minute of arriving.
+--
+-- THE NUMBERS. +8% a nearby member, capped at 5 of them (+40%) -- one short of a full party of six,
+-- so the cap is the whole party minus yourself and nobody is ever carrying a member who does not
+-- count. 80 studs is the radius: `TradeProximityStuds` is 40 and that is arm's length for a trade,
+-- while a hunting group spreads across a clearing -- measured against the jungle camps, whose floors
+-- are 20-30 studs across with 20 studs between them.
+GameConfig.PartySize = 6
+GameConfig.PartyBonusPct = 8
+GameConfig.PartyBonusCap = 5
+GameConfig.PartyRadiusStuds = 80
+
+-- The multiplier itself, so no caller composes it from the constants and gets the cap wrong -- the
+-- exact mistake the friend bonus's third copy made before 22.1 collapsed it into one function.
+-- Returns 1.00 alone, 1.40 at the cap.
+function GameConfig.GetPartyBonusMult(nearCount)
+	local n = math.min(math.max(tonumber(nearCount) or 0, 0), GameConfig.PartyBonusCap)
+	return 1 + n * (GameConfig.PartyBonusPct / 100)
+end
+
+-- What a board or a tag prints beside the count: the whole percent, already capped.
+function GameConfig.GetPartyBonusPct(nearCount)
+	local n = math.min(math.max(tonumber(nearCount) or 0, 0), GameConfig.PartyBonusCap)
+	return n * GameConfig.PartyBonusPct
+end
+
+-- One colour per party, taken in order and reused when they run out. They have to be legible as a
+-- tag over a head against Forest's very bright key light AND distinguishable from the game's own
+-- semantic colours -- green is a trade tag (21.1), gold is VIP and rebirth, red is the Colosseum --
+-- so these are the four that are left, at a tone that survives the outline.
+GameConfig.PartyColors = {
+	Color3.fromRGB(96, 176, 255),   -- blue
+	Color3.fromRGB(190, 130, 255),  -- violet
+	Color3.fromRGB(255, 150, 90),   -- orange
+	Color3.fromRGB(90, 226, 200),   -- teal
+}
+
 -- ===== THE INVITE REWARD'S TWO ANTI-FARM NUMBERS (22.2) =====
 --
 -- `InviteRewardService` pays an exclusive pet to BOTH ends of a game invite, and alt accounts are
