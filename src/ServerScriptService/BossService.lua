@@ -25,6 +25,11 @@ local AnnounceService = require(script.Parent.AnnounceService)
 -- and nothing else, so it cannot come back around into this file.
 local LevelService = require(script.Parent.Level.LevelService)
 local CommunityGoalService = require(script.Parent.CommunityGoalService)
+-- 22.4. A leaf module -- it requires nothing at all -- so it cannot come back around into this
+-- file. The giant used to track its contributors in a local set that was thrown away on death,
+-- which pays everybody correctly and shows nobody anything; the village's contribution board is
+-- what needs the same information to survive the frame it was collected in.
+local BossLedger = require(script.Parent.WorldBoss.BossLedger)
 
 local BossService = {}
 
@@ -2703,6 +2708,16 @@ local function spawnEventBoss()
 	local contributors = {} -- [userId] = true; everyone here is paid when it dies
 	local restSize = body.Size
 
+	-- 22.4: the same set, written where something other than the payout loop can read it. The
+	-- board in the village is the only window this fight has ever had from outside the arena.
+	BossLedger.Open({
+		key = "arena",
+		name = boss.name,
+		emoji = boss.emoji,
+		where = "in the Colosseum, through the gate",
+		max = boss.health,
+	})
+
 	local auraConnection
 	do
 		local auraRange = math.max(boss.auraRange, boss.size * 0.7)
@@ -2748,6 +2763,8 @@ local function spawnEventBoss()
 		local playerDamage = math.min(DNAService.GetCombatDamage(data), boss.health / EVENT_MIN_HITS)
 		local health = math.max((model:GetAttribute("Health") or boss.health) - playerDamage, 0)
 		model:SetAttribute("Health", health)
+		BossLedger.Hit("arena", player, playerDamage)
+		BossLedger.SetHealth("arena", health)
 		barFill.Size = UDim2.new(math.clamp(health / boss.health, 0, 1), 0, 1, 0)
 		-- the same screen-space bar the zone bosses got -- see the note in the zone boss onHit
 		CombatFx:FireClient(player, {
@@ -2839,6 +2856,7 @@ local function spawnEventBoss()
 			-- `bossDefeated` card a few lines up, and a second sting on top of it is one boss dying
 			-- twice.
 			-- the lighter end of the arena's own red: the same event, resolved
+			BossLedger.Close("arena", ("%d challenger%s paid"):format(paid, paid == 1 and "" or "s"))
 			announce(
 				("%s %s HAS FALLEN!"):format(boss.emoji, boss.name:upper()),
 				("%d challenger%s paid"):format(paid, paid == 1 and "" or "s"),
@@ -2866,6 +2884,7 @@ local function spawnEventBoss()
 	task.delay(boss.despawnSeconds, function()
 		if eventState.model == model and not dead then
 			despawnEventBoss()
+			BossLedger.Close("arena", "nobody finished it")
 			-- Muted deliberately, and in the Locked grey rather than the gold: nothing happened. It is
 			-- said at all only so a player who saw the arrival is not left wondering whether the
 			-- fight is still on somewhere.
@@ -2909,18 +2928,20 @@ local function driveCountdown()
 	RS:SetAttribute("ArenaBossHealth", live and hp or 0)
 	RS:SetAttribute("ArenaBossSeconds", live and 0 or math.floor(left))
 
-	local label
+	-- EVERY TAGGED BOARD, NOT THE LAST ONE FOUND. This loop used to assign `label` on each pass and
+	-- draw only whatever the final iteration left in it, which was invisible while exactly one
+	-- board carried the tag and would silently have frozen a second one.
+	local text
+	if live then
+		text = ("%s %s  \u{2764}\u{FE0F} %s"):format(boss.emoji, boss.name:upper(), formatNumber(hp))
+	else
+		text = ("\u{2694}\u{FE0F} NEXT BOSS IN  %d:%02d"):format(left // 60, left % 60)
+	end
+	-- the board says the same thing the HUD does, off the same three values, so the two cannot drift
 	for _, anchor in ipairs(CollectionService:GetTagged("ArenaCountdown")) do
 		local board = anchor:FindFirstChild("CountdownBoard")
-		label = board and board:FindFirstChild("Countdown")
-	end
-	if not label then return end
-
-	-- the board says the same thing the HUD does, off the same three values, so the two cannot drift
-	if live then
-		label.Text = ("%s %s  \u{2764}\u{FE0F} %s"):format(boss.emoji, boss.name:upper(), formatNumber(hp))
-	else
-		label.Text = ("\u{2694}\u{FE0F} NEXT BOSS IN  %d:%02d"):format(left // 60, left % 60)
+		local label = board and board:FindFirstChild("Countdown")
+		if label then label.Text = text end
 	end
 end
 
@@ -3100,6 +3121,42 @@ function BossService.Init()
 			end
 		end
 	end)
+end
+
+-- ===== THE SEAM THE VILLAGE'S WORLD BOSS BORROWS (22.4) =======================
+--
+-- `WorldBoss/HeraldService` stands a sibling of the event boss in the Forest hub, and everything
+-- it needs to do that already exists in this file: the rig factory, the idle driver's registry,
+-- the VFX pass, the death burst, the incoming-damage cap, the broadcast channel and the number
+-- format. The alternative was a second copy of `spawnEventBoss`'s two hundred and fifty lines,
+-- which would then have to be kept in step with this one for ever.
+--
+-- `SetHit` is the important one and it is not a convenience: `BossService.Init` routes the
+-- `AutoAttack` remote through `hitHandlers`, so a boss registered here gets auto-attack, the reach
+-- check and the stale-model guard for free, and nothing else in the game has to learn that a
+-- second world boss exists.
+--
+-- Declared here, at the bottom, because every one of these is a local defined above it.
+BossService.Rig = {
+	Build = buildRig,
+	Register = registerRig,
+	VFX = applyBossVFX,
+	Burst = burstOnDeath,
+	Hurt = hurtPlayer,
+	Broadcast = broadcastFx,
+	Format = formatNumber,
+	Folder = bossesFolder,
+	Fx = CombatFx,
+	SetHit = function(model, entry) hitHandlers[model] = entry end,
+	ClearHit = function(model) hitHandlers[model] = nil end,
+}
+
+-- Seconds until the arena giant's next arrival, whether or not one is standing now. The published
+-- `ArenaBossSeconds` attribute deliberately reads 0 while the boss is live -- it is what the HUD
+-- pill draws -- so it cannot be used to derive a second clock from. This can, and that is the
+-- whole of the Herald's timing: it arrives when this passes half an interval.
+function BossService.EventSecondsToSpawn()
+	return math.max(eventState.nextSpawn - os.clock(), 0)
 end
 
 -- Exposed for testing: forces the event boss in now and resets the clock.

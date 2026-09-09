@@ -41,6 +41,8 @@ local HubPlaza = require(ServerScriptService.HubPlaza)
 local WorldApron = require(ServerScriptService.WorldApron)
 local WaterfallParkour = require(ServerScriptService.WaterfallParkour)
 local SprintTrack = require(ServerScriptService.SprintTrack)
+-- 22.4: the world boss that stands in the village rather than in the room behind the gate.
+local HeraldService = require(ServerScriptService.WorldBoss.HeraldService)
 local TradeService = require(ServerScriptService.TradeService)
 local MinigameService = require(ServerScriptService.MinigameService)
 local ExpeditionService = require(ServerScriptService.ExpeditionService)
@@ -464,6 +466,16 @@ phase("WaterfallParkour.Init", WaterfallParkour.Init)
 -- cannot be displaced and cannot get out of anything's way either. Running it after the plaza means
 -- the boot log prints them in the order a reader would expect to compare them in.
 phase("SprintTrack.Init", SprintTrack.Init)
+-- ===== 22.4: THE VILLAGE'S OWN WORLD BOSS =====
+-- Beside the track and after it for the same reason the track is after the plaza: its footprint is
+-- authored off a live probe of this same lawn (see `HeraldStation`'s header), it does not search
+-- and cannot get out of anything's way, so the boot log should print the three of them in the
+-- order a reader would compare them in.
+--
+-- ITS ONE HARD CONSTRAINT IS `BossService.Init` FAR ABOVE, and it is hard in two directions: that
+-- function destroys every child of `workspace.Bosses` (the Herald parents itself there) and it is
+-- what starts the arena clock this file derives its own arrivals from.
+phase("HeraldService.Init", HeraldService.Init)
 -- LAST, and after DNAService in particular: the offline payout is DNAService.GetAutoCollectAmount
 -- multiplied by a bounded number of seconds, so it has to run once the income stack it reads is
 -- fully wired. It hooks PlayerAdded itself rather than being called from the block below, because

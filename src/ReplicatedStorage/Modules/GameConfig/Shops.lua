@@ -59,6 +59,77 @@ GameConfig.EventBoss = {
 	minStageIndex = 4,
 }
 
+-- ===== THE HERALD -- THE WORLD BOSS THAT DOES NOT LIVE IN A ROOM (22.4) =====
+--
+-- The Colosseum giant is the best thing a whole server can do together and it is behind a teleport
+-- into a separate map on a half-hour timer, which means a player who has never walked through that
+-- gate does not know it exists. 22.4: *"Put it -- or a sibling -- in the hub, visible from spawn."*
+-- This is the sibling. It stands on the lawn between the arrival square and the Colosseum gate,
+-- 172 studs from the spawn pad and about 62 studs tall, and it is the village's advertisement for
+-- the room next door as much as it is a fight.
+--
+-- STAGGERED, NEVER CONCURRENT. `HeraldService` derives its clock from the arena's rather than
+-- keeping a second one: the Herald arrives exactly half an interval after the Devourer, so the
+-- village gets a world boss every fifteen minutes, alternating between here and the Colosseum, and
+-- the one contribution board in the hub is never being asked about two fights at once.
+--
+-- WHY IT IS NOT SIMPLY A SMALLER DEVOURER. Three deliberate differences, each of which is about
+-- this thing standing in the village rather than in an arena:
+--   * NO AURA. The giant burns everyone inside 60 studs of it, which is correct in a pit you chose
+--     to walk into and wrong in the square everybody spawns in.
+--   * `minStageIndex = 1`. The arena boss refuses anyone under stage 4. This one is the co-play
+--     feature of Phase 22 and refusing the newest players would be refusing the whole point.
+--   * IT PAYS EVERY CONTRIBUTOR THEIR OWN ZONE'S BOSS REWARD rather than a flat figure. A flat
+--     number is either nothing or everything across a twenty-stage strip -- the giant's 60M is
+--     meaningless to a stage-2 player and the Forest bear's 480 is meaningless to a stage-19 one.
+--     "One extra boss of your own" is a reward that means the same thing to everybody, and it is
+--     bounded by a table Phase 21 already tuned.
+GameConfig.HubBoss = {
+	name = "The Herald",
+	emoji = "\u{1F47A}",
+	-- 38 units is about a 79-stud box and 62 studs of height: bigger than every zone boss except
+	-- the last five, half the Devourer, and sized to the clear lawn measured in `HeraldStation`.
+	size = 38,
+	-- What the bar SAYS. The fight's real length is the two blow counts below, not this number --
+	-- see the clamp in `HeraldService` -- so this is chosen to read like a raid rather than derived.
+	health = 5000000,
+	-- ===== THE FIGHT IS COUNTED IN BLOWS, NOT IN DAMAGE, AND THAT IS THE DESIGN =====
+	-- A boss standing in the arrival square is hit by stage-1 players doing 5 damage and stage-20
+	-- players doing millions. Any fixed health is therefore either unkillable for the first group or
+	-- gone in one swing for the second. So every blow is clamped into `health/maxBlows ..
+	-- health/minBlows`: the strongest player in the game still needs `minBlows` hits, the weakest
+	-- never needs more than `maxBlows`, and the spread between them is 3.7x rather than a million.
+	-- Turning up matters more than gear here, which is exactly what a shared fight in a village
+	-- square should reward -- and it is what makes the contribution board's percentages readable.
+	minBlows = 70,
+	maxBlows = 260,
+	-- ...and more challengers make a bigger boss rather than a faster kill. Blows needed grow with
+	-- the number of players on the server when it arrives, so six people do not delete it in four
+	-- seconds and one person alone is still fighting a boss they can finish.
+	perPlayerBlows = 0.5,
+	-- Ten minutes on the lawn, which is two thirds of the giant's window: it is meant to be caught
+	-- on the way past, not travelled to.
+	despawnSeconds = 600,
+	minStageIndex = 1,
+	-- It hits back, but nothing like the arena's. `hurtPlayer`'s own cap means a blow can never
+	-- take more than a bounded share of a player's health (14.2); this is the flavour on top.
+	retaliateChance = 0.22,
+	retaliateDamage = { 30, 70 },
+	-- Borrowed rig, the same trick the event boss uses: the synthetic zone has no rig of its own.
+	-- The Volcano bull rather than the Antimatter devourer, so the two world bosses do not read as
+	-- the same monster standing in two places.
+	--
+	-- AND THAT MEANS THE COLOURS BELOW DO NOT PAINT IT. `buildRig` prefers a generated mesh when
+	-- `ServerStorage.BossMeshes.BossMesh_<rigKey>` exists, and all twenty do -- so this is the
+	-- Volcano MESH, in the mesh's own colours (measured live: a grey-blue horned beast), and
+	-- `accentColor` reaches only the dais, the kerb, the pylons, the VFX and the name plate. The
+	-- same is true of the Devourer and its AntimatterZone rig. Changing the two colours here will
+	-- not change the monster; changing `rigKey` will.
+	rigKey = "Volcano",
+	accentColor = Color3.fromRGB(255, 138, 72),
+	groundColor = Color3.fromRGB(150, 140, 132),
+}
+
 -- ===== WHICH SHOP STANDS IN WHICH ZONE =====
 -- Every one of the twenty villages used to carry the same three potion counters -- a market stall,
 -- a supply stall and a cauldron -- which meant the shop was never a reason to go anywhere. There
