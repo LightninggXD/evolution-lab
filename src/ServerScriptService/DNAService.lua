@@ -9,6 +9,10 @@ local FriendBonusService = require(script.Parent.FriendBonusService)
 -- 22.5. A leaf beside `FriendBonusService`: it requires `GameConfig` and `Players` and nothing
 -- else, so there is no way back into this file.
 local PartyService = require(script.Parent.Party.PartyService)
+-- 24.3. The steal diverts a share of passive DNA and this loop is the only place that pays any, so
+-- the split has to happen here. The require goes THIS way round and never the other: `VivariumSteal`
+-- reads the owner's rate off the `__autoPerSec` stamp below rather than requiring this file back.
+local VivariumSteal = require(script.Parent.Vivarium.VivariumSteal)
 
 local DNAService = {}
 DNAService.OnEvolve = nil -- optional callback(player, data) set by ServerMain to avoid circular requires
@@ -713,6 +717,12 @@ function DNAService.Init()
 				local data = PlayerDataService.Get(player)
 				if data then
 					local amt = DNAService.GetAutoCollectAmount(data)
+					-- ===== 24.3: A SHARE OF THIS MAY BELONG TO SOMEBODY ELSE RIGHT NOW =====
+					-- `Split` credits the thief with what it takes off this payout and returns what
+					-- the owner keeps, so the subtraction and the addition are the same number by
+					-- construction. It answers `amt` unchanged for every player who is not currently
+					-- being robbed, which is all of them almost always.
+					amt = VivariumSteal.Split(player, amt)
 					-- 15.22: the tile can now SAY what this pays, and this is the only place in the
 					-- game that knows the number. The rate is `GetClickBase(stage)` through the whole
 					-- income stack -- pets, mutation, zones, potions, passes, events -- none of which
@@ -721,6 +731,11 @@ function DNAService.Init()
 					-- onto the save table, and `PushToClient` carries it in the payload it already
 					-- sends. Stamped even when it is 0, so a tile at level 0 reads "+0/s" rather than
 					-- keeping the last number a different save left there.
+					--
+					-- STAMPED AFTER THE 24.3 SPLIT, on purpose: while a steal is running the tile
+					-- should read what the player is actually being paid. A rate that goes on
+					-- claiming the full figure while a quarter of it lands in somebody else's
+					-- balance is the kind of number that gets reported as a save bug.
 					data.__autoPerSec = amt
 					data.__friendCount = FriendBonusService.GetFriendCount(player.UserId)
 					if amt > 0 then

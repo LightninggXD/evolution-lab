@@ -116,6 +116,7 @@ local PetModel = require(RS.Modules.PetModel)
 local UITheme = require(RS.Modules.UITheme)
 local VivariumCase = require(script.Parent.VivariumCase)
 local VivariumLock = require(script.Parent.VivariumLock)
+local VivariumSteal = require(script.Parent.VivariumSteal)
 -- Only for `RoadClearance`. No cycle: `JungleLayout` reaches `JungleTrails`, `MapGates`,
 -- `SplicerService` and `ExpeditionService`, and nothing it touches reaches this file.
 local JungleLayout = require(ServerScriptService.MapProps.JungleLayout)
@@ -315,9 +316,11 @@ local function topPets(data)
 end
 
 --- What has to change before the rigs are worth rebuilding. The slot count and the identity of
--- every pet in it -- the tier and the enchant are in there because both change a rig's look.
-local function signature(pets, n)
-	local parts = { tostring(n) }
+-- every pet in it -- the tier and the enchant are in there because both change a rig's look -- and
+-- 24.3's `out` slot, because a shelf standing empty while somebody runs down the lawn with what was
+-- on it is a different case from the same one intact.
+local function signature(pets, n, out)
+	local parts = { tostring(n), "out" .. tostring(out) }
 	for _, p in ipairs(pets) do
 		table.insert(parts, ("%s:%s:%s"):format(tostring(p.id), tostring(p.tier), tostring(p.enchant)))
 	end
@@ -329,20 +332,26 @@ local function clearRigs(case)
 		rig:Destroy()
 	end
 	case.rigs = {}
+	-- Which SLOT each rig stands in, which the array cannot say once 24.3 has lifted one out of the
+	-- middle of it. `takeSpecimen` below is the only reader.
+	case.rigBySlot = {}
 end
 
 local function fillCase(case, data)
 	local pets, n = topPets(data)
-	local sig = signature(pets, n)
+	local sig = signature(pets, n, case.outSlot)
 	if sig == case.signature then
 		return false
 	end
 	case.signature = sig
 	clearRigs(case)
+	local top = nil
 	for i, pet in ipairs(pets) do
 		local slot = case.slots[i]
 		local def = GameConfig.GetPetDef(pet.key)
-		if slot and def then
+		-- The slot 24.3 has taken a specimen out of is left EMPTY rather than closed up. A gallery
+		-- that shuffled the survivors along would hide the theft, and the gap is the whole tell.
+		if slot and def and i ~= case.outSlot then
 			-- ===== BOTH OF THESE ARE OFF, AND THE FIRST ONE IS NOT OPTIONAL =====
 			--
 			-- `outline` is a `Highlight`, and `PetModel`'s own comment records the budget: Roblox
@@ -368,10 +377,20 @@ local function fillCase(case, data)
 			rig:SetAttribute("SpinSpeed", 0.5)
 			rig:SetAttribute("BobHeight", 0.25)
 			CollectionService:AddTag(rig, "PetDisplay")
+			-- What the take prompt calls it and what the owner is told they lost. Written on the rig
+			-- rather than derived twice, so the two sentences can never name different pets.
+			local label = (pet.tier and pet.tier ~= "Normal")
+				and ("%s %s"):format(pet.tier, def.name) or def.name
+			rig:SetAttribute("SpecimenLabel", label)
 			rig.Parent = case.model
 			table.insert(case.rigs, rig)
+			case.rigBySlot[i] = rig
+			top = top or label
 		end
 	end
+	-- 24.3 reads this off the model: the take prompt has to name the specimen it would lift, and
+	-- `ActionText` is a property of the PART, so there is one name for everybody.
+	case.model:SetAttribute("TopSpecimen", top)
 	return true, n, #pets
 end
 
@@ -402,11 +421,17 @@ local function drawBoard(case, player, data)
 	-- equipped pets are most of it -- so it is never zero and it is the figure a case full of
 	-- Rainbow Absolons is actually a flex about. Short tokens: the line is 0.22 of the board and
 	-- `TextScaled` shrinks the whole string to fit the longest one.
-	board.sub.Text = rate > 0
+	-- ===== A STEAL IN PROGRESS OWNS THIS LINE (24.3) =====
+	-- The board is the only surface that row draws on, and it is the right one: the sub line is
+	-- already this case's status line, everybody in the aisle can read it, and `MainUI` is at its
+	-- 200-local cap so a HUD tile was never on offer.
+	local note = VivariumSteal.BoardNote(case.index)
+	board.sub.Text = note
+		or (rate > 0
 		and ("%d/%d slots \u{00B7} %d pets \u{00B7} \u{00D7}%.1f"):format(
 			math.min(#case.rigs, n), n, #(data.Pets or {}), DNAService.GetIncomeMult(data))
 		or ("%d/%d slots \u{00B7} %d pets \u{00B7} buy Auto Collect"):format(
-			math.min(#case.rigs, n), n, #(data.Pets or {}))
+			math.min(#case.rigs, n), n, #(data.Pets or {})))
 end
 
 local function release(userId)
@@ -419,6 +444,9 @@ local function release(userId)
 		-- off this index. Freeing the index without freeing them leaves a heartbeat ticking over a
 		-- model that is already gone.
 		VivariumLock.Detach(i)
+		-- The same argument for 24.3: a carry and a diversion are both keyed off this index, and the
+		-- diversion pays out of a save that is about to stop existing on this server.
+		VivariumSteal.Detach(i)
 		case.model:Destroy()
 		cases[i] = nil
 	end
@@ -453,8 +481,11 @@ local function claim(player)
 		slots = handles.slots,
 		board = handles.board,
 		ownerId = player.UserId,
+		index = idx,
 		signature = nil,
 		rigs = {},
+		rigBySlot = {},
+		outSlot = nil, -- 24.3: the slot whose specimen is being carried, while one is
 	}
 	cases[idx] = case
 	byUserId[player.UserId] = idx
@@ -472,6 +503,9 @@ local function claim(player)
 	-- at R0 and then jumping on the first tick; `SetStrength` in `refresh` keeps it honest after.
 	-- A case whose data has not arrived gets the R0 lock, which is the safe way round.
 	VivariumLock.Attach(idx, case.model, handles.frame, player.UserId, data and data.Rebirths or 0)
+	-- 24.3, after the lock for the reason the lock is after the save: the take prompt reads
+	-- `LockOpen` and `TopSpecimen`, and both are stamped by the time it hangs.
+	VivariumSteal.Attach(idx, case.model, handles.frame, player.UserId)
 
 	Telemetry.Custom(player, "VivariumCaseClaimed", idx)
 end
@@ -479,19 +513,61 @@ end
 -- ============================================================================
 -- THE TICK
 -- ============================================================================
+--- One case, redrawn now. Split out of the tick because 24.3 needs a case redrawn the INSTANT a
+--- specimen leaves it rather than up to `TICK` seconds later: a shelf that empties four seconds
+--- after the theft reads as a glitch, and the board's note is all an onlooker gets.
+local function refreshOne(i)
+	local case = cases[i]
+	local player = case and Players:GetPlayerByUserId(case.ownerId)
+	local data = player and PlayerDataService.Get(player)
+	if case and player and data then
+		fillCase(case, data)
+		drawBoard(case, player, data)
+		VivariumLock.SetStrength(i, data.Rebirths)
+	end
+end
+
 local function refresh()
-	for userId, i in pairs(byUserId) do
-		local case = cases[i]
-		local player = Players:GetPlayerByUserId(userId)
-		if case and player then
-			local data = PlayerDataService.Get(player)
-			if data then
-				fillCase(case, data)
-				drawBoard(case, player, data)
-				VivariumLock.SetStrength(i, data.Rebirths)
+	for _, i in pairs(byUserId) do
+		refreshOne(i)
+	end
+end
+
+-- ============================================================================
+-- 24.3's TWO CALLBACKS -- see `VivariumSteal.Bind` for why they are not a require
+-- ============================================================================
+--- Lift the best specimen standing in this case off its shelf and hand it over. The rig leaves the
+--- plaza's bookkeeping in the same breath, which is what stops the next rebuild destroying a model
+--- somebody is running down the lawn with.
+local function takeSpecimen(index)
+	local case = cases[index]
+	if not case or case.outSlot then return nil end
+	for i = 1, VivariumCase.MaxSlots do
+		local rig = case.rigBySlot[i]
+		if rig then
+			case.rigBySlot[i] = nil
+			for k, r in ipairs(case.rigs) do
+				if r == rig then
+					table.remove(case.rigs, k)
+					break
+				end
 			end
+			case.outSlot = i
+			case.signature = nil
+			refreshOne(index)
+			return rig, rig:GetAttribute("SpecimenLabel")
 		end
 	end
+	return nil
+end
+
+--- The specimen is done travelling: the shelf fills again on the next redraw, which is this one.
+local function restoreSpecimen(index)
+	local case = cases[index]
+	if not case then return end
+	case.outSlot = nil
+	case.signature = nil
+	refreshOne(index)
 end
 
 -- ============================================================================
@@ -515,6 +591,8 @@ function VivariumPlaza.Init()
 	local limit = Players.MaxPlayers
 	local built, skipped = layOutAnchors(limit)
 
+	VivariumSteal.Bind({ take = takeSpecimen, restore = restoreSpecimen, redraw = refreshOne })
+
 	PlayerJoin.onEach(claim)
 	-- `PlayerRemoving` does NOT unparent the player (`roblox-playerremoving-parent-is-players`), so
 	-- the userId is still readable here and the release is keyed off it rather than off the object.
@@ -529,9 +607,11 @@ function VivariumPlaza.Init()
 		end
 	end)
 
-	print(("[Vivarium] built v%d -- %d anchors of a possible %d (%d blocked), %d..%d slots a case, %ds tick; lock %d+%ds a rebirth, open %ds, reach %d"):format(
+	print(("[Vivarium] built v%d -- %d anchors of a possible %d (%d blocked), %d..%d slots a case, %ds tick; lock %d+%ds a rebirth, open %ds, reach %d; steal %d%% for %ds, %d studs in %ds"):format(
 		VIVARIUM_VERSION, built, limit, skipped, SLOT_BASE, VivariumCase.MaxSlots, TICK,
-		VivariumLock.Base, VivariumLock.PerRebirth, VivariumLock.OpenWindow, VivariumLock.BreakRadius))
+		VivariumLock.Base, VivariumLock.PerRebirth, VivariumLock.OpenWindow, VivariumLock.BreakRadius,
+		VivariumSteal.Share * 100, VivariumSteal.Window, VivariumSteal.EscapeDistance,
+		VivariumSteal.CarryLimit))
 end
 
 -- ============================================================================

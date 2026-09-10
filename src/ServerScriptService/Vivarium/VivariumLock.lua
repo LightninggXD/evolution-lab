@@ -362,6 +362,14 @@ function VivariumLock.Press(index, player)
 				thief and thief.DisplayName or "somebody", 0))
 		elseif lock.openUntil then
 			lock.openUntil = nil
+			-- ===== THE ATTRIBUTE IS THE DOOR, NOT A DECORATION (found by 24.3's verification) =====
+			-- Every other exit from the open state stamps `LockOpen` and this one did not, because
+			-- while 24.2 stood alone nothing READ it -- the bars carried the whole meaning. 24.3
+			-- gates its take prompt on the attribute, so an owner who re-locked their own case left
+			-- a door that was shut and said it was open: solid bars, and a specimen still liftable
+			-- through them. A state written in two places is a state that will disagree.
+			local model = lock.prompt and lock.prompt:FindFirstAncestorOfClass("Model")
+			if model then model:SetAttribute("LockOpen", false) end
 			paintBars(lock)
 			drawChip(lock)
 			notify(lock.ownerId, "party", ("Case re-locked -- %ds to break."):format(lock.strength))
