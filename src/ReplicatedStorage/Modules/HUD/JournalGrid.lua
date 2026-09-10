@@ -1010,7 +1010,18 @@ return function(hud)
 						:format(#GameConfig.GetEventQuests(entry.event), label)
 				end
 			else
-				dHint.Text = "Evolve to " .. (stage and stage.name or "this stage") .. " to discover it."
+				-- 23.5: AND IF THE SAVE HAS HELD IT BEFORE, SAY SO. This is the one card that answers
+				-- "how do I get this", and after a rebirth it was answering it identically for a disc
+				-- the player earned three runs ago and one they have never seen. `JournalFound` is the
+				-- permanent index (GameConfig.SyncJournalIndex); the route back is the same evolve,
+				-- which is why this adds a clause rather than replacing the sentence.
+				local found = hud.getData() and hud.getData().JournalFound
+				local stageName = (stage and stage.name or "this stage")
+				if found and found[entry.key] then
+					dHint.Text = ("You have held this one before \u{2014} evolve to %s to have it back."):format(stageName)
+				else
+					dHint.Text = "Evolve to " .. stageName .. " to discover it."
+				end
 			end
 		elseif equipped then
 			dHint.Text = ("This is what you look like right now.  You hit for %s."):format(formatNumber(progressDamage))

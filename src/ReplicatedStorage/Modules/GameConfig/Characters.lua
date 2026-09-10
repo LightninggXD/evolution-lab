@@ -1178,4 +1178,90 @@ function GameConfig.GetBaseCharacterForStage(stageIndex)
 	return list and list[1] or nil
 end
 
+-- ===== THE INDEX: WHAT THIS SAVE HAS EVER FOUND, AS OPPOSED TO WHAT IT OWNS TODAY (23.5) =====
+--
+-- `data.Characters` is the RUN, not the collection. `RebirthService` clears it wholesale and hands
+-- back only the stage-1 base -- deliberately, because the ladder is worth up to +600% damage and a
+-- rebirth that kept it would cost the player nothing they could feel. So the Journal, which draws
+-- `data.Characters`, is a progress bar for the current climb: after a rebirth it reads 1 / 100 and
+-- every disc a player has ever earned goes dark again. That is what 23.5 means by "an index" --
+-- there was no permanent record of the collection anywhere a player could see.
+--
+-- There nearly is one already, and it is worth knowing why it is not enough on its own.
+-- `data.CountedCharacters` (5.7, `StatsService`) is permanent and never cleared -- but it is an
+-- ANALYTICS ledger: it exists so the global ownership percentages cannot double-count a rebirth,
+-- it is filled by a 45-second reconcile sweep, and a save that evolves twice and rebirths inside
+-- that window loses those two keys from it forever. Rewards must not hang off a counter that can
+-- silently skip, and this must not write to it either: `sweepPlayer` marks a key AND increments the
+-- global tally in the same step, so marking one here would mean the world never counts it.
+--
+-- So: `data.JournalFound` is this feature's own permanent set, seeded from the union of both (which
+-- is what makes an existing save's index correct on its first load), and `data.JournalFoundCount`
+-- is the number beside it -- a plain integer, because that is the shape `Achievements` reads a
+-- counter in, and 23.5's completion rewards are five rows of that ladder rather than a claim system
+-- of their own.
+--
+-- IT ONLY EVER GROWS, and it is counted off the 100 in play rather than off the table: a key from
+-- the uncapped authored list, the VIP wardrobe or an event window is not part of the ladder and
+-- must never push the index past 100 / 100.
+function GameConfig.SyncJournalIndex(data)
+	if type(data) ~= "table" then return 0 end
+	if type(data.JournalFound) ~= "table" then data.JournalFound = {} end
+	local found = data.JournalFound
+	local owned = (type(data.Characters) == "table") and data.Characters or nil
+	local counted = (type(data.CountedCharacters) == "table") and data.CountedCharacters or nil
+
+	local n = 0
+	for stageIndex = 1, #GameConfig.Stages do
+		for _, entry in ipairs(GameConfig.GetCharactersForStage(stageIndex)) do
+			local key = entry.key
+			if not found[key]
+				and ((owned and owned[key] == true) or (counted and counted[key] == true)) then
+				found[key] = true
+			end
+			if found[key] then n += 1 end
+		end
+	end
+
+	data.JournalFoundCount = n
+	return n
+end
+
+-- The denominator, in one place: twenty stages of five. Written as the product rather than by
+-- counting `StageCharacters`, which holds ten a stage and would answer 200.
+function GameConfig.GetJournalTotal()
+	return #GameConfig.Stages * GameConfig.CharactersPerStage
+end
+
+-- Pure, for a client that has a pushed save and wants the number without writing to it.
+function GameConfig.GetJournalFoundCount(data)
+	return (data and tonumber(data.JournalFoundCount)) or 0
+end
+
+-- The next completion rung and what it pays, so the Journal can say what the collection is FOR
+-- without owning a second copy of the ladder. It reads the achievement rows themselves -- one
+-- ladder, one place -- and returns nil once every rung is claimed.
+--
+-- `Achievements` IS NOT A PART OF THIS TABLE. It is a plain sibling module that returns a bare list
+-- and is required directly by `AchievementService` and `AchievementsPanel`, so there is no
+-- `GameConfig.Achievements` to walk -- writing one would have been a silent nil and an empty loop
+-- that always answered "no rungs left". Required lazily and cached, because the part list above is
+-- ordered and a load-time require of a sibling is exactly the dependency that ordering exists to
+-- avoid.
+local achievementRows = nil
+function GameConfig.GetNextJournalMilestone(data)
+	if not achievementRows then
+		local mod = script.Parent and script.Parent:FindFirstChild("Achievements")
+		achievementRows = mod and require(mod) or {}
+	end
+	local claimed = (data and data.AchievementsClaimed) or {}
+	local best
+	for _, ach in ipairs(achievementRows) do
+		if ach.counter == "JournalFoundCount" and not claimed[ach.key] then
+			if not best or ach.goal < best.goal then best = ach end
+		end
+	end
+	return best
+end
+
 end

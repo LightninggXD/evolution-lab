@@ -51,6 +51,27 @@ local Achievements = {
 	{ key = "Clicks_500000", name = "Machine Gun", desc = "Click 500,000 times", counter = "TotalClicks", goal = 500000, reward = { title = "Auto Clicker" } },
 	{ key = "Clicks_1000000", name = "Millionaire", desc = "Click 1,000,000 times", counter = "TotalClicks", goal = 1000000, reward = { title = "Millionaire" } },
 
+	-- ===== THE JOURNAL (23.5) =====
+	-- The counter is `JournalFoundCount`, a permanent high-water mark of how many of the hundred
+	-- stage characters this save has EVER held -- see GameConfig.SyncJournalIndex for why the run's
+	-- own `data.Characters` cannot be it (a rebirth wipes it) and why the analytics ledger next
+	-- door cannot be it either.
+	--
+	-- FIVE ROWS RATHER THAN A CLAIM SYSTEM OF ITS OWN. Everything a completion reward needs already
+	-- exists here: the claim, the once-only mark in `AchievementsClaimed`, the panel that draws the
+	-- bar, the reward line and -- for the last rung -- a title with an equip button. A Journal-side
+	-- claim would have been a second remote, a second ledger and a title nothing could wear.
+	--
+	-- Priced against the measured diamond rate (~120 an hour, see GameConfig.Diamonds): 1,175 in
+	-- all across the whole hundred-step ladder, which is under ten hours of farming spread over
+	-- every rebirth a player will ever do -- a reward for the climb, not a faucet beside it. The
+	-- last rung pays a TITLE and no diamonds, which is the shape every other ladder here ends on.
+	{ key = "Journal_10", name = "Field Notes", desc = "Find 10 characters", counter = "JournalFoundCount", goal = 10, reward = { diamonds = 25 } },
+	{ key = "Journal_25", name = "Cataloguer", desc = "Find 25 characters", counter = "JournalFoundCount", goal = 25, reward = { diamonds = 100 } },
+	{ key = "Journal_50", name = "Curator", desc = "Find 50 characters", counter = "JournalFoundCount", goal = 50, reward = { diamonds = 300 } },
+	{ key = "Journal_75", name = "Taxonomist", desc = "Find 75 characters", counter = "JournalFoundCount", goal = 75, reward = { diamonds = 750 } },
+	{ key = "Journal_100", name = "The Whole Index", desc = "Find all 100 characters", counter = "JournalFoundCount", goal = 100, reward = { title = "Archivist" } },
+
 	-- Time Played (Seconds)
 	{ key = "Time_3600", name = "Tourist", desc = "Play for 1 hour", counter = "TimePlayed", goal = 3600, reward = { diamonds = 50 } },
 	{ key = "Time_36000", name = "Regular", desc = "Play for 10 hours", counter = "TimePlayed", goal = 36000, reward = { title = "Regular" } },

@@ -350,6 +350,11 @@ function DNAService.RollCharacter(player, data, stageIndex)
 	-- NextCharacterForStage only ever returns something unowned, so this is always a first find
 	local isNew = true
 	data.Characters[rolled.key] = true
+	-- 23.5: and the INDEX is folded forward in the same breath. It has to happen at the grant
+	-- rather than on a sweep: a player who evolves twice and then rebirths inside the same minute
+	-- would otherwise lose those two keys with the run, and the index is what the completion
+	-- ladder is paid against.
+	GameConfig.SyncJournalIndex(data)
 	-- ONE WORN CHARACTER, not one per stage -- see GameConfig.GetWornCharacter. A player with
 	-- nothing on gets dressed in the first thing they find; after that the choice is theirs and a
 	-- roll never overrides it, which was already the rule and is the reason this is guarded.
@@ -473,6 +478,9 @@ function DNAService.HandleEvolve(player)
 	local earned = step.entry
 	if earned then
 		data.Characters[earned.key] = true
+		-- 23.5: the second of the two grant sites, folded forward for the reason written at the
+		-- first one. Both, not one: this is the path a normal evolve takes.
+		GameConfig.SyncJournalIndex(data)
 		-- AND YOU PUT ON WHAT YOU JUST EARNED -- unless it would downgrade you. Rank is damage, and
 		-- a player can be wearing something they picked in the Journal from further up the ladder;
 		-- dressing them in a lower rank would make an evolve the thing that took damage away.

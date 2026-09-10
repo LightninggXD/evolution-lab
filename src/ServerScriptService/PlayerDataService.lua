@@ -73,6 +73,14 @@ local function defaultData()
 		-- the collection log, name -> how many of that mutation have been rolled.
 		SplicerRolls = 0,
 		SplicerFound = {},
+		-- THE JOURNAL INDEX (23.5). `Characters` is the RUN and a rebirth wipes it; this is the
+		-- permanent set of every one of the hundred stage characters this save has EVER held, and
+		-- `JournalFoundCount` is the same fact as a number, because that is the shape the
+		-- achievement ladder reads a counter in. Both are written by exactly one function --
+		-- `GameConfig.SyncJournalIndex` -- which is called at load, at every character grant and
+		-- immediately before a rebirth wipes the run.
+		JournalFound = {},
+		JournalFoundCount = 0,
 		FoundSecrets = {}, -- keys are secret IDs (e.g. "JungleWaterfall"), value is true when found
 		Pets = {}, -- list of { id, key, tier } owned pet instances
 		EquippedPetIds = {}, -- list of pet ids currently equipped (max GameConfig.MaxEquippedPets)
@@ -561,6 +569,14 @@ function PlayerDataService.Load(player)
 		-- between a load and the next read, and a refund paid twice is free DNA forever.
 		if type(data.SplicerFound) ~= "table" then data.SplicerFound = {} end
 		if type(data.FoundSecrets) ~= "table" then data.FoundSecrets = {} end
+		-- 23.5: THE INDEX IS SEEDED HERE, AND ON AN OLD SAVE IT IS SEEDED FROM TWO PLACES AT ONCE.
+		-- `SyncJournalIndex` folds `Characters` (this run) and `CountedCharacters` (5.7's permanent
+		-- analytics ledger) into `JournalFound`, so a save that has rebirthed ten times arrives with
+		-- an index that is already right instead of one that starts at whatever this run has re-earned.
+		-- It only ever adds, so running it twice is free -- which matters, because it is also called
+		-- from the evolve and from the rebirth.
+		if type(data.JournalFound) ~= "table" then data.JournalFound = {} end
+		GameConfig.SyncJournalIndex(data)
 		data.SplicerRolls = tonumber(data.SplicerRolls) or 0
 		-- (a) The "Mutation Chance" upgrade no longer exists -- there is no ambient roll left for
 		-- it to speed up -- so every level ever bought is refunded at the exact geometric sum

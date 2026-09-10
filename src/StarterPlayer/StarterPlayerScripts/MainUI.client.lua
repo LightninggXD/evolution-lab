@@ -3276,6 +3276,15 @@ local function refreshCharacterPanel()
 	local wornKey = currentData.WornCharacter
 
 	local have, total = GameConfig.CountCharacters(owned)
+	-- ===== 23.5: THE INDEX IS NOT THE RUN, AND THE PANEL NOW DRAWS BOTH =====
+	--
+	-- `owned` is what this climb has re-earned since the last rebirth wiped it; `JournalFound` is
+	-- every one of the hundred this save has EVER held. Until this row only the first existed on
+	-- screen, so a player with ten rebirths behind them opened the Journal on 1 / 100 and a wall of
+	-- padlocks. Locals of a FUNCTION, not of the chunk -- this file is on Luau's 200-register
+	-- ceiling and one more top-level local deletes the HUD.
+	local foundSet = currentData.JournalFound or {}
+	local foundEver = GameConfig.GetJournalFoundCount(currentData)
 	-- The header's subtitle since 11.14. It says the RULE as well as the count, because the count on
 	-- its own reads as a lottery scorecard -- and the discs are not a lottery, they are a queue.
 	--
@@ -3307,7 +3316,27 @@ local function refreshCharacterPanel()
 	else
 		nextLine = "  \u{2022}  every one of them found"
 	end
-	characterCount.Text = ("Discovered %d / %d%s"):format(have, total, nextLine)
+	-- 23.5: ...AND THE COUNT LINE SAYS WHAT THE COLLECTION IS FOR. The index clause only appears
+	-- when the two numbers differ -- on a first run they are equal and "3 / 100 . 3 found ever" is
+	-- noise -- and the rung clause names the next unclaimed completion reward, read off the
+	-- achievement ladder itself rather than a second copy of it. A claim happens in the
+	-- Achievements panel; this is the sentence that tells a collector it is there at all.
+	local indexLine = (foundEver > have) and ("  \u{2022}  %d found ever"):format(foundEver) or ""
+	local rungLine = ""
+	local nextRung = GameConfig.GetNextJournalMilestone(currentData)
+	if nextRung then
+		local pay = nextRung.reward.diamonds and ("%d \u{1F48E}"):format(nextRung.reward.diamonds)
+			or (nextRung.reward.title and ('the "%s" title'):format(nextRung.reward.title))
+			or "a reward"
+		-- TWO SENTENCES, BECAUSE A GOAL ALREADY PASSED IS NOT A GOAL. The index is a high-water
+		-- mark that a rebirth cannot lower, so a returning player is routinely standing above the
+		-- next unclaimed rung -- and "10 found pays 25" reads as a target when what it actually
+		-- means is "go and press Claim". Photographed saying exactly that on a save at 100 / 100.
+		rungLine = (foundEver >= nextRung.goal)
+			and ("  \u{2022}  %s waiting in Goals"):format(pay)
+			or ("  \u{2022}  %d found pays %s"):format(nextRung.goal, pay)
+	end
+	characterCount.Text = ("Discovered %d / %d%s%s%s"):format(have, total, indexLine, rungLine, nextLine)
 	-- and the same fraction as a bar in the band below it (11.16)
 	characterFill.Size = UDim2.new(have / math.max(1, total), 0, 1, 0)
 
@@ -3386,8 +3415,29 @@ local function refreshCharacterPanel()
 				or (chosen and READY_RIM:Lerp(refs.rarity.color, 0.6) or refs.rarity.color)
 			refs.strokeInst.Thickness = isWorn and 5 or (chosen and 5 or 4)
 		else
-			setButtonColor(refs.cell, UITheme.Color.Locked)
-			refs.strokeInst.Color = OUTLINE_COLOR
+			-- ===== 23.5: A DISC YOU HAVE HELD BEFORE IS NOT A DISC YOU HAVE NEVER SEEN =====
+			--
+			-- Both are locked -- a rebirth really did take it, and the "?" is honest -- but a save
+			-- nine rebirths deep is looking at seventy-five padlocks it has personally earned, and
+			-- until 23.5 the panel had no way to say so. Three states now: owned, held once, never
+			-- found.
+			--
+			-- THE FILL CARRIES IT, NOT THE RIM, and that is a measurement rather than a preference.
+			-- The first attempt tinted the 3 px rim 45% toward the character's colour and
+			-- photographed identically to the flat grey one row above it -- a thin ring around a
+			-- dark disc in a grid of a hundred is invisible at the size this panel is read at
+			-- ([[roblox-gui-probe-blind-spots]]: every property was correct and only the capture
+			-- showed it). The disc is painted the character's own pale colour dragged 55% toward
+			-- Locked, which sits visibly between the owned disc and the dark one, and the "?" is
+			-- painted in the character's full-strength colour, which is the biggest mark on the
+			-- cell.
+			local seenBefore = foundSet[key] == true
+			setButtonColor(refs.cell, seenBefore
+				and (refs.rarity.pale or refs.rarity.color):Lerp(UITheme.Color.Locked, 0.55)
+				or UITheme.Color.Locked)
+			refs.lock.TextColor3 = seenBefore and refs.rarity.color or UITheme.Color.White
+			refs.strokeInst.Color = seenBefore and OUTLINE_COLOR:Lerp(refs.rarity.color, 0.55)
+				or OUTLINE_COLOR
 			refs.strokeInst.Thickness = 3
 		end
 		-- WHAT THE DETAIL CARD IS SHOWING, on top of all of it. Worn is a state of the character;

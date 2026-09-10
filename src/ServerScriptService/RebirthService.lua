@@ -141,6 +141,12 @@ function RebirthService.HandleRebirth(player, tier)
 	-- Re-collected from scratch instead, and paid for with permanent damage that stacks every run
 	-- (GameConfig.GetRebirthDamageMult). The evolves hand the characters straight back in order, so
 	-- the second climb is a faster version of the first rather than an empty one.
+	-- 23.5: THE INDEX IS TAKEN BEFORE THE WIPE, and this is the one call site where the order of
+	-- two lines is the whole feature. `SyncJournalIndex` reads `data.Characters`; one line further
+	-- down there is nothing left to read, and everything this run earned since the last grant would
+	-- be gone from the permanent index. It is a no-op in practice -- the evolve already folded each
+	-- key forward as it was handed over -- and it is here because "in practice" is not a guarantee.
+	GameConfig.SyncJournalIndex(data)
 	data.Characters = {}
 	data.EquippedCharacters = {}
 	data.WornCharacter = nil
