@@ -1,25 +1,29 @@
 """Draw the Vivarium gallery from MEASURED geometry -- a plan of the lawn and a section of one case.
 
-WHY THIS EXISTS. Same reason `render_gate_elevation.py` exists, and the same failure: on 2026-09-10
-`screen_capture` stopped answering while closing 24.1. Diagnosed with 33.4's own test --
-`RenderStepped` fired **0** times in 2 seconds while `Heartbeat` fired **113**, in Edit and in Play
-alike -- so Studio was simulating and not drawing a single frame and the capture had nothing to grab.
-Three attempts timed out at 180 s each.
+WHY THIS EXISTS, corrected. It was written on 2026-09-10 while closing 24.1, when `screen_capture`
+timed out three times -- and the reason recorded here at the time ("Studio is simulating and not
+drawing a frame", from a RenderStepped of 0) was **wrong**. That counter was read on the EDIT
+datamodel through `execute_luau`, where it is a known artifact; measured from a real LocalScript in
+Play the same session, RenderStepped was 99 in 2 seconds and every capture afterwards worked.
 
-This is NOT a substitute for a capture and must never be called one. It has no lighting, no
-materials, no mesh detail and no camera: it is the LAYOUT and the PROPORTIONS, which is what a
-photograph from above would have been read for here -- do the sixty cases fit the two measured
-rectangles, does every one front an aisle, does anything sit in the walking lane, and is a case's
-own stack (pad / shelves / lid / board) in the right order at the right heights.
+So this is NOT a fallback for a broken capture, and must never be offered as one. It earns its place
+a different way: the plan it draws is what exposed 24.2's seven display cases standing in the middle
+of SprintTrack's running lane -- a fault every probe had called healthy, because a height-based
+occupancy test cannot see a surface that tops out at 0.68.
 
-It cannot answer anything about colour, readability at distance, or whether the thing looks good.
+What it answers: do the sixty cases fit the measured rectangles, does every one front an aisle, does
+anything sit in the walking lane or on a reserved surface, and is a case's own stack (pad / shelves /
+lid / chip / board) in the right order at the right heights.
+
+What it cannot answer: colour, lighting, materials, readability at distance, or whether the thing
+looks good. Take the photograph for those.
 
 INPUT is real: `tools/_viv_anchors.csv`, posted out of the running server by the probe bridge --
 every anchor's index, x, z, yaw and bank, as `VivariumPlaza.layOutAnchors` actually produced them.
 The case section is drawn from `VivariumCase`'s authored constants, which are the numbers in that
 file and not a re-measurement.
 
-    C:\\Python313\\python.exe tools/render_vivarium.py   ->  tools/_viv_layout.png
+    C:/Python313/python.exe tools/render_vivarium.py   ->  tools/_viv_layout.png
 """
 
 import csv

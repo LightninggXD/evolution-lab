@@ -113,10 +113,27 @@ VivariumCase.SlotsPerShelf = #SLOT_X
 VivariumCase.MaxSlots = #SLOT_X * #SHELF_Y
 
 local BOARD_W, BOARD_H = 10, 5
-local BOARD_Y = PAD_TOP + WALL_H + ROOF_T + 3.0
+-- ===== +6.0 AND NOT +3.0, BECAUSE 24.2 HANGS A SECOND PANEL UNDER THIS ONE =====
+--
+-- At +3.0 the board's centre is 20.54 and it is 5 studs tall, so it spans **18.04..23.04** -- and
+-- `VivariumLock`'s chip anchor sits at **18.34**, i.e. inside it. The two panels overlapped on the
+-- real case and the photograph is the only thing that said so: every probe reads two billboards at
+-- two different positions and calls them both healthy, because neither one is clipped and neither
+-- one is off screen. They are simply on top of each other.
+--
+-- The board is the case's title, so it is the topmost thing: chip just over the lid, board over the
+-- chip, 2.2 studs of daylight between them. Anything else hung on a case takes the next rung UP and
+-- records it here.
+local BOARD_Y = PAD_TOP + WALL_H + ROOF_T + 6.0
 
 VivariumCase.Width = PAD_W
 VivariumCase.Depth = PAD_D
+-- Exported for `VivariumLock`, which hangs a grille across this case's open front and must not
+-- carry a second copy of these numbers -- a lock 0.4 studs shorter than the opening it closes is a
+-- lock with a gap over it, and nothing would report that.
+VivariumCase.PadTop = PAD_TOP
+VivariumCase.WallHeight = WALL_H
+VivariumCase.FinThickness = FIN_T
 
 local function newPart(props)
 	local p = Instance.new("Part")
@@ -283,6 +300,7 @@ function VivariumCase.Build(frame, name)
 
 	return {
 		model = model,
+		frame = frame,
 		slots = slots,
 		board = { shell = shell, title = title, rate = rate, sub = sub },
 	}

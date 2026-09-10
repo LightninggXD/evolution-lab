@@ -115,6 +115,7 @@ local GameConfig = require(RS.Modules.GameConfig)
 local PetModel = require(RS.Modules.PetModel)
 local UITheme = require(RS.Modules.UITheme)
 local VivariumCase = require(script.Parent.VivariumCase)
+local VivariumLock = require(script.Parent.VivariumLock)
 -- Only for `RoadClearance`. No cycle: `JungleLayout` reaches `JungleTrails`, `MapGates`,
 -- `SplicerService` and `ExpeditionService`, and nothing it touches reaches this file.
 local JungleLayout = require(ServerScriptService.MapProps.JungleLayout)
@@ -414,6 +415,10 @@ local function release(userId)
 	byUserId[userId] = nil
 	local case = cases[i]
 	if case then
+		-- BEFORE the Destroy: the lock holds a running break and an open-window timer, both keyed
+		-- off this index. Freeing the index without freeing them leaves a heartbeat ticking over a
+		-- model that is already gone.
+		VivariumLock.Detach(i)
 		case.model:Destroy()
 		cases[i] = nil
 	end
@@ -463,6 +468,11 @@ local function claim(player)
 		case.board.rate.Text = "\u{2026}"
 	end
 
+	-- 24.2. Hung after the save is read so the grille arms at the owner's real strength rather than
+	-- at R0 and then jumping on the first tick; `SetStrength` in `refresh` keeps it honest after.
+	-- A case whose data has not arrived gets the R0 lock, which is the safe way round.
+	VivariumLock.Attach(idx, case.model, handles.frame, player.UserId, data and data.Rebirths or 0)
+
 	Telemetry.Custom(player, "VivariumCaseClaimed", idx)
 end
 
@@ -478,6 +488,7 @@ local function refresh()
 			if data then
 				fillCase(case, data)
 				drawBoard(case, player, data)
+				VivariumLock.SetStrength(i, data.Rebirths)
 			end
 		end
 	end
@@ -518,8 +529,9 @@ function VivariumPlaza.Init()
 		end
 	end)
 
-	print(("[Vivarium] built v%d -- %d anchors of a possible %d (%d blocked), %d..%d slots a case, %ds tick"):format(
-		VIVARIUM_VERSION, built, limit, skipped, SLOT_BASE, VivariumCase.MaxSlots, TICK))
+	print(("[Vivarium] built v%d -- %d anchors of a possible %d (%d blocked), %d..%d slots a case, %ds tick; lock %d+%ds a rebirth, open %ds, reach %d"):format(
+		VIVARIUM_VERSION, built, limit, skipped, SLOT_BASE, VivariumCase.MaxSlots, TICK,
+		VivariumLock.Base, VivariumLock.PerRebirth, VivariumLock.OpenWindow, VivariumLock.BreakRadius))
 end
 
 -- ============================================================================
