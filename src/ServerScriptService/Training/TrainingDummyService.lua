@@ -234,6 +234,8 @@ function TrainingDummyService.Init()
 	click.MaxActivationDistance = CLICK_REACH
 	click.Parent = hitbox
 	click.MouseClick:Connect(function(player)
+		-- 24.4: a thief carrying a specimen has no free hand for the sword (`VivariumSteal`)
+		if player:GetAttribute("HandsFull") then return end
 		onHit(player, false)
 	end)
 
@@ -247,6 +249,7 @@ function TrainingDummyService.Init()
 		auto.OnServerEvent:Connect(function(player, target)
 			if typeof(target) ~= "Instance" then return end
 			if target ~= dummy then return end
+			if player:GetAttribute("HandsFull") then return end -- 24.4, the click's gate
 			onHit(player, true)
 		end)
 	else

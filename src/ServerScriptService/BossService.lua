@@ -2535,7 +2535,11 @@ local function spawnBoss(zone)
 		end
 	end
 
-	clickDetector.MouseClick:Connect(onHit)
+	clickDetector.MouseClick:Connect(function(player)
+		-- 24.4: a thief carrying a specimen has no free hand for the sword (`VivariumSteal`)
+		if player:GetAttribute("HandsFull") then return end
+		onHit(player)
+	end)
 	-- and the same function by name for auto-attack. The reach is measured from the hit box centre
 	-- to the player's root, so it has to clear the rig's own half-width before anyone standing at
 	-- its feet counts as in range at all.
@@ -2868,7 +2872,10 @@ local function spawnEventBoss()
 		end
 	end
 
-	clickDetector.MouseClick:Connect(onHit)
+	clickDetector.MouseClick:Connect(function(player)
+		if player:GetAttribute("HandsFull") then return end -- 24.4, see the zone boss above
+		onHit(player)
+	end)
 	hitHandlers[model] = { fn = onHit, body = body, reach = strikeReach }
 
 	-- The one announcement in the game that is a CALL TO ACTION rather than a report: the giant is
@@ -3029,6 +3036,8 @@ function BossService.Init()
 
 	AutoAttack.OnServerEvent:Connect(function(player, model)
 		if typeof(model) ~= "Instance" then return end
+		-- 24.4: hands full, no swing. This listener also carries the Herald (`Rig.SetHit`).
+		if player:GetAttribute("HandsFull") then return end
 		local entry = hitHandlers[model]
 		-- a creature, a stale model or something invented: CreatureService's own listener on this
 		-- remote answers for its half, and neither ever sees the other's models

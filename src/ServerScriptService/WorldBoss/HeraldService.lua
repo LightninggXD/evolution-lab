@@ -364,7 +364,11 @@ function HeraldService.Spawn()
 		end
 	end
 
-	clickDetector.MouseClick:Connect(onHit)
+	clickDetector.MouseClick:Connect(function(player)
+		-- 24.4: a thief carrying a specimen has no free hand for the sword (`VivariumSteal`)
+		if player:GetAttribute("HandsFull") then return end
+		onHit(player)
+	end)
 	Rig.SetHit(model, { fn = onHit, body = body, reach = strikeReach })
 
 	announce(

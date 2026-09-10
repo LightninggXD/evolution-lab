@@ -332,6 +332,41 @@ function AnnounceService.Rebirthed(player, rebirths, damageMult)
 	})
 end
 
+-- THE HEIST AND THE FOIL (24.4). *"It lands in the kill feed"* -- and 12.14 already settled what a
+-- kill feed is in this game: WORDS, positionless, a toast and no column. A carry is a chase across a
+-- lawn, so the moment worth a room's attention is how it ENDED: carried clear, or knocked loose.
+-- A specimen that slips back on the 45 s clock ends in nobody doing anything and is not news.
+--
+-- THIS SERVER ONLY, which is why neither kind is in `Broadcast`'s cross-server list: the whole
+-- appeal of the line is "that happened thirty studs from you", and a heist in a server you are not
+-- in is a stranger robbing a stranger. Two hues nothing else in the stack uses -- Pink for the
+-- heist, Mint for the foil -- because four kinds already share one three-high stack (12.14).
+function AnnounceService.Heist(thief, ownerName, label)
+	if not thief then return end
+	if onCooldown(thief, "heist") then return end
+
+	AnnounceService.Broadcast({
+		kind = "heist",
+		color = UITheme.Color.Pink,
+		headline = "\u{1FA78} HEIST!",
+		subline = ("%s carried %s out of %s's case"):format(
+			thief.DisplayName, label or "a specimen", ownerName or "somebody"),
+	})
+end
+
+function AnnounceService.HeistFoiled(hitter, thiefName, label)
+	if not hitter then return end
+	if onCooldown(hitter, "heistFoiled") then return end
+
+	AnnounceService.Broadcast({
+		kind = "heistFoiled",
+		color = UITheme.Color.Mint,
+		headline = "\u{1F6E1}\u{FE0F} STOPPED!",
+		subline = ("%s knocked %s out of %s's hands"):format(
+			hitter.DisplayName, label or "a specimen", thiefName or "a thief"),
+	})
+end
+
 -- THE TOP ENCHANT (13.4). Positionless by the same rule as the four above: an enchant is bought at
 -- a button in a panel, so there is no place in the world for a column to stand -- and unlike a
 -- hatch, the thing that happened is a number on a pet nobody else can see. Words are the whole of

@@ -3993,6 +3993,8 @@ local function spawnCreature(position, tierName, zone, raised, generation)
 	-- click gate by accident rather than on purpose. It is the tighter of the two gates -- an
 	-- accident in the other direction would be a silent hole.
 	clickDetector.MouseClick:Connect(function(player)
+		-- 24.4: a thief carrying a specimen has no free hand for the sword (`VivariumSteal`)
+		if player:GetAttribute("HandsFull") then return end
 		onHit(player, false)
 	end)
 	-- and the same function, reachable by name, for the auto-attack remote. Both paths land in
@@ -4277,6 +4279,8 @@ function CreatureService.Init()
 
 	AutoAttack.OnServerEvent:Connect(function(player, model)
 		if typeof(model) ~= "Instance" then return end
+		-- 24.4: hands full, no swing -- the same gate as the click above
+		if player:GetAttribute("HandsFull") then return end
 		local entry = hitHandlers[model]
 		-- not a creature this server is holding a handler for -- a stale model, a boss (BossService
 		-- listens on the same remote for its own), or something the client made up

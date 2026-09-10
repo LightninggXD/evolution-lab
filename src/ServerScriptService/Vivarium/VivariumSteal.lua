@@ -74,9 +74,8 @@
 
 	===== THE SEAMS, PUT HERE ON PURPOSE FOR 24.4 AND 24.5 =====
 
-	  * **`VivariumSteal.DropCarry(player, reason)`** is 24.4's single seam. *"Anyone can hit the
-	    thief to drop it"* is one call to this function from the damage path, and everything else
-	    the row lists (the speed drop, the disabled items, the kill feed) hangs off `Carries`.
+	  * **`VivariumSteal.DropCarry(player, reason)`** is the generic seam: anything that should
+	    knock a specimen out of a thief's hands calls it. 24.4 built the clip on top -- see below.
 	  * **`VivariumLock.CanTarget`** is 24.5's, and it is checked here too -- so every anti-grief
 	    clause added to that one function guards the lock AND the take, with no second copy.
 	  * **`VivariumSteal.Step(dt)` takes its own delta**, which is 24.2's lesson repeated: a probe
@@ -84,6 +83,48 @@
 	    them out. A timer feature that can only be verified by waiting is a feature that will not
 	    be verified.
 	  * `Carries` and `Diverts` are FIELDS, for the reason `VivariumPlaza.Anchors` is one.
+
+	===== THE CLIP (24.4) -- WHAT A CARRY LOOKS LIKE FROM OUTSIDE =====
+
+	The row: *"speed drops hard, items disable, the owner is notified instantly, anyone can hit the
+	thief to drop it, and it lands in the kill feed"*. Five clauses, and the owner's notification was
+	already true twice over before this row -- 24.2 tells them a break started, the take tells them
+	who is running and with what.
+
+	  * **The speed drop is `CARRY_SLOW` 0.45 of whatever the body was running at**, written onto the
+	    humanoid at the lift and put back when the carry ends. A fraction and never a number of
+	    studs: a stage-20 body runs several times a stage-1 one, and a flat carry speed would make a
+	    small thief faster than a big one. The client's sprint multiplies whatever the server last
+	    wrote (`CombatClient`'s own note), so a sprinting thief still runs 0.63 of a walk. It is
+	    RE-CLAMPED EVERY STEP, because an evolve, a mastery purchase or the sprint track rewrites
+	    WalkSpeed mid-carry and would otherwise hand the thief their legs back.
+	  * **The items are the weapon.** This game has no Backpack (the CoreGui is off at boot) -- what a
+	    player holds is the sword, reached through a click or the auto-attack remote. A carry stamps
+	    `HandsFull` on the PLAYER, and every hit entry point in reach of the gallery refuses it: both
+	    of `CreatureService`'s, all three of `BossService`'s (its auto-attack listener also carries
+	    the Herald), the Herald's click and both of the training dummy's. An attribute rather than a
+	    require, because five services requiring this file would be five new edges into the Vivarium
+	    for a one-bit fact. The expedition's is not gated and does not need to be: getting there is a
+	    teleport, and a teleport ends the carry (last bullet).
+	  * **"Anyone can hit the thief" is a prompt on the specimen, on R.** This game has no player-
+	    versus-player combat at all, so there is no hit to reuse -- and inventing PvP to serve one
+	    clause would be the genre change the phase header warns about, arriving through the back
+	    door. So the carried rig wears a `ProximityPrompt` anybody within `KNOCK_REACH` can press to
+	    knock it loose: it rides the thief, so reaching it IS catching them, and at 0.45 pace a
+	    chaser can. R, because E is the lock's and F is the take's and `Exclusivity` is per button.
+	    The thief sees it too -- a prompt has no per-player visibility -- and for them pressing it is
+	    simply setting the specimen down, which is a real choice rather than a hole.
+	  * **The kill feed is `AnnounceService`**, 12.14's rule that a feed is WORDS: a clean getaway
+	    is `HEIST!`, a knock is `STOPPED!`, positionless and this server only.
+	  * **A teleport is not a getaway.** `ESCAPE_DIST` is a flat distance from the case, and a zone
+	    teleport moves a body twenty thousand studs in one frame -- the cheapest escape there is,
+	    and the one clip nobody would want to watch. A step that moves the thief further than any
+	    running body can (`RUN_CEILING` studs a second plus `TELEPORT_SLACK` for a slow frame) drops
+	    the specimen instead. It is measured per step rather than per service, so every portal,
+	    zone door and adventure dispatch in the game is covered without any of them knowing.
+
+	Roblox Moments needs nothing from this file: it clips what is on screen, and the point of the
+	five clauses is that a carry now puts something on screen worth clipping.
 
 	===== WHAT THIS FILE DOES NOT REQUIRE, AND WHY IT MATTERS =====
 
@@ -102,6 +143,8 @@ local Remotes = RS.Remotes
 local UITheme = require(RS.Modules.UITheme)
 local PlayerDataService = require(ServerScriptService.PlayerDataService)
 local Telemetry = require(ServerScriptService.Telemetry)
+-- a leaf (GameConfig and UITheme only), so the kill feed costs this file no cycle
+local AnnounceService = require(ServerScriptService.AnnounceService)
 local VivariumCase = require(script.Parent.VivariumCase)
 local VivariumLock = require(script.Parent.VivariumLock)
 
@@ -114,6 +157,16 @@ local SHARE = 0.25
 local WINDOW = 300
 local CARRY_LIMIT = 45
 local ESCAPE_DIST = 110
+
+-- 24.4 -- the clip. See the header's last section.
+local CARRY_SLOW = 0.45
+local KNOCK_REACH = 14
+-- The fastest a body can legitimately cover ground: the 2x Speed pass's 260 cap, the 20% overshoot
+-- `EvolutionVisuals` allows on top of it and the client's 1.4 sprint, unslowed -- 437 -- rounded
+-- up. Deliberately NOT the slowed figure, so the guard cannot misfire on a frame where some other
+-- service has just written a full pace that the next step will clamp.
+local RUN_CEILING = 450
+local TELEPORT_SLACK = 40
 
 local PROMPT_DISTANCE = 12
 -- Inside the case and low, so it is on screen from the aisle and never above the player's head.
@@ -132,7 +185,7 @@ local CARRY_AHEAD = 2.6
 -- ============================================================================
 -- [caseIndex] = { model, ownerId, centre, prompt }
 local cases = {}
--- [caseIndex] = { thiefId, rig, label, held, height }
+-- [caseIndex] = { thiefId, rig, label, held, height, humanoid, fullSpeed, slowSpeed, lastPos, knockPart }
 local carries = {}
 -- [caseIndex] = { thiefId, left, paid }
 local diverts = {}
@@ -179,6 +232,48 @@ end
 local function mmss(seconds)
 	local s = math.max(0, math.floor(seconds + 0.5))
 	return ("%d:%02d"):format(s // 60, s % 60)
+end
+
+--- Hold a carrying body at `CARRY_SLOW` of its own pace. Called at the lift and every step after:
+--- anything above the slowed figure is somebody else having just written a fresh full pace (an
+--- evolve, a mastery purchase, the sprint track), so that becomes the pace to restore at the end
+--- and the slowed figure is re-derived from it.
+local function holdPace(carry, humanoid)
+	if not humanoid then return end
+	if carry.humanoid ~= humanoid then
+		carry.humanoid = humanoid
+		carry.fullSpeed = humanoid.WalkSpeed
+	elseif humanoid.WalkSpeed > carry.slowSpeed + 0.01 then
+		carry.fullSpeed = humanoid.WalkSpeed
+	else
+		return
+	end
+	carry.slowSpeed = carry.fullSpeed * CARRY_SLOW
+	humanoid.WalkSpeed = carry.slowSpeed
+end
+
+--- The knock prompt, hung on the carried rig so it rides the thief. See the header for why this is
+--- how "anyone can hit the thief" is built in a game with no PvP.
+local function hangKnock(index, carry, thief)
+	local part = carry.rig.PrimaryPart or carry.rig:FindFirstChildWhichIsA("BasePart", true)
+	if not part then return end
+	carry.knockPart = part
+	local at = Instance.new("Attachment")
+	at.Name = "KnockAnchor"
+	at.Parent = part
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "KnockPrompt"
+	prompt.ObjectText = thief.DisplayName
+	prompt.ActionText = "Knock it loose"
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = KNOCK_REACH
+	prompt.RequiresLineOfSight = false
+	prompt.KeyboardKeyCode = Enum.KeyCode.R
+	prompt.GamepadKeyCode = Enum.KeyCode.ButtonY
+	prompt.Parent = at
+	prompt.Triggered:Connect(function(player)
+		VivariumSteal.Knock(index, player)
+	end)
 end
 
 -- ============================================================================
@@ -259,6 +354,18 @@ local function endCarry(index, reason, landed)
 	if not carry then return end
 	carries[index] = nil
 	busyThief[carry.thiefId] = nil
+	-- The hands and the legs come back on EVERY exit -- landed, dropped, knocked, timed out, the
+	-- case released -- which is why they are undone here and nowhere else. Only a pace that is
+	-- still ours is put back: a lower one means something else (the sprint track's start line)
+	-- has taken the body over, and it owns what happens next.
+	local thief = Players:GetPlayerByUserId(carry.thiefId)
+	if thief then
+		thief:SetAttribute("HandsFull", nil)
+	end
+	local humanoid = carry.humanoid
+	if humanoid and humanoid.Parent and math.abs(humanoid.WalkSpeed - carry.slowSpeed) < 0.01 then
+		humanoid.WalkSpeed = carry.fullSpeed
+	end
 	if carry.rig then
 		carry.rig:Destroy()
 	end
@@ -283,6 +390,34 @@ function VivariumSteal.DropCarry(player, reason)
 	local index = player and busyThief[player.UserId]
 	if not index then return false end
 	endCarry(index, reason or "You dropped the specimen.")
+	return true
+end
+
+--- 24.4: the knock prompt's handler. Anybody but the thief knocks the specimen back onto its shelf;
+--- the thief pressing their own prompt sets it down. Reach is re-checked here because the prompt's
+--- distance is the client's word, and because a probe calls this directly.
+function VivariumSteal.Knock(index, player)
+	local carry = carries[index]
+	if not carry or not player then return false, "none" end
+	local label = carry.label or "the specimen"
+
+	if player.UserId == carry.thiefId then
+		endCarry(index, "You set the specimen down.")
+		return true, "setDown"
+	end
+
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	local part = carry.knockPart
+	if not (root and part) or (root.Position - part.Position).Magnitude > KNOCK_REACH + 6 then
+		return false, "reach"
+	end
+
+	local thief = Players:GetPlayerByUserId(carry.thiefId)
+	endCarry(index, ("%s knocked %s out of your hands!"):format(player.DisplayName, label))
+	notify(player.UserId, "reward", ("You knocked %s loose -- it is back on its shelf."):format(label))
+	AnnounceService.HeistFoiled(player, thief and thief.DisplayName or "a thief", label)
+	Telemetry.Custom(player, "VivariumSpecimenKnocked", index)
 	return true
 end
 
@@ -338,14 +473,25 @@ function VivariumSteal.Take(index, player)
 	rig.Name = "CarriedSpecimen"
 
 	local size = rig:GetExtentsSize()
-	carries[index] = {
+	local carry = {
 		thiefId = player.UserId,
 		rig = rig,
 		label = label,
 		held = 0,
 		height = size.Y,
 	}
+	carries[index] = carry
 	busyThief[player.UserId] = index
+
+	-- ===== THE CLIP STARTS HERE (24.4) =====
+	-- Hands full, legs slowed, and a prompt on the specimen for anybody who can catch up.
+	local char = player.Character
+	local root = char and (char.PrimaryPart or char:FindFirstChild("HumanoidRootPart"))
+	player:SetAttribute("HandsFull", true)
+	holdPace(carry, char and char:FindFirstChildOfClass("Humanoid"))
+	carry.lastPos = root and root.Position
+	hangKnock(index, carry, player)
+
 	paintPrompt(index)
 	ensureLoop()
 	-- AFTER the carry is registered, and that ordering is the whole point: `provider.take` above
@@ -353,7 +499,7 @@ function VivariumSteal.Take(index, player)
 	-- anything, so that redraw could not name the thief. This one can.
 	redraw(index)
 
-	notify(player.UserId, "party", ("You lifted %s -- get %d studs clear within %ds."):format(
+	notify(player.UserId, "party", ("You lifted %s -- hands full, legs slow. Get %d studs clear within %ds."):format(
 		label or "a specimen", ESCAPE_DIST, CARRY_LIMIT))
 	notify(case.ownerId, "error", ("\u{1F513} %s is carrying %s out of your case!"):format(
 		player.DisplayName, label or "a specimen"))
@@ -504,6 +650,15 @@ function VivariumSteal.Step(dt)
 			endCarry(index, "You dropped the specimen.")
 		else
 			carry.held += dt
+			holdPace(carry, humanoid)
+			local here, last = root.Position, carry.lastPos
+			carry.lastPos = here
+			local leap = TELEPORT_SLACK + RUN_CEILING * dt
+			if last and (here.X - last.X) ^ 2 + (here.Z - last.Z) ^ 2 > leap * leap then
+				-- A teleport, not a getaway -- see the header's last 24.4 bullet.
+				endCarry(index, "A specimen cannot go through a portal -- it slipped back to its case.")
+				continue
+			end
 			if carry.rig and carry.rig.Parent then
 				carry.rig:PivotTo(root.CFrame
 					* CFrame.new(0, root.Size.Y * 0.5 + CARRY_LIFT + carry.height * 0.5, -CARRY_AHEAD))
@@ -512,6 +667,8 @@ function VivariumSteal.Step(dt)
 				endCarry(index, nil, true)
 				notify(carry.thiefId, "reward", ("You got clear with %s."):format(carry.label or "a specimen"))
 				startDivert(index, carry.thiefId)
+				local owner = Players:GetPlayerByUserId(case.ownerId)
+				AnnounceService.Heist(thief, owner and owner.DisplayName or "somebody", carry.label)
 			elseif carry.held >= CARRY_LIMIT then
 				endCarry(index, "You ran out of time -- the specimen slipped back.")
 			end
@@ -554,8 +711,13 @@ VivariumSteal.Share = SHARE
 VivariumSteal.Window = WINDOW
 VivariumSteal.CarryLimit = CARRY_LIMIT
 VivariumSteal.EscapeDistance = ESCAPE_DIST
+VivariumSteal.CarrySlow = CARRY_SLOW
+VivariumSteal.KnockReach = KNOCK_REACH
 VivariumSteal.Carries = carries -- probe seams, for the reason `VivariumPlaza.Anchors` is one
 VivariumSteal.Diverts = diverts
+-- 24.4: a probe that plays "somebody else" by re-owning a carry has to re-key this too, or the real
+-- player is left marked as holding a specimen that no longer exists and every later take refuses.
+VivariumSteal.BusyThief = busyThief
 VivariumSteal.Cases = cases
 -- The owner index in particular, because `Split` is reached through it: a probe with ONE client has
 -- to be able to see that the payout seam is looking the case up by the right player.
