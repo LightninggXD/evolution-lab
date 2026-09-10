@@ -1025,7 +1025,7 @@ highest risk. **Build it in two switchable stages, soft first.**
 
 | ID | | Task |
 |---|---|---|
-| 24.1 | `[ ]` | **The plot.** Every player gets a display in the hub with slots that scale with rebirths, showing their best creatures and a **visible passive DNA/second**. This alone is the flex surface, and it is worth shipping even if the steal never does |
+| 24.1 | `[x]` | <!-- built, pushed and verified live 2026-09-10 (39th) -->**The plot.** Every player gets a display in the hub with slots that scale with rebirths, showing their best creatures and a **visible passive DNA/second**. This alone is the flex surface, and it is worth shipping even if the steal never does. **THE ROW IS THE HALF OF PHASE 24 THAT CARRIES NO RISK, AND ITS OWN TEXT SAYS SO** -- nothing here takes anything from anybody, so it was taken without waiting on the genre decision 24.3/24.6 need. Two new files, `Vivarium/VivariumPlaza` (the land, the claims, the board) and `Vivarium/VivariumCase` (the object), 48 and 28 registers. **MEASUREMENT ONE KILLED THE OBVIOUS LAYOUT: FOREST HAS NO CLEAR GROUND LEFT.** A 50-stud census of the whole zone (x -625..625, z -575..575) using HubPlaza's own obstruction test -- `CanCollide` and a world AABB above `GROUND_CLEAR` 1.4 -- returns **not one free 50 x 50 cell anywhere**. So "a plot of land per player" was never on offer and the shape changed: the display is a **case** (flush pad, dark back wall, three lit shelves, lid, open front), which needs a tenth of the footprint. Re-measured at 5 studs the arrival lawn does hold real empty rectangles, and the gallery is three of them: **WEST x -195..-85 z 365..470**, **EAST x 70..170 z 370..430**, **NORTH x 40..140 z 465..525**, laid out as rows that face each other across a 10-stud aisle and back onto the next module. **The biggest rectangle of all is deliberately unused** -- x -55..80, z 410..525, 135 x 115 -- because it straddles the arrival corridor north of the spawn, the one line every player walks. **MEASUREMENT TWO CAUGHT A FAULT NOTHING ELSE WOULD HAVE: SEVEN CASES WERE STANDING IN THE SPRINT TRACK.** `SprintTrack` states every layer by its top face -- kerb 0.30, surface 0.44, stripes 0.52, boost pads 0.68 -- so **all of it is under the 1.4 line and the whole running lane reads as bare lawn**, and the east bank's back row came out at z 432 against a surface that runs z 419..451. It is the fault HubPlaza's header describes one object over (the jungle trails are paint too), and the answer is the same: the test cannot be about height, it has to be about OWNERSHIP. `RESERVED` blocks an anchor for anything under `SprintTrack` / `HeraldStation` / `PartyStand` at any height, and roads go through `JungleLayout.RoadClearance` the way the plaza's posts do. **MEASUREMENT THREE WAS THE ONE THE FIRST TWO NUMBERS AGREED ABOUT AND BOTH HAD WRONG.** The rig survey was run at tier **Normal** (2.86 tall) -- but Golden, Rainbow and Celestial are all **3.50**, and an endgame collection is mostly not Normal. Shelves 4.0 apart on a 0.6 shelf leave 3.40 of air, so a Golden pet went **-0.10 through the shelf above it**; the probe that first looked reported "+0.20" because it compared the rig's top against the shelf's CENTRE rather than its underside. Two wrong numbers agreeing is not a confirmation. Shelves are **4.4** apart now and the wall grew to 16.4: re-measured across all four tiers on all three shelves, **worst headroom anywhere +0.30**. **SIXTY ANCHORS, BUILT LAZILY, FILLED FROM THE FRONT.** `Players.MaxPlayers` is 60, so sixty is what makes "every player gets one" true; an unclaimed anchor is a table entry and **no instances at all**, and a claim takes the LOWEST free index so five players occupy the five cases at the front of the west bank rather than five scattered ones. The three banks offer **146** grid positions of which **94** are honest (refused: 13 reserved, 12 solid, 27 road), and the service stops at 60 -- west 35, east 19, north 6. A blocked anchor is SKIPPED, never nudged: a case shoved out of its row is no longer in the row. **SLOTS: base 2, one more every 4 rebirths, capped at the case's six shelf positions** -- 0 -> 2, 4 -> 3, 8 -> 4, 12 -> 5, 16 -> 6 against `GameConfig.MaxRebirths` 20. Pets are ranked by `GameConfig.SortedPetsByPower`, the same number the pets panel prints and "Equip Best" uses. **THE ROW'S HEADLINE NUMBER WAS ITSELF A DEFECT.** The first board drew **`0 DNA/s`** on the owner's save -- nine rebirths, a hundred pets -- because `data.Upgrades.AutoCollect` is **0** and passive DNA has no other source. The arithmetic was right and the sign was wrong. The number stays honest (inventing one would put the case in an argument with `OfflineService`, which pays out of the same function) and the wording changed to `no passive income yet` + `buy Auto Collect`, which is 15.22's lesson about that exact upgrade; the income multiplier sits beside it because it is what the COLLECTION drives and is never zero. **AND ONE TRAP WORTH THE CATCH: `PetModel`'s outline is a `Highlight` and it is ON by default.** Roblox renders about **31** at a time and a full gallery is up to 360 rigs, so the default would have silently deleted the outline from the player's own followers and from 23.2's rented pool, game-wide. `outline = false`, as the egg podiums already pass for the same reason | live on a healthy boot (90 remotes / 21 bosses / 1480 creatures): 60 anchors, **0 on the sprint lane**, **0 overlapping pads**, nearest approach to the walking lane |x| = 40.5 against a `CORRIDOR_HALF` of 30, **17 aisle pairs facing each other and 0 the wrong way**, worst rig headroom +0.30 over every tier, and a claimed case at R9 -> 4 slots -> 4 rigs seated exactly on their shelves. **Not photographed:** `screen_capture` timed out three times and 33.4's test says why -- `RenderStepped` 0 in 2 s against `Heartbeat` 113, so Studio is drawing nothing. `tools/render_vivarium.py` draws the plan and section from the measured geometry instead, and claims nothing about colour |
 | 24.2 | `[ ]` | **The lock** — 60 s, +10 s per rebirth, visible from a distance. The numbers are the reference's because they are proven |
 | 24.3 | `[ ]` | **Soft steal, the default.** What a thief takes is the **income stream, not the save item**: carrying a specimen out diverts a share of that plot's passive DNA for a window, and the original never leaves the owner's collection. All the drama, none of the permanent loss |
 | 24.4 | `[ ]` | **The steal is a designed clip** — speed drops hard, items disable, the owner is notified instantly, anyone can hit the thief to drop it, and it lands in the kill feed. Roblox Moments is a first-party feed now |
@@ -1661,6 +1661,59 @@ codebase and adding it is an infrastructure layer, not a feature.
 ---
 
 ## Changelog
+
+- **2026-09-10 (39th)** -- **24.1 CLOSED: PHASE 24 IS OPEN, AND EVERY NUMBER IN IT HAD TO BE MEASURED
+  TWICE.**
+
+  **Why this row and not a question.** Phase 24's header says the Vivarium changes what genre this game
+  is and that the steal is the risky half -- but **24.1's own text says it "is worth shipping even if
+  the steal never does"**, and nothing in it takes anything from anybody. So the genre fork is 24.3 and
+  24.6, not this, and the row was taken rather than put to her. The two things the later rows will need
+  are in place on purpose: a case knows its owner (`OwnerUserId` on the model) and a specimen stands on
+  a NAMED slot anchor.
+
+  **The first measurement deleted the obvious design.** A 50-stud occupancy census of the whole of
+  Forest, using HubPlaza's own obstruction test, finds **not one free 50 x 50 cell in the zone**. "A
+  plot of land per player" was never on offer here, so the display became a **case** -- a tall narrow
+  vitrine, three shelves of two -- which needs a tenth of the footprint. It stands in three measured
+  rectangles on the arrival lawn, in rows that face each other across an aisle. The largest rectangle
+  of the lot is left empty on purpose because it straddles the walk north of the spawn.
+
+  **Four things from it worth reusing:**
+
+  * **Flat is not the same as free, and a height test cannot tell them apart.** `SprintTrack` states
+    every layer by its top face -- the tallest is 0.68 -- so the entire running lane is under the 1.4
+    line and reads as bare lawn. Seven cases were built standing in it. The fix is not a bigger number,
+    it is a different question: `RESERVED` blocks an anchor for anything belonging to a named model at
+    ANY height. HubPlaza's header already said this about the jungle trails; it is worth believing the
+    second time.
+  * **`PetModel`'s outline is a `Highlight`, it is ON by default, and the renderer only draws about 31
+    of them.** A full gallery is up to 360 rigs. Taking the default would not have made the cases
+    prettier -- it would have deleted the outline from the player's own pets and from 23.2's rented
+    pool, game-wide, with nothing in any log saying so. Anything that builds rigs in bulk must pass
+    `outline = false`, as the egg podiums already do.
+  * **Two wrong numbers agreeing is not a confirmation.** The rig survey was run at tier Normal (2.86
+    tall); every tier above it is 3.50, so the 4.0 shelf spacing gave **-0.10** and a Golden pet came
+    through the shelf above it. The probe that checked it reported "+0.20" -- it had compared the rig's
+    top against the shelf's CENTRE instead of its underside. The build was wrong, the check was wrong,
+    and they matched. Measure the WORST case, and state which face you measured to.
+  * **A row's headline number can be correct and still be the defect.** The first board read
+    **`0 DNA/s`** on a nine-rebirth, hundred-pet save -- right, because `AutoCollect` was never bought
+    and passive DNA has no other source. The fix is never to invent a number (that would put the board
+    in an argument with `OfflineService`, which pays out of the same function) but to say the zero in
+    words and point at what moves it.
+
+  **Verified live** on a healthy boot (90 remotes, 21 bosses, 1480 creatures): 60 anchors of 94 honest
+  positions out of 146 offered, 0 on the sprint lane, 0 overlapping pads, nearest approach to the
+  walking lane |x| = 40.5 against a `CORRIDOR_HALF` of 30, 17 aisle pairs facing each other and 0 the
+  wrong way, worst rig headroom +0.30 across all four tiers on all three shelves.
+
+  **NOT PHOTOGRAPHED, AND THAT IS AN ENVIRONMENT FAULT RATHER THAN A CHOICE.** `screen_capture` timed
+  out three times at 180 s, in Edit and in Play alike. 33.4's own diagnostic says why: `RenderStepped`
+  fired **0** times in 2 seconds against `Heartbeat`'s 113, i.e. Studio is simulating and not drawing a
+  frame, so there is nothing to grab. `tools/render_vivarium.py` (new, beside `render_gate_elevation.py`
+  and for the same reason) draws the plan and the section from the measured geometry, and its header
+  says plainly that it answers layout and proportion and nothing about colour or how the thing looks.
 
 - **2026-09-10 (38th)** -- **23.6 CLOSED, AND THE TWO ROWS ITS OWN CAPTURE OPENED WITH IT.**
 

@@ -46,6 +46,7 @@ local HeraldService = require(ServerScriptService.WorldBoss.HeraldService)
 -- 22.5: who is playing WITH whom, and the stand that is the door into it.
 local PartyService = require(ServerScriptService.Party.PartyService)
 local PartyStand = require(ServerScriptService.Party.PartyStand)
+local VivariumPlaza = require(ServerScriptService.Vivarium.VivariumPlaza)
 local TradeService = require(ServerScriptService.TradeService)
 local MinigameService = require(ServerScriptService.MinigameService)
 local ExpeditionService = require(ServerScriptService.ExpeditionService)
@@ -494,6 +495,20 @@ phase("HeraldService.Init", HeraldService.Init)
 -- stands fifteen studs off the trading floor's rim -- so it has to be after `HubPlaza.Init` above,
 -- which is what decides where that circle and its sign end up.
 phase("PartyStand.Init", PartyStand.Init)
+-- ===== 24.1: THE VIVARIUM, AND IT IS LAST OF THE FOREST FURNITURE ON PURPOSE =====
+--
+-- Every other piece on this lawn either searches for its spot (the plaza's lamps, poles and signs)
+-- or is authored off a live probe and CANNOT move (the track, the Herald's station, the party
+-- stand). The Vivarium is the second kind -- its two banks are measured rectangles, written into
+-- its header -- so it has to run after all of them: its anchors test the live world and SKIP what
+-- is blocked, and a gallery that ran first would be tested against a lawn half its neighbours had
+-- not been built on yet.
+--
+-- It also has to be after `PlayerDataService` and `DNAService` far above, which is the harder
+-- constraint: a case's board states `DNAService.GetAutoCollectAmount`, so the income stack it reads
+-- has to be fully wired before the first claim -- and the claim happens immediately, because
+-- `PlayerJoin.onEach` replays over the player who is already standing in the server.
+phase("VivariumPlaza.Init", VivariumPlaza.Init)
 -- LAST, and after DNAService in particular: the offline payout is DNAService.GetAutoCollectAmount
 -- multiplied by a bounded number of seconds, so it has to run once the income stack it reads is
 -- fully wired. It hooks PlayerAdded itself rather than being called from the block below, because
