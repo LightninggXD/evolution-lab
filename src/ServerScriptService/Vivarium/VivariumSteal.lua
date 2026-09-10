@@ -147,6 +147,7 @@ local Telemetry = require(ServerScriptService.Telemetry)
 local AnnounceService = require(ServerScriptService.AnnounceService)
 local VivariumCase = require(script.Parent.VivariumCase)
 local VivariumLock = require(script.Parent.VivariumLock)
+local VivariumGuard = require(script.Parent.VivariumGuard)
 
 local VivariumSteal = {}
 
@@ -304,6 +305,8 @@ local function startDivert(index, thiefId)
 	local case = cases[index]
 	if not case then return end
 	diverts[index] = { thiefId = thiefId, left = WINDOW, paid = 0 }
+	-- 24.5: one steal per target per TARGET_COOLDOWN, counted from the one that LANDED.
+	VivariumGuard.NoteLanded(case.ownerId)
 	ensureLoop()
 	redraw(index)
 
@@ -482,6 +485,10 @@ function VivariumSteal.Take(index, player)
 	}
 	carries[index] = carry
 	busyThief[player.UserId] = index
+	-- 24.5: the per-thief cooldown starts at the LIFT, whatever happens next -- a knocked or
+	-- timed-out carry was still an attempt, and counting only getaways would let a thief retry a
+	-- foiled one the moment the specimen is back on its shelf.
+	VivariumGuard.NoteLift(player.UserId)
 
 	-- ===== THE CLIP STARTS HERE (24.4) =====
 	-- Hands full, legs slowed, and a prompt on the specimen for anybody who can catch up.

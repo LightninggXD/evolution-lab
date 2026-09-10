@@ -116,6 +116,12 @@ local function defaultData()
 		-- writes named fields only, and re-offering a first-purchase pack to somebody on their
 		-- fourth rebirth would be the offer lying about who it is for.
 		StarterPackShown = 0,
+		-- ===== THE RAID SHIELD (24.5) =====
+		-- The Vivarium opt-out and the `os.time()` it last switched. A player's CHOICE, so it is in
+		-- the save where the two raid cooldowns are not; off the rebirth reset list by construction.
+		-- `false` / 0 is right for every save already written: nobody has chosen yet.
+		VivariumShield = false,
+		VivariumShieldAt = 0,
 		TimePlayed = 0,   -- lifetime SECONDS; the two clocks in PlaytimeGiftService are per-sitting
 		EvolutionShards = 0,
 		LastRewardClaim = 0,

@@ -74,6 +74,8 @@ local RunService = game:GetService("RunService")
 local Remotes = RS.Remotes
 local UITheme = require(RS.Modules.UITheme)
 local VivariumCase = require(script.Parent.VivariumCase)
+-- 24.5. A leaf (Players and PlayerDataService only), so this edge cannot close a cycle.
+local VivariumGuard = require(script.Parent.VivariumGuard)
 
 local VivariumLock = {}
 
@@ -116,6 +118,7 @@ local BRASS = Color3.fromRGB(214, 168, 74)
 local ALARM = Color3.fromRGB(226, 88, 74)
 local OUTLINE = Color3.fromRGB(26, 22, 42)
 local OPEN_INK = Color3.fromRGB(110, 200, 130)
+local SHIELD_INK = Color3.fromRGB(120, 190, 255)
 
 -- ============================================================================
 -- STATE
@@ -141,12 +144,13 @@ function VivariumLock.StrengthFor(rebirths)
 	return LOCK_BASE + LOCK_PER_REBIRTH * (rebirths or 0)
 end
 
---- Who may start a break on this case. **This is 24.5's seam** -- see the header.
+--- Who may start a break on this case -- and, through 24.3's take, who may lift from it. Every
+--- anti-grief clause 24.5 lists is in `VivariumGuard.CanTarget`; this only keeps the owner out.
 function VivariumLock.CanTarget(player, ownerId)
 	if player.UserId == ownerId then
-		return false, "This is your own case."
+		return false, "This is your own case.", "owner"
 	end
-	return true
+	return VivariumGuard.CanTarget(player, ownerId)
 end
 
 -- ============================================================================
@@ -165,9 +169,14 @@ local function drawChip(lock)
 		label.TextColor3 = OPEN_INK
 		lock.chipStroke.Color = OPEN_INK
 	else
-		label.Text = ("\u{1F512} %ds"):format(lock.strength)
-		label.TextColor3 = BRASS
-		lock.chipStroke.Color = BRASS
+		-- 24.5: a case nobody may raid says WHY instead of how strong it is -- the strength is the
+		-- number a thief picks a target on, and a target that cannot be picked has no strength
+		-- worth reading. Only the owner's state: the chip is one gui for every viewer.
+		local safe = VivariumGuard.ChipFor(lock.ownerId)
+		label.Text = safe or ("\u{1F512} %ds"):format(lock.strength)
+		label.TextColor3 = safe and SHIELD_INK or BRASS
+		lock.chipStroke.Color = safe and SHIELD_INK or BRASS
+		lock.prompt.ActionText = safe and "Protected" or "Break the lock"
 	end
 end
 
@@ -312,6 +321,19 @@ function VivariumLock.SetStrength(index, rebirths)
 		if model then model:SetAttribute("LockStrength", want) end
 		drawChip(lock)
 	end
+end
+
+--- Redraw the chip where it stands. The plaza's tick calls this, because 24.5's chip counts down
+--- (immunity, the per-target cooldown) with nothing else happening to the lock.
+function VivariumLock.Redraw(index)
+	local lock = locks[index]
+	if lock then drawChip(lock) end
+end
+
+--- For 24.5: is a break running on this case, or is it standing open?
+function VivariumLock.IsBusy(index)
+	local lock = locks[index]
+	return lock ~= nil and (lock.breaking ~= nil or lock.openUntil ~= nil)
 end
 
 --- For 24.3: is this case's grille open right now, and for how much longer?

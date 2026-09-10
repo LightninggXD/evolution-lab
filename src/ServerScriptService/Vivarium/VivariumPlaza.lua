@@ -117,6 +117,8 @@ local UITheme = require(RS.Modules.UITheme)
 local VivariumCase = require(script.Parent.VivariumCase)
 local VivariumLock = require(script.Parent.VivariumLock)
 local VivariumSteal = require(script.Parent.VivariumSteal)
+local VivariumGuard = require(script.Parent.VivariumGuard)
+local VivariumWarden = require(script.Parent.VivariumWarden)
 -- Only for `RoadClearance`. No cycle: `JungleLayout` reaches `JungleTrails`, `MapGates`,
 -- `SplicerService` and `ExpeditionService`, and nothing it touches reaches this file.
 local JungleLayout = require(ServerScriptService.MapProps.JungleLayout)
@@ -175,6 +177,8 @@ local RESERVED = { SprintTrack = true, HeraldStation = true, PartyStand = true }
 -- name: a case is a POST -- you walk around it, you do not walk over it -- so it passes its own
 -- half-width and is refused anywhere the painted road is nearer than that.
 local ZONE_KEY = "Forest"
+-- `ForestSpawn`, where every player arrives (see the header). Only the Raid Warden reads it.
+local SPAWN_XZ = Vector2.new(0, 366)
 
 -- What an anchor has to find free before a case is stood on it. Taller than the case so a low
 -- branch over the roof is caught too, and a shade wider than the pad so two neighbours can never
@@ -411,10 +415,14 @@ local function drawBoard(case, player, data)
 	local n = slotsFor(data.Rebirths)
 	board.title.Text = ("%s  \u{2022}  R%d"):format(player.DisplayName, data.Rebirths or 0)
 
-	local rate = DNAService.GetAutoCollectAmount(data)
+	-- 24.5: the figure the loop actually PAYS, contested bonus included, and the bonus named when it
+	-- is on -- the board is where a player finds out that staying raidable is worth something.
+	local mult = VivariumGuard.BonusMult(player, data)
+	local rate = DNAService.GetAutoCollectAmount(data) * mult
 	-- Per SECOND, spelled out, because "DNA" alone on a board in this game reads as a balance.
 	board.rate.Text = rate > 0
-		and ("\u{1F9EC} %s DNA/s"):format(UITheme.FormatNumber(rate))
+		and ("\u{1F9EC} %s DNA/s%s"):format(UITheme.FormatNumber(rate),
+			mult > 1 and (" \u{00B7} +%d%%"):format(math.floor(VivariumGuard.Bonus * 100 + 0.5)) or "")
 		or "\u{1F9EC} no passive income yet"
 
 	-- The income multiplier is on the board because it is the number the COLLECTION drives -- the
@@ -438,6 +446,7 @@ local function release(userId)
 	local i = byUserId[userId]
 	if not i then return end
 	byUserId[userId] = nil
+	VivariumGuard.SetPresent(userId, false)
 	local case = cases[i]
 	if case then
 		-- BEFORE the Destroy: the lock holds a running break and an open-window timer, both keyed
@@ -489,6 +498,8 @@ local function claim(player)
 	}
 	cases[idx] = case
 	byUserId[player.UserId] = idx
+	-- 24.5: the contested bonus is paid only to a player whose case is standing here to be raided.
+	VivariumGuard.SetPresent(player.UserId, true)
 
 	local data = PlayerDataService.Get(player)
 	if data then
@@ -524,6 +535,8 @@ local function refreshOne(i)
 		fillCase(case, data)
 		drawBoard(case, player, data)
 		VivariumLock.SetStrength(i, data.Rebirths)
+		-- 24.5's chip counts down with nothing happening to the lock, so the tick redraws it.
+		VivariumLock.Redraw(i)
 	end
 end
 
@@ -589,9 +602,41 @@ function VivariumPlaza.Init()
 	-- entries point at ground something is now standing on.
 	table.clear(anchors)
 	local limit = Players.MaxPlayers
-	local built, skipped = layOutAnchors(limit)
+	-- ONE MORE than there are cases, and the one NEAREST THE SPAWN goes to 24.5's Raid Warden: ground
+	-- measured by the test every case passes, and the first slot a player arriving can actually SEE.
+	-- It was anchor 1 first -- the far west end of the west bank, backed by forest with a case at its
+	-- shoulder -- and two photographs from the aisle found its board behind Case01 at both heights
+	-- tried. Nearest the spawn it has the open corridor in front of it and its only neighbour behind.
+	local built, skipped = layOutAnchors(limit + 1)
+	local deskAt, deskD = nil, math.huge
+	for i, a in ipairs(anchors) do
+		local p = a.cf.Position
+		local d = (p.X - SPAWN_XZ.X) ^ 2 + (p.Z - SPAWN_XZ.Y) ^ 2
+		if d < deskD then
+			deskAt, deskD = i, d
+		end
+	end
+	local desk = deskAt and table.remove(anchors, deskAt)
+	if desk then built -= 1 end
 
 	VivariumSteal.Bind({ take = takeSpecimen, restore = restoreSpecimen, redraw = refreshOne })
+
+	if desk then
+		VivariumWarden.Build(desk.cf, root, {
+			-- Raising the shield is refused while a raid on or by this player is under way -- see
+			-- `VivariumGuard.ToggleShield`.
+			busy = function(player)
+				if player:GetAttribute("HandsFull") == true then return true end
+				local i = byUserId[player.UserId]
+				return i ~= nil and (VivariumLock.IsBusy(i)
+					or VivariumSteal.Carries[i] ~= nil or VivariumSteal.Diverts[i] ~= nil)
+			end,
+			redraw = function(userId)
+				local i = byUserId[userId]
+				if i then refreshOne(i) end
+			end,
+		})
+	end
 
 	PlayerJoin.onEach(claim)
 	-- `PlayerRemoving` does NOT unparent the player (`roblox-playerremoving-parent-is-players`), so

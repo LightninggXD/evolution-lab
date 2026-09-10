@@ -13,6 +13,8 @@ local PartyService = require(script.Parent.Party.PartyService)
 -- the split has to happen here. The require goes THIS way round and never the other: `VivariumSteal`
 -- reads the owner's rate off the `__autoPerSec` stamp below rather than requiring this file back.
 local VivariumSteal = require(script.Parent.Vivarium.VivariumSteal)
+-- 24.5. A leaf; the contested bonus is paid here because this loop is the only live passive payout.
+local VivariumGuard = require(script.Parent.Vivarium.VivariumGuard)
 
 local DNAService = {}
 DNAService.OnEvolve = nil -- optional callback(player, data) set by ServerMain to avoid circular requires
@@ -717,6 +719,11 @@ function DNAService.Init()
 				local data = PlayerDataService.Get(player)
 				if data then
 					local amt = DNAService.GetAutoCollectAmount(data)
+					-- ===== 24.5: THE CONTESTED BONUS, BEFORE THE SPLIT =====
+					-- Here and not in `GetAutoCollectAmount`: `OfflineService` pays out of that, and an
+					-- offline player's case does not exist to be raided. Before the split on purpose --
+					-- `VivariumGuard`'s header shows a maximally raided owner still nets 1.031x.
+					amt *= VivariumGuard.BonusMult(player, data)
 					-- ===== 24.3: A SHARE OF THIS MAY BELONG TO SOMEBODY ELSE RIGHT NOW =====
 					-- `Split` credits the thief with what it takes off this payout and returns what
 					-- the owner keeps, so the subtraction and the addition are the same number by
