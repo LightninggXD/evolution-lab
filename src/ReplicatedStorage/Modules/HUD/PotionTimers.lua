@@ -660,18 +660,39 @@ return function(hud)
 			-- Swept rather than pushed from `MainUI`: `HudPanel` is stamped by `registerPanel` AND by
 			-- `ScrollingPanelBuilder`, so no single open path knows about all of them, and MainUI is
 			-- at the register cap and cannot export a signal. Direct children only, which is what
-			-- `FirstJoin` and `closeAllPanels` already do with the same attribute. Forty-odd children
-			-- four times a second is nothing next to the fit pass below it.
+			-- `FirstJoin` and `closeAllPanels` already do with the same attribute.
+			--
+			-- ===== BUT `screenGui` IS NOT THE ONLY SCREENGUI (23.9) =====
+			--
+			-- The sweep above walked `EvolutionLabUI`'s own children, and four panels in this game do
+			-- not live there: `SplicerUI`, `MinigameUI`, `ExpeditionUI` and `AdventureUI` each own a
+			-- ScreenGui, for the reason SplicerUI's header states -- MainUI is at Luau's 200-register
+			-- ceiling and anything new has to be its own script. So 35.10 fixed the nineteen panels
+			-- it could see and silently missed those four. Measured live with the Splicer open: the
+			-- bar sat at x 616..960, y 34..66 and the panel's title at x 614..908, y 26..72 -- 32 px
+			-- of the title's 46 and 292 px of its 294, which is the exact overlap 35.10 set out to
+			-- remove. `AdventureUI` is the sharp form: it ALREADY stamps `HudPanel` on all three of
+			-- its overlays, and the mark was simply unreachable from here.
+			--
+			-- So the sweep walks every ScreenGui in the PlayerGui. That is about a hundred direct
+			-- children rather than forty, four times a second, and still nothing beside the fit pass
+			-- below it -- and it is `GetChildren` per ScreenGui, never `GetDescendants`, because the
+			-- attribute is only ever stamped on a panel's own top-level frame.
 			--
 			-- The lag is bounded by this loop's own 0.25 s. The panel's open tween is 0.22 s, so the
 			-- bar is gone by about the time the panel finishes arriving, and a quarter second of
 			-- ambient clock returning late on close is not a thing anybody can be shown.
 			local panelOpen = false
-			for _, child in ipairs(screenGui:GetChildren()) do
-				if child:IsA("GuiObject") and child.Visible and child:GetAttribute("HudPanel") then
-					panelOpen = true
-					break
+			for _, gui in ipairs(screenGui.Parent:GetChildren()) do
+				if gui:IsA("ScreenGui") and gui.Enabled then
+					for _, child in ipairs(gui:GetChildren()) do
+						if child:IsA("GuiObject") and child.Visible and child:GetAttribute("HudPanel") then
+							panelOpen = true
+							break
+						end
+					end
 				end
+				if panelOpen then break end
 			end
 			eventBar.Visible = not panelOpen
 

@@ -67,6 +67,10 @@ local pityLabel = nil
 local pityBar = nil
 local oddsRows = nil
 local rollButton = nil
+-- 23.6's surge chip. It lives in the odds card's own title row because it is the reason those
+-- seven numbers are different today, and a banner anywhere else would be a second thing to read
+-- for one fact.
+local surgeChip = nil
 
 -- UITheme outlines every label in `Color.Outline` (a near-black) at 4px, which is right for the
 -- white-on-colour text the HUD is made of and WRONG for dark text on this panel's white card: the
@@ -127,6 +131,10 @@ local function build()
 	panel.BorderSizePixel = 0
 	panel.ZIndex = 20
 	panel.Visible = false
+	-- 23.9: the mark the world event bar's yield sweep reads. This panel is hand-built rather than
+	-- run through `UITheme.Modal`, so it has to say so itself -- without it the bar draws its clock
+	-- straight across this panel's title, measured at 32 px of the title's 46.
+	panel:SetAttribute("HudPanel", true)
 	panel.Parent = gui
 
 	local corner = Instance.new("UICorner")
@@ -209,14 +217,41 @@ local function build()
 	})
 	UITheme.Label(oddsCard, {
 		name = "OddsTitle",
+		-- 120 px, not the full width: the surge chip shares this line and a full-width label would
+		-- sit under it invisibly. "CHANCES" measures well inside 120 at 17.
 		text = "CHANCES",
-		size = UDim2.new(1, -20, 0, 22),
+		size = UDim2.new(0, 120, 0, 22),
 		position = UDim2.new(0, 12, 0, 6),
 		xAlign = "Left",
 		maxTextSize = 17,
 		color = UITheme.Color.InkSoft,
 		zIndex = 24,
 	})
+	-- ===== WHY THE ODDS ARE DIFFERENT TODAY (23.6) =====
+	--
+	-- The table below already moves on its own during a Splice Surge -- it is computed from
+	-- `GetSplicerLuck`, which is the same call the server rolls with, so the window reaches it
+	-- without this file knowing anything about events. What it cannot do on its own is SAY SO: a
+	-- player who has never seen the ordinary numbers has no baseline to notice they are up, and a
+	-- window nobody can name is a window nobody logs in for.
+	--
+	-- Right-aligned into the title row rather than given a row of its own, so the panel's whole
+	-- layout below is untouched (every offset here is authored against `contentY`) and the words
+	-- sit on the card whose contents they explain. Hidden entirely when no window is open -- an
+	-- empty chip on the same line as "CHANCES" reads as a thing that failed to load.
+	surgeChip = UITheme.Label(oddsCard, {
+		name = "SurgeChip",
+		text = "",
+		size = UDim2.new(1, -144, 0, 22),
+		position = UDim2.new(1, -12, 0, 6),
+		anchorPoint = Vector2.new(1, 0),
+		xAlign = "Right",
+		maxTextSize = 16,
+		minTextSize = 11,
+		color = UITheme.Color.Aqua,
+		zIndex = 24,
+	})
+	surgeChip.Visible = false
 
 	oddsRows = {}
 	for i, m in ipairs(GameConfig.Mutations) do
@@ -360,9 +395,39 @@ local function refresh()
 		end
 	end
 
+	-- ===== THE SURGE CHIP (23.6) =====
+	--
+	-- Read off `GetActiveEvents` rather than off any payload: `EventService` publishes the server's
+	-- clock into `GameConfig.SetEventClock`, so this client's arithmetic is the server's arithmetic
+	-- and the chip cannot say "live" while the roll below it is billed at ordinary luck.
+	--
+	-- The test is `mutationLuck` and NOT the event key, deliberately -- the chip is a statement
+	-- about the odds table it sits on, so it should appear for whatever event ever carries that
+	-- effect and stay away from one that does not. A second surge authored next year needs no edit
+	-- here, and the launch festival (whose `luckAdd` reaches this roll too, weakly, through
+	-- GetLuckPercent) correctly does not claim to be one.
+	local surgeAdd = GameConfig.GetEventAdd("mutationLuck")
+	if surgeChip then
+		if surgeAdd > 0 then
+			local surgeEvent = nil
+			for _, live in ipairs(GameConfig.GetActiveEvents()) do
+				if live.event.effects and live.event.effects.mutationLuck then surgeEvent = live end
+			end
+			surgeChip.Visible = true
+			surgeChip.TextColor3 = (surgeEvent and surgeEvent.event.color) or UITheme.Color.Aqua
+			surgeChip.Text = surgeEvent
+				and ("%s  %s"):format(surgeEvent.event.name:upper(),
+					GameConfig.FormatDuration(surgeEvent.window.endTs - GameConfig.EventNow()))
+				or "SPLICE SURGE"
+		else
+			surgeChip.Visible = false
+		end
+	end
+
 	-- The odds, computed the way the roll computes them, at this player's own luck. A charged
 	-- roll's odds are shown when the NEXT roll is the charged one, so the table on screen always
-	-- describes the button underneath it.
+	-- describes the button underneath it. `GetSplicerLuck` carries the surge term itself, so the
+	-- seven numbers below are already the window's numbers with nothing added here.
 	local S = GameConfig.Splicer
 	local rolls = currentData.SplicerRolls or 0
 	local nextIsCharged = ((rolls + 1) % S.pityEvery) == 0
@@ -667,6 +732,36 @@ Remotes:WaitForChild("SpliceResult").OnClientEvent:Connect(function(payload)
 	-- the player is looking straight at both.
 	if payload.reason == "poor" then
 		refresh()
+	end
+end)
+
+-- ===== THE CHIP'S CLOCK (23.6) =====
+--
+-- `refresh` runs on a DataUpdate and on open, which is often enough for a price and a pity meter and
+-- not at all often enough for a countdown -- a player standing at the machine would watch the same
+-- "14h 22m" for a minute and read it as frozen. One second is the resolution `FormatDuration` prints
+-- at under an hour, so that is the tick.
+--
+-- It costs nothing while the panel is shut (one comparison a second) and it does NOT call `refresh`
+-- every second: that would rebuild seven odds strings and re-read the save for a clock. The full
+-- refresh happens only on the EDGE -- the second a window opens or closes with the panel open --
+-- which is the one moment the odds themselves change without a DataUpdate to announce it.
+task.spawn(function()
+	local wasLive = GameConfig.GetEventAdd("mutationLuck") > 0
+	while true do
+		task.wait(1)
+		local live = GameConfig.GetEventAdd("mutationLuck") > 0
+		if live ~= wasLive then
+			wasLive = live
+			if panel and panel.Visible then refresh() end
+		elseif live and panel and panel.Visible and surgeChip and surgeChip.Visible then
+			for _, entry in ipairs(GameConfig.GetActiveEvents()) do
+				if entry.event.effects and entry.event.effects.mutationLuck then
+					surgeChip.Text = ("%s  %s"):format(entry.event.name:upper(),
+						GameConfig.FormatDuration(entry.window.endTs - GameConfig.EventNow()))
+				end
+			end
+		end
 	end
 end)
 

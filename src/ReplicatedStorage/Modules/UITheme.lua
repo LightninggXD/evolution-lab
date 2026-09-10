@@ -2490,6 +2490,11 @@ function UITheme.Modal(parent, opts)
 	modal.AnchorPoint = opts.anchorPoint or Vector2.new(0.5, 0.5)
 	modal.ZIndex = base
 	modal.Visible = false
+	-- 23.9: the mark every "is a panel open?" sweep in this game reads. A modal is a panel by any
+	-- test that matters -- it is centred, it dims the world behind it and it covers the top-centre
+	-- lane the world event bar lives in -- and the two that use this builder (`MinigameUI`,
+	-- `ExpeditionUI`) each own a ScreenGui, so nothing else was ever going to stamp them.
+	modal:SetAttribute("HudPanel", true)
 
 	local radius = toUDim(opts.radius, UDim.new(0, 22))
 	local _, modalStroke = applyShell(modal, opts.color or Color.PanelWhite, radius, 5)
@@ -2762,12 +2767,31 @@ function UITheme.PanelHeader(panel, opts)
 	-- the word exactly as the reference has them.
 	UITheme.IconifyLabel(title)
 
+	-- ===== THE SUBTITLE STOPS SHORT OF THE CLOSE DISC (23.8) =====
+	--
+	-- 27.1 moved the subtitle out of the painted band and onto the board at the FULL header width.
+	-- The band it left had been inset for the close button; the new line is not, so a subtitle long
+	-- enough to reach the top-right corner runs underneath the 42 px ✕ disc every panel puts there.
+	-- Swept live at 1576 x 793 over all seventeen panels that have both: the Splicer's line runs
+	-- **18 px** under its disc and the trade picker's **2 px**, with Mastery (-8) and Group Rewards
+	-- (-4) one word away from joining them. Only a capture shows it -- `TextFits` is true, because
+	-- the string does fit its own label; it is the disc on top that is the problem.
+	--
+	-- 56 = the disc's 42 plus its 10 px inset from the corner plus 4 of air. Inset rather than
+	-- centred or shortened per panel, because the lane is a property of the KIT (every PanelHeader
+	-- panel puts a ✕ in the same place) and nineteen call sites should not each have to know it.
+	-- The label is TextScaled between 12 and 18, so this shrinks a long line rather than truncating
+	-- it: the Splicer's 418 px line lands at 380 and stays well clear of the 12 px floor.
+	--
+	-- `subInset` exists for the one case this gets wrong -- a panel with no close disc, which pays
+	-- 56 px of width for a lane nothing occupies. No call site needs it today.
+	local subInset = opts.subInset or 56
 	local sub
 	if subtitle then
 		sub = UITheme.Label(header, {
 			name = "Subtitle",
 			text = subtitle,
-			size = UDim2.new(1, 0, 0, subHeight),
+			size = UDim2.new(1, -subInset, 0, subHeight),
 			position = UDim2.new(0, 0, 0, 0),
 			xAlign = "Left",
 			maxTextSize = 18,

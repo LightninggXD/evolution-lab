@@ -187,6 +187,55 @@ GameConfig.Events = {
 		target = 5000000,
 		reward = { diamonds = 500 },
 	},
+	-- ===== THE SPLICE SURGE (23.6) =====
+	--
+	-- THE ONE EVENT THAT IS NOT ON THE WEEKEND, AND THAT IS THE REASON IT EXISTS. Weekend Rush,
+	-- Colosseum Clash and the Global Challenge all open at 00:00 UTC on Saturday and all close
+	-- 48 hours later -- three events, one occasion. The other five days of the week have nothing
+	-- in them at all, so a player who cannot be here at the weekend has never once been shown a
+	-- reason to log in on a particular day. A second beat mid-week is what a calendar is; a
+	-- fourth thing stacked onto Saturday would just be a bigger weekend.
+	--
+	-- WHY IT IS THE SPLICER AND NOT ANOTHER RATE. An income or XP multiplier is worth more of
+	-- what the player was already going to get, which is the shape every event above already has
+	-- and the shape that makes an event forgettable -- it changes a number nobody watches. The
+	-- Splicer is the game's only ODDS surface, its output is the one permanent object other
+	-- players can see from across the map (23.2's chip and its aura), and the top three tiers
+	-- announce server-wide on their own (23.3). So a window on this machine is the only one that
+	-- fills a server's feed with other people's luck, which is what makes a window worth turning
+	-- up for rather than worth having running.
+	--
+	-- WHY 12:00 UTC AND NOT 00:00 LIKE THE OTHERS. A 48-hour weekend covers every evening on
+	-- earth whatever hour it opens; a 24-hour window does not, and the hour is then the whole
+	-- design. From 00:00 UTC this window would run Tuesday 17:00 to Wednesday 17:00 Pacific and
+	-- miss the Wednesday evening it is named after. From 12:00 UTC it runs Wednesday 05:00 to
+	-- Thursday 05:00 Pacific and Wednesday 14:00 to Thursday 07:00 in central Europe -- one
+	-- window, both evenings, which is the most a single day can cover.
+	--
+	-- WHY 150 IS A LITERAL AND NOT `GameConfig.Splicer.pityLuckAdd`. It is deliberately the same
+	-- number -- a surge roll carries exactly the luck bonus the charged roll carries, which is
+	-- what the blurb says in words -- but this part loads BEFORE `Helpers`, so reading it from
+	-- there at load time is the silent nil this file's own loader warns about. The two are kept
+	-- equal by the comment on both sides, not by a reference that cannot exist yet.
+	--
+	-- Priority 15 sits above the Colosseum's 10 and below the Global Challenge's 20, and today it
+	-- decides nothing: Wednesday noon to Thursday noon cannot overlap a Saturday window or the
+	-- authored festival. It is set because the ordering is a decision (12.13) and the day this
+	-- one does co-run -- the launch festival is two dates the owner may move anywhere -- the
+	-- board should headline the rarer occasion rather than whichever was typed first.
+	{
+		key = "SpliceSurge",
+		name = "Splice Surge",
+		emoji = "\u{1F9EC}",
+		blurb = "Every splice rolls with a charged roll's luck -- rare mutations are far likelier",
+		color = Color3.fromRGB(90, 220, 210),
+		recurring = { wday = GameConfig.Weekday.Wed, hour = 12, hours = 24 },
+		effects = { mutationLuck = 150 },
+		priority = 15,
+		-- No ladder and no skin, for the reason Weekend2x has neither: a ladder ends on an
+		-- exclusive character, and there is nothing here to put at the end of one. See
+		-- GameConfig.EventQuests, where an event with no entry simply has no board.
+	},
 	{
 		key = "PrismFest",
 		name = "Prism Festival",
@@ -206,6 +255,10 @@ GameConfig.Events = {
 -- whole HUD, and a new effect field is authored three lines up in GameConfig.Events -- so the
 -- reader that would otherwise silently omit it is the one that should be edited in the same file.
 -- `luckAdd` is deliberately absent: it is additive and is formatted as a percentage, not an "x".
+-- `mutationLuck` (23.6) is absent for the same reason and one more: it is not a percentage of
+-- anything the player has a number for, it is luck POINTS entering one roll on one machine, so the
+-- only honest place to print it is the odds table that changes when it is live -- which is where
+-- SplicerUI's surge chip puts it.
 GameConfig.EventEffectLabels = {
 	incomeMult = "DNA",
 	xpMult = "XP",

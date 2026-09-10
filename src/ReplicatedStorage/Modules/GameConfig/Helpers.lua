@@ -118,7 +118,9 @@ GameConfig.Splicer = {
 	rampCap = 200,        -- ramp^n stops here: baseKills * 200 = 1,000 kills a roll
 	pityEvery = 10,       -- every Nth lifetime roll is "charged"...
 	pityMinIndex = 2,     -- ...guaranteed at least Mutations[2] (Rare)...
-	pityLuckAdd = 150,    -- ...and rolled with this much extra luck
+	pityLuckAdd = 150,    -- ...and rolled with this much extra luck. 23.6's `SpliceSurge` window
+	                      -- carries the SAME number, deliberately -- see the note over its entry
+	                      -- in GameConfig/Events for why that one is a literal and not this name.
 	luckScale = 0.25,     -- fraction of GetLuckPercent that reaches RollMutation
 	luckCap = 400,        -- luck points considered before scaling
 	announceMinIndex = 5, -- Mutations[5]+ (Mythic, Secret, Godly) go server-wide
@@ -150,10 +152,34 @@ end
 -- table, again so the promise and the roll cannot drift. `charged` is "this is the pity roll";
 -- the caller decides that from `SplicerRolls`, because the SERVER increments the counter and
 -- the client only predicts it.
+--
+-- =========================================================================================
+-- THE EVENT TERM GOES AFTER THE CAP, AND THAT IS THE WHOLE OF 23.6 ON THIS SIDE
+-- =========================================================================================
+-- An event's `luckAdd` already reached this roll before 23.6 -- it is one of the six sources
+-- `GetLuckPercent` sums -- so the Prism Festival's +50 has always been worth +12.5 points here.
+-- But it enters INSIDE `math.min(..., luckCap)`, and a player who has bought the machine's own
+-- audience out (equipped pets, Mega Luck, a Luck potion, the Luck pass, VIP and twenty relic sets
+-- reach past 400 between them) is already clamped: for exactly the players who use the Splicer
+-- most, a festival adds literally nothing to it. An event effect that is invisible to its own best
+-- customers is not an event.
+--
+-- So `mutationLuck` is a separate field and it is added AFTER the clamp and after `luckScale`.
+-- Two consequences, both wanted. It is felt identically by a brand-new save and a maxed one --
+-- the window is the same offer to everybody in the server, which is the difference between an
+-- event and a pass. And it is quoted in the SAME units as `pityLuckAdd`, so authoring it at 150
+-- makes "every splice rolls with a charged roll's luck" a fact rather than a slogan.
+--
+-- It is additive rather than a multiplier on `luck` because luck starts at zero here for a player
+-- who owns nothing -- the same argument `GetLuckPercent`'s own header makes -- and a multiplied
+-- window would pay a first-time splicer exactly nothing on the day it is meant to bring them in.
 function GameConfig.GetSplicerLuck(data, charged)
 	local S = GameConfig.Splicer
 	local luck = math.min(GameConfig.GetLuckPercent(data), S.luckCap) * S.luckScale
 	if charged then luck += S.pityLuckAdd end
+	-- `Events` is loaded before this part, but the name is resolved when this RUNS either way, and
+	-- nothing calls this at load time. Zero when no window is open, so there is no branch.
+	luck += GameConfig.GetEventAdd("mutationLuck")
 	return luck
 end
 
