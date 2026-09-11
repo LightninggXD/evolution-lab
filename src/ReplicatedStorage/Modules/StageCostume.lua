@@ -821,6 +821,22 @@ local function headPiece(ctx, kind, metal)
 			{ seconds = ctx.static and nil or 5, tr = 0.08 }, CFrame.new(0, hs.Y * 0.88, 0))
 	elseif kind == "crown" then
 		crown(ctx, metal, 5, 0.5)
+	elseif kind == "ring" then
+		-- A ring standing ON EDGE around the head, turning like a wheel seen from the side. It is
+		-- `halo` with a quarter turn of tilt and nothing else -- the primitive was already here and
+		-- the only new thing is the plane it sits in.
+		--
+		-- THE TILT IS THE WHOLE POINT AND IS NOT A STYLE CHOICE. Every one of the six season
+		-- heralds this piece is for (25.2) is Legendary, and the rarity pass already gives every
+		-- Legendary a FLAT halo at diameter 1.5, y 0.92, tilted 12 degrees. A second flat ring at
+		-- the same height would sit three hundredths of a head above the first and read as a
+		-- z-fighting artefact rather than as a crown. At 90 degrees the two cross instead of
+		-- stacking, and the pair reads as one object with an axis.
+		--
+		-- y 0.30 puts the ring's centre at the middle of the head rather than above it, so it
+		-- encircles the skull like a meridian; 1.45 makes its radius 0.725 of the head's width,
+		-- which clears a head whose half-width is 0.5 with room for the beads themselves.
+		halo(ctx, metal, 1.45, 0.30, 7, math.rad(90))
 	end
 	-- No fallback. An unrecognised name draws nothing rather than quietly drawing a crown, which is
 	-- the same failure the nil case was: a piece nobody asked for is impossible to trace back to a

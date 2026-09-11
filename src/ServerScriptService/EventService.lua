@@ -675,6 +675,18 @@ function EventService.Init()
 				reward and (", so %q can no longer be earned"):format(reward) or ""))
 	end
 
+	-- ===== THE SECOND CALENDAR GUARD (25.2) =====
+	--
+	-- The season festival's rotation and `GameConfig.SeasonThemes` are two lists indexed by the
+	-- same number, so a herald is named for its season only while they stay the same length. Adding
+	-- a seventh theme breaks nothing visibly -- the game keeps running and keeps paying out skins,
+	-- with the wrong one. Same `warn` discipline as the dead-event sweep directly above, and for
+	-- the same reason: loud in every boot log, never an `error` the watchdog would amplify.
+	local mismatch = GameConfig.GetSeasonFestivalMismatch and GameConfig.GetSeasonFestivalMismatch()
+	if mismatch then
+		warn(("[Events] season festival rotation is out of step: %s"):format(mismatch))
+	end
+
 	valueObject = RS:FindFirstChild("LiveEvents")
 	if not valueObject then
 		valueObject = Instance.new("StringValue")

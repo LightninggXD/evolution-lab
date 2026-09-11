@@ -660,6 +660,91 @@ GameConfig.EventCharacters = {
 		offLadder = true,
 		regalia = "wreath",
 	},
+	-- ===== THE SIX SEASON HERALDS (25.2) =====
+	--
+	-- One per entry in `GameConfig.SeasonThemes`, IN THAT ORDER, paid by the last rung of the
+	-- season festival's ladder. The order is load-bearing here in a way the champions' is not --
+	-- the Colosseum's rotation is a separate list on the event and this table is only a registry,
+	-- but the festival resolves its slot off the SEASON NUMBER, which is the same number that picks
+	-- the theme. So Ashfall pays the Cinder Herald because both lists are six long and both are
+	-- indexed by `1 + (season - 1) % 6`. `GameConfig.GetSeasonFestivalMismatch` is the check that
+	-- says so out loud at boot; the comment is not the guard.
+	--
+	-- THEY ARE SEPARATED FROM THE CHAMPIONS BY HARDWARE, NOT ONLY BY HUE, and that is a decision
+	-- forced by arithmetic. Twelve off-ladder skins now share one small space: the Prism Herald is
+	-- violet, the VIP skin gold, and the four champions take orange, ice blue, green and slate.
+	-- Six more colours that are all unmistakable against those six AND against each other do not
+	-- exist -- the wheel is full. So the heralds take the free arcs that are left (rose, teal,
+	-- crimson, periwinkle, orchid, lime) and, more importantly, they all wear a RING standing on
+	-- edge around the head where every champion wears a flat laurel. A player who cannot tell the
+	-- Rime Herald's periwinkle from the Prism Herald's violet across the plaza can still tell a
+	-- ring from a pair of leaves, which is the thing the champions' own note asks for: two skins
+	-- that read the same from a distance are two occasions that felt like one.
+	--
+	-- The ring is also why it is not another halo. All six of these are Legendary and every
+	-- Legendary already wears a FLAT halo from the rarity pass -- a second flat ring three
+	-- hundredths of a head above it reads as a rendering fault rather than as regalia. Standing it
+	-- on edge makes the pair an orrery instead of a mistake. See `headPiece` in StageCostume.
+	{
+		key = "event_season_dawn",
+		name = "Dawn Herald",
+		emoji = "\u{1F305}",
+		rarity = "Legendary",
+		color = Color3.fromRGB(255, 122, 170),
+		event = "SeasonFest",
+		offLadder = true,
+		regalia = "ring",
+	},
+	{
+		key = "event_season_tide",
+		name = "Tide Herald",
+		emoji = "\u{1F30A}",
+		rarity = "Legendary",
+		color = Color3.fromRGB(40, 194, 178),
+		event = "SeasonFest",
+		offLadder = true,
+		regalia = "ring",
+	},
+	{
+		key = "event_season_cinder",
+		name = "Cinder Herald",
+		emoji = "\u{1F30B}",
+		rarity = "Legendary",
+		color = Color3.fromRGB(178, 58, 62),
+		event = "SeasonFest",
+		offLadder = true,
+		regalia = "ring",
+	},
+	{
+		key = "event_season_rime",
+		name = "Rime Herald",
+		emoji = "\u{2744}\u{FE0F}",
+		rarity = "Legendary",
+		color = Color3.fromRGB(128, 142, 232),
+		event = "SeasonFest",
+		offLadder = true,
+		regalia = "ring",
+	},
+	{
+		key = "event_season_astral",
+		name = "Astral Herald",
+		emoji = "\u{1F320}",
+		rarity = "Legendary",
+		color = Color3.fromRGB(198, 114, 232),
+		event = "SeasonFest",
+		offLadder = true,
+		regalia = "ring",
+	},
+	{
+		key = "event_season_bramble",
+		name = "Bramble Herald",
+		emoji = "\u{1F33F}",
+		rarity = "Legendary",
+		color = Color3.fromRGB(168, 214, 78),
+		event = "SeasonFest",
+		offLadder = true,
+		regalia = "ring",
+	},
 }
 for _, c in ipairs(GameConfig.EventCharacters) do
 	CHARACTER_BY_KEY[c.key] = c

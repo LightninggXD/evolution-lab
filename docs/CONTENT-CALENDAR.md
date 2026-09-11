@@ -71,6 +71,7 @@ line, so nothing is lost by not headlining.
 |:--|--:|:--|
 | **Season** — new id, wiped track, new theme | **30 days** | S2 *Deep Currents* -> **2026-09-30** S3 *Ashfall* -> **2026-10-30** S4 *Frostbloom* |
 | **Colosseum champion** — four exclusive skins, one a weekend | **28 days** | ember -> frost -> verdant -> onyx, resolved off `window.startTs` |
+| **Season Festival** (25.2) — 72 h, double damage, one exclusive Herald | **rides the season** | opens with every turnover above; the Herald is the season's own theme — see §4a |
 
 30 days against 28 means the two never fall on the same day twice running, so **a month reliably has
 two separate large beats rather than one loud one.** Six themes at 30 days each means a season
@@ -91,12 +92,12 @@ generated beat runs regardless and a missed ship slot costs the update, not the 
 | **Sat 2026-09-12** | weekend + Wed 09-16 surge | verdant | ✅ **25.3 SHIPPED 2026-09-11** — rotating weekend offers with the visible timer, in the slot ahead of the weekend it serves. The deal this weekend is **`Shards_2` at +40%** (125 → 175 Evolution Shards for the usual R$ 199); the rotation is five entries against the champion's four, so a pairing repeats after twenty weeks |
 | **Sat 2026-09-19** | weekend + Wed 09-23 surge | onyx | **34.58** chests — the 2D and 3D art is already inserted and unused |
 | **Sat 2026-09-26** | weekend + Wed 09-30 surge | ember | **30.12** one zone dressed by layout instead of even scatter |
-| **Tue 2026-09-30** | *season turnover* | — | **LARGE — S3 *Ashfall* opens.** The month's headline ships here: **25.2**, the next festival and its exclusive (see §4) |
+| **Wed 2026-09-30** | *season turnover* + **Season Festival** | — | ✅ **25.2 SHIPPED 2026-09-11** — **LARGE — S3 *Ashfall* opens** and the Season Festival opens with it, 00:00 Wed to 00:00 Sat 10-03, double damage, paying the **Cinder Herald**. It is generated off `SeasonEpoch`, so every later turnover row below carries one too and none of them needed writing down (see §4) |
 | **Sat 2026-10-03** | weekend + Wed 10-07 surge | frost | **23.1** mutations become multiplicative |
 | **Sat 2026-10-10** | weekend + Wed 10-14 surge | verdant | *champion cycle closes — all four seen once* |
 | **Sat 2026-10-17** | weekend + Wed 10-21 surge | onyx | **17.2** first person at the last stage |
 | **Sat 2026-10-24** | weekend + Wed 10-28 surge | ember | a Monday/Tuesday recurring beat (§1's 60-hour hole) |
-| **Fri 2026-10-30** | *season turnover* | — | **LARGE — S4 *Frostbloom* opens.** **24.6** hard steal, if and only if 24.3's live numbers justify it |
+| **Fri 2026-10-30** | *season turnover* + **Season Festival** (Rime Herald) | — | **LARGE — S4 *Frostbloom* opens.** **24.6** hard steal, if and only if 24.3's live numbers justify it |
 | **Sat 2026-10-31** | weekend + Wed 11-04 surge | frost | — |
 | **Sat 2026-11-07** | weekend + Wed 11-11 surge | verdant | **34.9** fishing — the low-stakes idle activity, held since Phase 34 for a day of live data |
 | **Sat 2026-11-14** | weekend + Wed 11-18 surge | onyx | — |
@@ -139,6 +140,51 @@ handed out — but the boot log will keep saying it is gone until it is moved.
 Brainrot's 24 retired characters; MM2 removing the lobby, the boxes and the track together). What is
 not allowed is the window shutting on the **last** one. A festival ships with the next festival's
 dates already authored, or it ships as a `recurring` with a `rotation` like the Colosseum's.
+
+---
+
+### 4a. How 25.2 answered that rule — the Season Festival (shipped 2026-09-11)
+
+**It took the second half of the rule and moved it from the week to the season.** Authoring the next
+festival's dates is the first half and it only moves the cliff one month: the month after that, some
+person has to remember again. The Colosseum's answer is better because there is nobody to remember
+— the window is arithmetic and the skin is a list index — and §0's table already names
+`SeasonEpoch + n x 30 days` as a generated shape sitting right beside `recurring`. So the festival
+is a **third window shape** on the event engine, `seasonal = { hours = 72 }`, opening the instant a
+season turns over.
+
+| | |
+|:--|:--|
+| **window** | opens at every season turnover, runs **72 hours** — the same length as PrismFest's |
+| **effect** | **`damageMult = 2`**, the one effect field the game already routed and no event had ever set |
+| **ladder** | four rungs — 300 creatures → 100 eggs → 20 bosses → **1,500 creatures**, which pays the skin |
+| **exclusive** | **one Herald per season theme, in the same order**: Dawn, Tide, Cinder, Rime, Astral, Bramble |
+| **dies when** | never. `GetDeadEvents` cannot name it, for the same reason it cannot name Weekend Rush |
+
+**Why the effect is damage, when the note over Weekend Rush refuses exactly that.** That note is
+about a *weekly* event, and its reason is that damage is the pacing of the game — doubling it every
+Saturday means the game is only ever half-paced. Seventy-two hours twelve times a year is the
+opposite case: the pacing is intact for twenty-seven days and the three it is suspended are the ones
+the player remembers. `DNAService` did not change; its damage chain has carried the hook and a
+comment saying *the day one does, it is a row in that table and not an edit in this file* since the
+event engine was built.
+
+**The one new thing that can rot, and the guard on it.** The rotation and `GameConfig.SeasonThemes`
+are two parallel lists indexed by the same season number, so the Herald is named for its season only
+while they are the same length. A seventh theme would break nothing visible — the game keeps running
+and pays out the *wrong* Herald. `GameConfig.GetSeasonFestivalMismatch` compares them (and checks
+every key resolves to a real character), and `EventService.Init` warns on it at boot, beside the
+dead-event sweep. 32.24's rule: a comment saying "keep these in step" is a census, not a guard.
+
+**A Herald returns after 180 days**, six themes at 30 days each. That is the Colosseum's own argument
+at a longer wavelength — a rotation is limited because the window shuts, not because the item is
+never offered again.
+
+**`PrismFest` was left exactly where it is.** It is still the only dead event in the boot log and
+`event_prism` is still unearnable, because the two dates above are 👤 hers and 25.1 was right that
+inventing one is the same class of mistake as inventing a product id. What changed is that it is no
+longer the *last* festival — the rule this section wrote is now satisfied by the calendar rather
+than by that one row being fixed.
 
 ---
 

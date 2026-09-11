@@ -248,6 +248,71 @@ GameConfig.Events = {
 		-- GameConfig.EventQuests below and GameConfig.EventCharacters.
 		reward = { characterKey = "event_prism" },
 	},
+	-- ===== THE SEASON FESTIVAL (25.2) =====
+	--
+	-- THE MONTHLY BEAT THE CALENDAR HAD A SLOT FOR AND THE GAME HAD NOTHING IN. `docs/CONTENT-
+	-- CALENDAR.md` §3 puts the month's headline on the season turnover and §2 measures the two
+	-- monthly cycles that never line up -- the season at 30 days and the Colosseum champion at 28.
+	-- Only one of those two had anything a player could SEE turn over: the champion handed out a
+	-- skin, the season silently swapped a name and a track. This is the occasion that makes a
+	-- turnover an event.
+	--
+	-- IT IS GENERATED, AND THAT IS THE ROW'S REAL CONTENT. §4 wrote the rule after the PrismFest
+	-- hole: *a festival ships with the next festival's dates already authored, or it ships as a
+	-- recurring with a rotation like the Colosseum's.* Authoring the next date only moves the cliff
+	-- one month; this takes the second half of the rule and generalises it from the week to the
+	-- season, so there is no last festival to fall off the end of. `GetDeadEvents` can never name
+	-- it, for the same reason it can never name Weekend Rush.
+	--
+	-- WHY THE EFFECT IS `damageMult` AND WHY THAT IS NOT A CONTRADICTION OF THE WEEKEND'S NOTE.
+	-- The note over Weekend Rush refuses a damage multiplier for a WEEKLY event, and the reason it
+	-- gives is that damage is the pacing of the game -- how many swings a zone takes is what makes
+	-- one zone feel different from the last -- so doubling it every Saturday would mean the game is
+	-- only ever half-paced. Seventy-two hours once a month is the opposite case: it is rare enough
+	-- that the pacing is intact for twenty-seven days and the three days it is suspended are the
+	-- ones the player is meant to remember. It is also the only effect field the game already
+	-- routes and no event has ever set -- DNAService's damage chain carries the hook with a comment
+	-- saying *the day one does, it is a row in that table and not an edit in this file*. This is
+	-- that row, and DNAService did not change.
+	--
+	-- PRIORITY 30, ABOVE THE GLOBAL CHALLENGE'S 20, and it is the only event in the table that
+	-- needs to outrank it. The festival collides with real windows rather than hypothetically: S1's
+	-- occurrence opened 00:00 Saturday 2026-08-01 and covered a whole Weekend Rush, and S3's runs
+	-- Wednesday 2026-09-30 to Saturday 2026-10-03, swallowing a Splice Surge and ending in the same
+	-- second the weekend opens. Three places draw `active[1]` and nothing else (12.13), and on a
+	-- turnover weekend the answer has to be the thing that happens twelve times a year, not the
+	-- thing that happens every Saturday.
+	--
+	-- THE SKIN IS ONE PER SEASON THEME, IN THE SAME ORDER, so the herald is named for the season
+	-- that hands it over -- Ashfall pays the Cinder Herald. That makes this list and
+	-- `GameConfig.SeasonThemes` two parallel lists, which is exactly the shape that rots quietly,
+	-- so it is CHECKED rather than commented: `GameConfig.GetSeasonFestivalMismatch` compares the
+	-- two and `EventService.Init` warns on a boot where they have drifted apart.
+	--
+	-- Six themes at 30 days means a herald comes round again after 180 days. That is deliberate and
+	-- it is the Colosseum's own argument at a longer wavelength: a rotation is limited because the
+	-- window shuts, not because the item is never offered again -- see the note over
+	-- ColosseumClash's four champions.
+	{
+		key = "SeasonFest",
+		name = "Season Festival",
+		emoji = "\u{1F386}",
+		blurb = "Double damage for the season's first three days -- finish the event ladder for this season's Herald",
+		color = Color3.fromRGB(255, 176, 92),
+		seasonal = { hours = 72 },
+		effects = { damageMult = 2 },
+		priority = 30,
+		-- One entry per season THEME, resolved from the season the window opens in -- see
+		-- GetEventRewardKey. The order is SeasonThemes' order and must stay that way.
+		rotation = {
+			"event_season_dawn",     -- First Light
+			"event_season_tide",     -- Deep Currents
+			"event_season_cinder",   -- Ashfall
+			"event_season_rime",     -- Frostbloom
+			"event_season_astral",   -- Starfall
+			"event_season_bramble",  -- Overgrowth
+		},
+	},
 }
 
 -- What the HUD chip calls each multiplicative effect field. It lives here rather than in MainUI for
@@ -291,6 +356,50 @@ function GameConfig.GetEventWindow(event, now)
 			-- is what lets the countdown board fall through to whatever is actually coming instead
 			-- of counting down to something in the past.
 			nextStart = (now < startTs) and startTs or nil,
+		}
+	end
+
+	-- ===== THE THIRD SHAPE: A WINDOW ON THE SEASON'S OWN CLOCK (25.2) =====
+	--
+	-- `seasonal = { hours = N }` opens the instant a season turns over and runs for N hours.
+	--
+	-- WHY IT IS NOT A `fixed` PAIR OF DATES, WHICH IS WHAT A FESTIVAL LOOKS LIKE IN EVERY OTHER
+	-- GAME. 25.1 measured what that costs: `PrismFest` was two authored dates, it happened once,
+	-- and on the day it closed the ONE exclusive skin outside the Colosseum rotation became
+	-- permanently unobtainable with nothing anywhere saying so. `docs/CONTENT-CALENDAR.md` §0
+	-- states the rule that came out of it -- *a beat is generated, or it rots* -- and names
+	-- `SeasonEpoch + n x 30 days` as a generated shape in the same table as `recurring`. This is
+	-- that shape, wired into the event engine, so the monthly festival needs no live-ops job and
+	-- cannot run out.
+	--
+	-- WHY IT REUSES THE SEASON CLOCK RATHER THAN CARRYING A PERIOD OF ITS OWN. A festival that
+	-- opened every 30 days from an epoch of its own would drift out of step with the season within
+	-- a year of a single edit to either, and the two would then be two unrelated monthly beats
+	-- competing for the same attention. Asking `GetCurrentSeason` means the festival IS the season
+	-- turnover -- the new track opens and the reason to come and look at it opens with it, in the
+	-- same second, on every server, for ever.
+	--
+	-- `GetCurrentSeason` lives in the `Season` part, which loads AFTER this one. That is safe
+	-- precisely because this is a runtime read and not a load-time one: by the time any window is
+	-- asked for, every part of `GameConfig` is in the table. A top-level reference here would be
+	-- the silent nil this file's loader warns about -- see the note over `SpliceSurge`'s 150.
+	local s = event.seasonal
+	if s then
+		local season = GameConfig.GetCurrentSeason(now)
+		local startTs = season.startTs
+		local endTs = startTs + (s.hours or 72) * 3600
+		-- `now >= startTs` is not redundant even though a season's start is always in the past:
+		-- `GetCurrentSeason` CLAMPS its index at 1, so a clock set before the epoch is handed
+		-- season 1 with a start that has not happened yet. Without the lower bound that reads as
+		-- a live festival, and the same clamp that protects the season id from a broken clock
+		-- would hand out an exclusive skin to it.
+		local active = (now >= startTs and now < endTs)
+		return {
+			startTs = startTs,
+			endTs = endTs,
+			active = active,
+			nextStart = (not active) and ((now < startTs) and startTs or season.endTs) or nil,
+			seasonIndex = season.index,
 		}
 	end
 
@@ -365,8 +474,32 @@ function GameConfig.GetEventRewardKey(event, window)
 	end
 	local rotation = event.rotation
 	if not (rotation and #rotation > 0 and window and window.startTs) then return nil end
-	local index = 1 + math.floor(window.startTs / EVENT_WEEK) % #rotation
+	-- A SEASONAL ROTATION IS INDEXED BY THE SEASON, NOT BY THE WEEK, and that is what keeps the
+	-- herald's name and the season's name the same word (25.2). Thirty days is 4.28 weeks, so
+	-- `startTs / EVENT_WEEK` would step the list by four entries one month and five the next --
+	-- the skin would still rotate and would still be limited, but which one you get would have no
+	-- relation to the season it belongs to, which is the whole of its identity. The index is
+	-- DERIVED from `window.startTs` rather than read off `window.seasonIndex` so that a probe may
+	-- ask about an occurrence it has only a start time for -- see GetRotationInfo's forward walk.
+	local index
+	if event.seasonal then
+		index = 1 + (GameConfig.GetCurrentSeason(window.startTs).index - 1) % #rotation
+	else
+		index = 1 + math.floor(window.startTs / EVENT_WEEK) % #rotation
+	end
 	return rotation[index], index
+end
+
+-- How far apart two consecutive occurrences of `event` are, for the forward walk below. It is a
+-- function and not the `EVENT_WEEK` constant the walk used to add because 25.2's festival recurs on
+-- the SEASON's period: a week-sized step over a thirty-day cycle would probe six times inside the
+-- same occurrence, find the same skin every time, and report that a herald five months away is
+-- never coming back.
+local function occurrenceStep(event)
+	if event.seasonal then
+		return (GameConfig.SeasonLengthDays or 30) * EVENT_DAY
+	end
+	return EVENT_WEEK
 end
 
 -- Where a rotation skin sits relative to right now: which slot it is, whether it is the one
@@ -391,13 +524,14 @@ function GameConfig.GetRotationInfo(characterKey, now)
 				local nextStart
 				if currentKey ~= characterKey or not (window and window.active) then
 					local probeStart = window and (window.active and window.startTs or window.nextStart)
+					local step = occurrenceStep(event)
 					for _ = 1, #rotation + 1 do
 						if not probeStart then break end
 						if probeStart > now and GameConfig.GetEventRewardKey(event, { startTs = probeStart }) == characterKey then
 							nextStart = probeStart
 							break
 						end
-						probeStart += EVENT_WEEK
+						probeStart += step
 					end
 				end
 				return {
@@ -482,6 +616,22 @@ GameConfig.EventQuests = {
 		{ key = "pf_2", counter = "creatures", target = 750, emoji = "\u{2694}\u{FE0F}", name = "Defeat 750 creatures", dna = 15000 },
 		{ key = "pf_3", counter = "fuse",      target = 12,  emoji = "\u{1F9EC}",        name = "Fuse 12 pets",         diamonds = 8 },
 		{ key = "pf_4", counter = "eggs",      target = 180, emoji = "\u{1F308}",        name = "Hatch 180 eggs",       diamonds = 15, character = true },
+	},
+	-- 72-hour window, same length as PrismFest's. ENDS ON CREATURES because damageMult is what this
+	-- event turns on, and a damage multiplier is only ever felt as a creature dying in fewer swings
+	-- -- the same rule that put bosses at the end of the Colosseum's ladder and eggs at the end of
+	-- the Prism's. It is also the one counter neither of the other two ladders finishes on, so the
+	-- three events ask for three different weekends of play rather than three versions of one.
+	--
+	-- Sized by the rule above: 1,500 creatures is 3x the calibrated weekly quest (500) inside a
+	-- window a third as long, and the rungs are CUMULATIVE, so sf_1's 300 is on the way to it and
+	-- not on top of it. 20 bosses is exactly the weekly row -- a side rung here, where the
+	-- Colosseum asks 50 because bosses are its whole subject.
+	SeasonFest = {
+		{ key = "sf_1", counter = "creatures", target = 300,  emoji = "\u{2694}\u{FE0F}", name = "Defeat 300 creatures",  diamonds = 4 },
+		{ key = "sf_2", counter = "eggs",      target = 100,  emoji = "\u{1F95A}",        name = "Hatch 100 eggs",        dna = 15000 },
+		{ key = "sf_3", counter = "bosses",    target = 20,   emoji = "\u{1F451}",        name = "Defeat 20 bosses",      diamonds = 8 },
+		{ key = "sf_4", counter = "creatures", target = 1500, emoji = "\u{1F386}",        name = "Defeat 1500 creatures", diamonds = 15, character = true },
 	},
 }
 
@@ -637,8 +787,13 @@ function GameConfig.GetDeadEvents(now)
 	local dead = {}
 	for _, event in ipairs(GameConfig.Events) do
 		-- A recurring event is never dead: `GetEventWindow` always answers with either the
-		-- occurrence running now or the next one, for any `now` at all.
-		if not event.recurring then
+		-- occurrence running now or the next one, for any `now` at all. A SEASONAL one (25.2) is
+		-- never dead for exactly the same reason and is skipped by the same test -- `SeasonEpoch`
+		-- keeps producing turnovers for ever, so the festival always has a next occurrence. It is
+		-- listed here rather than left to fall through the `nextStart` check below because this is
+		-- the one place that states which shapes are generated, and a reader who has to work that
+		-- out from the window arithmetic will get it wrong the day a fourth shape is added.
+		if not (event.recurring or event.seasonal) then
 			local window = GameConfig.GetEventWindow(event, now)
 			if window and not window.active and not window.nextStart then
 				table.insert(dead, { event = event, endedTs = window.endTs })
@@ -646,6 +801,42 @@ function GameConfig.GetDeadEvents(now)
 		end
 	end
 	return dead
+end
+
+-- ===== THE SECOND GUARD: TWO PARALLEL LISTS THAT MUST STAY THE SAME LENGTH (25.2) =====
+--
+-- The season festival's rotation is one herald per entry in `GameConfig.SeasonThemes`, and both are
+-- indexed by the same expression off the season number -- `1 + (index - 1) % #list`. They agree for
+-- ever if and only if the two lists are the same length. Add a seventh theme and say nothing here
+-- and the game does not break: it keeps running, keeps handing out heralds, and quietly hands the
+-- Cinder Herald to Frostbloom -- a skin named for a volcano paid out by a season named for frost,
+-- which is the kind of fault that is only ever noticed by a player.
+--
+-- 32.24's lesson is the one being applied: a comment saying "keep these in step" is a census, not a
+-- guard. This is the guard. It is a `warn` through `EventService.Init` and never an `error`, for
+-- 25.1's reason -- 21.11's boot watchdog would take out every service after it, and a mismatched
+-- rotation is a live-ops omission rather than a broken server.
+function GameConfig.GetSeasonFestivalMismatch()
+	local themes = GameConfig.SeasonThemes
+	if not themes then return nil end
+	for _, event in ipairs(GameConfig.Events) do
+		if event.seasonal and event.rotation then
+			if #event.rotation ~= #themes then
+				return ("%s has %d rotation entries against SeasonThemes' %d -- a herald will be paid out by the wrong season")
+					:format(event.key, #event.rotation, #themes)
+			end
+			-- A key that resolves to nothing is the same fault one step further on: the lengths
+			-- agree, the index lands, and `GetEventCharacter` hands back nil for a rung that is
+			-- supposed to pay a character.
+			for i, key in ipairs(event.rotation) do
+				if not GameConfig.GetEventCharacter(key) then
+					return ("%s rotation slot %d names '%s', which is not in GameConfig.EventCharacters")
+						:format(event.key, i, tostring(key))
+				end
+			end
+		end
+	end
+	return nil
 end
 
 -- The product of `field` across every live event, or 1 so a caller can multiply unconditionally.

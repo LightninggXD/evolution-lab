@@ -868,6 +868,20 @@ local EXHIBIT_X = 56          -- outside the street furniture (|x| < 40) and inb
 local EXHIBIT_Z = 330         -- one plinth south of the banner poles at z = 352
 local EXHIBIT_STEP = 24       -- 13-stud plinths, so an 11-stud gap: a colonnade, not a wall
 local EXHIBIT_FOOT = Vector3.new(20, 22, 18)
+-- ===== THE RANK IS A LATTICE THE WORLD GETS A VOTE ON (25.2) =====
+--
+-- 26.5 authored the step and let the rank be however long the roster made it, which was right while
+-- both sides held ten and five. 25.2 added six season heralds, the event side became ELEVEN, and
+-- the failure was not a plinth falling off the end -- that would at least have been obvious.
+-- `standAt` refuses an overlap and then searches for ANY free ground, sliding along the very axis
+-- the spacing is measured on, so the rank quietly stopped being a rank: measured on the boot that
+-- found this, the first five heralds stood at the authored spacing and the last six came out at
+-- 210.7, 214.7, --, 124.7, 114.7 and 104.7 -- two statues four studs apart, which on 13-stud bases
+-- is one lump of stone, one with nowhere to go at all, and no error anywhere.
+--
+-- So the step is no longer authored at all. `bestRank` below walks the line, asks the world at every
+-- slot, and keeps the step that stands the most figures. See its own note for the two things that
+-- makes it find nine where the obvious walk finds six.
 local FIGURE_HEIGHT = 9       -- a stage-1 player is about 6, so a figure looms without being scenery
 local PLINTH_TOP = DECK_TOP + 6.5
 -- Dead-inward would show the spawn nothing but shoulders; a fifth of a right angle toward the
@@ -924,7 +938,80 @@ local function standInRank(preferred, side)
 			return centre
 		end
 	end
-	return standAt(preferred, EXHIBIT_FOOT)
+	-- NO `standAt` FALLBACK ANY MORE, AND THAT IS THE 25.2 FIX. `standAt` slides along Z, and Z is
+	-- the axis the rank's rhythm is measured on -- so the last resort for a blocked plinth used to
+	-- be the one move that destroys the thing this function exists to protect. It is not a
+	-- hypothetical: with the event roster at eleven the west rank came out with two plinths 7.6
+	-- studs apart, which on 13-stud bases is one lump of stone, and a third with nowhere to go.
+	-- Returning nil hands the decision up to `rankSlots`, which moves to the NEXT SLOT instead --
+	-- a whole step, so the rank is either on its rhythm or it has an honest gap in it.
+	return nil
+end
+
+-- ===== A RANK IS A LATTICE, AND A BLOCKED SLOT IS SKIPPED RATHER THAN SQUEEZED (25.2) =====
+--
+-- WHAT THE PLAZA ACTUALLY HAS ROOM FOR, MEASURED ON THE LIVE WORLD RATHER THAN ASSUMED. A plinth
+-- footprint swept down each rank line from z 410 to z 90 finds:
+--
+--     x = +56 (VIP)    one clear run, z 124 .. 324   -> 10 slots   (GroupChest closes the north end)
+--     x = -56 (event)  z 206 .. 338 -> 7 slots, and z 98 .. 130 -> 2   = 9 slots
+--
+-- The west line is broken in half by the DNA Splicer, which stands at its authored spot (-72, 168)
+-- and reaches x -99.4 .. -44.6 -- straight through the rank, and it cannot be stepped around
+-- INBOARD either, because at x -48 and tighter something else closes the run all the way to z 100.
+-- So the plaza holds NINETEEN exhibits against a roster that is now twenty-one, and no arithmetic
+-- over the step changes that: at the 19-stud floor the two clear runs still yield 7 and 2.
+--
+-- THE HONEST ANSWER IS A GAP, NOT A SQUEEZE. This file already says so twice in its own words --
+-- *"a lamp that has moved 60 studs is no longer the lamp that was designed, and the honest answer
+-- at that point is not to build it"*, and *"an empty plinth with a price on it is a bug report,
+-- where a rank of eight is a rank"*. So the walk lays slots on the step, skips the ones the world
+-- refuses, stops at the plaza's own south edge, and whatever is left over is counted into the boot
+-- line's skipped tally. Two season heralds have no plinth today; the line says so every boot, which
+-- is the whole difference between a known gap and a silent one.
+--
+-- TWO THINGS MAKE THE WALK FIND NINE ON A LINE WHERE THE OBVIOUS ONE FINDS SIX.
+--
+-- It RE-PHASES past a blockage. A walk that always advances by a whole step keeps the phase it
+-- started with, so the 32-stud stretch south of the Splicer is only reached if a multiple of the
+-- step happens to land inside it -- measured: at a 21.6 step the lattice put ONE plinth in a
+-- stretch that holds two, because 114.7 landed there and 136.3 did not. On a refusal it therefore
+-- creeps by `PROBE` instead, and once it finds ground again it resumes stepping from there. The
+-- rhythm is regular WITHIN each stretch, which is what the eye reads; the gap between stretches is
+-- the machine, and a gap is allowed to be whatever width the machine is.
+--
+-- And the STEP ITSELF IS SEARCHED, widest first. The span arithmetic above is the right answer for
+-- an unobstructed line and the wrong one for a broken line: at 21.6 the north stretch fits six
+-- because the seventh slot lands 5 studs short of the stretch's end, where at 20 it fits seven.
+-- Six candidate steps is a small enough search to run at boot and it is decided by the same
+-- `occupied` test the plinths are, so it cannot disagree with what actually gets built.
+local EXHIBIT_Z_FLOOR = 100   -- the plaza's own box ends at z 94; below this is the village square
+local EXHIBIT_PROBE = 4       -- how far the walk creeps while it is looking for ground again
+local function rankSlots(side, count, step)
+	local slots = {}
+	local z = EXHIBIT_Z
+	while #slots < count and z >= EXHIBIT_Z_FLOOR do
+		local centre = standInRank(Vector3.new(EXHIBIT_X * side, 0, z), side)
+		if centre then
+			slots[#slots + 1] = centre
+			z -= step
+		else
+			z -= EXHIBIT_PROBE
+		end
+	end
+	return slots
+end
+
+-- The rank that stands the most figures, preferring the widest step that achieves it -- `>` and not
+-- `>=` is what keeps the preference, since the search runs from wide to narrow.
+local function bestRank(side, count)
+	local best = nil
+	for step = EXHIBIT_STEP, 19, -1 do
+		local slots = rankSlots(side, count, step)
+		if not best or #slots > #best then best = slots end
+		if #best >= count then break end
+	end
+	return best or {}
 end
 
 -- A museum label, not a floating billboard. A BillboardGui over a statue's head reads as a HUD
@@ -1205,8 +1292,15 @@ local function buildExhibit(model)
 	-- guard the caption above uses, and a prompt that fires a purchase which cannot complete is the
 	-- exact failure this row was written to avoid.
 	local sellKey = (pass and pass.passId and pass.passId > 0) and pass.key or nil
+	local vipSlots = bestRank(1, #GameConfig.VipCharacters)
 	for index, entry in ipairs(GameConfig.VipCharacters) do
-		local preferred = Vector3.new(EXHIBIT_X, 0, EXHIBIT_Z - (index - 1) * EXHIBIT_STEP)
+		local preferred = vipSlots[index]
+		-- The lattice ran out of plaza before it ran out of roster. Counted, never faked: the boot
+		-- line's tally is the only thing that will ever say so.
+		if not preferred then
+			skipped = skipped + 1
+			continue
+		end
 		local pos = buildStand(exhibit, preferred, 1, entry, "vip", vipLine, GOLD,
 			perkLineFor(entry), sellKey)
 		if pos then
@@ -1215,6 +1309,7 @@ local function buildExhibit(model)
 		end
 	end
 
+	local eventSlots = bestRank(-1, #GameConfig.EventCharacters)
 	for index, entry in ipairs(GameConfig.EventCharacters) do
 		local event = GameConfig.GetEvent(entry.event)
 		local rungs = #GameConfig.GetEventQuests(entry.event)
@@ -1226,7 +1321,11 @@ local function buildExhibit(model)
 		local line = rungs > 0
 			and ("%s \u{2022} %d-step ladder"):format(event and event.name or "Event", rungs)
 			or ("%s \u{2022} event exclusive"):format(event and event.name or "Event")
-		local preferred = Vector3.new(-EXHIBIT_X, 0, EXHIBIT_Z - (index - 1) * EXHIBIT_STEP)
+		local preferred = eventSlots[index]
+		if not preferred then
+			skipped = skipped + 1
+			continue
+		end
 		local pos = buildStand(exhibit, preferred, -1, entry, "event", line, entry.color)
 		if pos then
 			built += 1
