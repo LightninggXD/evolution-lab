@@ -1038,7 +1038,7 @@ highest risk. **Build it in two switchable stages, soft first.**
 
 | ID | | Task |
 |---|---|---|
-| 25.1 | `[ ]` | **A content calendar, not a backlog** — small weekly, large monthly. Every reference game's engagement is a function of its update cadence |
+| 25.1 | `[x]` | <!-- built, pushed and verified live 2026-09-11 (43rd) -->**A content calendar, not a backlog** — small weekly, large monthly. Every reference game's engagement is a function of its update cadence. **THE CALENDAR IS `docs/CONTENT-CALENDAR.md`, AND EVERY NUMBER IN IT WAS MEASURED OFF THE RUNNING GAME RATHER THAN TYPED.** The weekly grid was swept minute by minute across a clear week: **72 of 168 hours carry a live event and 96 do not**, in two stretches — **60 h from Mon 00:00 to Wed 12:00** and 36 h from Thu 12:00 to Sat 00:00 — so the row's "small weekly" beat already exists twice (Wed 12:00 surge, Sat 00:00 weekend) and the named place for the third is the 60-hour hole, which is the same argument 23.6 made and half-finished. Monthly is **two cycles that deliberately never align**: the season at 30 days (S2 *Deep Currents* → 2026-09-30 S3 *Ashfall* → 2026-10-30 S4 *Frostbloom*, six themes so a name repeats after 180 days and the number never does) and the Colosseum champion at 28, walked forward 70 days. **THE MEASUREMENT FOUND A HOLE NOTHING ELSE WOULD HAVE**: `PrismFest` closed **2026-09-07 12:00 UTC with `nextStart = nil`** — four days before the sweep — which made `event_prism` permanently unearnable with 26.1's four-rung ladder still built under it and the Journal still drawing it as a locked row, and **nothing anywhere said so**. That is exactly the fault Phase 26 opened to close, reopened by nothing but a date passing. **So the row shipped one line of code as well as a document**: `GameConfig.GetDeadEvents(now)` names any authored event with no occurrence left, `EventService.Init` reads it once per boot and `warn`s (a `warn`, never an `error` — 21.11's watchdog would take out every service after it), and the date itself is **left alone on purpose** because which weekend the festival lands on is 👤 hers, the same class of thing as a product id. §3 is the dated grid to 2026-11-14 with a ship slot per week; §4 carries the owner's two lines; §6 is the recipe for adding a beat | the boundary is exact and both halves measured: at 11:59 UTC on 07-09 `GetDeadEvents` returns `{}`, at 12:01 it returns `{PrismFest}`, a year later still `{PrismFest}`, and no recurring event is ever named; on a real Play boot the server log carries `[Events] "PrismFest" closed 2026-09-07 12:00 UTC and has NO future occurrence, so "event_prism" can no longer be earned` |
 | 25.2 | `[ ]` | **Limited-time events with an exclusive character.** The frame is built and holds three windows; this is the engine of both engagement and revenue in every game in the reference set |
 | 25.3 | `[ ]` | **Rotating weekend offers** with a visible timer |
 | 25.4 | `[ ]` | **The v1.0 relaunch** — icon and thumbnail tested against each other, codes seeded to creators, Moments clips cut from 23.3 and 24.4, timed to a live event window |
@@ -1661,6 +1661,58 @@ codebase and adding it is an infrastructure layer, not a feature.
 ---
 
 ## Changelog
+
+- **2026-09-11 (43rd)** -- **25.1 BUILT AND VERIFIED: THE CALENDAR, AND THE FESTIVAL THAT HAD
+  ALREADY EXPIRED WITHOUT TELLING ANYBODY.**
+
+  **The calendar was measured, not written.** `docs/CONTENT-CALENDAR.md` carries no number that was
+  not read out of the running game first. The weekly grid was swept at one-minute resolution across
+  a week clear of any authored window: **72 of 168 hours carry a live event, 96 do not**, and the
+  dark time is two stretches -- **60 h from Mon 00:00 to Wed 12:00** and 36 h from Thu 12:00 to
+  Sat 00:00. So the "small weekly" beat the row asks for already exists twice over, and the useful
+  output of the measurement is *where the third one goes*: the 60-hour hole. That is the same
+  argument 23.6 made when it added Splice Surge -- "a second beat mid-week is what a calendar is" --
+  and the arithmetic says the job is half done, not done.
+
+  **Monthly is two cycles that deliberately never line up**, walked forward seventy days: the season
+  at **30 days** (S2 *Deep Currents* -> 2026-09-30 S3 *Ashfall* -> 2026-10-30 S4 *Frostbloom*; six
+  themes, so a season NAME repeats after 180 days and the NUMBER never repeats) and the Colosseum
+  champion at **28**. Coprime in practice means a month reliably has two separate large beats rather
+  than one loud one.
+
+  **THE SWEEP FOUND SOMETHING NOTHING ELSE IN THIS REPO WOULD HAVE.** `PrismFest` closed at
+  **2026-09-07 12:00 UTC with `nextStart = nil`** -- four days before the sweep ran. It was the only
+  `fixed` event in the game and the only exclusive skin outside the Colosseum rotation, so
+  `event_prism` became permanently unearnable while 26.1's four-rung ladder stayed built underneath
+  it and the Journal kept drawing it as a locked row. **Nothing anywhere said so.** It is precisely
+  the fault Phase 26 was opened to close -- *"kako se uopste otkljucaju ovi event likovi"* --
+  reopened by nothing but a date passing.
+
+  **Which is why the row shipped code and not only a document.** The distinction the row names --
+  calendar, not backlog -- turns out to be a property of the *schedule*, not of the writing: a
+  `recurring` event and `SeasonEpoch` are generated from the clock and cannot run out, and a `fixed`
+  window is two typed dates that expire in silence. `GameConfig.GetDeadEvents(now)` names every
+  authored event with no occurrence left, and `EventService.Init` reads it once per boot and warns.
+  A `warn` and never an `error`: a lapsed festival is a live-ops omission, not a broken server, and
+  an error there would take out every service booted after it (21.11).
+
+  **The date is left alone on purpose.** Which weekend the launch festival lands on is a design
+  decision that is 👤 hers -- the same class of thing as a product id, and the comment over the row
+  already says the two dates are safe to edit. §4 of the calendar carries the exact line to change.
+  The guard's whole job is to make the expiry loud, not to guess.
+
+  **Both halves of the check measured.** The boundary is exact: at 2026-09-07 **11:59** UTC
+  `GetDeadEvents` returns `{}`, at **12:01** it returns `{PrismFest}`, a year later still
+  `{PrismFest}`, and no recurring event is ever named at any timestamp probed. On a real Play boot
+  the server log carries `[Events] "PrismFest" closed 2026-09-07 12:00 UTC and has NO future
+  occurrence, so "event_prism" can no longer be earned -- re-author its `fixed` dates in
+  GameConfig.Events or it is gone for good`. Hash sweep at session start: **241 of 241 files
+  byte-identical**; both edited files pushed and re-verified byte-identical after.
+
+  **Next:** 25.2 (limited-time events with an exclusive character -- largely shipped as 26.1-26.3
+  and 23.6, so the remaining piece is the NEXT festival and §4's rule that one ships with the one
+  after it already authored) and 25.3 (rotating weekend offers with a visible timer). 25.4 and 25.5
+  are owner / live-players rows.
 
 - **2026-09-10 (42nd)** -- **24.5 BUILT AND VERIFIED: ANTI-GRIEF, AND A BONUS THE ROW NAMED BUT NOTHING HAD.**
 

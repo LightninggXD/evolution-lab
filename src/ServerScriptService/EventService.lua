@@ -661,6 +661,20 @@ end
 -- INIT
 -- ============================================================================
 function EventService.Init()
+	-- 25.1: the calendar's guard, read once per boot and never again. A `fixed` event that has
+	-- already happened is invisible everywhere else in the game -- the board simply draws the next
+	-- recurring window instead -- so the only place an expired festival can announce itself is a
+	-- log line. Anything it gated (a ladder, a skin) is unreachable from this moment forward.
+	--
+	-- IT IS A `warn` AND NOT AN ERROR: a dead festival is a live-ops omission, not a broken server,
+	-- and an `error` here would take out every service booted after this one (21.11's watchdog).
+	for _, dead in ipairs(GameConfig.GetDeadEvents(EventService.Now())) do
+		local reward = dead.event.reward and dead.event.reward.characterKey
+		warn(("[Events] %q closed %s and has NO future occurrence%s -- re-author its `fixed` dates in GameConfig.Events or it is gone for good")
+			:format(dead.event.key, os.date("!%Y-%m-%d %H:%M UTC", dead.endedTs),
+				reward and (", so %q can no longer be earned"):format(reward) or ""))
+	end
+
 	valueObject = RS:FindFirstChild("LiveEvents")
 	if not valueObject then
 		valueObject = Instance.new("StringValue")

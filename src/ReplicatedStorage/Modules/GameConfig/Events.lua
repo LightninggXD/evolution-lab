@@ -612,6 +612,42 @@ function GameConfig.GetNextEvent(now)
 	return GameConfig.GetUpcomingEvents(now)[1]
 end
 
+-- ============================================================================
+-- THE CALENDAR'S ONE GUARD (25.1)
+-- ============================================================================
+-- WHAT THE CALENDAR MEASUREMENT FOUND, AND WHY IT IS A FUNCTION RATHER THAN A NOTE. Every recurring
+-- event above is generated from the clock, so it cannot run out -- that is the same argument
+-- `GameConfig.SeasonEpoch` makes for the season, and it is why neither has ever needed maintaining.
+-- A `fixed` event is the opposite: it is two authored dates, it happens once, and when it is over
+-- it is over silently. On 2026-09-11 the calendar sweep found `PrismFest` had closed four days
+-- earlier with `nextStart = nil`, which made `event_prism` -- the ONE exclusive skin outside the
+-- Colosseum rotation -- permanently unobtainable, with the Journal still drawing it as a locked row
+-- and 26.1's four-rung ladder still built underneath it. Nothing anywhere said so.
+--
+-- That is precisely the difference the 25.1 row names: a schedule that produces beats is a
+-- calendar, a list of dates that quietly runs out is a backlog. The recurring half needs no guard.
+-- The fixed half gets this one, and `EventService.Init` is what reads it, so the warning lands in
+-- the server log of every boot after the window closes rather than in a document nobody re-opens.
+--
+-- IT DOES NOT FIX THE DATE, ON PURPOSE. Which weekend the launch festival lands on is the owner's
+-- decision (the OWNER note over `PrismFest` says so) and inventing one here would be the same class
+-- of mistake as inventing a product id. The guard's whole job is to make the expiry loud.
+function GameConfig.GetDeadEvents(now)
+	now = now or GameConfig.EventNow()
+	local dead = {}
+	for _, event in ipairs(GameConfig.Events) do
+		-- A recurring event is never dead: `GetEventWindow` always answers with either the
+		-- occurrence running now or the next one, for any `now` at all.
+		if not event.recurring then
+			local window = GameConfig.GetEventWindow(event, now)
+			if window and not window.active and not window.nextStart then
+				table.insert(dead, { event = event, endedTs = window.endTs })
+			end
+		end
+	end
+	return dead
+end
+
 -- The product of `field` across every live event, or 1 so a caller can multiply unconditionally.
 --
 -- IT TAKES NO `data`, AND THAT IS THE DIFFERENCE BETWEEN AN EVENT AND A PASS IN ONE LINE: an event
