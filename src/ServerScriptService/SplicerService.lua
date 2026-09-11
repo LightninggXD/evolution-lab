@@ -136,17 +136,44 @@ local ROLL_INTERVAL = 1.2
 -- Every spot below was probed against the live world at the full footprint. All four sit on the
 -- plaza deck (x -172..172, z 80..416), outside the 30-stud corridor and inboard of the lamp line
 -- at x = +-84 -- which is the verge, and is where this machine has always belonged.
+--
+-- ===== TWO OF THESE USED TO STAND IN THE PLAZA'S COLONNADE, AND THAT IS WHY THEY MOVED (25.6) =====
+--
+-- `(-72, 168)` and `(-84, 160)` were the two "west verge, south" spots, and the verge they were on
+-- is the same verge `HubPlaza` ranks its exhibit statues down. Neither file knew: the machine is
+-- sited before the plaza is built, so the plaza simply found a 55-stud machine in the middle of its
+-- west rank and built around it. Measured on the boot that found this, the west line lost the whole
+-- band **z 140..205 at every x from -100 to -40** -- the machine is 60 studs across and there is no
+-- stepping round it -- so the rank came out in two pieces and three of its eleven plinths had
+-- nowhere to stand at all.
+--
+-- THE MACHINE MOVES OUTBOARD, IT DOES NOT CHANGE SIDES. The obvious repair was the east verge, and
+-- it is wrong twice over: every east candidate has a road driving through it (the authored spot
+-- above carries four sheets), and the west pocket is road-free for the very reason it is contested
+-- -- the plaza paves no roads across its own colonnade. So the replacement is the SAME pocket,
+-- 38 studs further out: `(-110, 170)` sits 14 studs clear of the rank's outer edge, is free of any
+-- driving line, and is refused only by one of the map's own props, which `MapClearance.Reserve`
+-- carries off exactly as it used to carry three off `(-72, 168)`.
+--
+-- `spotIsClear` now refuses this ground outright, so nothing here can drift back into the rank --
+-- not an edit to this list and not the ring search. The plaza publishes the band; see
+-- `HubPlaza.ExhibitGround`.
 local PREFERRED_SPOTS = {
 	-- The authored east-verge spot, kept FIRST because the argument above is still the right one on
 	-- any world where it is clear: it faces the walk-down and it is the side the machine was sited
-	-- on. It is simply not clear on every world.
+	-- on. It is simply not clear on every world -- measured on this one it carries four road sheets,
+	-- which is what sends the search past it.
 	Vector3.new(120, 0, 290),
-	-- West outer verge near the gate end. The nearest spot to the spawn walk-down that survives
-	-- every rule below, signage included.
-	Vector3.new(-156, 0, 384),
-	-- West verge, south. Open on every world probed.
-	Vector3.new(-72, 0, 168),
-	Vector3.new(-84, 0, 160),
+	-- West verge, outboard of the exhibit. The replacement for the retired `(-72, 168)`: same verge,
+	-- same road-free pocket, 14 studs clear of the statues. Measured road-free with one clearable
+	-- prop group on it.
+	Vector3.new(-110, 0, 170),
+	-- East verge at the authored z, 20 studs inboard of the spot above. Road-free on this world and
+	-- the nearest thing to the original composition that survives every rule.
+	Vector3.new(100, 0, 290),
+	-- West verge, north. The fourth real choice, so the list still offers ground on both sides of
+	-- the plaza rather than three points in one corner.
+	Vector3.new(-100, 0, 230),
 }
 -- The ring search still steps out from here when every authored spot is unlucky at once.
 local PREFERRED = PREFERRED_SPOTS[1]
@@ -394,6 +421,36 @@ local function placementRules()
 	local function spotIsClear(centre)
 		local blocked = math.abs(centre.X) - FOOTPRINT.X * 0.5 < STREET_HALF
 		local why = blocked and "the street" or nil
+		-- ===== AND THE PLAZA'S COLONNADE, WHICH NO OCCUPANCY TEST CAN SEE FROM HERE (25.6) =====
+		--
+		-- The exhibit does not exist yet when this runs -- the machine is sited before `HubPlaza`
+		-- builds -- so the box test below looks at empty deck and says yes. That is exactly how two
+		-- authored spots came to sit in the middle of the west rank. The plaza publishes the ground
+		-- it is about to claim and this reads it, which is the same contract `MachineGround` offers
+		-- the road builders in the other direction.
+		--
+		-- `why` is deliberately NOT "a prop": `reserveAuthoredSpot` only asks the map to clear a
+		-- spot refused for something standing on it, and there is nothing here to carry away -- the
+		-- refusal is a reservation, not an obstruction. Calling it a prop would send `ClearGround`
+		-- to move trees off a spot this function would go on refusing afterwards.
+		if not blocked then
+			-- Lazily required for the same reason `ForestMapService` is below: `HubPlaza` reaches
+			-- `JungleLayout`, which reaches this file, so a require at the top of the page is a
+			-- load-time cycle. By `Init` it is a registry lookup.
+			local okPlaza, HubPlaza = pcall(require, script.Parent.HubPlaza)
+			local ground = okPlaza and HubPlaza and HubPlaza.ExhibitGround
+			if ground then
+				local ax = math.abs(centre.X)
+				local x0, x1 = ax - FOOTPRINT.X * 0.5, ax + FOOTPRINT.X * 0.5
+				local z0, z1 = centre.Z - FOOTPRINT.Z * 0.5, centre.Z + FOOTPRINT.Z * 0.5
+				-- `ax` rather than `centre.X` because the ranks are mirrored: one each side of the
+				-- corridor, at the same distance out.
+				if x0 < ground.xMax and x1 > ground.xMin and z0 < ground.zMax and z1 > ground.zMin then
+					blocked = true
+					why = "the plaza's exhibit"
+				end
+			end
+		end
 		-- the event sign's sightline, rejected before the occupancy test because no occupancy test
 		-- can see it -- see SIGN_CLEAR
 		if not blocked then

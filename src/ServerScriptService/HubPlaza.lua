@@ -987,11 +987,49 @@ end
 -- `occupied` test the plinths are, so it cannot disagree with what actually gets built.
 local EXHIBIT_Z_FLOOR = 100   -- the plaza's own box ends at z 94; below this is the village square
 local EXHIBIT_PROBE = 4       -- how far the walk creeps while it is looking for ground again
-local function rankSlots(side, count, step)
+
+-- ===== ASKING THE MAP FOR A PLINTH'S GROUND BACK (25.6) =====
+--
+-- WHY A SEARCH ALONE CANNOT DELIVER THIS RANK. Forest's props are `math.random`-placed and re-rolled
+-- on every world rebuild, so how many plinths the line holds is a fact about THIS BOOT and not about
+-- the plaza: measured across consecutive boots, the west line held eleven on one and ten on the
+-- next, where a single village prop had come to rest across z 290..345 and blocked every nudge `x`
+-- as well. A composition whose length is decided by a dice roll is not a composition.
+--
+-- So the rank does what the DNA Splicer has done since 34.66 and asks the file whose whole job is
+-- moving a village prop out of the way. One plinth footprint at a time, and only for the slots the
+-- plain search could not fill -- `Reserve` is all-or-nothing and refuses before it touches anything
+-- when the box holds architecture, so a half-cleared plinth cannot happen, and its own cap stops a
+-- spot in a wood being emptied to seat a statue.
+--
+-- Lazily required for the cycle reason this file's other late requires carry: `ForestMapService`
+-- reaches `MapJungle` -> `JungleLayout` -> `SplicerService`, which reaches back here.
+local function clearAndRetry(preferred, side)
+	local ok, ForestMapService = pcall(require, script.Parent.ForestMapService)
+	if not ok or type(ForestMapService) ~= "table" or not ForestMapService.ClearGround then
+		return nil
+	end
+	local report = ForestMapService.ClearGround(ZONE_KEY, {
+		x = preferred.X, z = preferred.Z,
+		hx = EXHIBIT_FOOT.X * 0.5, hz = EXHIBIT_FOOT.Z * 0.5,
+	}, ("the plaza's exhibit plinth at (%d, %d)"):format(preferred.X, preferred.Z))
+	if report and report.cleared then
+		-- verified against the world afterwards rather than trusted: `Reserve` sees only the map's
+		-- own top-level props, where `standInRank` sees everything standing there
+		return standInRank(preferred, side)
+	end
+	return nil
+end
+
+local function rankSlots(side, count, step, mayClear)
 	local slots = {}
 	local z = EXHIBIT_Z
 	while #slots < count and z >= EXHIBIT_Z_FLOOR do
-		local centre = standInRank(Vector3.new(EXHIBIT_X * side, 0, z), side)
+		local preferred = Vector3.new(EXHIBIT_X * side, 0, z)
+		local centre = standInRank(preferred, side)
+		if not centre and mayClear then
+			centre = clearAndRetry(preferred, side)
+		end
 		if centre then
 			slots[#slots + 1] = centre
 			z -= step
@@ -1004,12 +1042,23 @@ end
 
 -- The rank that stands the most figures, preferring the widest step that achieves it -- `>` and not
 -- `>=` is what keeps the preference, since the search runs from wide to narrow.
+--
+-- THE STEP IS SEARCHED WITHOUT CLEARING AND THE RANK IS BUILT WITH IT, which is the whole reason
+-- these are two passes. The search runs the walk up to six times; clearing inside it would carry
+-- the artist's props around the village once per candidate step and then keep the answer from only
+-- one of them. So the dry passes decide the rhythm, and the map is asked for ground exactly once,
+-- at the step that won, and only if the line is still short of the roster.
 local function bestRank(side, count)
 	local best = nil
+	local bestStep = EXHIBIT_STEP
 	for step = EXHIBIT_STEP, 19, -1 do
-		local slots = rankSlots(side, count, step)
-		if not best or #slots > #best then best = slots end
+		local slots = rankSlots(side, count, step, false)
+		if not best or #slots > #best then best, bestStep = slots, step end
 		if #best >= count then break end
+	end
+	if best and #best < count then
+		local cleared = rankSlots(side, count, bestStep, true)
+		if #cleared > #best then best = cleared end
 	end
 	return best or {}
 end
@@ -1559,6 +1608,30 @@ function HubPlaza.Init()
 		grantPhotoReward(player)
 	end)
 end
+
+-- ===== THE GROUND THE COLONNADE CLAIMS, PUBLISHED FOR THE FILES THAT SITE LANDMARKS (25.6) =====
+--
+-- `SplicerService` reads this. Its four authored spots were probed against the live world and two
+-- of them -- (-72, 168) and (-84, 160) -- sit squarely inside the west rank, so on any world where
+-- those won the machine stood in the middle of a composed row of statues and the rank had to be
+-- built in two halves around it. Measured on the boot that found it: the west line lost the whole
+-- band z 140..205 at EVERY x from -100 to -40, which cost it three of the eleven plinths it owed.
+--
+-- IT IS DERIVED, NEVER TYPED. The band is the rank's own x and its own z extent, both widened by
+-- half a plinth footprint, so moving `EXHIBIT_X` or `EXHIBIT_Z` moves the reservation with it --
+-- the failure this replaces is exactly what happens when two files each hold their own copy of
+-- where a thing is.
+--
+-- Same shape and same argument as `SplicerService.MachineGround`, which that file publishes so the
+-- road builders keep off it: the piece that OWNS the ground is the piece that describes it.
+HubPlaza.ExhibitGround = {
+	xMin = EXHIBIT_X - EXHIBIT_FOOT.X * 0.5,
+	xMax = EXHIBIT_X + EXHIBIT_FOOT.X * 0.5,
+	zMin = EXHIBIT_Z_FLOOR - EXHIBIT_FOOT.Z * 0.5,
+	zMax = EXHIBIT_Z + EXHIBIT_FOOT.Z * 0.5,
+	-- mirrored on both sides of the corridor: the VIP rank is +x and the event rank -x
+	mirrored = true,
+}
 
 -- Exposed for probes: the plaza's own numbers, so a check does not have to re-derive them.
 HubPlaza.Bounds = {

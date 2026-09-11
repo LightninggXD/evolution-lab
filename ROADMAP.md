@@ -1043,7 +1043,8 @@ highest risk. **Build it in two switchable stages, soft first.**
 | 25.3 | `[x]` | <!-- built, pushed and verified live 2026-09-11 (44th) -->**Rotating weekend offers** with a visible timer. **TAKEN OUT OF TABLE ORDER ON PURPOSE: 25.1's own dated grid puts this row on the 2026-09-12 weekend -- tomorrow -- and 25.2 on the 2026-09-30 season turnover, so shipping the weekend feature onto the weekend it serves is following the plan 25.1 measured rather than departing from it.** **IT IS A BONUS AND NOT A DISCOUNT, AND THAT IS AN ENGINE CONSTRAINT: a developer product's price lives on the dashboard and cannot be moved from code, so the only way to sell "20% off" is a SECOND product at a lower price -- a new id, i.e. the 👤 OWNER row no agent may invent. The offer therefore pays MORE for the same price and ships with no dashboard action at all.** `GameConfig.WeekendOffers` is five existing **199 R$** products -- the middle rung of five different shelves, so the deal is the same size of decision every week and what rotates is which shelf it is on -- resolved off the weekend window's `startTs` exactly as `GetEventRewardKey` resolves the champion. **FIVE AGAINST THE CHAMPION'S FOUR, DELIBERATELY**: both are resolved off the SAME window, so equal lengths would lock them in phase for ever and two cycles that always agree are one cycle; five and four repeat after twenty weeks. **THE RIBBON IS ARITHMETIC AND NOT A CLAIM, WHICH IS THE 17.15 RULE APPLIED TO A ROUNDING**: 40% of 5 spins is 2 and 50% of 4 potions is 2, so the extras are rounded and floored at 1 FIRST and the percentage is derived BACK from what will actually be paid -- it may under-state the deal, never over-state it. Server-side the whole feature is one lookup in `ProcessReceipt` off `os.time()` (never `EventNow`, whose offset exists for clients) and a `+ extra` on each grant; the DNA bonus is added BEFORE `ScaleReward` because 50% of the authored 6,000 added afterwards is less than one kill at stage 14, i.e. a ribbon over nothing. **A 15-MINUTE RETRY GRACE, because `ProcessReceipt` is retried on Roblox's schedule and carries no purchase timestamp** -- it errs toward paying the bonus and never toward withholding it, since the reverse mistake is a refund. The store hero sits at the head of the list (above the Starter Pack and VIP: what expires goes first), repaints on a one-second tick while the panel is open, and draws a **teaser with no BUY button** in the 96 dark hours -- a button there would take the money and pay the base grant. `AddHero` gained `SetIcon` / `SetLineIcon` / `SetRibbon`: this is the first hero in the store whose SUBJECT rotates | **7 of 7 receipt cases pass through the REAL `ProcessReceipt`** (exposed as `RobuxShopService.ProcessReceipt` because `MarketplaceService.ProcessReceipt` is a write-only callback that cannot be read back and called): live window 125->**175 shards**; closed 5 min ago **175** (inside the grace); closed at exactly 900 s **175**; **901 s -> 125**; 20 min **125**; a product off the deal **25**; no window within a month **125**. The save was snapshotted, restored and **read back identical**, potions untouched. The toast names it -- `125 Evolution Shards  +40% WEEKEND BONUS` on the deal, plain off it. Photographed in both states: teaser (`Next Weekend`, grey `+40% EXTRA`, `Starts in 13h 21m`, no button) and live (`Weekend Deal`, red ribbon, `Ends in 37s`, `R$ 199` button), clock measured ticking **39 -> 34 -> 29 s** at 5-second samples, and the card goes `Visible=false` in the second the window shuts. **THE PHOTOGRAPH FOUND A FAULT NO ASSERTION WOULD HAVE**: the title was `product.name`, which the ribbon cut to `125 Evolution` -- and the half that survived stated the UNBOOSTED figure in 40 px directly above `175 Shards`. The title is the occasion now and the product is named beside its price |
 | 25.4 | `[ ]` | **The v1.0 relaunch** — icon and thumbnail tested against each other, codes seeded to creators, Moments clips cut from 23.3 and 24.4, timed to a live event window |
 | 25.5 | `[ ]` | **Re-measure against 20.5** and write both numbers here |
-| 25.6 | `[ ]` | **The plaza exhibit is FULL — two Heralds have no plinth, and it is a measurement rather than a bug.** Opened by 25.2. A plinth footprint swept down each rank line finds the VIP line (x +56) has one clear run of **10 slots**, and the event line (x -56) is **broken in half by the DNA Splicer** (authored spot (-72, 168), reaching x -99.4..-44.6): z 206..338 holds 7 and z 98..130 holds 2, so **9**. The roster is now 21 and the plaza holds **19**; stepping inboard is worse, because at x -48 and tighter something closes the run to z 100. 25.2 made the rank a lattice that skips a blocked slot instead of letting `standAt` slide along the spacing axis — which is what produced **two plinths 7.6 studs apart on 13-stud bases**, one lump of stone — so the rank is now honest and the omission is counted into the boot line. What is owed is ROOM: a second file, or moving the Splicer off the frontage. **`event_season_astral` and `event_season_bramble` are the two with nowhere to stand**, plus `vip_dragon_pet`, which has had no mesh since before this row | verified live: 18 of 21 standing, tightest gap **21.0** studs on the event rank and **24.0** on the VIP rank, with one honest **73-stud** gap where the Splicer is |
+| 25.6 | `[x]` | <!-- built, pushed and verified live 2026-09-11 (45th) -->**The plaza exhibit was full — and the ground was the fix, not the layout.** Opened by 25.2, closed the same session. **THE DNA SPLICER WAS STANDING IN THE COLONNADE, AND NEITHER FILE KNEW.** Two of its four authored spots, `(-72, 168)` and `(-84, 160)`, sit on the same west verge `HubPlaza` ranks its statues down; the machine is sited BEFORE the plaza builds, so the plaza simply found a 55-stud machine in its rank and built round it — measured, the west line lost **z 140..205 at every x from -100 to -40**, and there is no stepping round a 60-stud box. So the plaza now **publishes the ground it is about to claim** (`HubPlaza.ExhibitGround`, derived from `EXHIBIT_X`/`EXHIBIT_Z` rather than typed) and `SplicerService.spotIsClear` refuses it — the same contract `MachineGround` already offers the road builders in the other direction, and `why` is deliberately not `"a prop"` so `reserveAuthoredSpot` does not carry trees off a spot it will go on refusing. **The machine moves OUTBOARD, not to the other side**: every east candidate carries a road (the authored east spot carries four sheets), and the west pocket is road-free precisely because the plaza paves none across its colonnade — so `(-110, 170)` is the same pocket, 14 studs clear of the statues. **And the rank now reserves its own ground**, one plinth footprint at a time through `ForestMapService.ClearGround`, because Forest's props are `math.random`-placed and re-rolled every rebuild: measured across consecutive boots the west line held 11 on one and 10 on the next, a single village prop having come to rest across z 290..345 and blocking every nudge `x` too. **A composition whose length is decided by a dice roll is not a composition.** The step is searched dry and the map is asked for ground exactly once, at the winning step, only if the line is still short. `vip_dragon_pet` — the one VIP entry with an `accessory` instead of a `bundleId`, and so the only skin that never had a template — was generated and filed (**221 templates**), its `FaceFlip` decided by one capture against both controls and correctly left **unset** | **21 of 21 standing on three consecutive boots**, each a fresh world roll: VIP rank 10 of 10 at a uniform **24.0** pitch, event rank 11 of 11 at a uniform **20.0** pitch, one plinth nudged off the line on each side (the "slightly ragged edge" `RANK_NUDGE` exists to buy). The Splicer's box measures **x 72.6..127.4** against ranks that stand at |x| 44..66 — 6.6 studs clear. Photographed down the plaza's spine and head-on: two regular colonnades with nothing between them, and the plaques carry the seasonal rotation — *Cinder Herald · its turn in 18d 7h*, *Rime 48d 7h*, *Astral 78d 7h*, the 30-day season spacing read straight off the world |
+| 25.7 | `[ ]` | **Every AI-generated exhibit statue renders as a navy silhouette on the CLIENT, and it predates 25.2.** Found by the 25.6 photograph, with the control in the same frame: `Stand_vip_gold` (a baked catalog bundle) renders in gold, while **every `*_geom` mesh — the six new Heralds AND the four champions and the Prism Herald, which have been in the plaza since 26.5 — is flat `(0.18, 0.16, 0.26)` with `TextureID` empty.** **The server and the client disagree about the same part**: server-side the identical `right leg_geom` reads `Color (0.64, 0.64, 0.65)` with a real `rbxassetid://` texture. Not a streaming delay — it survives a `ContentProvider:PreloadAsync` of all 225 MeshParts and a clean reboot with a 6-second settle. **And the asset itself is fine**: the Cinder Herald rendered bright crimson when 25.2 photographed it WORN on a real body, which is the same template through `SkinMesh.Apply`. So the fault is in how `HubPlaza.buildFigure`'s server-built clone reaches the client, not in the meshes. Worth fixing before 25.4's relaunch: the exhibit is the plaza's whole shop window | the row is the diagnosis; the fix and its capture are owed |
 
 ---
 
@@ -1662,6 +1663,56 @@ codebase and adding it is an infrastructure layer, not a feature.
 ---
 
 ## Changelog
+
+- **2026-09-11 (45th, second half)** -- **25.6 CLOSED: THE PLAZA IS WHOLE, AND THE FIX WAS THE
+  GROUND RATHER THAN THE LAYOUT.**
+
+  25.2 left the exhibit holding 19 of 21 and called it a measurement. It was, but the measurement
+  was of a symptom. **The DNA Splicer was standing in the middle of the colonnade**: two of its four
+  authored spots sit on the same west verge `HubPlaza` ranks its statues down, and the machine is
+  sited before the plaza builds, so the plaza found a 55-stud machine in its rank and built around
+  it. The west line lost z 140..205 at every x from -100 to -40 -- there is no stepping round a
+  60-stud box.
+
+  Neither file knew about the other, so now one of them says so. `HubPlaza.ExhibitGround` publishes
+  the band the colonnade claims, **derived from the rank's own constants rather than typed**, and
+  `SplicerService.spotIsClear` refuses it -- the mirror of the contract `MachineGround` already
+  offers the road builders. The refusal is deliberately not called *"a prop"*, because
+  `reserveAuthoredSpot` would then send `ClearGround` to carry the artist's trees off a spot it goes
+  on refusing anyway.
+
+  **The machine moves outboard, not to the other side.** The obvious repair was the east verge and
+  it is wrong twice: every east candidate carries a road (the authored east spot carries four
+  sheets), and the west pocket is road-free *precisely because* the plaza paves nothing across its
+  own colonnade. So the replacement is the same pocket, 38 studs further out.
+
+  **And then a second boot said the job was not done.** The rank came back holding ten, not eleven,
+  because a single village prop had come to rest across z 290..345 and blocked every nudge x as
+  well -- Forest's props are `math.random`-placed and re-rolled on every rebuild. **A composition
+  whose length is decided by a dice roll is not a composition**, so the rank now asks for its own
+  ground the way the Splicer has since 34.66: one plinth footprint at a time through
+  `ForestMapService.ClearGround`, only for the slots the plain search could not fill. The step is
+  searched dry -- six candidate walks with no side effects -- and the map is asked exactly once, at
+  the step that won.
+
+  `vip_dragon_pet` got the mesh it never had. It is the one VIP entry carrying an `accessory`
+  instead of a `bundleId`, which is why it was the only skin with no template and had been skipped
+  every boot since it was added. 220 -> **221 templates**; its `FaceFlip` was decided by one capture
+  against both controls and correctly left unset.
+
+  **21 of 21 standing on three consecutive boots**, each a fresh world roll: VIP 10 of 10 at a
+  uniform 24.0 pitch, event 11 of 11 at a uniform 20.0, and the Splicer's box measured x
+  72.6..127.4 against ranks at |x| 44..66.
+
+  **THE PHOTOGRAPH THEN FOUND SOMETHING OLDER THAN EITHER ROW (25.7).** Every statue in the event
+  rank renders as a flat navy silhouette -- and so do the four champions and the Prism Herald, which
+  have stood there since 26.5. The control is in the same frame: `vip_gold`, a baked catalog bundle,
+  renders in gold. Client-side every `*_geom` mesh reads `Color (0.18, 0.16, 0.26)` with an empty
+  `TextureID`, where the **server** reads the same part as `(0.64, 0.64, 0.65)` with a real texture.
+  It survives a `PreloadAsync` of all 225 MeshParts and a clean reboot, and the same template
+  rendered bright crimson when 25.2 photographed it worn on a body -- so the assets are fine and the
+  fault is in how the server-built clone reaches the client. Filed as 25.7 rather than fixed,
+  because it is a rendering path this row never touched.
 
 - **2026-09-11 (45th)** -- **25.2 BUILT AND VERIFIED: THE SEASON FESTIVAL, AND A COLONNADE THAT
   QUIETLY STOPPED BEING A COLONNADE.**
