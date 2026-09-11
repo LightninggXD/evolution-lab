@@ -94,6 +94,18 @@ local WASH_PASS = { Color3.fromRGB(255, 214, 120), Color3.fromRGB(228, 150, 20) 
 local OWNED_FILL = { Color3.fromRGB(214, 238, 224), Color3.fromRGB(150, 205, 175) }
 local RIBBON_PASS = { Color3.fromRGB(255, 226, 130), Color3.fromRGB(240, 165, 20) }
 
+-- The THIRD ribbon claim, and it is a third colour because it is a third kind of statement (25.3).
+-- Gold says "the best rung of this ladder", violet says "this much more per Robux than the cheapest
+-- rung" -- both are permanent facts about the table. Red says "this stops on Sunday", which is the
+-- only one of the three that is a fact about the CLOCK, and a deal wearing the gold of BEST VALUE
+-- would read as another permanent shelf. Red is also the colour nothing else in this store wears.
+local RIBBON_DEAL = { Color3.fromRGB(255, 156, 140), Color3.fromRGB(224, 52, 52) }
+
+-- The teaser's ribbon, for the 96 hours a week with no window open. Deliberately NOT red: a card
+-- that cannot be bought yet must not wear the colour of a card that can, or the store spends five
+-- days of every week shouting about a button that is not there.
+local RIBBON_SOON = { Color3.fromRGB(196, 206, 240), Color3.fromRGB(96, 112, 176) }
+
 -- ===== ONE HUE PER THING-YOU-RECEIVE, NOT PER PRICE TIER =====
 --
 -- Keyed off the GRANT rather than off `tierGroup`, because three of the products have no group at
@@ -121,7 +133,11 @@ local function washFor(p)
 	if p.grantDiamonds then return WASH.diamond end
 	if p.grantShards then return WASH.shard end
 	if p.grantPotions then return WASH.potion end
-	if p.grantSpin then return WASH.spin end
+	-- `grantSpins` (the PACKS, 34.46) as well as `grantSpin` (the single one-press wheel). The packs
+	-- were added after this table and fell through to the neutral grey, so the three brightest
+	-- purple products in the store drew as `other` -- found while building the offer hero, whose
+	-- rotation puts `Spins_5` on the card every fifth weekend.
+	if p.grantSpin or p.grantSpins then return WASH.spin end
 	if p.grantSeasonPremium then return WASH.season end
 	return WASH.other
 end
@@ -308,6 +324,132 @@ function ShopPanel.Init(screenGui)
 	-- the save that changes underneath it. `Visible` is the whole mechanism, and it is answered by
 	-- `GameConfig.IsStarterPackEligible` in the refresh below -- the SAME predicate the server fires
 	-- the join card on, so the card and the hero can never disagree about who this is for.
+	-- ===== THE WEEKEND OFFER SITS ABOVE EVERYTHING, AND ONLY WHILE IT IS TRUE (25.3) =====
+	--
+	-- LayoutOrder -2, i.e. above the Starter Pack's -1 and the VIP hero's 0. The order is an argument
+	-- about time rather than about price: VIP is buyable for ever and the Starter Pack for as long as
+	-- this player has never spent, and the weekend deal is the only thing in this store that is gone
+	-- on Monday. What expires goes first.
+	--
+	-- BUILT ONCE AND REPAINTED, never rebuilt -- `Init` runs once and the rotation moves under it. It
+	-- is the first hero in this panel whose SUBJECT changes (a DNA pack this week, a Diamond pack
+	-- next), which is what `SetIcon` / `SetLineIcon` / `SetRibbon` were added to the builder for.
+	--
+	-- BUILT EVEN WHEN NOTHING IS ON, for the same reason the Starter Pack hero is: eligibility is a
+	-- property of the clock and the clock moves while the panel exists. `Visible` is the mechanism.
+	--
+	-- THE CALLBACK READS A MUTABLE KEY AND NOT A CAPTURED PRODUCT. A closure over `offerProduct` at
+	-- build time would go on prompting last week's pack for ever, and it would do it silently -- the
+	-- card would say Diamonds and the receipt would pay DNA. The key is written by the repaint below
+	-- and read at press time, so the two cannot separate. Nil means no press, which is the state a
+	-- teaser card is in.
+	local offerProductKey = nil
+	local offerHero = panel.AddHero({
+		Name = "WeekendOffer",
+		LayoutOrder = -2,
+		Title = "Weekend Deal",
+		Icon = "",
+		IconPlate = true,
+		BackgroundColors = WASH.other,
+		Ribbon = { Text = "WEEKEND DEAL", Colors = RIBBON_DEAL },
+		-- Three placeholder lines, because `AddHero` builds exactly as many rows as it is handed and
+		-- the repaint can only write into rows that exist.
+		Lines = {
+			{ Icon = "", Text = "" },
+			{ Icon = "", Text = "" },
+			{ Icon = "", Text = "" },
+		},
+		Button = {
+			Name = "Buy",
+			Price = "R$ ?",
+			Icon = "",
+			Colors = ROBUX,
+			Callback = function()
+				if not offerProductKey then return end
+				Remotes.PromptRobuxPurchase:FireServer(offerProductKey)
+			end,
+		},
+	})
+	offerHero.Instance.Visible = false
+
+	--- Paint the offer hero against the clock. Called from the panel refresh AND from a one-second
+	--- loop while the store is open -- the refresh alone would leave the countdown frozen at whatever
+	--- it said when the last payload landed, which for a card whose whole point is a deadline is the
+	--- one thing it must not do.
+	---
+	--- THE SERVER'S CLOCK, NOT THE MACHINE'S. `GameConfig.EventNow()` is `os.time()` plus the offset
+	--- `EventService` publishes, so a player whose PC is a day fast is shown the window the server is
+	--- actually running rather than one of their own.
+	---
+	--- IT DRAWS TWO STATES AND HIDES ON NEITHER-OF-THEM. Live: the deal, its clock, and a BUY button.
+	--- Not live: the deal the NEXT window carries, its clock, and NO button -- a button here would
+	--- take the money and pay the base grant, which is the store lying about arithmetic the server is
+	--- about to do differently. The teaser exists because the calendar measured 96 of 168 hours with
+	--- no event at all; an empty store in that stretch is a shop with nothing to come back for.
+	local function paintOffer()
+		local now = GameConfig.EventNow()
+		local deal = GameConfig.GetWeekendOffer(now) or GameConfig.GetNextWeekendOffer(now)
+		if not deal then
+			offerHero.Instance.Visible = false
+			offerProductKey = nil
+			return
+		end
+
+		local product = deal.product
+		-- A COPY WITH THE BONUS FOLDED IN, so the sentence comes out of the SAME `bundleLine` every
+		-- other card uses. Writing a second formatter here is how the card and the receipt start
+		-- disagreeing about what a pack contains; this way a grant field added to the config arrives
+		-- on this card for free, exactly as the note over `bundleLine` promises.
+		local boosted = {}
+		for field, value in pairs(product) do boosted[field] = value end
+		for field, extra in pairs(deal.extras) do
+			boosted[field] = (tonumber(boosted[field]) or 0) + extra
+		end
+
+		offerProductKey = deal.live and product.key or nil
+		offerHero.Instance.Visible = true
+		-- ===== THE TITLE IS THE DEAL AND NOT THE PRODUCT, AND A PHOTOGRAPH IS WHY =====
+		--
+		-- It was `product.name`, and the first capture of this card showed two faults in one line.
+		-- The 40 px title and the right-aligned ribbon share a row, so "125 Evolution Shards" was cut
+		-- to "125 Evolution" under "NEXT WEEKEND" -- the VIP and Starter heroes never showed it
+		-- because their names are two words. And the half that survived was the worse half: the
+		-- product's name states the UNBOOSTED figure, so the card read `125` in 40 px with `175
+		-- Shards` directly beneath it. A store contradicting itself about the quantity is worse than
+		-- a store that does not name the pack.
+		--
+		-- So the title is the occasion (two short words, which always fit), the ribbon is the size of
+		-- the deal, and the PRODUCT is named on its own line beside the price -- which is where a
+		-- shopper needs it, because that is the name the Roblox purchase prompt will show them.
+		offerHero.SetTitle(deal.live and "Weekend Deal" or "Next Weekend")
+		offerHero.SetIcon(IconLibrary.Resolve(product.emoji) or "")
+		offerHero.SetColors(washFor(product))
+		-- THE PERCENTAGE IS `deal.bonusPct`, WHICH IS THE ONE THE SERVER WILL ACTUALLY PAY. The
+		-- authored `bonusPct` on the offer row is what was asked for; `GetWeekendOfferBonus` rounds
+		-- the extras onto whole spins and whole potions and derives this figure back from them, so
+		-- this ribbon cannot promise a percentage the receipt refuses.
+		offerHero.SetRibbon(("+%d%% EXTRA"):format(deal.bonusPct),
+			deal.live and RIBBON_DEAL or RIBBON_SOON)
+
+		offerHero.SetLineIcon(1, IconLibrary.Resolve("\u{1F381}") or "")
+		offerHero.SetLine(1, bundleLine(boosted))
+		offerHero.SetLineIcon(2, IconLibrary.Resolve("\u{1F4B0}") or "")
+		offerHero.SetLine(2, ("%s  \u{00B7}  R$ %d"):format(product.name, tonumber(product.price) or 0))
+		offerHero.SetLineIcon(3, IconLibrary.Resolve("\u{23F3}") or "")
+		if deal.live then
+			offerHero.SetLine(3, ("Ends in %s"):format(
+				GameConfig.FormatDuration((deal.window.endTs or now) - now)))
+		else
+			offerHero.SetLine(3, ("Starts in %s"):format(
+				GameConfig.FormatDuration((deal.window.nextStart or now) - now)))
+		end
+
+		if offerHero.Button then
+			offerHero.Button.Instance.Visible = deal.live and true or false
+			offerHero.Button.SetPrice("R$ " .. tostring(product.price or "?"))
+		end
+	end
+
 	local starter = GameConfig.GetRobuxProduct("StarterPack")
 	local starterHero = nil
 	if starter then
@@ -486,8 +628,34 @@ function ShopPanel.Init(screenGui)
 			ownedKeys[pass.key] = has
 			if handle then paintPassButton(handle, pass, has) end
 		end
+		-- IN THE REFRESH AS WELL AS ON THE TICK BELOW, so the card is already right in the frame the
+		-- store opens in. The tick's first `wait(1)` is a second the player would otherwise spend
+		-- looking at the previous painting.
+		paintOffer()
 	end)
 	panel.Refresh()
+
+	-- ===== THE CLOCK, AND WHY IT IS A LOOP AND NOT A CONNECTION =====
+	--
+	-- There is no event that fires when a window closes: an event in this game is arithmetic on a
+	-- timestamp (`GameConfig.Events`' own header), so the only way to notice the deadline passing is
+	-- to ask. One second is the resolution `FormatDuration` prints at under a minute.
+	--
+	-- GUARDED ON `IsOpen`, so a store nobody has opened costs one comparison a second and nothing
+	-- else -- the same guard the HUD's own countdowns use. It ends with the panel: `Init` is called
+	-- once per client and the loop's condition is the panel's own existence in the tree, so a
+	-- respawn or a rebuilt HUD cannot leave two of these running.
+	task.spawn(function()
+		while panel and panel.Overlay and panel.Overlay.Parent do
+			if panel.IsOpen() then
+				-- pcall, because this runs forever and a throw would freeze the countdown for the
+				-- rest of the session with no error the player could report
+				local ok, err = pcall(paintOffer)
+				if not ok then warn("[ShopPanel] offer repaint failed: " .. tostring(err)) end
+			end
+			task.wait(1)
+		end
+	end)
 
 	return panel
 end

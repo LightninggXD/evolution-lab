@@ -712,4 +712,196 @@ function GameConfig.GetEventHeadline(now)
 	return nil
 end
 
+-- ============================================================================
+-- THE WEEKEND OFFER (25.3) -- ROTATING, AND IT INVENTS NO PRODUCT
+-- ============================================================================
+-- The calendar (`docs/CONTENT-CALENDAR.md` S3) put this row on the 2026-09-12 weekend, which is the
+-- weekend it serves. What it adds is the one thing the storefront had no version of: a reason to
+-- open the shop THIS weekend rather than some weekend.
+--
+-- ===== IT IS A BONUS, NOT A DISCOUNT, AND THAT IS AN ENGINE CONSTRAINT RATHER THAN A TASTE =====
+--
+-- A developer product's price lives on the Roblox dashboard and cannot be moved from code. The only
+-- way to sell "20% off" is to create a SECOND product at the lower price -- i.e. a new id, i.e. the
+-- OWNER row this config forbids any agent from inventing. So the weekend offer pays MORE for the
+-- same price, which is what the reference games do for the same reason, and it ships without a
+-- single dashboard action.
+--
+-- ===== THE ROTATION IS FIVE AND THE CHAMPION'S IS FOUR, DELIBERATELY =====
+--
+-- Both are resolved off the SAME weekend window, so equal lengths would lock them in phase for
+-- ever: the Ember weekend would be the DNA weekend and nothing else, at every occurrence, and two
+-- cycles that always agree are one cycle. Five against four repeats after twenty weeks. This is the
+-- season-vs-champion argument in S2 of the calendar, one layer down.
+--
+-- ===== EVERY ENTRY IS AN EXISTING 199 R$ PRODUCT =====
+--
+-- The middle rung of five different shelves, so the deal is the same size of decision every week and
+-- what rotates is which shelf it is on. `productKey` is checked against `GameConfig.RobuxProducts`
+-- at load time below -- this part loads AFTER `RobuxShop`, which is what makes that check possible
+-- here and impossible the other way round.
+GameConfig.WeekendOfferEventKey = "Weekend2x"
+
+-- HOW LONG AFTER THE WINDOW SHUTS A RECEIPT STILL PAYS THE BONUS.
+--
+-- `ProcessReceipt` is retried on Roblox's own schedule and carries no purchase timestamp, so a
+-- player who pressed BUY at 23:58 on Sunday can have their receipt land on another server after the
+-- window has closed. Evaluating the offer at receipt time with no grace silently short-pays exactly
+-- the buyer who bought at the loudest moment of the weekend.
+--
+-- The grace errs toward PAYING the bonus and never toward withholding it: for fifteen minutes after
+-- close a fresh purchase is also paid the bonus, which costs a rounding error of Robux-funded
+-- currency and cannot produce a complaint. The reverse mistake produces a refund.
+GameConfig.WeekendOfferReceiptGrace = 15 * 60
+
+GameConfig.WeekendOffers = {
+	{ productKey = "DNA_3",      bonusPct = 50 },
+	{ productKey = "Diamonds_3", bonusPct = 40 },
+	{ productKey = "Spins_5",    bonusPct = 40 },
+	{ productKey = "Shards_2",   bonusPct = 40 },
+	{ productKey = "Potions_10", bonusPct = 50 },
+}
+
+-- The COUNTED grant fields, i.e. the ones a percentage means anything against. `grantSpin`,
+-- `grantSeasonPremium` and the cosmetic rows are booleans and flags -- 50% of a flag is the flag, so
+-- an offer authored against one of those would show a ribbon and pay nothing. The load check at the
+-- bottom of this section refuses such a row rather than letting it reach the store.
+local OFFER_BONUS_FIELDS = {
+	"grantDNA", "grantDiamonds", "grantShards", "grantSpins",
+	"grantPotions", "grantTierUps", "grantBossRevives",
+}
+
+-- ===== THE RIBBON IS ARITHMETIC, NOT A CLAIM -- THE SAME RULE THE TIER BONUS FOLLOWS =====
+--
+-- `bonusPct` is what was ASKED for; this returns what is actually PAID and the percentage that
+-- actually is. A counted grant has to land on a whole number -- 40% of 5 spins is 2 and 50% of 4
+-- potions is 2 -- and a store that rounds down while advertising the authored figure is promising
+-- something the receipt refuses. So the extras are computed first, rounded, floored at 1 so an offer
+-- can never pay nothing, and the percentage is derived BACK from them. The displayed figure is
+-- floored for the same reason: it may under-state the deal, never over-state it.
+--
+-- The minimum across fields, when a product grants more than one thing: the headline has to be true
+-- of every line under it.
+function GameConfig.GetWeekendOfferBonus(product, offer)
+	local wanted = offer and tonumber(offer.bonusPct) or 0
+	if not (product and wanted > 0) then return nil, 0 end
+	local extras, pct = nil, nil
+	for _, field in ipairs(OFFER_BONUS_FIELDS) do
+		local base = tonumber(product[field])
+		if base and base > 0 then
+			local extra = math.max(1, math.floor(base * wanted / 100 + 0.5))
+			extras = extras or {}
+			extras[field] = extra
+			local real = extra / base * 100
+			if not pct or real < pct then pct = real end
+		end
+	end
+	if not extras then return nil, 0 end
+	return extras, math.floor(pct + 1e-9)
+end
+
+-- Which entry a window carries. OFF `startTs` AND NEVER OFF `now`, for the reason written out in
+-- full over `GetEventRewardKey`: an index taken from the clock changes answer underneath a player
+-- who is looking at the card, and two players in the same server would be offered different deals.
+local function offerForWindowStart(startTs)
+	local list = GameConfig.WeekendOffers
+	if not (startTs and #list > 0) then return nil end
+	local index = 1 + math.floor(startTs / EVENT_WEEK) % #list
+	local offer = list[index]
+	local product = offer and GameConfig.GetRobuxProduct(offer.productKey)
+	if not product then return nil end
+	local extras, pct = GameConfig.GetWeekendOfferBonus(product, offer)
+	if not extras then return nil end
+	return { offer = offer, product = product, index = index, extras = extras, bonusPct = pct }
+end
+
+--- The deal running right now, or nil. `live` is always true on what this returns -- a caller that
+--- wants the teaser asks `GetNextWeekendOffer` instead, because the two differ in which window's
+--- `startTs` resolves the rotation, and conflating them offers LAST weekend's deal as next week's.
+function GameConfig.GetWeekendOffer(now)
+	now = now or GameConfig.EventNow()
+	local event = GameConfig.GetEvent(GameConfig.WeekendOfferEventKey)
+	if not event then return nil end
+	local window = GameConfig.GetEventWindow(event, now)
+	if not (window and window.active) then return nil end
+	local resolved = offerForWindowStart(window.startTs)
+	if not resolved then return nil end
+	resolved.window = window
+	resolved.live = true
+	return resolved
+end
+
+--- The deal the NEXT window will carry, with the window it opens in. For the store's teaser during
+--- the 96 hours of the week that carry no event at all (S1 of the calendar) -- an absent card is a
+--- shop with nothing to come back for, which is the fault the calendar was written to name.
+function GameConfig.GetNextWeekendOffer(now)
+	now = now or GameConfig.EventNow()
+	local event = GameConfig.GetEvent(GameConfig.WeekendOfferEventKey)
+	if not event then return nil end
+	local window = GameConfig.GetEventWindow(event, now)
+	if not window or window.active or not window.nextStart then return nil end
+	local resolved = offerForWindowStart(window.nextStart)
+	if not resolved then return nil end
+	resolved.window = window
+	resolved.live = false
+	return resolved
+end
+
+--- Everything an offer adds to ONE receipt, at `now`, or nil -- the server's single question.
+---
+--- The grace is applied here and nowhere else, so `RobuxShopService` does not have to know that
+--- receipts are retried and the rule lives beside the constant that states it.
+---
+--- ===== THE GRACE READS THE WINDOW THAT CLOSED, NOT THE CLOCK SHIFTED BACKWARDS =====
+---
+--- The first cut of this asked `GetWeekendOffer(now - grace)` and a probe caught what that costs:
+--- resolving at a shifted instant resolves the rotation at that instant too, so any shift that
+--- crosses a Unix week boundary answers with a DIFFERENT entry -- the key then fails to match and
+--- the grace silently pays nothing, which is the exact failure the grace exists to prevent.
+---
+--- A Saturday window cannot cross that boundary today (the epoch fell on a Thursday, which is why
+--- `GetEventRewardKey` says the same thing about its own index), so the first cut was correct for
+--- the authored calendar and wrong for any calendar. The window's `startTs` is the fact this needs
+--- and `GetEventWindow` already returns it for a closed occurrence; asking it twice at two
+--- different clocks was the mistake.
+function GameConfig.GetWeekendOfferForReceipt(productKey, now)
+	now = now or GameConfig.EventNow()
+	local resolved = GameConfig.GetWeekendOffer(now)
+	if not resolved then
+		local event = GameConfig.GetEvent(GameConfig.WeekendOfferEventKey)
+		local window = event and GameConfig.GetEventWindow(event, now)
+		local grace = GameConfig.WeekendOfferReceiptGrace or 0
+		-- `>= endTs` and not `> endTs`: the instant of closure belongs to the grace, not to neither.
+		if window and window.endTs and now >= window.endTs and (now - window.endTs) <= grace then
+			resolved = offerForWindowStart(window.startTs)
+			if resolved then
+				resolved.window = window
+				-- NOT `live`. Nothing draws this -- the store asks `GetWeekendOffer` -- but a caller
+				-- that ever did must not be told a closed window is open.
+				resolved.live = false
+			end
+		end
+	end
+	if resolved and resolved.product.key == productKey then return resolved end
+	return nil
+end
+
+-- A LOAD-TIME CHECK, because every fault this table can carry is silent at runtime: a mistyped key
+-- draws no card at all, and a flag-only product draws a ribbon over a bonus of nothing. Both look
+-- exactly like "the weekend is not on". `warn` and never `error` -- 21.11's boot watchdog takes out
+-- every service after a service that throws, and a wrong shop ribbon must not cost the game.
+for index, offer in ipairs(GameConfig.WeekendOffers) do
+	local product = GameConfig.GetRobuxProduct(offer.productKey)
+	if not product then
+		warn(("[GameConfig] WeekendOffers[%d] names %q, which is not a product"):format(
+			index, tostring(offer.productKey)))
+	elseif product.delisted then
+		warn(("[GameConfig] WeekendOffers[%d] offers %q, which is delisted"):format(
+			index, tostring(offer.productKey)))
+	elseif not GameConfig.GetWeekendOfferBonus(product, offer) then
+		warn(("[GameConfig] WeekendOffers[%d] offers %q, which has no counted grant to bonus"):format(
+			index, tostring(offer.productKey)))
+	end
+end
+
 end

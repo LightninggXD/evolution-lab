@@ -1040,7 +1040,7 @@ highest risk. **Build it in two switchable stages, soft first.**
 |---|---|---|
 | 25.1 | `[x]` | <!-- built, pushed and verified live 2026-09-11 (43rd) -->**A content calendar, not a backlog** — small weekly, large monthly. Every reference game's engagement is a function of its update cadence. **THE CALENDAR IS `docs/CONTENT-CALENDAR.md`, AND EVERY NUMBER IN IT WAS MEASURED OFF THE RUNNING GAME RATHER THAN TYPED.** The weekly grid was swept minute by minute across a clear week: **72 of 168 hours carry a live event and 96 do not**, in two stretches — **60 h from Mon 00:00 to Wed 12:00** and 36 h from Thu 12:00 to Sat 00:00 — so the row's "small weekly" beat already exists twice (Wed 12:00 surge, Sat 00:00 weekend) and the named place for the third is the 60-hour hole, which is the same argument 23.6 made and half-finished. Monthly is **two cycles that deliberately never align**: the season at 30 days (S2 *Deep Currents* → 2026-09-30 S3 *Ashfall* → 2026-10-30 S4 *Frostbloom*, six themes so a name repeats after 180 days and the number never does) and the Colosseum champion at 28, walked forward 70 days. **THE MEASUREMENT FOUND A HOLE NOTHING ELSE WOULD HAVE**: `PrismFest` closed **2026-09-07 12:00 UTC with `nextStart = nil`** — four days before the sweep — which made `event_prism` permanently unearnable with 26.1's four-rung ladder still built under it and the Journal still drawing it as a locked row, and **nothing anywhere said so**. That is exactly the fault Phase 26 opened to close, reopened by nothing but a date passing. **So the row shipped one line of code as well as a document**: `GameConfig.GetDeadEvents(now)` names any authored event with no occurrence left, `EventService.Init` reads it once per boot and `warn`s (a `warn`, never an `error` — 21.11's watchdog would take out every service after it), and the date itself is **left alone on purpose** because which weekend the festival lands on is 👤 hers, the same class of thing as a product id. §3 is the dated grid to 2026-11-14 with a ship slot per week; §4 carries the owner's two lines; §6 is the recipe for adding a beat | the boundary is exact and both halves measured: at 11:59 UTC on 07-09 `GetDeadEvents` returns `{}`, at 12:01 it returns `{PrismFest}`, a year later still `{PrismFest}`, and no recurring event is ever named; on a real Play boot the server log carries `[Events] "PrismFest" closed 2026-09-07 12:00 UTC and has NO future occurrence, so "event_prism" can no longer be earned` |
 | 25.2 | `[ ]` | **Limited-time events with an exclusive character.** The frame is built and holds three windows; this is the engine of both engagement and revenue in every game in the reference set |
-| 25.3 | `[ ]` | **Rotating weekend offers** with a visible timer |
+| 25.3 | `[x]` | <!-- built, pushed and verified live 2026-09-11 (44th) -->**Rotating weekend offers** with a visible timer. **TAKEN OUT OF TABLE ORDER ON PURPOSE: 25.1's own dated grid puts this row on the 2026-09-12 weekend -- tomorrow -- and 25.2 on the 2026-09-30 season turnover, so shipping the weekend feature onto the weekend it serves is following the plan 25.1 measured rather than departing from it.** **IT IS A BONUS AND NOT A DISCOUNT, AND THAT IS AN ENGINE CONSTRAINT: a developer product's price lives on the dashboard and cannot be moved from code, so the only way to sell "20% off" is a SECOND product at a lower price -- a new id, i.e. the 👤 OWNER row no agent may invent. The offer therefore pays MORE for the same price and ships with no dashboard action at all.** `GameConfig.WeekendOffers` is five existing **199 R$** products -- the middle rung of five different shelves, so the deal is the same size of decision every week and what rotates is which shelf it is on -- resolved off the weekend window's `startTs` exactly as `GetEventRewardKey` resolves the champion. **FIVE AGAINST THE CHAMPION'S FOUR, DELIBERATELY**: both are resolved off the SAME window, so equal lengths would lock them in phase for ever and two cycles that always agree are one cycle; five and four repeat after twenty weeks. **THE RIBBON IS ARITHMETIC AND NOT A CLAIM, WHICH IS THE 17.15 RULE APPLIED TO A ROUNDING**: 40% of 5 spins is 2 and 50% of 4 potions is 2, so the extras are rounded and floored at 1 FIRST and the percentage is derived BACK from what will actually be paid -- it may under-state the deal, never over-state it. Server-side the whole feature is one lookup in `ProcessReceipt` off `os.time()` (never `EventNow`, whose offset exists for clients) and a `+ extra` on each grant; the DNA bonus is added BEFORE `ScaleReward` because 50% of the authored 6,000 added afterwards is less than one kill at stage 14, i.e. a ribbon over nothing. **A 15-MINUTE RETRY GRACE, because `ProcessReceipt` is retried on Roblox's schedule and carries no purchase timestamp** -- it errs toward paying the bonus and never toward withholding it, since the reverse mistake is a refund. The store hero sits at the head of the list (above the Starter Pack and VIP: what expires goes first), repaints on a one-second tick while the panel is open, and draws a **teaser with no BUY button** in the 96 dark hours -- a button there would take the money and pay the base grant. `AddHero` gained `SetIcon` / `SetLineIcon` / `SetRibbon`: this is the first hero in the store whose SUBJECT rotates | **7 of 7 receipt cases pass through the REAL `ProcessReceipt`** (exposed as `RobuxShopService.ProcessReceipt` because `MarketplaceService.ProcessReceipt` is a write-only callback that cannot be read back and called): live window 125->**175 shards**; closed 5 min ago **175** (inside the grace); closed at exactly 900 s **175**; **901 s -> 125**; 20 min **125**; a product off the deal **25**; no window within a month **125**. The save was snapshotted, restored and **read back identical**, potions untouched. The toast names it -- `125 Evolution Shards  +40% WEEKEND BONUS` on the deal, plain off it. Photographed in both states: teaser (`Next Weekend`, grey `+40% EXTRA`, `Starts in 13h 21m`, no button) and live (`Weekend Deal`, red ribbon, `Ends in 37s`, `R$ 199` button), clock measured ticking **39 -> 34 -> 29 s** at 5-second samples, and the card goes `Visible=false` in the second the window shuts. **THE PHOTOGRAPH FOUND A FAULT NO ASSERTION WOULD HAVE**: the title was `product.name`, which the ribbon cut to `125 Evolution` -- and the half that survived stated the UNBOOSTED figure in 40 px directly above `175 Shards`. The title is the occasion now and the product is named beside its price |
 | 25.4 | `[ ]` | **The v1.0 relaunch** — icon and thumbnail tested against each other, codes seeded to creators, Moments clips cut from 23.3 and 24.4, timed to a live event window |
 | 25.5 | `[ ]` | **Re-measure against 20.5** and write both numbers here |
 
@@ -1661,6 +1661,80 @@ codebase and adding it is an infrastructure layer, not a feature.
 ---
 
 ## Changelog
+
+- **2026-09-11 (44th)** -- **25.3 BUILT AND VERIFIED: THE WEEKEND DEAL, AND A TITLE THAT
+  CONTRADICTED THE LINE BENEATH IT.**
+
+  **The row was taken out of table order, and 25.1 is the reason.** The calendar it produced is a
+  dated grid with a ship slot per week, and that grid puts **25.3 on the 2026-09-12 weekend** -- the
+  one that opens tomorrow -- and **25.2 on the 2026-09-30 season turnover**, where the large monthly
+  headline goes. Shipping the weekend feature onto the weekend it serves is following the plan that
+  was measured, not departing from it. 25.2 is still the next row.
+
+  **IT IS A BONUS, NOT A DISCOUNT, AND THE ENGINE LEAVES NO CHOICE.** A developer product's price
+  lives on the Roblox dashboard and cannot be moved from code, so the only way to sell "20% off" is
+  to create a SECOND product at the lower price -- a new id, which is the 👤 OWNER class of thing no
+  agent may invent. The offer pays MORE for the same price instead, which is what the reference
+  games do for the same reason, and the whole row ships **without a single dashboard action**.
+
+  **Five entries against the champion's four, deliberately.** Both rotations are resolved off the
+  SAME weekend window, so equal lengths would lock them in phase for ever -- the Ember weekend would
+  be the DNA weekend and nothing else, at every occurrence, and two cycles that always agree are one
+  cycle. Five against four repeats after twenty weeks. Every entry is an existing **199 R$** product
+  (`DNA_3`, `Diamonds_3`, `Spins_5`, `Shards_2`, `Potions_10`): the middle rung of five different
+  shelves, so the deal is the same size of decision each week and what rotates is which shelf it is
+  on. Walked forward ten weeks against `GetEventRewardKey`, no pairing repeats.
+
+  **THE RIBBON IS ARITHMETIC AND NOT A CLAIM, WHICH IS 17.15's RULE MEETING A ROUNDING.** 40% of 5
+  spins is 2 and 50% of 4 potions is 2; a store that advertises the authored percentage while the
+  receipt rounds down is promising something the server refuses. So `GetWeekendOfferBonus` computes
+  the extras first, rounds them, floors them at 1 so an offer can never pay nothing, and derives the
+  displayed percentage BACK from them -- flooring that too, so the figure may under-state the deal
+  and never over-state it. All five rows came out exact (asked == paid).
+
+  **The server half is one lookup and a `+ extra` per grant**, off `os.time()` and never
+  `GameConfig.EventNow()` -- that function's offset exists for CLIENTS, which learn the server's
+  clock from a payload, and a receipt must not be priced against a number a client had any hand in.
+  The client sends a product key exactly as before; the window is arithmetic the server does for
+  itself. **The DNA bonus is added BEFORE `ScaleReward`**, because scaling first and adding 50% of
+  the authored 6,000 afterwards pays a stage-14 buyer less than one kill -- a ribbon over nothing.
+
+  **A 15-MINUTE RETRY GRACE, AND THE FIRST CUT OF IT WAS WRONG IN A WAY ONLY A PROBE FINDS.**
+  `ProcessReceipt` is retried on Roblox's own schedule and carries no purchase timestamp, so a
+  player who pressed BUY at 23:58 on Sunday can have their receipt land after the window shut. The
+  first implementation asked `GetWeekendOffer(now - grace)` -- and resolving at a shifted instant
+  resolves the ROTATION at that instant too, so any shift crossing a Unix week boundary answers with
+  a different entry, the key fails to match, and the grace silently pays nothing. It was correct for
+  the authored calendar (a Saturday window cannot cross a Thursday boundary) and wrong for any
+  calendar. It reads the closed window's own `startTs` now. The grace errs toward PAYING and never
+  toward withholding: the reverse mistake is a refund.
+
+  **Verified through the REAL receipt path, 7 of 7.** `MarketplaceService.ProcessReceipt` is a
+  write-only callback -- reading it back raises *"you can only set the callback value"* -- so the
+  paid path could not be reached at all until `processReceipt` was exposed as
+  `RobuxShopService.ProcessReceipt`, which is the same argument that made `GrantSpin` public. Live
+  window 125 -> **175 shards**; closed 5 min ago **175**; closed at exactly the 900 s grace **175**;
+  **901 s -> 125**; 20 min **125**; a product that is not this week's entry **25**; no window within
+  a month **125**. The save was snapshotted, restored and **read back identical**, potions untouched.
+  The toast names it: `125 Evolution Shards  +40% WEEKEND BONUS` on the deal, plain off it.
+
+  **AND THE PHOTOGRAPH FOUND WHAT THIRTY ASSERTIONS WOULD NOT HAVE.** The hero's title was
+  `product.name`, and the first capture showed the ribbon cutting `125 Evolution Shards` to `125
+  Evolution` -- the VIP and Starter heroes never showed it because their names are two words. The
+  half that survived was the worse half: the product's name states the UNBOOSTED figure, so the card
+  read `125` in 40 px with `175 Shards` directly under it. **A store contradicting itself about the
+  quantity is worse than a store that does not name the pack.** The title is the occasion now
+  (`Weekend Deal` / `Next Weekend`), the ribbon is the size of the deal (`+40% EXTRA`, red live and
+  grey for the teaser), and the product is named on its own line beside its price -- which is the
+  name the Roblox prompt will show anyway.
+
+  The card ticks on a one-second loop guarded on `IsOpen` (there is no event that fires when a
+  window closes -- an event here is arithmetic on a timestamp), measured **39 -> 34 -> 29 s** at
+  five-second samples, and goes `Visible = false` in the second the window shuts. In the 96 hours a
+  week with no event at all it draws a **teaser with no BUY button**: a button there would take the
+  money and pay the base grant. `AddHero` gained `SetIcon` / `SetLineIcon` / `SetRibbon` -- this is
+  the first hero in the store whose SUBJECT rotates. One bug fixed in passing: `washFor` knew
+  `grantSpin` but not `grantSpins`, so all three spin PACKS drew in the neutral grey.
 
 - **2026-09-11 (43rd)** -- **25.1 BUILT AND VERIFIED: THE CALENDAR, AND THE FESTIVAL THAT HAD
   ALREADY EXPIRED WITHOUT TELLING ANYBODY.**

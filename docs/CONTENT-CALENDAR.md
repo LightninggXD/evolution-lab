@@ -88,7 +88,7 @@ generated beat runs regardless and a missed ship slot costs the update, not the 
 
 | week opens (UTC) | generated | champion | ship — *small weekly* |
 |:--|:--|:--|:--|
-| **Sat 2026-09-12** | weekend + Wed 09-16 surge | verdant | **25.3** rotating weekend offers, with the visible timer — a weekend feature, shipped onto the weekend it serves |
+| **Sat 2026-09-12** | weekend + Wed 09-16 surge | verdant | ✅ **25.3 SHIPPED 2026-09-11** — rotating weekend offers with the visible timer, in the slot ahead of the weekend it serves. The deal this weekend is **`Shards_2` at +40%** (125 → 175 Evolution Shards for the usual R$ 199); the rotation is five entries against the champion's four, so a pairing repeats after twenty weeks |
 | **Sat 2026-09-19** | weekend + Wed 09-23 surge | onyx | **34.58** chests — the 2D and 3D art is already inserted and unused |
 | **Sat 2026-09-26** | weekend + Wed 09-30 surge | ember | **30.12** one zone dressed by layout instead of even scatter |
 | **Tue 2026-09-30** | *season turnover* | — | **LARGE — S3 *Ashfall* opens.** The month's headline ships here: **25.2**, the next festival and its exclusive (see §4) |

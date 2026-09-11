@@ -778,6 +778,41 @@ function Builder.CreatePanel(options)
 				local l = lines[i]
 				if l then l.Label.Text = t or "" end
 			end,
+			-- ===== THE ART MOVES TOO, AND UNTIL 25.3 NOTHING NEEDED IT TO =====
+			--
+			-- Both heroes that existed before this (VIP and the Starter Pack) are ONE product for the
+			-- life of the panel: what changes about them is a price, a line of text or whether they
+			-- are visible at all, which `SetTitle` / `SetLine` / `Instance.Visible` already covered.
+			-- The weekend offer is a ROTATION -- the card is a DNA pack this week and a Diamond pack
+			-- next -- so its icon, its line icons and its ribbon are as changeable as its words.
+			--
+			-- A rebuild is the alternative and it is the wrong one: `AddHero` parents into the scroll,
+			-- so rebuilding on a rotation would drop a second hero into the list and throw the scroll
+			-- position away. Repainting is what every other live surface in this game does.
+			--
+			-- Each is a no-op when the hero was built without that piece (no `Ribbon` in the options,
+			-- or fewer `Lines` than the caller asks for), rather than an error: a caller that paints
+			-- a part it never asked for has a bug in ITS table, and taking the panel down over it
+			-- would cost the whole store.
+			SetIcon = function(id) icon.Image = id or "" end,
+			SetLineIcon = function(i, id)
+				local l = lines[i]
+				if l then l.Icon.Image = id or "" end
+			end,
+			SetRibbon = function(t, colors)
+				if not ribbon then return end
+				ribbon.Text = "  " .. tostring(t or "") .. "  "
+				if colors then
+					for _, g in ipairs(ribbon:GetChildren()) do
+						if g:IsA("UIGradient") then
+							g.Color = ColorSequence.new({
+								ColorSequenceKeypoint.new(0, colors[1]),
+								ColorSequenceKeypoint.new(1, colors[2]),
+							})
+						end
+					end
+				end
+			end,
 			SetColors = function(colors)
 				for _, g in ipairs(hero:GetChildren()) do
 					if g:IsA("UIGradient") then

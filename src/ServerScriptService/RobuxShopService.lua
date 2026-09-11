@@ -227,6 +227,10 @@ local function notifySpin(player, chain)
 	SpinResult:FireClient(player, { spins = spins })
 end
 
+-- The "no offer today" bonus table, shared rather than allocated per receipt, and NEVER written
+-- to: every read below is `offerExtra.<field> or 0`, so an empty table is the whole no-op.
+local EMPTY_BONUS = table.freeze({})
+
 local function getProductByPurchaseId(productId)
 	for _, p in ipairs(GameConfig.RobuxProducts) do
 		if p.productId == productId then return p end
@@ -263,6 +267,27 @@ local function processReceipt(receiptInfo)
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 
+	-- ===== THE WEEKEND OFFER'S BONUS (25.3) =====
+	--
+	-- ONE LOOKUP, RESOLVED HERE AND READ BY EVERY GRANT BELOW, so the five branches cannot disagree
+	-- about whether this receipt is on the deal. `GetWeekendOfferForReceipt` answers nil for every
+	-- product that is not this week's entry and for every moment outside the window plus its retry
+	-- grace -- the grace is the config's business and not this file's (see the constant beside it).
+	--
+	-- `os.time()` and NOT `GameConfig.EventNow()`: the clock offset that function applies exists for
+	-- CLIENTS, which learn the server's time from a payload. On the server the offset is 0 forever
+	-- and `os.time()` is the authority -- and a receipt must never be priced against a number a
+	-- client had any hand in.
+	--
+	-- THE CLIENT DOES NOT SEND "I AM ON THE DEAL". It sends a product key, exactly as before; the
+	-- window is arithmetic the server does for itself, which is the whole reason an event is a
+	-- function of the clock rather than a field in a save.
+	local offerDeal = GameConfig.GetWeekendOfferForReceipt(product.key, os.time())
+	local offerExtra = (offerDeal and offerDeal.extras) or EMPTY_BONUS
+	-- The telemetry reason, so the weekend's revenue can be separated from the week's without
+	-- joining two tables. Same string shape as the plain case, one suffix.
+	local offerTag = offerDeal and (":weekend+" .. tostring(offerDeal.bonusPct) .. "%") or ""
+
 	-- SCALED, because a fixed DNA figure is meaningless in an economy spanning 1e2 to 1e17.
 	--
 	-- The packs are authored as 1,000 and 10,000 DNA. That is a real boost at stage one and less
@@ -273,13 +298,18 @@ local function processReceipt(receiptInfo)
 	-- RewardService, PlaytimeGiftService and SeasonPassService.grant already give their tables; the
 	-- paid route was the one that was missed.
 	if product.grantDNA then
-		local paidDna = GameConfig.ScaleReward(product.grantDNA, data)
+		-- THE BONUS IS ADDED BEFORE `ScaleReward`, NOT AFTER, AND THE TWO ARE NOT THE SAME NUMBER.
+		-- ScaleReward reads its argument as "what this is worth in stage-one clicks" and converts it
+		-- to where the buyer stands; scaling first and adding 50% of the AUTHORED 6,000 afterwards
+		-- would pay a stage-14 buyer a bonus worth less than one kill, i.e. a ribbon over nothing.
+		local paidDna = GameConfig.ScaleReward(product.grantDNA + (offerExtra.grantDNA or 0), data)
 		data.DNA += paidDna
 		Telemetry.Economy(player, "Source", Telemetry.Currency.DNA, paidDna, data.DNA,
-			Telemetry.Tx.IAP, "product:" .. tostring(product.key))
+			Telemetry.Tx.IAP, "product:" .. tostring(product.key) .. offerTag)
 	end
 	if product.grantPotions then
-		GameConfig.AddPotions(data, product.grantPotionId, product.grantPotions)
+		GameConfig.AddPotions(data, product.grantPotionId,
+			product.grantPotions + (offerExtra.grantPotions or 0))
 	end
 	-- DIAMONDS ARE DELIBERATELY NOT SCALED, and this is not an oversight. Every diamond sink in the
 	-- game is a small fixed number that does NOT move with the stage curve: the three DiamondUpgrades
@@ -287,17 +317,19 @@ local function processReceipt(receiptInfo)
 	-- these through ScaleReward would hand a stage-14 buyer thousands of diamonds and cap every
 	-- permanent upgrade in the game in one purchase.
 	if product.grantDiamonds then
-		data.Diamonds = (data.Diamonds or 0) + product.grantDiamonds
-		Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, product.grantDiamonds,
-			data.Diamonds, Telemetry.Tx.IAP, "product:" .. tostring(product.key))
+		local paidDiamonds = product.grantDiamonds + (offerExtra.grantDiamonds or 0)
+		data.Diamonds = (data.Diamonds or 0) + paidDiamonds
+		Telemetry.Economy(player, "Source", Telemetry.Currency.Diamonds, paidDiamonds,
+			data.Diamonds, Telemetry.Tx.IAP, "product:" .. tostring(product.key) .. offerTag)
 	end
 	-- Shards are unscaled for a STRONGER reason than diamonds (11.12): a shard buys exactly one thing
 	-- in the whole game, a spin at the flat `SpinCostShards` of 25, so ScaleReward here would sell a
 	-- late-stage buyer thousands of spins on one tile.
 	if product.grantShards then
-		data.EvolutionShards = (data.EvolutionShards or 0) + product.grantShards
-		Telemetry.Economy(player, "Source", Telemetry.Currency.Shards, product.grantShards,
-			data.EvolutionShards, Telemetry.Tx.IAP, "product:" .. tostring(product.key))
+		local paidShards = product.grantShards + (offerExtra.grantShards or 0)
+		data.EvolutionShards = (data.EvolutionShards or 0) + paidShards
+		Telemetry.Economy(player, "Source", Telemetry.Currency.Shards, paidShards,
+			data.EvolutionShards, Telemetry.Tx.IAP, "product:" .. tostring(product.key) .. offerTag)
 	end
 	-- A COUNTED CHARGE, not a spin (34.46). `grantSpin` below still rolls the wheel there and then --
 	-- that is the one-press door and it must stay one press -- but a PACK pays tickets, which the
@@ -306,7 +338,7 @@ local function processReceipt(receiptInfo)
 	-- after a rejoin, or with no wheel on screen, and none of those may cost the buyer a spin.
 	-- Unscaled, like the shards above and for the identical reason: a ticket buys exactly one thing.
 	if product.grantSpins then
-		data.SpinTickets = (data.SpinTickets or 0) + product.grantSpins
+		data.SpinTickets = (data.SpinTickets or 0) + product.grantSpins + (offerExtra.grantSpins or 0)
 	end
 	-- The premium pass is a flag, not a payout, and it pushes its own confirmation -- so it is
 	-- unlocked here and the generic notify below still fires for the receipt itself.
@@ -321,10 +353,12 @@ local function processReceipt(receiptInfo)
 	-- object like a potion bottle, not a currency riding the stage curve.
 	if product.grantBossRevives then
 		data.BossRevives = (data.BossRevives or 0) + product.grantBossRevives
+			+ (offerExtra.grantBossRevives or 0)
 	end
 	-- same shape, same reasoning: a counted charge, spent later by PetService.HandleTierUp
 	if product.grantTierUps then
 		data.TierUpTokens = (data.TierUpTokens or 0) + product.grantTierUps
+			+ (offerExtra.grantTierUps or 0)
 	end
 
 	-- THE VANITY ROWS, and this branch is the reason a second one must never be written above.
@@ -372,7 +406,15 @@ local function processReceipt(receiptInfo)
 	if spinChain then
 		notifySpin(player, spinChain)
 	elseif not announced then
-		Remotes.Notify:FireClient(player, { kind = "robuxPurchase", name = product.name })
+		-- THE BONUS IS NAMED IN THE RECEIPT CARD OR IT MIGHT AS WELL NOT HAVE BEEN PAID (18.6's rule
+		-- again: a grant the player cannot see is a grant they will report as missing). The generic
+		-- card carries the product name only, so the offer appends its own line to the name rather
+		-- than inventing a second toast that would stack on the first.
+		Remotes.Notify:FireClient(player, {
+			kind = "robuxPurchase",
+			name = offerDeal and (product.name .. "  +" .. tostring(offerDeal.bonusPct) .. "% WEEKEND BONUS")
+				or product.name,
+		})
 	end
 
 	-- SAVED BEFORE IT IS ACKNOWLEDGED, and only acknowledged if the save actually landed.
@@ -390,6 +432,19 @@ local function processReceipt(receiptInfo)
 
 	return Enum.ProductPurchaseDecision.PurchaseGranted
 end
+
+-- PUBLIC FOR THE SAME REASON `GrantSpin` BELOW IS, AND THE ENGINE LEAVES NO ALTERNATIVE.
+--
+-- `MarketplaceService.ProcessReceipt` is a write-only callback: reading it back raises *"you can
+-- only set the callback value, get is not available"*, so nothing on the server -- a probe included
+-- -- can reach the paid path through the service. Without this line the grant could only ever be
+-- READ, and the ROADMAP does not accept reading as verification.
+--
+-- IT IS THE SAME FUNCTION THE CALLBACK RUNS, not a copy. A test that drove a copy would prove
+-- something about the copy. This module is required only by the server (a LocalScript cannot see
+-- `ServerScriptService`), so exposing it hands nothing to a client that the client did not already
+-- have -- and the receipt path re-derives everything from the product id anyway.
+RobuxShopService.ProcessReceipt = processReceipt
 
 -- PUBLIC ON PURPOSE, for two reasons that both outlive this line. ROADMAP 5.6 wants a free daily
 -- spin, which is this same wheel reached by a different trigger and must not become a second copy
